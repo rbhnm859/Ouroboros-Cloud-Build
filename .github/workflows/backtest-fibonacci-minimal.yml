@@ -56,14 +56,9 @@ jobs:
             </ItemGroup>
           </Project>''')
           PYCODE
-          docker run --rm --entrypoint dotnet -v "$PWD:/repo" -w /repo \
-            ghcr.io/spotware/ctrader-console:5.9.11 \
-            restore cli/FibonacciHarmonicSniperUltimate/FibonacciHarmonicSniperUltimate.csproj
-          docker run --rm --entrypoint dotnet -v "$PWD:/repo" -w /repo \
-            ghcr.io/spotware/ctrader-console:5.9.11 \
-            build cli/FibonacciHarmonicSniperUltimate/FibonacciHarmonicSniperUltimate.csproj \
-            --configuration Release --no-restore \
-            -p:AlgoPublish=False -p:IncludeSource=True
+          docker run --rm --entrypoint sh -v "$PWD:/repo" -w /repo \
+            ghcr.io/spotware/ctrader-console:5.9.11 -c \
+            'dotnet restore cli/FibonacciHarmonicSniperUltimate/FibonacciHarmonicSniperUltimate.csproj && dotnet build cli/FibonacciHarmonicSniperUltimate/FibonacciHarmonicSniperUltimate.csproj --configuration Release --no-restore -p:AlgoPublish=False -p:IncludeSource=True'
           ALGO="$(find cli -type f -name '*.algo' -print -quit)"
           test -n "$ALGO" || exit 1
           cp "$ALGO" backtest/Fibonacci.algo
