@@ -1,11 +1,219 @@
+name: Backtest Ouroboros V2.2 - XAUUSD M1 30D
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: ouroboros-v22-xauusd-m1-30d
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  backtest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      START_DATE: "07/08/2026"
+      END_DATE: "06/09/2026"
+      STARTING_BALANCE: "200"
+      BASE_PERIOD: "m1"
+      GOLD_SYMBOL: "XAUUSD"
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup .NET 6
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "6.0.x"
+
+      - name: Download pinned Ouroboros source
+        run: |
+          git clone https://github.com/floating-astronaut/ouroboros-cbot.git upstream
+          cd upstream
+          git checkout f5fed93990737c8bb511aaf85bf88ac6a854273b
+
+      - name: Rebuild Universal Mobile V2 source
+        run: |
+          python3 - <<'PYCODE'
+          from pathlib import Path
+          import re, base64, gzip
+          text = Path(".github/workflows/build-ouroboros-universal-mobile-v2.yml").read_text()
+          def get(name):
+              m = re.search(name + r' = """([A-Za-z0-9+/=]+)"""', text)
+              if not m:
+                  raise SystemExit("Cannot find " + name + " in V2 workflow")
+              return gzip.decompress(base64.b64decode(m.group(1)))
+          Path("upstream/Ouroboros/Ouroboros.cs").write_bytes(get("main_payload"))
+          Path("upstream/Ouroboros/Strategies/SessionAnalyst.cs").write_bytes(get("session_payload"))
+          PYCODE
+
+      - name: Apply V2.2 patch
+        run: |
+          python3 - <<'PYCODE'
+          from pathlib import Path
+          import re, base64, gzip
+          text = Path(".github/workflows/build-ouroboros-universal-mobile-v2.2.yml").read_text()
+          m = re.search(r'payload\s*=\s*\(\s*(.*?)\s*\)\s*Path\(', text, re.S)
+          if not m:
+              raise SystemExit("Cannot locate V2.2 patch payload")
+          chunks = re.findall(r'"([A-Za-z0-9+/=]+)"', m.group(1))
+          if not chunks:
+              raise SystemExit("V2.2 payload chunks not found")
+          Path("/tmp/v22.patch").write_bytes(gzip.decompress(base64.b64decode("".join(chunks))))
+          PYCODE
+          cd upstream/Ouroboros
+          patch -p1 < /tmp/v22.patch
+
+      - name: Restrict adaptive history to current XAUUSD symbol
+        run: |
+          python3 - <<'PYCODE'
+          from pathlib import Path
+          path = Path("upstream/Ouroboros/Ouroboros.cs")
+          text = path.read_text()
+          old = "            foreach (HistoricalTrade trade in History)\n            {\n                if (trade.ClosingTime < cutoff)"
+          new = "            foreach (HistoricalTrade trade in History)\n            {\n                if (!string.Equals(trade.SymbolName, SymbolName, StringComparison.OrdinalIgnoreCase))\n                    continue;\n\n                if (trade.ClosingTime < cutoff)"
+          if old not in text:
+              raise SystemExit("History bootstrap target was not found")
+          path.write_text(text.replace(old, new, 1))
+          PYCODE
+
+      - name: Sanity check XAUUSD-only V2.2 source
+        run: |
+          grep -n "class OuroborosAdvancedUniversalMobileV22" upstream/Ouroboros/Ouroboros.cs
+          grep -n "trade.SymbolName, SymbolName" upstream/Ouroboros/Ouroboros.cs
+          grep -n "BootstrapStrategyPerformanceFromHistory" upstream/Ouroboros/Ouroboros.cs
+
+      - name: Restore V2.2 project
+        run: dotnet restore upstream/Ouroboros/Ouroboros.csproj
+
+      - name: Build OuroborosAdvancedUniversalMobileV22.algo
+        run: |
+          dotnet build upstream/Ouroboros/Ouroboros.csproj \
+            --configuration Release \
+            --no-restore \
+            -p:AlgoPublish=False \
+            -p:IncludeSource=True
+          mkdir -p artifact backtest/reports backtest/cache/XAUUSD
+          ALGO="$(find upstream -type f -name '*.algo' -print -quit)"
+          if [ -z "$ALGO" ]; then
+            echo "No .algo generated"
+            exit 1
+          fi
+          cp "$ALGO" artifact/OuroborosAdvancedUniversalMobileV22.algo
+          cp "$ALGO" backtest/OuroborosAdvancedUniversalMobileV22.algo
+          ls -lah artifact backtest
+
+      - name: Create cTrader credentials file
+        env:
+          CTRADER_PASSWORD: ${{ secrets.CTRADER_PASSWORD }}
+        run: |
+          if [ -z "${CTRADER_PASSWORD:-}" ]; then
+            echo "Missing GitHub Secret: CTRADER_PASSWORD"
+            exit 1
+          fi
+          printf '%s' "$CTRADER_PASSWORD" | tr -d '\r\n' > backtest/ctrader.pwd
+          chmod 600 backtest/ctrader.pwd
+
+      - name: Verify cTrader account
+        env:
+          CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+          CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+        run: |
+          if [ -z "${CTRADER_CTID:-}" ] || [ -z "${CTRADER_ACCOUNT:-}" ]; then
+            echo "Missing CTRADER_CTID or CTRADER_ACCOUNT"
+            exit 1
+          fi
+          CTRADER_CTID="$(printf '%s' "$CTRADER_CTID" | tr -d '[:space:]')"
+          CTRADER_ACCOUNT="$(printf '%s' "$CTRADER_ACCOUNT" | tr -d '[:space:]')"
+          docker run --rm \
+            -v "$PWD/backtest:/work" \
+            -e "CTID=$CTRADER_CTID" \
+            -e "PWD-FILE=/work/ctrader.pwd" \
+            -e "ACCOUNT=$CTRADER_ACCOUNT" \
+            ghcr.io/spotware/ctrader-console:5.9.11 \
+            accounts --environment-variables > backtest/reports/accounts.txt
+
+      - name: Backtest XAUUSD M1 for 30 days
+        env:
+          CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+          CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+        run: |
+          CTRADER_CTID="$(printf '%s' "$CTRADER_CTID" | tr -d '[:space:]')"
+          CTRADER_ACCOUNT="$(printf '%s' "$CTRADER_ACCOUNT" | tr -d '[:space:]')"
+          docker run --rm \
+            -v "$PWD/backtest:/work" \
+            -e "CTID=$CTRADER_CTID" \
+            -e "PWD-FILE=/work/ctrader.pwd" \
+            -e "ACCOUNT=$CTRADER_ACCOUNT" \
+            ghcr.io/spotware/ctrader-console:5.9.11 \
+            backtest /work/OuroborosAdvancedUniversalMobileV22.algo \
+            --environment-variables \
+            --symbol="$GOLD_SYMBOL" \
+            --period="$BASE_PERIOD" \
+            --start="$START_DATE" \
+            --end="$END_DATE" \
+            --balance="$STARTING_BALANCE" \
+            --data-mode=m1 \
+            --data-dir=/work/cache/XAUUSD \
+            --report=/work/reports/XAUUSD-M1-30D.html \
+            --report-json=/work/reports/XAUUSD-M1-30D.json \
+            --exit-on-stop
+
+      - name: Build XAUUSD summary
+        if: success()
+        run: |
+          python3 - <<'PYCODE'
+          from pathlib import Path
+          import json
+          report = Path("backtest/reports/XAUUSD-M1-30D.json")
+          data = json.loads(report.read_text())
+          balance = 200.0
+          total = int(float(data.get("TotalTrades", 0) or 0))
+          wins = int(float(data.get("WinningTrades", 0) or 0))
+          net = float(data.get("NetProfit", 0) or 0)
+          win_rate = wins / total * 100 if total else 0.0
+          roi = net / balance * 100 if balance else 0.0
+          summary = (
+              "# Ouroboros V2.2 XAUUSD M1 30-day backtest\n\n"
+              "Period: 07/08/2026 to 06/09/2026 UTC\n"
+              f"Trades: {total}\n"
+              f"Wins: {wins}\n"
+              f"Win rate: {win_rate:.2f}%\n"
+              f"Net profit: ${net:.2f}\n"
+              f"ROI: {roi:.2f}%\n"
+              f"Profit factor: {data.get('ProfitFactor', '')}\n"
+              f"Max equity drawdown: {data.get('MaxEquityDrawdownPercentages', '')}\n"
+          )
+          Path("backtest/reports/summary.md").write_text(summary)
+          print(summary)
+          PYCODE
+
+      - name: Remove credentials
+        if: always()
+        run: rm -f backtest/ctrader.pwd
+
+      - name: Upload compiled mobile ALGO
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Ouroboros-Advanced-Universal-Mobile-V2.2-XAUUSD
+          path: artifact/OuroborosAdvancedUniversalMobileV22.algo
+          if-no-files-found: error
+
+      - name: Upload XAUUSD 30-day reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Ouroboros-V2.2-XAUUSD-M1-30D-Reports
+          path: backtest/reports/
+          if-no-files-found: warn
 name: Backtest Ouroboros V2.2 - XAU BTC EURUSD 1Y
 
 on:
-  push:
-    branches:
-      - main
-    paths:
-      - '.github/workflows/backtest-ouroboros-v22-1y.yml'
   workflow_dispatch:
     inputs:
       start_date:
@@ -190,6 +398,219 @@ jobs:
           # Mobile copy/paste can add invisible whitespace around GitHub Secrets.
           # Normalise identifiers before passing them to the official CLI.
           CTRADER_CTID="$(printf '%s' "$CTRADER_CTID" | tr -d '[:space:]')"
+name: Backtest Ouroboros V2.2 - XAUUSD M1 30D
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: ouroboros-v22-xauusd-m1-30d
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  backtest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      START_DATE: "07/08/2026"
+      END_DATE: "06/09/2026"
+      STARTING_BALANCE: "200"
+      BASE_PERIOD: "m1"
+      GOLD_SYMBOL: "XAUUSD"
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup .NET 6
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "6.0.x"
+
+      - name: Download pinned Ouroboros source
+        run: |
+          git clone https://github.com/floating-astronaut/ouroboros-cbot.git upstream
+          cd upstream
+          git checkout f5fed93990737c8bb511aaf85bf88ac6a854273b
+
+      - name: Rebuild Universal Mobile V2 source
+        run: |
+          python3 - <<'PYCODE'
+          from pathlib import Path
+          import re, base64, gzip
+          text = Path(".github/workflows/build-ouroboros-universal-mobile-v2.yml").read_text()
+          def get(name):
+              m = re.search(name + r' = """([A-Za-z0-9+/=]+)"""', text)
+              if not m:
+                  raise SystemExit("Cannot find " + name + " in V2 workflow")
+              return gzip.decompress(base64.b64decode(m.group(1)))
+          Path("upstream/Ouroboros/Ouroboros.cs").write_bytes(get("main_payload"))
+          Path("upstream/Ouroboros/Strategies/SessionAnalyst.cs").write_bytes(get("session_payload"))
+          PYCODE
+
+      - name: Apply V2.2 patch
+        run: |
+          python3 - <<'PYCODE'
+          from pathlib import Path
+          import re, base64, gzip
+          text = Path(".github/workflows/build-ouroboros-universal-mobile-v2.2.yml").read_text()
+          m = re.search(r'payload\s*=\s*\(\s*(.*?)\s*\)\s*Path\(', text, re.S)
+          if not m:
+              raise SystemExit("Cannot locate V2.2 patch payload")
+          chunks = re.findall(r'"([A-Za-z0-9+/=]+)"', m.group(1))
+          if not chunks:
+              raise SystemExit("V2.2 payload chunks not found")
+          Path("/tmp/v22.patch").write_bytes(gzip.decompress(base64.b64decode("".join(chunks))))
+          PYCODE
+          cd upstream/Ouroboros
+          patch -p1 < /tmp/v22.patch
+
+      - name: Restrict adaptive history to current XAUUSD symbol
+        run: |
+          python3 - <<'PYCODE'
+          from pathlib import Path
+          path = Path("upstream/Ouroboros/Ouroboros.cs")
+          text = path.read_text()
+          old = "            foreach (HistoricalTrade trade in History)\n            {\n                if (trade.ClosingTime < cutoff)"
+          new = "            foreach (HistoricalTrade trade in History)\n            {\n                if (!string.Equals(trade.SymbolName, SymbolName, StringComparison.OrdinalIgnoreCase))\n                    continue;\n\n                if (trade.ClosingTime < cutoff)"
+          if old not in text:
+              raise SystemExit("History bootstrap target was not found")
+          path.write_text(text.replace(old, new, 1))
+          PYCODE
+
+      - name: Sanity check XAUUSD-only V2.2 source
+        run: |
+          grep -n "class OuroborosAdvancedUniversalMobileV22" upstream/Ouroboros/Ouroboros.cs
+          grep -n "trade.SymbolName, SymbolName" upstream/Ouroboros/Ouroboros.cs
+          grep -n "BootstrapStrategyPerformanceFromHistory" upstream/Ouroboros/Ouroboros.cs
+
+      - name: Restore V2.2 project
+        run: dotnet restore upstream/Ouroboros/Ouroboros.csproj
+
+      - name: Build OuroborosAdvancedUniversalMobileV22.algo
+        run: |
+          dotnet build upstream/Ouroboros/Ouroboros.csproj \
+            --configuration Release \
+            --no-restore \
+            -p:AlgoPublish=False \
+            -p:IncludeSource=True
+          mkdir -p artifact backtest/reports backtest/cache/XAUUSD
+          ALGO="$(find upstream -type f -name '*.algo' -print -quit)"
+          if [ -z "$ALGO" ]; then
+            echo "No .algo generated"
+            exit 1
+          fi
+          cp "$ALGO" artifact/OuroborosAdvancedUniversalMobileV22.algo
+          cp "$ALGO" backtest/OuroborosAdvancedUniversalMobileV22.algo
+          ls -lah artifact backtest
+
+      - name: Create cTrader credentials file
+        env:
+          CTRADER_PASSWORD: ${{ secrets.CTRADER_PASSWORD }}
+        run: |
+          if [ -z "${CTRADER_PASSWORD:-}" ]; then
+            echo "Missing GitHub Secret: CTRADER_PASSWORD"
+            exit 1
+          fi
+          printf '%s' "$CTRADER_PASSWORD" | tr -d '\r\n' > backtest/ctrader.pwd
+          chmod 600 backtest/ctrader.pwd
+
+      - name: Verify cTrader account
+        env:
+          CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+          CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+        run: |
+          if [ -z "${CTRADER_CTID:-}" ] || [ -z "${CTRADER_ACCOUNT:-}" ]; then
+            echo "Missing CTRADER_CTID or CTRADER_ACCOUNT"
+            exit 1
+          fi
+          CTRADER_CTID="$(printf '%s' "$CTRADER_CTID" | tr -d '[:space:]')"
+          CTRADER_ACCOUNT="$(printf '%s' "$CTRADER_ACCOUNT" | tr -d '[:space:]')"
+          docker run --rm \
+            -v "$PWD/backtest:/work" \
+            -e "CTID=$CTRADER_CTID" \
+            -e "PWD-FILE=/work/ctrader.pwd" \
+            -e "ACCOUNT=$CTRADER_ACCOUNT" \
+            ghcr.io/spotware/ctrader-console:5.9.11 \
+            accounts --environment-variables > backtest/reports/accounts.txt
+
+      - name: Backtest XAUUSD M1 for 30 days
+        env:
+          CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+          CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+        run: |
+          CTRADER_CTID="$(printf '%s' "$CTRADER_CTID" | tr -d '[:space:]')"
+          CTRADER_ACCOUNT="$(printf '%s' "$CTRADER_ACCOUNT" | tr -d '[:space:]')"
+          docker run --rm \
+            -v "$PWD/backtest:/work" \
+            -e "CTID=$CTRADER_CTID" \
+            -e "PWD-FILE=/work/ctrader.pwd" \
+            -e "ACCOUNT=$CTRADER_ACCOUNT" \
+            ghcr.io/spotware/ctrader-console:5.9.11 \
+            backtest /work/OuroborosAdvancedUniversalMobileV22.algo \
+            --environment-variables \
+            --symbol="$GOLD_SYMBOL" \
+            --period="$BASE_PERIOD" \
+            --start="$START_DATE" \
+            --end="$END_DATE" \
+            --balance="$STARTING_BALANCE" \
+            --data-mode=m1 \
+            --data-dir=/work/cache/XAUUSD \
+            --report=/work/reports/XAUUSD-M1-30D.html \
+            --report-json=/work/reports/XAUUSD-M1-30D.json \
+            --exit-on-stop
+
+      - name: Build XAUUSD summary
+        if: success()
+        run: |
+          python3 - <<'PYCODE'
+          from pathlib import Path
+          import json
+          report = Path("backtest/reports/XAUUSD-M1-30D.json")
+          data = json.loads(report.read_text())
+          balance = 200.0
+          total = int(float(data.get("TotalTrades", 0) or 0))
+          wins = int(float(data.get("WinningTrades", 0) or 0))
+          net = float(data.get("NetProfit", 0) or 0)
+          win_rate = wins / total * 100 if total else 0.0
+          roi = net / balance * 100 if balance else 0.0
+          summary = (
+              "# Ouroboros V2.2 XAUUSD M1 30-day backtest\n\n"
+              "Period: 07/08/2026 to 06/09/2026 UTC\n"
+              f"Trades: {total}\n"
+              f"Wins: {wins}\n"
+              f"Win rate: {win_rate:.2f}%\n"
+              f"Net profit: ${net:.2f}\n"
+              f"ROI: {roi:.2f}%\n"
+              f"Profit factor: {data.get('ProfitFactor', '')}\n"
+              f"Max equity drawdown: {data.get('MaxEquityDrawdownPercentages', '')}\n"
+          )
+          Path("backtest/reports/summary.md").write_text(summary)
+          print(summary)
+          PYCODE
+
+      - name: Remove credentials
+        if: always()
+        run: rm -f backtest/ctrader.pwd
+
+      - name: Upload compiled mobile ALGO
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Ouroboros-Advanced-Universal-Mobile-V2.2-XAUUSD
+          path: artifact/OuroborosAdvancedUniversalMobileV22.algo
+          if-no-files-found: error
+
+      - name: Upload XAUUSD 30-day reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Ouroboros-V2.2-XAUUSD-M1-30D-Reports
+          path: backtest/reports/
+          if-no-files-found: warn
           CTRADER_ACCOUNT="$(printf '%s' "$CTRADER_ACCOUNT" | tr -d '[:space:]')"
 
           mkdir -p backtest/reports
@@ -217,77 +638,73 @@ jobs:
           echo "BTC=$BTC_SYMBOL"
           echo "EURUSD=$EURUSD_SYMBOL"
 
-      - name: Backtest XAUUSD
-        env:
-          CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
-          CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
-        run: |
-          docker run --rm \
-            -v "$PWD/backtest:/work" \
-            -e "CTID=$CTRADER_CTID" \
-            -e "PWD-FILE=/work/ctrader.pwd" \
-            -e "ACCOUNT=$CTRADER_ACCOUNT" \
-            ghcr.io/spotware/ctrader-console:5.9.11 \
-            backtest /work/OuroborosAdvancedUniversalMobileV22_Backtest.algo \
-            --environment-variables \
-            --symbol="$GOLD_SYMBOL" \
-            --period="$BASE_PERIOD" \
-            --start="$START_DATE" \
-            --end="$END_DATE" \
-            --balance="$STARTING_BALANCE" \
-            --data-mode=m1 \
-            --data-dir=/work/cache \
-            --report=/work/reports/XAUUSD.html \
-            --report-json=/work/reports/XAUUSD.json \
-            --exit-on-stop
+      - name: Restore one-year M1 data cache
+        uses: actions/cache@v4
+        with:
+          path: backtest/cache
+          key: ${{ runner.os }}-ctrader-5.9.11-${{ env.START_DATE }}-${{ env.END_DATE }}-m1-v1
 
-      - name: Backtest Bitcoin
-        env:
-          CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
-          CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+      - name: Prepare parallel backtests
         run: |
-          docker run --rm \
-            -v "$PWD/backtest:/work" \
-            -e "CTID=$CTRADER_CTID" \
-            -e "PWD-FILE=/work/ctrader.pwd" \
-            -e "ACCOUNT=$CTRADER_ACCOUNT" \
-            ghcr.io/spotware/ctrader-console:5.9.11 \
-            backtest /work/OuroborosAdvancedUniversalMobileV22_Backtest.algo \
-            --environment-variables \
-            --symbol="$BTC_SYMBOL" \
-            --period="$BASE_PERIOD" \
-            --start="$START_DATE" \
-            --end="$END_DATE" \
-            --balance="$STARTING_BALANCE" \
-            --data-mode=m1 \
-            --data-dir=/work/cache \
-            --report=/work/reports/BTC.html \
-            --report-json=/work/reports/BTC.json \
-            --exit-on-stop
+          mkdir -p backtest/reports
+          mkdir -p backtest/cache/XAUUSD backtest/cache/BTC backtest/cache/EURUSD
 
-      - name: Backtest EURUSD
+      - name: Backtest XAUUSD, Bitcoin and EURUSD in parallel
         env:
           CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
           CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
         run: |
-          docker run --rm \
-            -v "$PWD/backtest:/work" \
-            -e "CTID=$CTRADER_CTID" \
-            -e "PWD-FILE=/work/ctrader.pwd" \
-            -e "ACCOUNT=$CTRADER_ACCOUNT" \
-            ghcr.io/spotware/ctrader-console:5.9.11 \
-            backtest /work/OuroborosAdvancedUniversalMobileV22_Backtest.algo \
-            --environment-variables \
-            --symbol="$EURUSD_SYMBOL" \
-            --period="$BASE_PERIOD" \
-            --start="$START_DATE" \
-            --end="$END_DATE" \
-            --balance="$STARTING_BALANCE" \
-            --data-mode=m1 \
-            --data-dir=/work/cache \
-            --report=/work/reports/EURUSD.html \
-            --report-json=/work/reports/EURUSD.json \
-            --exit-on-stop
+          CTRADER_CTID="$(printf '%s' "$CTRADER_CTID" | tr -d '[:space:]')"
+          CTRADER_ACCOUNT="$(printf '%s' "$CTRADER_ACCOUNT" | tr -d '[:space:]')"
+
+          run_backtest() {
+            local symbol="$1"
+            local report="$2"
+            local cache="$3"
+
+            docker run --rm \
+              -v "$PWD/backtest:/work" \
+              -e "CTID=$CTRADER_CTID" \
+              -e "PWD-FILE=/work/ctrader.pwd" \
+              -e "ACCOUNT=$CTRADER_ACCOUNT" \
+              ghcr.io/spotware/ctrader-console:5.9.11 \
+              backtest /work/OuroborosAdvancedUniversalMobileV22_Backtest.algo \
+              --environment-variables \
+              --symbol="$symbol" \
+              --period="$BASE_PERIOD" \
+              --start="$START_DATE" \
+              --end="$END_DATE" \
+              --balance="$STARTING_BALANCE" \
+              --data-mode=m1 \
+              --data-dir="/work/cache/$cache" \
+              --report="/work/reports/$report.html" \
+              --report-json="/work/reports/$report.json" \
+              --exit-on-stop
+          }
+
+          set +e
+          run_backtest "$GOLD_SYMBOL" XAUUSD XAUUSD &
+          gold_pid=$!
+          run_backtest "$BTC_SYMBOL" BTC BTC &
+          btc_pid=$!
+          run_backtest "$EURUSD_SYMBOL" EURUSD EURUSD &
+          eurusd_pid=$!
+
+          wait "$gold_pid"
+          gold_status=$?
+          wait "$btc_pid"
+          btc_status=$?
+          wait "$eurusd_pid"
+          eurusd_status=$?
+          set -e
+
+          echo "XAUUSD exit: $gold_status"
+          echo "BTC exit: $btc_status"
+          echo "EURUSD exit: $eurusd_status"
+
+          if [ "$gold_status" -ne 0 ] || [ "$btc_status" -ne 0 ] || [ "$eurusd_status" -ne 0 ]; then
+            exit 1
+          fi
 
       - name: Build comparison summary
         run: |
