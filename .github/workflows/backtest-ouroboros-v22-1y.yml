@@ -1,0 +1,371 @@
+name: Backtest Ouroboros V2.2 - XAU BTC EURUSD 1Y
+
+on:
+  workflow_dispatch:
+    inputs:
+      start_date:
+        description: "UTC start date (DD/MM/YYYY)"
+        required: true
+        default: "07/09/2025"
+      end_date:
+        description: "UTC end date (DD/MM/YYYY)"
+        required: true
+        default: "07/09/2026"
+      starting_balance:
+        description: "Starting balance USD"
+        required: true
+        default: "200"
+      base_period:
+        description: "Base chart period"
+        required: true
+        default: "m1"
+      gold_symbol:
+        description: "FxPro gold symbol"
+        required: true
+        default: "XAUUSD"
+      btc_symbol:
+        description: "FxPro Bitcoin symbol"
+        required: true
+        default: "BITCOIN"
+      eurusd_symbol:
+        description: "FxPro EURUSD symbol"
+        required: true
+        default: "EURUSD"
+
+permissions:
+  contents: read
+
+jobs:
+  backtest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Setup .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      - name: Download pinned Ouroboros source
+        run: |
+          git clone https://github.com/floating-astronaut/ouroboros-cbot.git upstream
+          cd upstream
+          git checkout f5fed93990737c8bb511aaf85bf88ac6a854273b
+
+      - name: Rebuild proven Universal Mobile V2 source
+        run: |
+          curl -fsSL \
+            "https://raw.githubusercontent.com/rbhnm859/Ouroboros-Cloud-Build/main/.github/workflows/build-ouroboros-universal-mobile-v2.yml" \
+            -o /tmp/v2.yml
+
+          python3 - <<'PYCODE'
+          from pathlib import Path
+          import re, base64, gzip
+
+          text = Path('/tmp/v2.yml').read_text()
+
+          def get(name):
+              m = re.search(name + r' = """([A-Za-z0-9+/=]+)"""', text)
+              if not m:
+                  raise SystemExit('Cannot find ' + name + ' in V2 workflow')
+              return gzip.decompress(base64.b64decode(m.group(1)))
+
+          main = get('main_payload')
+          session = get('session_payload')
+
+          Path('upstream/Ouroboros/Ouroboros.cs').write_bytes(main)
+          Path('upstream/Ouroboros/Strategies/SessionAnalyst.cs').write_bytes(session)
+
+          print('Loaded V2 main:', len(main), 'bytes')
+          print('Loaded V2 SessionAnalyst:', len(session), 'bytes')
+          PYCODE
+
+      - name: Apply current V2.2 patch
+        run: |
+          curl -fsSL \
+            "https://raw.githubusercontent.com/rbhnm859/Ouroboros-Cloud-Build/main/.github/workflows/build-ouroboros-universal-mobile-v2.2.yml" \
+            -o /tmp/v22.yml
+
+          python3 - <<'PYCODE'
+          from pathlib import Path
+          import re, base64, gzip
+
+          text = Path('/tmp/v22.yml').read_text()
+
+          m = re.search(
+              r'payload\s*=\s*\(\s*(.*?)\s*\)\s*Path\(',
+              text,
+              re.S
+          )
+          if not m:
+              raise SystemExit('Cannot locate V2.2 patch payload')
+
+          chunks = re.findall(r'"([A-Za-z0-9+/=]+)"', m.group(1))
+          if not chunks:
+              raise SystemExit('V2.2 payload chunks not found')
+
+          payload = ''.join(chunks)
+          patch = gzip.decompress(base64.b64decode(payload))
+          Path('/tmp/v22.patch').write_bytes(patch)
+          print('V2.2 patch:', len(patch), 'bytes')
+          PYCODE
+
+          cd upstream/Ouroboros
+          patch -p1 < /tmp/v22.patch
+
+      - name: Prepare .NET 8 backtest build
+        run: |
+          python3 - <<'PYCODE'
+          from pathlib import Path
+
+          p = Path('upstream/Ouroboros/Ouroboros.csproj')
+          s = p.read_text()
+          s = s.replace(
+              '<TargetFramework>net6.0</TargetFramework>',
+              '<TargetFramework>net8.0</TargetFramework>'
+          )
+          p.write_text(s)
+          print(p.read_text())
+          PYCODE
+
+          grep -n "class OuroborosAdvancedUniversalMobileV22" upstream/Ouroboros/Ouroboros.cs
+          grep -n "No hedge on same symbol" upstream/Ouroboros/Ouroboros.cs
+          grep -n "EnableTradeQualityScore" upstream/Ouroboros/Ouroboros.cs
+          grep -n "EnableFibonacciConfluence" upstream/Ouroboros/Ouroboros.cs
+
+      - name: Build V2.2 for cTrader CLI
+        run: |
+          dotnet restore upstream/Ouroboros/Ouroboros.csproj
+          dotnet build upstream/Ouroboros/Ouroboros.csproj \
+            --configuration Release \
+            --no-restore \
+            -p:AlgoPublish=False \
+            -p:IncludeSource=True
+
+          mkdir -p backtest
+          ALGO="$(find upstream -type f -name '*.algo' -print -quit)"
+          if [ -z "$ALGO" ]; then
+            echo "No .algo generated"
+            exit 1
+          fi
+          cp "$ALGO" backtest/OuroborosAdvancedUniversalMobileV22_Backtest.algo
+          ls -lah backtest
+
+      - name: Create cTrader credentials file
+        env:
+          CTRADER_PASSWORD: ${{ secrets.CTRADER_PASSWORD }}
+        run: |
+          if [ -z "${CTRADER_PASSWORD:-}" ]; then
+            echo "Missing GitHub Secret: CTRADER_PASSWORD"
+            exit 1
+          fi
+          printf '%s' "$CTRADER_PASSWORD" > backtest/ctrader.pwd
+          chmod 600 backtest/ctrader.pwd
+
+      - name: Pull official cTrader CLI
+        run: |
+          docker pull ghcr.io/spotware/ctrader-console:latest
+
+      - name: Verify cTrader account and symbols
+        env:
+          CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+          CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+        run: |
+          if [ -z "${CTRADER_CTID:-}" ]; then
+            echo "Missing GitHub Secret: CTRADER_CTID"
+            exit 1
+          fi
+          if [ -z "${CTRADER_ACCOUNT:-}" ]; then
+            echo "Missing GitHub Secret: CTRADER_ACCOUNT"
+            exit 1
+          fi
+
+          mkdir -p backtest/reports
+
+          docker run --rm \
+            -v "$PWD/backtest:/work" \
+            -e "CTID=$CTRADER_CTID" \
+            -e "PWD-FILE=/work/ctrader.pwd" \
+            -e "ACCOUNT=$CTRADER_ACCOUNT" \
+            ghcr.io/spotware/ctrader-console:latest \
+            accounts --environment-variables \
+            > backtest/reports/accounts.txt
+
+          docker run --rm \
+            -v "$PWD/backtest:/work" \
+            -e "CTID=$CTRADER_CTID" \
+            -e "PWD-FILE=/work/ctrader.pwd" \
+            -e "ACCOUNT=$CTRADER_ACCOUNT" \
+            ghcr.io/spotware/ctrader-console:latest \
+            symbols --environment-variables \
+            > backtest/reports/symbols.txt
+
+          echo "Requested symbols:"
+          echo "GOLD=${{ inputs.gold_symbol }}"
+          echo "BTC=${{ inputs.btc_symbol }}"
+          echo "EURUSD=${{ inputs.eurusd_symbol }}"
+
+      - name: Backtest XAUUSD
+        env:
+          CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+          CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+        run: |
+          docker run --rm \
+            -v "$PWD/backtest:/work" \
+            -e "CTID=$CTRADER_CTID" \
+            -e "PWD-FILE=/work/ctrader.pwd" \
+            -e "ACCOUNT=$CTRADER_ACCOUNT" \
+            ghcr.io/spotware/ctrader-console:latest \
+            backtest /work/OuroborosAdvancedUniversalMobileV22_Backtest.algo \
+            --environment-variables \
+            --symbol="${{ inputs.gold_symbol }}" \
+            --period="${{ inputs.base_period }}" \
+            --start="${{ inputs.start_date }}" \
+            --end="${{ inputs.end_date }}" \
+            --balance="${{ inputs.starting_balance }}" \
+            --data-mode=m1 \
+            --data-dir=/work/cache \
+            --report=/work/reports/XAUUSD.html \
+            --report-json=/work/reports/XAUUSD.json
+
+      - name: Backtest Bitcoin
+        env:
+          CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+          CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+        run: |
+          docker run --rm \
+            -v "$PWD/backtest:/work" \
+            -e "CTID=$CTRADER_CTID" \
+            -e "PWD-FILE=/work/ctrader.pwd" \
+            -e "ACCOUNT=$CTRADER_ACCOUNT" \
+            ghcr.io/spotware/ctrader-console:latest \
+            backtest /work/OuroborosAdvancedUniversalMobileV22_Backtest.algo \
+            --environment-variables \
+            --symbol="${{ inputs.btc_symbol }}" \
+            --period="${{ inputs.base_period }}" \
+            --start="${{ inputs.start_date }}" \
+            --end="${{ inputs.end_date }}" \
+            --balance="${{ inputs.starting_balance }}" \
+            --data-mode=m1 \
+            --data-dir=/work/cache \
+            --report=/work/reports/BTC.html \
+            --report-json=/work/reports/BTC.json
+
+      - name: Backtest EURUSD
+        env:
+          CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+          CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+        run: |
+          docker run --rm \
+            -v "$PWD/backtest:/work" \
+            -e "CTID=$CTRADER_CTID" \
+            -e "PWD-FILE=/work/ctrader.pwd" \
+            -e "ACCOUNT=$CTRADER_ACCOUNT" \
+            ghcr.io/spotware/ctrader-console:latest \
+            backtest /work/OuroborosAdvancedUniversalMobileV22_Backtest.algo \
+            --environment-variables \
+            --symbol="${{ inputs.eurusd_symbol }}" \
+            --period="${{ inputs.base_period }}" \
+            --start="${{ inputs.start_date }}" \
+            --end="${{ inputs.end_date }}" \
+            --balance="${{ inputs.starting_balance }}" \
+            --data-mode=m1 \
+            --data-dir=/work/cache \
+            --report=/work/reports/EURUSD.html \
+            --report-json=/work/reports/EURUSD.json
+
+      - name: Build comparison summary
+        run: |
+          python3 - <<'PYCODE'
+          from pathlib import Path
+          import json, csv
+
+          reports = Path('backtest/reports')
+          balance = float("${{ inputs.starting_balance }}")
+
+          items = [
+              ("XAUUSD", reports / "XAUUSD.json"),
+              ("BTC", reports / "BTC.json"),
+              ("EURUSD", reports / "EURUSD.json"),
+          ]
+
+          rows = []
+          for name, path in items:
+              d = json.loads(path.read_text())
+              total = int(float(d.get("TotalTrades", 0) or 0))
+              wins = int(float(d.get("WinningTrades", 0) or 0))
+              losses = int(float(d.get("LosingTrades", 0) or 0))
+              net = float(d.get("NetProfit", 0) or 0)
+              equity = d.get("Equity", balance + net)
+              try:
+                  equity = float(equity)
+              except Exception:
+                  equity = balance + net
+
+              win_rate = wins / total * 100 if total else 0.0
+              roi = net / balance * 100 if balance else 0.0
+
+              def val(key):
+                  v = d.get(key, "")
+                  return "" if v is None else v
+
+              rows.append({
+                  "Symbol": name,
+                  "TotalTrades": total,
+                  "WinningTrades": wins,
+                  "LosingTrades": losses,
+                  "WinRatePct": round(win_rate, 2),
+                  "StartBalance": balance,
+                  "FinalEquity": round(equity, 2),
+                  "NetProfit": round(net, 2),
+                  "ROIPct": round(roi, 2),
+                  "ProfitFactor": val("ProfitFactor"),
+                  "MaxEquityDrawdownPct": val("MaxEquityDrawdownPercentages"),
+                  "MaxBalanceDrawdownPct": val("MaxBalanceDrawdownPercentages"),
+                  "AverageTrade": val("AverageTrade"),
+              })
+
+          csv_path = reports / "summary.csv"
+          with csv_path.open("w", newline="") as f:
+              w = csv.DictWriter(f, fieldnames=rows[0].keys())
+              w.writeheader()
+              w.writerows(rows)
+
+          md = []
+          md.append("# Ouroboros V2.2 one-year backtest")
+          md.append("")
+          md.append(f"Period: ${{{{ inputs.start_date }}}} to ${{{{ inputs.end_date }}}} UTC")
+          md.append(f"Starting balance: ${balance:.2f}")
+          md.append(f"Base period: ${{{{ inputs.base_period }}}}")
+          md.append("Data mode: cTrader server M1")
+          md.append("")
+          md.append("| Symbol | Trades | Wins | Losses | Win rate | Net profit | ROI | Profit factor | Max equity DD |")
+          md.append("|---|---:|---:|---:|---:|---:|---:|---:|---:|")
+          for r in rows:
+              md.append(
+                  f"| {r['Symbol']} | {r['TotalTrades']} | {r['WinningTrades']} | "
+                  f"{r['LosingTrades']} | {r['WinRatePct']:.2f}% | "
+                  f"${r['NetProfit']:.2f} | {r['ROIPct']:.2f}% | "
+                  f"{r['ProfitFactor']} | {r['MaxEquityDrawdownPct']} |"
+              )
+
+          (reports / "summary.md").write_text("\n".join(md))
+          print("\n".join(md))
+          PYCODE
+
+      - name: Remove credentials before upload
+        if: always()
+        run: |
+          rm -f backtest/ctrader.pwd
+
+      - name: Upload backtest reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Ouroboros-V2.2-1Y-Backtest-Reports
+          path: |
+            backtest/reports/
+          if-no-files-found: warn
