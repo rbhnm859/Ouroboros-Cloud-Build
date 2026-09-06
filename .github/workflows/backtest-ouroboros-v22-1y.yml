@@ -151,7 +151,7 @@ jobs:
             -p:AlgoPublish=False \
             -p:IncludeSource=True
 
-          mkdir -p backtest
+          mkdir -p backtest/cache backtest/reports
           ALGO="$(find upstream -type f -name '*.algo' -print -quit)"
           if [ -z "$ALGO" ]; then
             echo "No .algo generated"
