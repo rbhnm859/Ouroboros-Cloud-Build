@@ -33,16 +33,14 @@ jobs:
           p = Path("upstream/Ouroboros/Ouroboros.cs")
           s = p.read_text()
 
-          old = """null /* SL set via modify */, null,
-                                            comment);"""
-
-          new = """(double?)null /* SL set via modify */, (double?)null,
-                                            comment);"""
+          old = "null /* SL set via modify */, null,"
+          new = "(double?)null /* SL set via modify */, (double?)null,"
 
           if old not in s:
               raise SystemExit("Expected ExecuteMarketOrder code was not found")
 
-          p.write_text(s.replace(old, new))
+          s = s.replace(old, new, 1)
+          p.write_text(s)
           print("Patched ExecuteMarketOrder overload successfully")
           PY
 
