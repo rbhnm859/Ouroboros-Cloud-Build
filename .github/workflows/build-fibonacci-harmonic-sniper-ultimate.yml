@@ -16,10 +16,10 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Setup .NET 8
+      - name: Setup .NET 6
         uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: '8.0.x'
+          dotnet-version: '6.0.x'
 
       - name: Recreate Fibonacci Harmonic source
         run: |
@@ -41,7 +41,7 @@ jobs:
           from pathlib import Path
           Path('cli-build/FibonacciHarmonicSniperUltimate/FibonacciHarmonicSniperUltimate.csproj').write_text('''<Project Sdk="Microsoft.NET.Sdk">
             <PropertyGroup>
-              <TargetFramework>net8.0</TargetFramework>
+              <TargetFramework>net6.0</TargetFramework>
               <ImplicitUsings>disable</ImplicitUsings>
               <Nullable>disable</Nullable>
             </PropertyGroup>
