@@ -65,10 +65,10 @@ jobs:
           dotnet build upstream/Ouroboros/Ouroboros.csproj \
             --configuration Release \
             --no-restore \
-            -p:Algoublish=False \
+            -p:AlgoPublish=False \
             -p:IncludeSource=True
 
-            - name: Find ALGO
+      - name: Find ALGO
         run: |
           echo "Searching for generated .algo..."
           ALGO="$(find upstream -type f -name '*.algo' -print -quit)"
@@ -91,4 +91,3 @@ jobs:
           name: Ouroboros-Advanced-Universal-Mobile-V2
           path: artifact/OuroborosAdvancedUniversalMobile.algo
           if-no-files-found: error
-
