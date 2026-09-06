@@ -1,6 +1,11 @@
 name: Backtest Ouroboros V2.2 - XAU BTC EURUSD 1Y
 
 on:
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/backtest-ouroboros-v22-1y.yml'
   workflow_dispatch:
     inputs:
       start_date:
