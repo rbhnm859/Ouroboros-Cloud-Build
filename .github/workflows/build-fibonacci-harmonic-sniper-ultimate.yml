@@ -16,8 +16,10 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Pull official cTrader CLI 5.9.11
-        run: docker pull ghcr.io/spotware/ctrader-console:5.9.11
+      - name: Setup .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
 
       - name: Recreate Fibonacci Harmonic source
         run: |
@@ -31,42 +33,34 @@ jobs:
           print('Source bytes:', Path('/tmp/FibonacciHarmonicSniperUltimate.cs').stat().st_size)
           PYCODE
 
-      - name: Create official cTrader cBot project
+      - name: Create cTrader cBot project
         run: |
-          mkdir -p cli-build
-          docker run --rm \
-            -v "$PWD:/repo" \
-            -w /repo/cli-build \
-            ghcr.io/spotware/ctrader-console:5.9.11 \
-            create cbot FibonacciHarmonicSniperUltimate csharp
+          mkdir -p cli-build/FibonacciHarmonicSniperUltimate
+          cp /tmp/FibonacciHarmonicSniperUltimate.cs cli-build/FibonacciHarmonicSniperUltimate/
+          python3 - <<'PYCODE'
+          from pathlib import Path
+          Path('cli-build/FibonacciHarmonicSniperUltimate/FibonacciHarmonicSniperUltimate.csproj').write_text('''<Project Sdk="Microsoft.NET.Sdk">
+            <PropertyGroup>
+              <TargetFramework>net8.0</TargetFramework>
+              <ImplicitUsings>disable</ImplicitUsings>
+              <Nullable>disable</Nullable>
+            </PropertyGroup>
+            <ItemGroup>
+              <PackageReference Include="cTrader.Automate" Version="1.*-*" />
+            </ItemGroup>
+          </Project>''')
+          PYCODE
 
-          GEN_CSPROJ=$(find cli-build -type f -name '*.csproj' | head -n 1)
-          if [ -z "$GEN_CSPROJ" ]; then
-            echo 'Could not locate generated cTrader project.'
-            find cli-build -maxdepth 5 -type f | sort
-            exit 1
-          fi
-          echo "$GEN_CSPROJ" > /tmp/fhsu-csproj.txt
+      - name: Restore cTrader packages
+        run: dotnet restore cli-build/FibonacciHarmonicSniperUltimate/FibonacciHarmonicSniperUltimate.csproj
 
-          PROJECT_DIR=$(dirname "$GEN_CSPROJ")
-          GEN_CS=$(find "$PROJECT_DIR" -maxdepth 1 -type f -name '*.cs' | head -n 1)
-          if [ -z "$GEN_CS" ]; then
-            echo 'Could not locate generated cBot source file.'
-            find "$PROJECT_DIR" -maxdepth 2 -type f | sort
-            exit 1
-          fi
-          cp /tmp/FibonacciHarmonicSniperUltimate.cs "$GEN_CS"
-          echo "Project: $GEN_CSPROJ"
-          echo "Source : $GEN_CS"
-
-      - name: Build .algo with official cTrader CLI
+      - name: Build Mobile .algo
         run: |
-          GEN_CSPROJ=$(cat /tmp/fhsu-csproj.txt)
-          docker run --rm \
-            -v "$PWD:/repo" \
-            -w /repo \
-            ghcr.io/spotware/ctrader-console:5.9.11 \
-            build "/repo/$GEN_CSPROJ"
+          dotnet build cli-build/FibonacciHarmonicSniperUltimate/FibonacciHarmonicSniperUltimate.csproj \
+            --configuration Release \
+            --no-restore \
+            -p:AlgoPublish=False \
+            -p:IncludeSource=True
 
       - name: Locate mobile .algo
         run: |
