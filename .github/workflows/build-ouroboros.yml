@@ -25,6 +25,27 @@ jobs:
           cd upstream
           git checkout f5fed93990737c8bb511aaf85bf88ac6a854273b
 
+      - name: Patch cTrader API compatibility
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          p = Path("upstream/Ouroboros/Ouroboros.cs")
+          s = p.read_text()
+
+          old = """null /* SL set via modify */, null,
+                                            comment);"""
+
+          new = """(double?)null /* SL set via modify */, (double?)null,
+                                            comment);"""
+
+          if old not in s:
+              raise SystemExit("Expected ExecuteMarketOrder code was not found")
+
+          p.write_text(s.replace(old, new))
+          print("Patched ExecuteMarketOrder overload successfully")
+          PY
+
       - name: Restore
         run: dotnet restore upstream/Ouroboros/Ouroboros.csproj
 
