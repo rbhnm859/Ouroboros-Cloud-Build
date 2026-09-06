@@ -1,0 +1,88 @@
+name: Build Fibonacci Harmonic Sniper Ultimate Mobile
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/build-fibonacci-harmonic-sniper-ultimate.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Pull official cTrader CLI 5.9.11
+        run: docker pull ghcr.io/spotware/ctrader-console:5.9.11
+
+      - name: Recreate Fibonacci Harmonic source
+        run: |
+          python3 - <<'PYCODE'
+          from pathlib import Path
+          import base64, gzip
+          source_payload = """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"""
+          Path('/tmp/FibonacciHarmonicSniperUltimate.cs').write_bytes(
+              gzip.decompress(base64.b64decode(source_payload))
+          )
+          print('Source bytes:', Path('/tmp/FibonacciHarmonicSniperUltimate.cs').stat().st_size)
+          PYCODE
+
+      - name: Create official cTrader cBot project
+        run: |
+          mkdir -p cli-build
+          docker run --rm \
+            -v "$PWD:/repo" \
+            -w /repo/cli-build \
+            ghcr.io/spotware/ctrader-console:5.9.11 \
+            create cbot FibonacciHarmonicSniperUltimate csharp
+
+          GEN_CSPROJ=$(find cli-build -type f -name '*.csproj' | head -n 1)
+          if [ -z "$GEN_CSPROJ" ]; then
+            echo 'Could not locate generated cTrader project.'
+            find cli-build -maxdepth 5 -type f | sort
+            exit 1
+          fi
+          echo "$GEN_CSPROJ" > /tmp/fhsu-csproj.txt
+
+          PROJECT_DIR=$(dirname "$GEN_CSPROJ")
+          GEN_CS=$(find "$PROJECT_DIR" -maxdepth 1 -type f -name '*.cs' | head -n 1)
+          if [ -z "$GEN_CS" ]; then
+            echo 'Could not locate generated cBot source file.'
+            find "$PROJECT_DIR" -maxdepth 2 -type f | sort
+            exit 1
+          fi
+          cp /tmp/FibonacciHarmonicSniperUltimate.cs "$GEN_CS"
+          echo "Project: $GEN_CSPROJ"
+          echo "Source : $GEN_CS"
+
+      - name: Build .algo with official cTrader CLI
+        run: |
+          GEN_CSPROJ=$(cat /tmp/fhsu-csproj.txt)
+          docker run --rm \
+            -v "$PWD:/repo" \
+            -w /repo \
+            ghcr.io/spotware/ctrader-console:5.9.11 \
+            build "/repo/$GEN_CSPROJ"
+
+      - name: Locate mobile .algo
+        run: |
+          mkdir -p dist
+          ALGO=$(find cli-build -type f -name '*.algo' | head -n 1)
+          if [ -z "$ALGO" ]; then
+            echo 'Build completed but no .algo was found.'
+            find cli-build -maxdepth 8 -type f | sort
+            exit 1
+          fi
+          cp "$ALGO" dist/FibonacciHarmonicSniperUltimate.algo
+          ls -lh dist/FibonacciHarmonicSniperUltimate.algo
+
+      - name: Upload mobile artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: FibonacciHarmonicSniperUltimate-Mobile
+          path: dist/FibonacciHarmonicSniperUltimate.algo
+          if-no-files-found: error
