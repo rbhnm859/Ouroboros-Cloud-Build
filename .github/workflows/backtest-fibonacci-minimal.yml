@@ -1,0 +1,99 @@
+name: Fibonacci Harmonic 1Y XAUUSD EURUSD
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Fibonacci ${{ matrix.symbol }} H1
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        symbol: [XAUUSD, EURUSD]
+
+    steps:
+      - name: Get source and CLI
+        run: |
+          curl -fsSL "https://raw.githubusercontent.com/rbhnm859/Ouroboros-Cloud-Build/main/.github/workflows/build-fibonacci-harmonic-sniper-ultimate.yml" -o /tmp/build.yml
+          docker pull ghcr.io/spotware/ctrader-console:5.9.11
+
+      - name: Prepare source
+        run: |
+          python3 - <<'PYCODE'
+          from pathlib import Path
+          import base64, gzip, re
+          text = Path('/tmp/build.yml').read_text()
+          m = re.search(r'source_payload\s*=\s*"""([A-Za-z0-9+/=]+)"""', text)
+          if not m:
+              raise SystemExit('Source payload not found')
+          source = gzip.decompress(base64.b64decode(m.group(1))).decode()
+          old = '[Parameter("Trading Enabled", DefaultValue = false'
+          new = '[Parameter("Trading Enabled", DefaultValue = true'
+          if old not in source:
+              raise SystemExit('Trading Enabled parameter not found')
+          Path('/tmp/Fibonacci.cs').write_text(source.replace(old, new, 1))
+          PYCODE
+
+      - name: Build algo
+        run: |
+          mkdir -p cli backtest/reports
+          docker run --rm -v "$PWD:/repo" -w /repo/cli \
+            ghcr.io/spotware/ctrader-console:5.9.11 \
+            create cbot FibonacciBacktest csharp
+          CSPROJ="$(find cli -type f -name '*.csproj' -print -quit)"
+          test -n "$CSPROJ" || exit 1
+          DIR="$(dirname "$CSPROJ")"
+          find "$DIR" -type f -name '*.cs' -delete
+          cp /tmp/Fibonacci.cs "$DIR/FibonacciHarmonicSniperUltimate.cs"
+          docker run --rm -v "$PWD:/repo" -w /repo \
+            ghcr.io/spotware/ctrader-console:5.9.11 \
+            build "/repo/$CSPROJ"
+          ALGO="$(find cli -type f -name '*.algo' -print -quit)"
+          test -n "$ALGO" || exit 1
+          cp "$ALGO" backtest/Fibonacci.algo
+
+      - name: Create password file
+        env:
+          CTRADER_PASSWORD: ${{ secrets.CTRADER_PASSWORD }}
+        run: |
+          test -n "${CTRADER_PASSWORD:-}" || exit 1
+          printf '%s' "$CTRADER_PASSWORD" > backtest/ctrader.pwd
+          chmod 600 backtest/ctrader.pwd
+
+      - name: Backtest ${{ matrix.symbol }}
+        env:
+          CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+          CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+        run: |
+          test -n "${CTRADER_CTID:-}" || exit 1
+          test -n "${CTRADER_ACCOUNT:-}" || exit 1
+          docker run --rm \
+            -v "$PWD/backtest:/work" \
+            -e "CTID=$CTRADER_CTID" \
+            -e "PWD-FILE=/work/ctrader.pwd" \
+            -e "ACCOUNT=$CTRADER_ACCOUNT" \
+            ghcr.io/spotware/ctrader-console:5.9.11 \
+            backtest /work/Fibonacci.algo \
+            --environment-variables \
+            --symbol="${{ matrix.symbol }}" \
+            --period=h1 \
+            --start="07/09/2025" \
+            --end="07/09/2026" \
+            --balance=200 \
+            --data-mode=m1 \
+            --data-dir=/work/cache \
+            --report="/work/reports/${{ matrix.symbol }}.html" \
+            --report-json="/work/reports/${{ matrix.symbol }}.json"
+
+      - name: Print JSON result
+        if: success()
+        run: cat "backtest/reports/${{ matrix.symbol }}.json"
+
+      - name: Remove credentials
+        if: always()
+        run: rm -f backtest/ctrader.pwd
