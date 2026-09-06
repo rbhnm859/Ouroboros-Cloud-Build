@@ -170,7 +170,7 @@ jobs:
             echo "Missing GitHub Secret: CTRADER_PASSWORD"
             exit 1
           fi
-          printf '%s' "$CTRADER_PASSWORD" | tr -d '\\r\\n' > backtest/ctrader.pwd
+          printf '%s' "$CTRADER_PASSWORD" | tr -d '\r\n' > backtest/ctrader.pwd
           chmod 600 backtest/ctrader.pwd
 
       - name: Verify cTrader account and symbols
