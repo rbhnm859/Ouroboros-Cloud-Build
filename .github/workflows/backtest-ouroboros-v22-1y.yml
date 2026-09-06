@@ -111,9 +111,9 @@ jobs:
           cd upstream/Ouroboros
           patch -p1 < /tmp/v22.patch
 
-      - name: Pull official cTrader CLI 5.9.10
+      - name: Pull official cTrader CLI 5.9.11
         run: |
-          docker pull ghcr.io/spotware/ctrader-console:5.9.10
+          docker pull ghcr.io/spotware/ctrader-console:5.9.11
 
       - name: Sanity check V2.2 source
         run: |
@@ -130,7 +130,7 @@ jobs:
           docker run --rm \
             -v "$PWD:/repo" \
             -w /repo/cli-build \
-            ghcr.io/spotware/ctrader-console:5.9.10 \
+            ghcr.io/spotware/ctrader-console:5.9.11 \
             create cbot OuroborosV22Backtest csharp
 
           echo "Generated project:"
@@ -172,7 +172,7 @@ jobs:
           docker run --rm \
             -v "$PWD:/repo" \
             -w /repo \
-            ghcr.io/spotware/ctrader-console:5.9.10 \
+            ghcr.io/spotware/ctrader-console:5.9.11 \
             build "/repo/$GEN_CSPROJ"
 
           mkdir -p backtest
@@ -219,7 +219,7 @@ jobs:
             -e "CTID=$CTRADER_CTID" \
             -e "PWD-FILE=/work/ctrader.pwd" \
             -e "ACCOUNT=$CTRADER_ACCOUNT" \
-            ghcr.io/spotware/ctrader-console:5.9.10 \
+            ghcr.io/spotware/ctrader-console:5.9.11 \
             accounts --environment-variables \
             > backtest/reports/accounts.txt
 
@@ -228,7 +228,7 @@ jobs:
             -e "CTID=$CTRADER_CTID" \
             -e "PWD-FILE=/work/ctrader.pwd" \
             -e "ACCOUNT=$CTRADER_ACCOUNT" \
-            ghcr.io/spotware/ctrader-console:5.9.10 \
+            ghcr.io/spotware/ctrader-console:5.9.11 \
             symbols --environment-variables \
             > backtest/reports/symbols.txt
 
@@ -247,7 +247,7 @@ jobs:
             -e "CTID=$CTRADER_CTID" \
             -e "PWD-FILE=/work/ctrader.pwd" \
             -e "ACCOUNT=$CTRADER_ACCOUNT" \
-            ghcr.io/spotware/ctrader-console:5.9.10 \
+            ghcr.io/spotware/ctrader-console:5.9.11 \
             backtest /work/OuroborosAdvancedUniversalMobileV22_Backtest.algo \
             --environment-variables \
             --symbol="${{ inputs.gold_symbol }}" \
@@ -270,7 +270,7 @@ jobs:
             -e "CTID=$CTRADER_CTID" \
             -e "PWD-FILE=/work/ctrader.pwd" \
             -e "ACCOUNT=$CTRADER_ACCOUNT" \
-            ghcr.io/spotware/ctrader-console:5.9.10 \
+            ghcr.io/spotware/ctrader-console:5.9.11 \
             backtest /work/OuroborosAdvancedUniversalMobileV22_Backtest.algo \
             --environment-variables \
             --symbol="${{ inputs.btc_symbol }}" \
@@ -293,7 +293,7 @@ jobs:
             -e "CTID=$CTRADER_CTID" \
             -e "PWD-FILE=/work/ctrader.pwd" \
             -e "ACCOUNT=$CTRADER_ACCOUNT" \
-            ghcr.io/spotware/ctrader-console:5.9.10 \
+            ghcr.io/spotware/ctrader-console:5.9.11 \
             backtest /work/OuroborosAdvancedUniversalMobileV22_Backtest.algo \
             --environment-variables \
             --symbol="${{ inputs.eurusd_symbol }}" \
