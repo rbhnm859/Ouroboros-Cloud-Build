@@ -1,0 +1,56 @@
+name: Build Ouroboros cTrader
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Setup .NET 6
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '6.0.x'
+
+      - name: Download Ouroboros source
+        run: |
+          git clone https://github.com/floating-astronaut/ouroboros-cbot.git upstream
+          cd upstream
+          git checkout f5fed93990737c8bb511aaf85bf88ac6a854273b
+
+      - name: Restore
+        run: dotnet restore upstream/Ouroboros/Ouroboros.csproj
+
+      - name: Build Ouroboros
+        run: |
+          dotnet build upstream/Ouroboros/Ouroboros.csproj \
+            --configuration Release \
+            --no-restore \
+            -p:AlgoPublish=False \
+            -p:IncludeSource=True
+
+      - name: Find ALGO
+        run: |
+          echo "Searching for generated .algo..."
+          find upstream -type f -name "*.algo" -print
+          test -n "$(find upstream -type f -name '*.algo' -print -quit)"
+
+      - name: Prepare artifact
+        run: |
+          mkdir -p artifact
+          find upstream -type f -name "*.algo" -exec cp {} artifact/ \;
+          ls -lah artifact
+
+      - name: Upload Ouroboros ALGO
+        uses: actions/upload-artifact@v4
+        with:
+          name: Ouroboros-cTrader-algo
+          path: artifact/*.algo
+          if-no-files-found: error
