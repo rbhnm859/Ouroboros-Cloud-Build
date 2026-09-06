@@ -1,0 +1,110 @@
+name: Build Ouroboros Advanced Universal Mobile V2.2 XAUUSD
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: ouroboros-v22-xauusd-build
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup .NET 6
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "6.0.x"
+
+      - name: Download pinned Ouroboros source
+        run: |
+          git clone https://github.com/floating-astronaut/ouroboros-cbot.git upstream
+          cd upstream
+          git checkout f5fed93990737c8bb511aaf85bf88ac6a854273b
+
+      - name: Rebuild Universal Mobile V2 source
+        run: |
+          python3 - <<'PYCODE'
+          from pathlib import Path
+          import re, base64, gzip
+          text = Path(".github/workflows/build-ouroboros-universal-mobile-v2.yml").read_text()
+          def get(name):
+              m = re.search(name + r' = """([A-Za-z0-9+/=]+)"""', text)
+              if not m:
+                  raise SystemExit("Cannot find " + name + " in V2 workflow")
+              return gzip.decompress(base64.b64decode(m.group(1)))
+          Path("upstream/Ouroboros/Ouroboros.cs").write_bytes(get("main_payload"))
+          Path("upstream/Ouroboros/Strategies/SessionAnalyst.cs").write_bytes(get("session_payload"))
+          PYCODE
+
+      - name: Apply V2.2 patch
+        run: |
+          python3 - <<'PYCODE'
+          from pathlib import Path
+          import re, base64, gzip
+          text = Path(".github/workflows/build-ouroboros-universal-mobile-v2.2.yml").read_text()
+          m = re.search(r'payload\s*=\s*\(\s*(.*?)\s*\)\s*Path\(', text, re.S)
+          if not m:
+              raise SystemExit("Cannot locate V2.2 patch payload")
+          chunks = re.findall(r'"([A-Za-z0-9+/=]+)"', m.group(1))
+          if not chunks:
+              raise SystemExit("V2.2 payload chunks not found")
+          Path("/tmp/v22.patch").write_bytes(gzip.decompress(base64.b64decode("".join(chunks))))
+          PYCODE
+          cd upstream/Ouroboros
+          patch -p1 < /tmp/v22.patch
+
+      - name: Restrict adaptive history to current symbol
+        run: |
+          python3 - <<'PYCODE'
+          from pathlib import Path
+          path = Path("upstream/Ouroboros/Ouroboros.cs")
+          text = path.read_text()
+          old = "            foreach (HistoricalTrade trade in History)\n            {\n                if (trade.ClosingTime < cutoff)"
+          new = "            foreach (HistoricalTrade trade in History)\n            {\n                if (!string.Equals(trade.SymbolName, SymbolName, StringComparison.OrdinalIgnoreCase))\n                    continue;\n\n                if (trade.ClosingTime < cutoff)"
+          if old not in text:
+              raise SystemExit("History bootstrap target was not found")
+          path.write_text(text.replace(old, new, 1))
+          PYCODE
+
+      - name: Sanity check XAUUSD-only V2.2 source
+        run: |
+          grep -n "class OuroborosAdvancedUniversalMobileV22" upstream/Ouroboros/Ouroboros.cs
+          grep -n "trade.SymbolName, SymbolName" upstream/Ouroboros/Ouroboros.cs
+          grep -n "BootstrapStrategyPerformanceFromHistory" upstream/Ouroboros/Ouroboros.cs
+
+      - name: Restore
+        run: dotnet restore upstream/Ouroboros/Ouroboros.csproj
+
+      - name: Build Universal Mobile V2.2 ALGO
+        run: |
+          dotnet build upstream/Ouroboros/Ouroboros.csproj \
+            --configuration Release \
+            --no-restore \
+            -p:AlgoPublish=False \
+            -p:IncludeSource=True
+
+      - name: Prepare artifact
+        run: |
+          mkdir -p artifact
+          ALGO="$(find upstream -type f -name '*.algo' -print -quit)"
+          if [ -z "$ALGO" ]; then
+            echo "No .algo generated"
+            exit 1
+          fi
+          cp "$ALGO" artifact/OuroborosAdvancedUniversalMobileV22.algo
+          ls -lah artifact
+
+      - name: Upload Universal Mobile V2.2 ALGO
+        uses: actions/upload-artifact@v4
+        with:
+          name: Ouroboros-Advanced-Universal-Mobile-V2.2-XAUUSD
+          path: artifact/OuroborosAdvancedUniversalMobileV22.algo
+          if-no-files-found: error
