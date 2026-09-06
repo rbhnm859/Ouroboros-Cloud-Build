@@ -65,11 +65,30 @@ jobs:
           dotnet build upstream/Ouroboros/Ouroboros.csproj \
             --configuration Release \
             --no-restore \
-            -p:AlgoPublish=False \
+            -p:Algoublish=False \
             -p:IncludeSource=True
 
-      - name: Find ALGO
+            - name: Find ALGO
         run: |
           echo "Searching for generated .algo..."
-          find upstream -type f -name "*.algo" -print
-          test -n "$(find upstream -type f -name '*.algo' -print -
+          ALGO="$(find upstream -type f -name '*.algo' -print -quit)"
+          if [ -z "$ALGO" ]; then
+            echo "No .algo generated"
+            exit 1
+          fi
+          echo "Found: $ALGO"
+
+      - name: Prepare artifact
+        run: |
+          mkdir -p artifact
+          ALGO="$(find upstream -type f -name '*.algo' -print -quit)"
+          cp "$ALGO" artifact/OuroborosAdvancedUniversalMobile.algo
+          ls -lah artifact
+
+      - name: Upload Universal Mobile V2 ALGO
+        uses: actions/upload-artifact@v4
+        with:
+          name: Ouroboros-Advanced-Universal-Mobile-V2
+          path: artifact/OuroborosAdvancedUniversalMobile.algo
+          if-no-files-found: error
+
