@@ -130,10 +130,10 @@ jobs:
       - name: Sanity check V2.2 source
         run: |
           grep -n "class OuroborosAdvancedUniversalMobileV22" upstream/Ouroboros/Ouroboros.cs
-          grep -n "Anti-Hedge" upstream/Ouroboros/Ouroboros.cs
-          grep -n "Fibonacci" upstream/Ouroboros/Ouroboros.cs
-          grep -n "Trade Quality" upstream/Ouroboros/Ouroboros.cs
-          grep -n "History" upstream/Ouroboros/Ouroboros.cs | head
+          grep -n "No hedge on same symbol" upstream/Ouroboros/Ouroboros.cs
+          grep -n "EnableTradeQualityScore" upstream/Ouroboros/Ouroboros.cs
+          grep -n "EnableFibonacciConfluence" upstream/Ouroboros/Ouroboros.cs
+          grep -n "BootstrapStrategyPerformanceFromHistory" upstream/Ouroboros/Ouroboros.cs
 
       - name: Restore
         run: dotnet restore upstream/Ouroboros/Ouroboros.csproj
