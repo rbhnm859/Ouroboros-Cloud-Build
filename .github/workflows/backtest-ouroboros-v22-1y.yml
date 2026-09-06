@@ -44,6 +44,14 @@ jobs:
   backtest:
     runs-on: ubuntu-latest
     timeout-minutes: 360
+    env:
+      START_DATE: ${{ inputs.start_date || '07/09/2025' }}
+      END_DATE: ${{ inputs.end_date || '07/09/2026' }}
+      STARTING_BALANCE: ${{ inputs.starting_balance || '200' }}
+      BASE_PERIOD: ${{ inputs.base_period || 'm1' }}
+      GOLD_SYMBOL: ${{ inputs.gold_symbol || 'XAUUSD' }}
+      BTC_SYMBOL: ${{ inputs.btc_symbol || 'BITCOIN' }}
+      EURUSD_SYMBOL: ${{ inputs.eurusd_symbol || 'EURUSD' }}
 
     steps:
       - name: Checkout repo
@@ -162,7 +170,7 @@ jobs:
             echo "Missing GitHub Secret: CTRADER_PASSWORD"
             exit 1
           fi
-          printf '%s' "$CTRADER_PASSWORD" > backtest/ctrader.pwd
+          printf '%s' "$CTRADER_PASSWORD" | tr -d '\\r\\n' > backtest/ctrader.pwd
           chmod 600 backtest/ctrader.pwd
 
       - name: Verify cTrader account and symbols
@@ -178,6 +186,11 @@ jobs:
             echo "Missing GitHub Secret: CTRADER_ACCOUNT"
             exit 1
           fi
+
+          # Mobile copy/paste can add invisible whitespace around GitHub Secrets.
+          # Normalise identifiers before passing them to the official CLI.
+          CTRADER_CTID="$(printf '%s' "$CTRADER_CTID" | tr -d '[:space:]')"
+          CTRADER_ACCOUNT="$(printf '%s' "$CTRADER_ACCOUNT" | tr -d '[:space:]')"
 
           mkdir -p backtest/reports
 
@@ -200,9 +213,9 @@ jobs:
             > backtest/reports/symbols.txt
 
           echo "Requested symbols:"
-          echo "GOLD=${{ inputs.gold_symbol }}"
-          echo "BTC=${{ inputs.btc_symbol }}"
-          echo "EURUSD=${{ inputs.eurusd_symbol }}"
+          echo "GOLD=$GOLD_SYMBOL"
+          echo "BTC=$BTC_SYMBOL"
+          echo "EURUSD=$EURUSD_SYMBOL"
 
       - name: Backtest XAUUSD
         env:
@@ -217,11 +230,11 @@ jobs:
             ghcr.io/spotware/ctrader-console:5.9.11 \
             backtest /work/OuroborosAdvancedUniversalMobileV22_Backtest.algo \
             --environment-variables \
-            --symbol="${{ inputs.gold_symbol }}" \
-            --period="${{ inputs.base_period }}" \
-            --start="${{ inputs.start_date }}" \
-            --end="${{ inputs.end_date }}" \
-            --balance="${{ inputs.starting_balance }}" \
+            --symbol="$GOLD_SYMBOL" \
+            --period="$BASE_PERIOD" \
+            --start="$START_DATE" \
+            --end="$END_DATE" \
+            --balance="$STARTING_BALANCE" \
             --data-mode=m1 \
             --data-dir=/work/cache \
             --report=/work/reports/XAUUSD.html \
@@ -241,11 +254,11 @@ jobs:
             ghcr.io/spotware/ctrader-console:5.9.11 \
             backtest /work/OuroborosAdvancedUniversalMobileV22_Backtest.algo \
             --environment-variables \
-            --symbol="${{ inputs.btc_symbol }}" \
-            --period="${{ inputs.base_period }}" \
-            --start="${{ inputs.start_date }}" \
-            --end="${{ inputs.end_date }}" \
-            --balance="${{ inputs.starting_balance }}" \
+            --symbol="$BTC_SYMBOL" \
+            --period="$BASE_PERIOD" \
+            --start="$START_DATE" \
+            --end="$END_DATE" \
+            --balance="$STARTING_BALANCE" \
             --data-mode=m1 \
             --data-dir=/work/cache \
             --report=/work/reports/BTC.html \
@@ -265,11 +278,11 @@ jobs:
             ghcr.io/spotware/ctrader-console:5.9.11 \
             backtest /work/OuroborosAdvancedUniversalMobileV22_Backtest.algo \
             --environment-variables \
-            --symbol="${{ inputs.eurusd_symbol }}" \
-            --period="${{ inputs.base_period }}" \
-            --start="${{ inputs.start_date }}" \
-            --end="${{ inputs.end_date }}" \
-            --balance="${{ inputs.starting_balance }}" \
+            --symbol="$EURUSD_SYMBOL" \
+            --period="$BASE_PERIOD" \
+            --start="$START_DATE" \
+            --end="$END_DATE" \
+            --balance="$STARTING_BALANCE" \
             --data-mode=m1 \
             --data-dir=/work/cache \
             --report=/work/reports/EURUSD.html \
@@ -283,7 +296,7 @@ jobs:
           import json, csv
 
           reports = Path('backtest/reports')
-          balance = float("${{ inputs.starting_balance }}")
+          balance = float("$STARTING_BALANCE")
 
           items = [
               ("XAUUSD", reports / "XAUUSD.json"),
@@ -336,9 +349,9 @@ jobs:
           md = []
           md.append("# Ouroboros V2.2 one-year backtest")
           md.append("")
-          md.append("Period: ${{ inputs.start_date }} to ${{ inputs.end_date }} UTC")
+          md.append("Period: $START_DATE to $END_DATE UTC")
           md.append(f"Starting balance: ${balance:.2f}")
-          md.append("Base period: ${{ inputs.base_period }}")
+          md.append("Base period: $BASE_PERIOD")
           md.append("Data mode: cTrader server M1")
           md.append("")
           md.append("| Symbol | Trades | Wins | Losses | Win rate | Net profit | ROI | Profit factor | Max equity DD |")
