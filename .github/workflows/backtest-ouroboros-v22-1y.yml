@@ -337,9 +337,9 @@ jobs:
           md = []
           md.append("# Ouroboros V2.2 one-year backtest")
           md.append("")
-          md.append(f"Period: ${{{{ inputs.start_date }}}} to ${{{{ inputs.end_date }}}} UTC")
+          md.append("Period: ${{ inputs.start_date }} to ${{ inputs.end_date }} UTC")
           md.append(f"Starting balance: ${balance:.2f}")
-          md.append(f"Base period: ${{{{ inputs.base_period }}}}")
+          md.append("Base period: ${{ inputs.base_period }}")
           md.append("Data mode: cTrader server M1")
           md.append("")
           md.append("| Symbol | Trades | Wins | Losses | Win rate | Net profit | ROI | Profit factor | Max equity DD |")
