@@ -41,18 +41,29 @@ jobs:
 
       - name: Build algo
         run: |
-          mkdir -p cli backtest/reports
-          docker run --rm -v "$PWD:/repo" -w /repo/cli \
+          mkdir -p cli/FibonacciHarmonicSniperUltimate backtest/cache backtest/reports
+          cp /tmp/Fibonacci.cs cli/FibonacciHarmonicSniperUltimate/FibonacciHarmonicSniperUltimate.cs
+          python3 - <<'PYCODE'
+          from pathlib import Path
+          Path('cli/FibonacciHarmonicSniperUltimate/FibonacciHarmonicSniperUltimate.csproj').write_text('''<Project Sdk="Microsoft.NET.Sdk">
+            <PropertyGroup>
+              <TargetFramework>net6.0</TargetFramework>
+              <ImplicitUsings>disable</ImplicitUsings>
+              <Nullable>disable</Nullable>
+            </PropertyGroup>
+            <ItemGroup>
+              <PackageReference Include="cTrader.Automate" Version="1.*-*" />
+            </ItemGroup>
+          </Project>''')
+          PYCODE
+          docker run --rm --entrypoint dotnet -v "$PWD:/repo" -w /repo \
             ghcr.io/spotware/ctrader-console:5.9.11 \
-            create cbot FibonacciBacktest csharp
-          CSPROJ="$(find cli -type f -name '*.csproj' -print -quit)"
-          test -n "$CSPROJ" || exit 1
-          DIR="$(dirname "$CSPROJ")"
-          find "$DIR" -type f -name '*.cs' -delete
-          cp /tmp/Fibonacci.cs "$DIR/FibonacciHarmonicSniperUltimate.cs"
-          docker run --rm -v "$PWD:/repo" -w /repo \
+            restore cli/FibonacciHarmonicSniperUltimate/FibonacciHarmonicSniperUltimate.csproj
+          docker run --rm --entrypoint dotnet -v "$PWD:/repo" -w /repo \
             ghcr.io/spotware/ctrader-console:5.9.11 \
-            build "/repo/$CSPROJ"
+            build cli/FibonacciHarmonicSniperUltimate/FibonacciHarmonicSniperUltimate.csproj \
+            --configuration Release --no-restore \
+            -p:AlgoPublish=False -p:IncludeSource=True
           ALGO="$(find cli -type f -name '*.algo' -print -quit)"
           test -n "$ALGO" || exit 1
           cp "$ALGO" backtest/Fibonacci.algo
