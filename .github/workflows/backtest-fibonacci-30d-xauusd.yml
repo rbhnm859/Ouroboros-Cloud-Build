@@ -1,0 +1,196 @@
+name: Fibonacci Harmonic 30D XAUUSD Diagnostic
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/backtest-fibonacci-30d-xauusd.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fibonacci-harmonic-30d-xauusd
+  cancel-in-progress: false
+
+jobs:
+  backtest:
+    name: Fibonacci XAUUSD H1 30D
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Pull official cTrader CLI
+        run: docker pull ghcr.io/spotware/ctrader-console:5.9.11
+
+      - name: Prepare Fibonacci source with trading enabled
+        run: |
+          python3 - <<'PYCODE'
+          from pathlib import Path
+          import base64, gzip, re
+
+          workflow = Path('.github/workflows/build-fibonacci-harmonic-sniper-ultimate.yml').read_text()
+          match = re.search(r'source_payload\s*=\s*"""([A-Za-z0-9+/=]+)"""', workflow)
+          if not match:
+              raise SystemExit('Fibonacci source payload was not found')
+
+          source = gzip.decompress(base64.b64decode(match.group(1))).decode('utf-8')
+          old = '[Parameter("Trading Enabled", DefaultValue = false'
+          new = '[Parameter("Trading Enabled", DefaultValue = true'
+          if old not in source:
+              raise SystemExit('Trading Enabled parameter was not found')
+          source = source.replace(old, new, 1)
+
+          project = Path('fibonacci-backtest/FibonacciHarmonicSniperUltimate')
+          project.mkdir(parents=True, exist_ok=True)
+          (project / 'FibonacciHarmonicSniperUltimate.cs').write_text(source)
+          (project / 'FibonacciHarmonicSniperUltimate.csproj').write_text('''<Project Sdk="Microsoft.NET.Sdk">
+            <PropertyGroup>
+              <TargetFramework>net6.0</TargetFramework>
+              <ImplicitUsings>disable</ImplicitUsings>
+              <Nullable>disable</Nullable>
+            </PropertyGroup>
+            <ItemGroup>
+              <PackageReference Include="cTrader.Automate" Version="1.*-*" />
+            </ItemGroup>
+          </Project>''')
+          print('Prepared Fibonacci Harmonic Sniper Ultimate with Trading Enabled=true')
+          PYCODE
+
+      - name: Build Fibonacci cBot
+        run: |
+          mkdir -p backtest/cache backtest/reports
+          docker run --rm --entrypoint sh -v "$PWD:/repo" -w /repo \
+            ghcr.io/spotware/ctrader-console:5.9.11 -c \
+            'dotnet restore fibonacci-backtest/FibonacciHarmonicSniperUltimate/FibonacciHarmonicSniperUltimate.csproj && dotnet build fibonacci-backtest/FibonacciHarmonicSniperUltimate/FibonacciHarmonicSniperUltimate.csproj --configuration Release --no-restore -p:AlgoPublish=False -p:IncludeSource=True'
+
+          ALGO="$(find fibonacci-backtest -type f -name '*.algo' -print -quit)"
+          if [ -z "$ALGO" ]; then
+            echo 'Build completed but no .algo was found'
+            find fibonacci-backtest -maxdepth 8 -type f -print
+            exit 1
+          fi
+          cp "$ALGO" backtest/FibonacciHarmonicSniperUltimate.algo
+
+      - name: Create cTrader password file
+        env:
+          CTRADER_PASSWORD: ${{ secrets.CTRADER_PASSWORD }}
+        run: |
+          test -n "${CTRADER_PASSWORD:-}" || { echo 'Missing CTRADER_PASSWORD'; exit 1; }
+          printf '%s' "$CTRADER_PASSWORD" > backtest/ctrader.pwd
+          chmod 600 backtest/ctrader.pwd
+
+      - name: Backtest XAUUSD H1 with M1 data for 30 days
+        env:
+          CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+          CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+        run: |
+          test -n "${CTRADER_CTID:-}" || { echo 'Missing CTRADER_CTID'; exit 1; }
+          test -n "${CTRADER_ACCOUNT:-}" || { echo 'Missing CTRADER_ACCOUNT'; exit 1; }
+
+          START_DATE="$(date -u -d '30 days ago' +'%d/%m/%Y')"
+          END_DATE="$(date -u +'%d/%m/%Y')"
+          echo "Running XAUUSD H1 backtest from $START_DATE to $END_DATE with M1 data"
+
+          docker run --rm \
+            -v "$PWD/backtest:/work" \
+            -e "CTID=$CTRADER_CTID" \
+            -e 'PWD-FILE=/work/ctrader.pwd' \
+            -e "ACCOUNT=$CTRADER_ACCOUNT" \
+            ghcr.io/spotware/ctrader-console:5.9.11 \
+            backtest /work/FibonacciHarmonicSniperUltimate.algo \
+            --environment-variables \
+            --symbol=XAUUSD \
+            --period=h1 \
+            --start="$START_DATE" \
+            --end="$END_DATE" \
+            --balance=200 \
+            --data-mode=m1 \
+            --data-dir=/work/cache \
+            --report=/work/reports/XAUUSD-30D.html \
+            --report-json=/work/reports/XAUUSD-30D.json
+
+      - name: Create diagnostic summary
+        if: success()
+        run: |
+          python3 - <<'PYCODE'
+          from pathlib import Path
+          import json, re
+
+          report = Path('backtest/reports/XAUUSD-30D.json')
+          data = json.loads(report.read_text())
+
+          flat = {}
+          def flatten(value):
+              if isinstance(value, dict):
+                  for key, child in value.items():
+                      flat.setdefault(re.sub(r'[^a-z0-9]', '', key.lower()), child)
+                      flatten(child)
+              elif isinstance(value, list):
+                  for child in value:
+                      flatten(child)
+          flatten(data)
+
+          def raw(*names):
+              for name in names:
+                  value = flat.get(re.sub(r'[^a-z0-9]', '', name.lower()))
+                  if value not in (None, '') and not isinstance(value, (dict, list)):
+                      return value
+              return ''
+
+          def number(*names, default=0.0):
+              value = raw(*names)
+              try:
+                  return float(str(value).replace('%', '').replace(',', ''))
+              except (TypeError, ValueError):
+                  return default
+
+          trades = int(number('TotalTrades', 'Trades'))
+          wins = int(number('WinningTrades', 'WinningPositions', 'Wins'))
+          net = number('NetProfit', 'NetProfitAmount')
+          win_rate = number('WinRate', 'WinningTradesPercentages', default=(wins / trades * 100 if trades else 0.0))
+          roi = net / 200 * 100
+          drawdown = raw('MaxEquityDrawdownPercentages', 'MaxEquityDrawdownPercentage', 'MaxDrawdownPercentages', 'MaxDrawdownPercentage')
+          profit_factor = raw('ProfitFactor')
+
+          lines = [
+              '# Fibonacci Harmonic Sniper Ultimate - XAUUSD 30D',
+              '',
+              'Symbol: XAUUSD',
+              'Chart period: H1',
+              'Data mode: M1',
+              'Starting balance: $200.00',
+              f'Total trades: {trades}',
+              f'Win rate: {win_rate:.2f}%',
+              f'Net profit: ${net:.2f}',
+              f'ROI: {roi:.2f}%',
+              f'Max drawdown: {drawdown}',
+              f'Profit factor: {profit_factor}',
+          ]
+          summary = '\n'.join(lines)
+          Path('backtest/reports/XAUUSD-30D-summary.md').write_text(summary + '\n')
+          print(summary)
+          with Path(__import__('os').environ['GITHUB_STEP_SUMMARY']).open('a') as output:
+              output.write(summary + '\n')
+          PYCODE
+
+      - name: Remove credentials
+        if: always()
+        run: rm -f backtest/ctrader.pwd
+
+      - name: Upload HTML and JSON reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Fibonacci-Harmonic-XAUUSD-H1-30D-Reports
+          path: |
+            backtest/reports/XAUUSD-30D.html
+            backtest/reports/XAUUSD-30D.json
+            backtest/reports/XAUUSD-30D-summary.md
+          if-no-files-found: warn
+          retention-days: 30
