@@ -34,6 +34,7 @@ namespace cAlgo.Robots
         private DateTime _lastProcessedBarTime = DateTime.MinValue;
         private int _tradesToday;
         private readonly Dictionary<int, string> _managedStopReason = new Dictionary<int, string>();
+        private readonly Dictionary<int, double> _initialRiskPips = new Dictionary<int, double>();
         private readonly Dictionary<int, string> _pendingExitReason = new Dictionary<int, string>();
 
         [Parameter("Label", DefaultValue = "KeltnerTraderV2_1", Group = "General")]
@@ -168,10 +169,12 @@ namespace cAlgo.Robots
             Positions.Closed += OnPositionClosed;
 
             Print("[START] Keltner Channels Trader v2.1 | Symbol={0} | TF={1} | Balance={2:F2} | Equity={3:F2}", SymbolName, TimeFrame, Account.Balance, Account.Equity);
-            Print("[SYMBOL] PipSize={0} TickSize={1} PipValue={2} TickValue={3} VolMin={4} VolMax={5} VolStep={6} MinSL={7} MinTP={8} MinDistanceType={9}",
+            Print("[SYMBOL] PipSize={0} TickSize={1} PipValue={2} TickValue={3} VolMin={4} VolMax={5} VolStep={6} MinSL={7} MinTP={8} MinDistanceType={9} Spread={10} Commission={11} CommissionType={12} MinCommission={13} SwapLong={14} SwapShort={15} SwapType={16}",
                 Symbol.PipSize, Symbol.TickSize, Symbol.PipValue, Symbol.TickValue,
                 Symbol.VolumeInUnitsMin, Symbol.VolumeInUnitsMax, Symbol.VolumeInUnitsStep,
-                Symbol.MinStopLossDistance, Symbol.MinTakeProfitDistance, Symbol.MinDistanceType);
+                Symbol.MinStopLossDistance, Symbol.MinTakeProfitDistance, Symbol.MinDistanceType,
+                Symbol.Spread, Symbol.Commission, Symbol.CommissionType, Symbol.MinCommission,
+                Symbol.SwapLong, Symbol.SwapShort, Symbol.SwapCalculationType);
         }
 
         protected override void OnBarClosed()
@@ -406,6 +409,7 @@ namespace cAlgo.Robots
                 return;
             }
 
+            _initialRiskPips[position.Id] = stopLossPips;
             _tradesToday++;
             _lastEntryTime = Server.Time;
             _lastEntryBarCount = Bars.Count;
@@ -451,6 +455,12 @@ namespace cAlgo.Robots
 
             rawVolume = Math.Min(rawVolume, Symbol.VolumeInUnitsMax);
             var normalized = Symbol.NormalizeVolumeInUnits(rawVolume, RoundingMode.Down);
+            if (RiskMode == KeltnerRiskMode.PercentageRisk && rawVolume < Symbol.VolumeInUnitsMin)
+            {
+                Print("[VOLUME_SKIP] Requested risk implies {0:F2} units, below broker minimum {1}. Trade skipped to avoid exceeding configured risk.", rawVolume, Symbol.VolumeInUnitsMin);
+                return 0;
+            }
+
             if (normalized < Symbol.VolumeInUnitsMin)
                 normalized = Symbol.VolumeInUnitsMin;
             if (normalized > Symbol.VolumeInUnitsMax)
@@ -475,7 +485,12 @@ namespace cAlgo.Robots
                     continue;
                 }
 
-                var originalRiskPips = Math.Abs(position.EntryPrice - position.StopLoss.Value) / Symbol.PipSize;
+                if (!_initialRiskPips.TryGetValue(position.Id, out var originalRiskPips))
+                {
+                    originalRiskPips = Math.Abs(position.EntryPrice - position.StopLoss.Value) / Symbol.PipSize;
+                    if (originalRiskPips > 0 && double.IsFinite(originalRiskPips))
+                        _initialRiskPips[position.Id] = originalRiskPips;
+                }
                 if (originalRiskPips <= 0 || !double.IsFinite(originalRiskPips))
                     continue;
 
@@ -632,6 +647,7 @@ namespace cAlgo.Robots
             }
 
             _managedStopReason.Remove(p.Id);
+            _initialRiskPips.Remove(p.Id);
 
             Print("[EXIT] Id={0} Side={1} ExitReason={2} Gross={3:F2} Net={4:F2} Pips={5:F2} Entry={6} ExitTime={7:O}",
                 p.Id, p.TradeType, exitReason, p.GrossProfit, p.NetProfit, p.Pips, p.EntryPrice, Server.Time);
