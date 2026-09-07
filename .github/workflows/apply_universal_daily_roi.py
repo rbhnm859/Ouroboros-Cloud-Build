@@ -223,7 +223,7 @@ def main() -> None:
 
             OuroborosMarket market = DetectMarket(sym.Name);
             if (market == OuroborosMarket.Forex || market == OuroborosMarket.Metals)
-                return Server.Time.Hour >= 6 && Server.Time.Hour <= 20;
+                return Server.Time.Hour >= 7 && Server.Time.Hour <= 20;
 
             return true;
         }
