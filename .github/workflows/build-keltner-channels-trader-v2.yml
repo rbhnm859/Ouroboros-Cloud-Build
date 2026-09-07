@@ -1,0 +1,52 @@
+name: Build Keltner Channels Trader v2
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+    paths:
+      - 'Keltner-Channels-Trader-v2/source/**'
+      - '.github/workflows/build-keltner-channels-trader-v2.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Restore and build Keltner v2
+        shell: bash
+        run: |
+          set -euo pipefail
+          PROJ='Keltner-Channels-Trader-v2/source/Keltner Channels Trader v2.csproj'
+          dotnet restore "$PROJ"
+          dotnet build "$PROJ" -c Release --no-restore | tee /tmp/keltner-build.log
+          grep -q '0 Error(s)' /tmp/keltner-build.log
+
+      - name: Locate and validate .algo
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p Keltner-Channels-Trader-v2/compiled-staging
+          ALGO=$(find 'Keltner-Channels-Trader-v2/source/bin/Release' -type f -name '*.algo' | head -n 1)
+          test -n "$ALGO"
+          cp "$ALGO" 'Keltner-Channels-Trader-v2/compiled-staging/KeltnerChannelsTraderV2_Optimized.algo'
+          sha256sum 'Keltner-Channels-Trader-v2/compiled-staging/KeltnerChannelsTraderV2_Optimized.algo' | tee 'Keltner-Channels-Trader-v2/compiled-staging/KeltnerChannelsTraderV2_Optimized.algo.sha256'
+          file 'Keltner-Channels-Trader-v2/compiled-staging/KeltnerChannelsTraderV2_Optimized.algo'
+
+      - name: Upload compiled artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: KeltnerChannelsTraderV2_Optimized
+          path: Keltner-Channels-Trader-v2/compiled-staging/
+          retention-days: 14
