@@ -1,10 +1,10 @@
-name: Build Ouroboros Advanced Universal Mobile V2.2 XAUUSD
+name: Build Ouroboros Advanced Universal Mobile V2.2 Daily ROI Universal
 
 on:
   workflow_dispatch:
 
 concurrency:
-  group: ouroboros-v22-xauusd-build
+  group: ouroboros-v22-daily-roi-universal-build
   cancel-in-progress: true
 
 permissions:
@@ -74,11 +74,16 @@ jobs:
           path.write_text(text.replace(old, new, 1))
           PYCODE
 
-      - name: Sanity check XAUUSD-only V2.2 source
+      - name: Apply universal daily ROI and deterministic risk patch
+        run: python3 .github/workflows/apply_universal_daily_roi.py upstream/Ouroboros/Ouroboros.cs
+      - name: Sanity check universal daily ROI V2.2 source
         run: |
           grep -n "class OuroborosAdvancedUniversalMobileV22" upstream/Ouroboros/Ouroboros.cs
           grep -n "trade.SymbolName, SymbolName" upstream/Ouroboros/Ouroboros.cs
           grep -n "BootstrapStrategyPerformanceFromHistory" upstream/Ouroboros/Ouroboros.cs
+          grep -n "UniversalVolumeForRisk" upstream/Ouroboros/Ouroboros.cs
+          grep -n "OuroborosMarket.Generic" upstream/Ouroboros/Ouroboros.cs
+          grep -n "DailyProfitGivebackPct" upstream/Ouroboros/Ouroboros.cs
 
       - name: Restore
         run: dotnet restore upstream/Ouroboros/Ouroboros.csproj
@@ -105,6 +110,6 @@ jobs:
       - name: Upload Universal Mobile V2.2 ALGO
         uses: actions/upload-artifact@v4
         with:
-          name: Ouroboros-Advanced-Universal-Mobile-V2.2-XAUUSD
+          name: Ouroboros-Advanced-Universal-Mobile-V2.2-Daily-ROI
           path: artifact/OuroborosAdvancedUniversalMobileV22.algo
           if-no-files-found: error

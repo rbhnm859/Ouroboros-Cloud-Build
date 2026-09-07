@@ -1,10 +1,10 @@
-name: Backtest Ouroboros V2.2 - XAUUSD M1 30D
+name: Backtest Ouroboros V2.2 - Daily ROI Universal M1 30D
 
 on:
   workflow_dispatch:
 
 concurrency:
-  group: ouroboros-v22-xauusd-m1-30d
+  group: ouroboros-v22-daily-roi-universal-m1-30d
   cancel-in-progress: true
 
 permissions:
@@ -14,12 +14,23 @@ jobs:
   backtest:
     runs-on: ubuntu-latest
     timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - symbol: XAUUSD
+            id: XAUUSD
+          - symbol: EURUSD
+            id: EURUSD
+          - symbol: BITCOIN
+            id: BITCOIN
     env:
       START_DATE: "07/08/2026"
       END_DATE: "06/09/2026"
       STARTING_BALANCE: "200"
       BASE_PERIOD: "m1"
-      GOLD_SYMBOL: "XAUUSD"
+      TEST_SYMBOL: ${{ matrix.symbol }}
+      TEST_ID: ${{ matrix.id }}
 
     steps:
       - name: Checkout repository
@@ -68,7 +79,7 @@ jobs:
           cd upstream/Ouroboros
           patch -p1 < /tmp/v22.patch
 
-      - name: Restrict adaptive history to current XAUUSD symbol
+      - name: Restrict adaptive history to current chart symbol
         run: |
           python3 - <<'PYCODE'
           from pathlib import Path
@@ -81,11 +92,17 @@ jobs:
           path.write_text(text.replace(old, new, 1))
           PYCODE
 
-      - name: Sanity check XAUUSD-only V2.2 source
+      - name: Apply universal daily ROI and deterministic risk patch
+        run: python3 .github/workflows/apply_universal_daily_roi.py upstream/Ouroboros/Ouroboros.cs
+
+      - name: Sanity check universal daily ROI V2.2 source
         run: |
           grep -n "class OuroborosAdvancedUniversalMobileV22" upstream/Ouroboros/Ouroboros.cs
           grep -n "trade.SymbolName, SymbolName" upstream/Ouroboros/Ouroboros.cs
           grep -n "BootstrapStrategyPerformanceFromHistory" upstream/Ouroboros/Ouroboros.cs
+          grep -n "UniversalVolumeForRisk" upstream/Ouroboros/Ouroboros.cs
+          grep -n "OuroborosMarket.Generic" upstream/Ouroboros/Ouroboros.cs
+          grep -n "DailyProfitGivebackPct" upstream/Ouroboros/Ouroboros.cs
 
       - name: Restore V2.2 project
         run: dotnet restore upstream/Ouroboros/Ouroboros.csproj
@@ -97,7 +114,7 @@ jobs:
             --no-restore \
             -p:AlgoPublish=False \
             -p:IncludeSource=True
-          mkdir -p artifact backtest/reports backtest/cache/XAUUSD
+          mkdir -p artifact backtest/reports "backtest/cache/$TEST_ID"
           ALGO="$(find upstream -type f -name '*.algo' -print -quit)"
           if [ -z "$ALGO" ]; then
             echo "No .algo generated"
@@ -137,7 +154,7 @@ jobs:
             ghcr.io/spotware/ctrader-console:5.9.11 \
             accounts --environment-variables > backtest/reports/accounts.txt
 
-      - name: Backtest XAUUSD M1 for 30 days
+      - name: Backtest representative symbol M1 for 30 days
         env:
           CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
           CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
@@ -152,43 +169,72 @@ jobs:
             ghcr.io/spotware/ctrader-console:5.9.11 \
             backtest /work/OuroborosAdvancedUniversalMobileV22.algo \
             --environment-variables \
-            --symbol="$GOLD_SYMBOL" \
+            --symbol="$TEST_SYMBOL" \
             --period="$BASE_PERIOD" \
             --start="$START_DATE" \
             --end="$END_DATE" \
             --balance="$STARTING_BALANCE" \
             --data-mode=m1 \
-            --data-dir=/work/cache/XAUUSD \
-            --report=/work/reports/XAUUSD-M1-30D.html \
-            --report-json=/work/reports/XAUUSD-M1-30D.json \
+            --data-dir="/work/cache/$TEST_ID" \
+            --report="/work/reports/$TEST_ID-M1-30D.html" \
+            --report-json="/work/reports/$TEST_ID-M1-30D.json" \
             --exit-on-stop
 
-      - name: Build XAUUSD summary
+      - name: Build verified backtest summary
         if: success()
         run: |
           python3 - <<'PYCODE'
           from pathlib import Path
           import json
-          report = Path("backtest/reports/XAUUSD-M1-30D.json")
+          import os
+
+          test_id = os.environ["TEST_ID"]
+          symbol = os.environ["TEST_SYMBOL"]
+          report = Path(f"backtest/reports/{test_id}-M1-30D.json")
           data = json.loads(report.read_text())
           balance = 200.0
-          total = int(float(data.get("TotalTrades", 0) or 0))
-          wins = int(float(data.get("WinningTrades", 0) or 0))
-          net = float(data.get("NetProfit", 0) or 0)
+
+          def find_metric(node, key):
+              if isinstance(node, dict):
+                  if key in node:
+                      return node[key]
+                  for value in node.values():
+                      found = find_metric(value, key)
+                      if found is not None:
+                          return found
+              elif isinstance(node, list):
+                  for value in node:
+                      found = find_metric(value, key)
+                      if found is not None:
+                          return found
+              return None
+
+          def number(key, default=0.0):
+              value = find_metric(data, key)
+              try:
+                  return float(value)
+              except (TypeError, ValueError):
+                  return default
+
+          total = int(number("TotalTrades"))
+          wins = int(number("WinningTrades"))
+          losses = int(number("LosingTrades"))
+          net = number("NetProfit")
           win_rate = wins / total * 100 if total else 0.0
           roi = net / balance * 100 if balance else 0.0
           summary = (
-              "# Ouroboros V2.2 XAUUSD M1 30-day backtest\n\n"
+              f"# Ouroboros V2.2 Daily ROI — {symbol} M1 30-day backtest\n\n"
               "Period: 07/08/2026 to 06/09/2026 UTC\n"
               f"Trades: {total}\n"
               f"Wins: {wins}\n"
+              f"Losses: {losses}\n"
               f"Win rate: {win_rate:.2f}%\n"
               f"Net profit: ${net:.2f}\n"
               f"ROI: {roi:.2f}%\n"
-              f"Profit factor: {data.get('ProfitFactor', '')}\n"
-              f"Max equity drawdown: {data.get('MaxEquityDrawdownPercentages', '')}\n"
+              f"Profit factor: {number('ProfitFactor'):.2f}\n"
+              f"Max equity drawdown: {number('MaxEquityDrawdownPercentages'):.2f}%\n"
           )
-          Path("backtest/reports/summary.md").write_text(summary)
+          Path(f"backtest/reports/{test_id}-summary.md").write_text(summary)
           print(summary)
           PYCODE
 
@@ -200,14 +246,14 @@ jobs:
         if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: Ouroboros-Advanced-Universal-Mobile-V2.2-XAUUSD
+          name: Ouroboros-Advanced-Universal-Mobile-V2.2-Daily-ROI-${{ matrix.id }}
           path: artifact/OuroborosAdvancedUniversalMobileV22.algo
           if-no-files-found: error
 
-      - name: Upload XAUUSD 30-day reports
+      - name: Upload representative 30-day reports
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: Ouroboros-V2.2-XAUUSD-M1-30D-Reports
+          name: Ouroboros-V2.2-Daily-ROI-${{ matrix.id }}-M1-30D-Reports
           path: backtest/reports/
           if-no-files-found: warn
