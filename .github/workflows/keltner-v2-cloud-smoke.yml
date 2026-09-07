@@ -74,7 +74,6 @@ jobs:
             --end='31/08/2026' \
             --balance=200 \
             --commission=35 \
-            --commission-type=UsdPerMillionUsdVolume \
             --spread=1 \
             --data-mode=open \
             --RiskMode=FixedLots \
