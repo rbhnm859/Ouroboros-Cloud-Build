@@ -13,32 +13,26 @@ permissions:
 jobs:
   smoke:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup .NET 8 SDK
-        uses: actions/setup-dotnet@v4
-        with:
-          dotnet-version: '8.0.x'
+      - name: Pull current official cTrader Console
+        run: docker pull ghcr.io/spotware/ctrader-console:latest
 
-      - name: Build isolated hardened Keltner baseline
+      - name: Build hardened Keltner inside cTrader Docker
         shell: bash
         run: |
           set -euo pipefail
-          PROJ='Keltner-Channels-Trader-v2/source/Keltner Channels Trader v2.csproj'
-          dotnet restore "$PROJ"
-          dotnet build "$PROJ" -c Release --no-restore | tee /tmp/keltner-build.log
-          grep -q '0 Error(s)' /tmp/keltner-build.log
-          mkdir -p Keltner-Channels-Trader-v2/smoke/reports
-          ALGO=$(find 'Keltner-Channels-Trader-v2/source/bin/Release' -type f -name '*.algo' | head -n 1)
+          mkdir -p Keltner-Channels-Trader-v2/smoke/reports Keltner-Channels-Trader-v2/smoke/cache
+          docker run --rm --entrypoint sh -v "$PWD:/repo" -w /repo \
+            ghcr.io/spotware/ctrader-console:latest -c \
+            "dotnet restore 'Keltner-Channels-Trader-v2/source/Keltner Channels Trader v2.csproj' && dotnet build 'Keltner-Channels-Trader-v2/source/Keltner Channels Trader v2.csproj' --configuration Release --no-restore -p:AlgoPublish=False -p:IncludeSource=True"
+          ALGO="$(find 'Keltner-Channels-Trader-v2/source/bin/Release' -type f -name '*.algo' -print -quit)"
           test -n "$ALGO"
           cp "$ALGO" Keltner-Channels-Trader-v2/smoke/KeltnerChannelsTraderV2_Baseline.algo
           sha256sum Keltner-Channels-Trader-v2/smoke/KeltnerChannelsTraderV2_Baseline.algo
-
-      - name: Pull current official cTrader Console
-        run: docker pull ghcr.io/spotware/ctrader-console:latest
 
       - name: Prepare credentials
         env:
@@ -54,7 +48,7 @@ jobs:
           umask 077
           printf '%s' "$CTRADER_PASSWORD" > Keltner-Channels-Trader-v2/smoke/ctrader.pwd
 
-      - name: Fast EURUSD engine and report plumbing test
+      - name: Fast EURUSD Docker-native backtest
         env:
           CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
           CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
@@ -63,11 +57,12 @@ jobs:
           set +e
           docker run --rm \
             -v "$PWD/Keltner-Channels-Trader-v2/smoke:/work" \
+            -e "CTID=$CTRADER_CTID" \
+            -e 'PWD-FILE=/work/ctrader.pwd' \
+            -e "ACCOUNT=$CTRADER_ACCOUNT" \
             ghcr.io/spotware/ctrader-console:latest \
             backtest /work/KeltnerChannelsTraderV2_Baseline.algo \
-            --ctid="$CTRADER_CTID" \
-            --pwd-file=/work/ctrader.pwd \
-            --account="$CTRADER_ACCOUNT" \
+            --environment-variables \
             --symbol=EURUSD \
             --period=m15 \
             --start='01/08/2026' \
@@ -80,29 +75,25 @@ jobs:
             --FixedVolumeLots=0.01 \
             --MaxSpreadPips=0 \
             --LogDiagnostics=true \
+            --report=/work/reports/eurusd-m15-smoke.html \
             --report-json=/work/reports/eurusd-m15-smoke.json \
             > Keltner-Channels-Trader-v2/smoke/reports/eurusd-m15-smoke.console.log 2>&1
           RC=$?
           echo "CTRADER_EXIT_CODE=$RC"
-          echo '=== cTrader console output ==='
           cat Keltner-Channels-Trader-v2/smoke/reports/eurusd-m15-smoke.console.log || true
-          echo '=== Files produced ==='
+          echo '=== Produced files ==='
           find Keltner-Channels-Trader-v2/smoke -type f -printf '%P\n' | sort
           if [ -s Keltner-Channels-Trader-v2/smoke/reports/eurusd-m15-smoke.json ]; then
             python3 - <<'PY'
-          from pathlib import Path
           import json
+          from pathlib import Path
           p=Path('Keltner-Channels-Trader-v2/smoke/reports/eurusd-m15-smoke.json')
           d=json.loads(p.read_text())
-          print('=== VALID REPORT JSON ===')
-          print(json.dumps(d, indent=2, sort_keys=True))
+          print('VALID_REPORT_JSON=1')
+          for k in ['Equity','NetProfit','ProfitFactor','TotalTrades','WinningTrades','LosingTrades','MaxEquityDrawdownPercentages']:
+              print(f'{k}={d.get(k)}')
           PY
           fi
-          echo '=== Native Backtesting files ==='
-          find Keltner-Channels-Trader-v2/smoke -type f \( -name 'Log*' -o -name 'Events*' -o -name '*.cbotset' \) -print0 | while IFS= read -r -d '' f; do
-            echo "----- $f -----"
-            cat "$f" || true
-          done
           exit "$RC"
 
       - name: Remove credentials
@@ -113,7 +104,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: Keltner-v2-cloud-smoke-latest
+          name: Keltner-v2-cloud-smoke-docker-native
           path: Keltner-Channels-Trader-v2/smoke/reports/
           if-no-files-found: warn
           retention-days: 7
