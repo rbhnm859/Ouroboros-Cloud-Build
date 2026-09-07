@@ -7,13 +7,14 @@ on:
       - main
     paths:
       - '.github/workflows/backtest-fibonacci-30d-xauusd.yml'
+      - 'FibonacciHarmonicSniperUltimate/**'
 
 permissions:
   contents: read
 
 concurrency:
   group: fibonacci-harmonic-30d-xauusd
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   backtest:
@@ -28,38 +29,28 @@ jobs:
       - name: Pull official cTrader CLI
         run: docker pull ghcr.io/spotware/ctrader-console:5.9.11
 
-      - name: Prepare Fibonacci source with trading enabled
+      - name: Prepare checked-in Fibonacci source with trading enabled
         run: |
           python3 - <<'PYCODE'
           from pathlib import Path
-          import base64, gzip, re
+          import shutil
 
-          workflow = Path('.github/workflows/build-fibonacci-harmonic-sniper-ultimate.yml').read_text()
-          match = re.search(r'source_payload\s*=\s*"""([A-Za-z0-9+/=]+)"""', workflow)
-          if not match:
-              raise SystemExit('Fibonacci source payload was not found')
+          source_project = Path('FibonacciHarmonicSniperUltimate')
+          project = Path('fibonacci-backtest/FibonacciHarmonicSniperUltimate')
+          if not (source_project / 'FibonacciHarmonicSniperUltimate.cs').is_file():
+              raise SystemExit('Checked-in Fibonacci source was not found')
+          if project.exists():
+              shutil.rmtree(project)
+          shutil.copytree(source_project, project)
 
-          source = gzip.decompress(base64.b64decode(match.group(1))).decode('utf-8')
+          source_path = project / 'FibonacciHarmonicSniperUltimate.cs'
+          source = source_path.read_text()
           old = '[Parameter("Trading Enabled", DefaultValue = false'
           new = '[Parameter("Trading Enabled", DefaultValue = true'
           if old not in source:
               raise SystemExit('Trading Enabled parameter was not found')
-          source = source.replace(old, new, 1)
-
-          project = Path('fibonacci-backtest/FibonacciHarmonicSniperUltimate')
-          project.mkdir(parents=True, exist_ok=True)
-          (project / 'FibonacciHarmonicSniperUltimate.cs').write_text(source)
-          (project / 'FibonacciHarmonicSniperUltimate.csproj').write_text('''<Project Sdk="Microsoft.NET.Sdk">
-            <PropertyGroup>
-              <TargetFramework>net6.0</TargetFramework>
-              <ImplicitUsings>disable</ImplicitUsings>
-              <Nullable>disable</Nullable>
-            </PropertyGroup>
-            <ItemGroup>
-              <PackageReference Include="cTrader.Automate" Version="1.*-*" />
-            </ItemGroup>
-          </Project>''')
-          print('Prepared Fibonacci Harmonic Sniper Ultimate with Trading Enabled=true')
+          source_path.write_text(source.replace(old, new, 1))
+          print('Prepared checked-in Fibonacci Harmonic Sniper Ultimate with Trading Enabled=true')
           PYCODE
 
       - name: Build Fibonacci cBot
