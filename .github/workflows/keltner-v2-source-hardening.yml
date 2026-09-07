@@ -1,0 +1,81 @@
+name: Keltner v2 Source Hardening
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+    paths:
+      - '.github/workflows/keltner-v2-source-hardening.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  harden:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Patch risk sizing and initial-R tracking
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('Keltner-Channels-Trader-v2/source/Keltner Channels Trader v2.cs')
+          s=p.read_text()
+          reps=[
+          (
+          '        private readonly Dictionary<int, string> _managedStopReason = new Dictionary<int, string>();\n        private readonly Dictionary<int, string> _pendingExitReason = new Dictionary<int, string>();',
+          '        private readonly Dictionary<int, string> _managedStopReason = new Dictionary<int, string>();\n        private readonly Dictionary<int, double> _initialRiskPips = new Dictionary<int, double>();\n        private readonly Dictionary<int, string> _pendingExitReason = new Dictionary<int, string>();'
+          ),
+          (
+          '            Print("[SYMBOL] PipSize={0} TickSize={1} PipValue={2} TickValue={3} VolMin={4} VolMax={5} VolStep={6} MinSL={7} MinTP={8} MinDistanceType={9}",\n                Symbol.PipSize, Symbol.TickSize, Symbol.PipValue, Symbol.TickValue,\n                Symbol.VolumeInUnitsMin, Symbol.VolumeInUnitsMax, Symbol.VolumeInUnitsStep,\n                Symbol.MinStopLossDistance, Symbol.MinTakeProfitDistance, Symbol.MinDistanceType);',
+          '            Print("[SYMBOL] PipSize={0} TickSize={1} PipValue={2} TickValue={3} VolMin={4} VolMax={5} VolStep={6} MinSL={7} MinTP={8} MinDistanceType={9} Spread={10} Commission={11} CommissionType={12} MinCommission={13} SwapLong={14} SwapShort={15} SwapType={16}",\n                Symbol.PipSize, Symbol.TickSize, Symbol.PipValue, Symbol.TickValue,\n                Symbol.VolumeInUnitsMin, Symbol.VolumeInUnitsMax, Symbol.VolumeInUnitsStep,\n                Symbol.MinStopLossDistance, Symbol.MinTakeProfitDistance, Symbol.MinDistanceType,\n                Symbol.Spread, Symbol.Commission, Symbol.CommissionType, Symbol.MinCommission,\n                Symbol.SwapLong, Symbol.SwapShort, Symbol.SwapCalculationType);'
+          ),
+          (
+          '            _tradesToday++;\n            _lastEntryTime = Server.Time;',
+          '            _initialRiskPips[position.Id] = stopLossPips;\n            _tradesToday++;\n            _lastEntryTime = Server.Time;'
+          ),
+          (
+          '            if (normalized < Symbol.VolumeInUnitsMin)\n                normalized = Symbol.VolumeInUnitsMin;\n            if (normalized > Symbol.VolumeInUnitsMax)',
+          '            if (RiskMode == KeltnerRiskMode.PercentageRisk && rawVolume < Symbol.VolumeInUnitsMin)\n            {\n                Print("[VOLUME_SKIP] Requested risk implies {0:F2} units, below broker minimum {1}. Trade skipped to avoid exceeding configured risk.", rawVolume, Symbol.VolumeInUnitsMin);\n                return 0;\n            }\n\n            if (normalized < Symbol.VolumeInUnitsMin)\n                normalized = Symbol.VolumeInUnitsMin;\n            if (normalized > Symbol.VolumeInUnitsMax)'
+          ),
+          (
+          '                var originalRiskPips = Math.Abs(position.EntryPrice - position.StopLoss.Value) / Symbol.PipSize;\n                if (originalRiskPips <= 0 || !double.IsFinite(originalRiskPips))\n                    continue;',
+          '                if (!_initialRiskPips.TryGetValue(position.Id, out var originalRiskPips))\n                {\n                    originalRiskPips = Math.Abs(position.EntryPrice - position.StopLoss.Value) / Symbol.PipSize;\n                    if (originalRiskPips > 0 && double.IsFinite(originalRiskPips))\n                        _initialRiskPips[position.Id] = originalRiskPips;\n                }\n                if (originalRiskPips <= 0 || !double.IsFinite(originalRiskPips))\n                    continue;'
+          ),
+          (
+          '            _managedStopReason.Remove(p.Id);\n\n            Print("[EXIT]',
+          '            _managedStopReason.Remove(p.Id);\n            _initialRiskPips.Remove(p.Id);\n\n            Print("[EXIT]'
+          )]
+          for old,new in reps:
+              if old not in s:
+                  raise SystemExit('Expected source fragment not found:\n'+old[:180])
+              s=s.replace(old,new,1)
+          p.write_text(s)
+          PY
+
+      - name: Build patched source before commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          dotnet restore 'Keltner-Channels-Trader-v2/source/Keltner Channels Trader v2.csproj'
+          dotnet build 'Keltner-Channels-Trader-v2/source/Keltner Channels Trader v2.csproj' -c Release --no-restore | tee /tmp/build.log
+          grep -q '0 Error(s)' /tmp/build.log
+
+      - name: Commit source-only hardening
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add 'Keltner-Channels-Trader-v2/source/Keltner Channels Trader v2.cs'
+          if git diff --cached --quiet; then
+            echo 'No source changes required.'
+            exit 0
+          fi
+          git commit -m 'Harden Keltner risk sizing and initial R tracking'
+          git push origin HEAD:main
