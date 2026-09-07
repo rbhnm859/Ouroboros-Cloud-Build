@@ -2,6 +2,10 @@ name: Keltner v2 Cloud Smoke
 
 on:
   workflow_dispatch:
+  push:
+    branches: [ main ]
+    paths:
+      - '.github/workflows/keltner-v2-cloud-smoke.yml'
 
 permissions:
   contents: read
