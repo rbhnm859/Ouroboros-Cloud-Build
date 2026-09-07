@@ -1,0 +1,78 @@
+name: Keltner v2 Symbol Discovery
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+    paths:
+      - '.github/workflows/keltner-v2-symbol-discovery.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  symbols:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Pull official cTrader Console
+        run: docker pull ghcr.io/spotware/ctrader-console:5.9.11
+
+      - name: Prepare credentials
+        env:
+          CTRADER_PASSWORD: ${{ secrets.CTRADER_PASSWORD }}
+          CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+          CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${CTRADER_PASSWORD:-}" || { echo 'Missing CTRADER_PASSWORD'; exit 2; }
+          test -n "${CTRADER_CTID:-}" || { echo 'Missing CTRADER_CTID'; exit 2; }
+          test -n "${CTRADER_ACCOUNT:-}" || { echo 'Missing CTRADER_ACCOUNT'; exit 2; }
+          mkdir -p Keltner-Channels-Trader-v2/symbol-discovery
+          umask 077
+          printf '%s' "$CTRADER_PASSWORD" > Keltner-Channels-Trader-v2/symbol-discovery/ctrader.pwd
+
+      - name: Discover and print requested actual symbols
+        env:
+          CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+          CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker run --rm \
+            -v "$PWD/Keltner-Channels-Trader-v2/symbol-discovery:/work" \
+            ghcr.io/spotware/ctrader-console:5.9.11 \
+            symbols \
+            --ctid="$CTRADER_CTID" \
+            --pwd-file=/work/ctrader.pwd \
+            --account="$CTRADER_ACCOUNT" | tee Keltner-Channels-Trader-v2/symbol-discovery/symbols.txt
+          python3 - <<'PY'
+          from pathlib import Path
+          text = Path('Keltner-Channels-Trader-v2/symbol-discovery/symbols.txt').read_text(errors='replace')
+          needles = ['EURUSD','GBPUSD','USDJPY','GBPJPY','AUDUSD','XAUUSD','GOLD','BITCOIN','BTC','ETHEREUM','ETH','SOLANA','SOL']
+          print('=== KELTNER REQUESTED SYMBOL MATCHES ===')
+          matched=[]
+          for line in text.splitlines():
+              u=line.upper()
+              if any(n in u for n in needles):
+                  matched.append(line)
+          for line in matched:
+              print(line)
+          print('=== MATCH COUNT:', len(matched), '===')
+          PY
+
+      - name: Remove credentials
+        if: always()
+        run: rm -f Keltner-Channels-Trader-v2/symbol-discovery/ctrader.pwd
+
+      - name: Upload symbol list
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Keltner-v2-symbol-list
+          path: Keltner-Channels-Trader-v2/symbol-discovery/symbols.txt
+          retention-days: 7
