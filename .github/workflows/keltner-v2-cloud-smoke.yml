@@ -1,0 +1,126 @@
+name: Keltner v2 Cloud Smoke
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET 8 SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Build isolated Keltner baseline
+        shell: bash
+        run: |
+          set -euo pipefail
+          PROJ='Keltner-Channels-Trader-v2/source/Keltner Channels Trader v2.csproj'
+          dotnet restore "$PROJ"
+          dotnet build "$PROJ" -c Release --no-restore | tee /tmp/keltner-build.log
+          grep -q '0 Error(s)' /tmp/keltner-build.log
+          mkdir -p Keltner-Channels-Trader-v2/smoke/reports Keltner-Channels-Trader-v2/smoke/cache
+          ALGO=$(find 'Keltner-Channels-Trader-v2/source/bin/Release' -type f -name '*.algo' | head -n 1)
+          test -n "$ALGO"
+          cp "$ALGO" Keltner-Channels-Trader-v2/smoke/KeltnerChannelsTraderV2_Baseline.algo
+          sha256sum Keltner-Channels-Trader-v2/smoke/KeltnerChannelsTraderV2_Baseline.algo
+
+      - name: Pull official cTrader Console
+        run: docker pull ghcr.io/spotware/ctrader-console:5.9.11
+
+      - name: Prepare credentials
+        env:
+          CTRADER_PASSWORD: ${{ secrets.CTRADER_PASSWORD }}
+          CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+          CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${CTRADER_PASSWORD:-}" || { echo 'Missing CTRADER_PASSWORD'; exit 2; }
+          test -n "${CTRADER_CTID:-}" || { echo 'Missing CTRADER_CTID'; exit 2; }
+          test -n "${CTRADER_ACCOUNT:-}" || { echo 'Missing CTRADER_ACCOUNT'; exit 2; }
+          umask 077
+          printf '%s' "$CTRADER_PASSWORD" > Keltner-Channels-Trader-v2/smoke/ctrader.pwd
+
+      - name: Discover actual account symbols
+        env:
+          CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+          CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker run --rm \
+            -v "$PWD/Keltner-Channels-Trader-v2/smoke:/work" \
+            ghcr.io/spotware/ctrader-console:5.9.11 \
+            symbols \
+            --ctid="$CTRADER_CTID" \
+            --pwd-file=/work/ctrader.pwd \
+            --account="$CTRADER_ACCOUNT" | tee Keltner-Channels-Trader-v2/smoke/symbols.txt
+          python3 - <<'PY'
+          from pathlib import Path
+          text = Path('Keltner-Channels-Trader-v2/smoke/symbols.txt').read_text(errors='replace')
+          wanted = ['EURUSD','GBPUSD','USDJPY','GBPJPY','AUDUSD','XAUUSD','BITCOIN','BTC','ETHEREUM','ETH','SOLANA','SOL']
+          print('=== Requested-name matches ===')
+          for line in text.splitlines():
+              u=line.upper()
+              if any(x in u for x in wanted):
+                  print(line)
+          PY
+
+      - name: EURUSD one-month plumbing backtest
+        env:
+          CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+          CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker run --rm \
+            -v "$PWD/Keltner-Channels-Trader-v2/smoke:/work" \
+            ghcr.io/spotware/ctrader-console:5.9.11 \
+            backtest /work/KeltnerChannelsTraderV2_Baseline.algo \
+            --ctid="$CTRADER_CTID" \
+            --pwd-file=/work/ctrader.pwd \
+            --account="$CTRADER_ACCOUNT" \
+            --symbol=EURUSD \
+            --period=m15 \
+            --start='01/08/2026' \
+            --end='31/08/2026' \
+            --balance=200 \
+            --data-mode=m1 \
+            --data-dir=/work/cache \
+            --report=/work/reports/eurusd-m15-smoke.html \
+            --report-json=/work/reports/eurusd-m15-smoke.json | tee /work/reports/eurusd-m15-smoke.log
+          test -s Keltner-Channels-Trader-v2/smoke/reports/eurusd-m15-smoke.json
+          python3 - <<'PY'
+          from pathlib import Path
+          import json
+          p=Path('Keltner-Channels-Trader-v2/smoke/reports/eurusd-m15-smoke.json')
+          d=json.loads(p.read_text())
+          print('=== report-json top-level keys ===')
+          print('\n'.join(sorted(map(str,d.keys()))))
+          for k in ['NetProfit','ProfitFactor','TotalTrades','WinningTrades','LosingTrades','MaxEquityDrawdownPercentages','MaxBalanceDrawdownPercentages','AverageTrade']:
+              print(f'{k}={d.get(k)}')
+          PY
+
+      - name: Remove credentials
+        if: always()
+        run: rm -f Keltner-Channels-Trader-v2/smoke/ctrader.pwd
+
+      - name: Upload smoke evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Keltner-v2-cloud-smoke
+          path: |
+            Keltner-Channels-Trader-v2/smoke/symbols.txt
+            Keltner-Channels-Trader-v2/smoke/reports/
+          if-no-files-found: warn
+          retention-days: 7
