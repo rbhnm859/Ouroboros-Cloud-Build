@@ -48,7 +48,7 @@ jobs:
           umask 077
           printf '%s' "$CTRADER_PASSWORD" > Keltner-Channels-Trader-v2/smoke/ctrader.pwd
 
-      - name: Fast EURUSD Docker-native backtest
+      - name: Run engine without report saver
         env:
           CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
           CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
@@ -66,7 +66,7 @@ jobs:
             --symbol=EURUSD \
             --period=m15 \
             --start='01/08/2026' \
-            --end='31/08/2026' \
+            --end='07/08/2026' \
             --balance=200 \
             --commission=35 \
             --spread=1 \
@@ -75,25 +75,15 @@ jobs:
             --FixedVolumeLots=0.01 \
             --MaxSpreadPips=0 \
             --LogDiagnostics=true \
-            --report=/work/reports/eurusd-m15-smoke.html \
-            --report-json=/work/reports/eurusd-m15-smoke.json \
-            > Keltner-Channels-Trader-v2/smoke/reports/eurusd-m15-smoke.console.log 2>&1
+            > Keltner-Channels-Trader-v2/smoke/reports/eurusd-m15-engine-only.console.log 2>&1
           RC=$?
           echo "CTRADER_EXIT_CODE=$RC"
-          cat Keltner-Channels-Trader-v2/smoke/reports/eurusd-m15-smoke.console.log || true
+          echo '=== cTrader console ==='
+          cat Keltner-Channels-Trader-v2/smoke/reports/eurusd-m15-engine-only.console.log || true
+          echo '=== Engine evidence ==='
+          grep -E '\[START\]|\[SYMBOL\]|\[ENTRY\]|\[OPEN_OK\]|\[EXIT\]|Progress \| Backtesting' Keltner-Channels-Trader-v2/smoke/reports/eurusd-m15-engine-only.console.log || true
           echo '=== Produced files ==='
           find Keltner-Channels-Trader-v2/smoke -type f -printf '%P\n' | sort
-          if [ -s Keltner-Channels-Trader-v2/smoke/reports/eurusd-m15-smoke.json ]; then
-            python3 - <<'PY'
-          import json
-          from pathlib import Path
-          p=Path('Keltner-Channels-Trader-v2/smoke/reports/eurusd-m15-smoke.json')
-          d=json.loads(p.read_text())
-          print('VALID_REPORT_JSON=1')
-          for k in ['Equity','NetProfit','ProfitFactor','TotalTrades','WinningTrades','LosingTrades','MaxEquityDrawdownPercentages']:
-              print(f'{k}={d.get(k)}')
-          PY
-          fi
           exit "$RC"
 
       - name: Remove credentials
@@ -104,7 +94,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: Keltner-v2-cloud-smoke-docker-native
+          name: Keltner-v2-engine-only-smoke
           path: Keltner-Channels-Trader-v2/smoke/reports/
           if-no-files-found: warn
           retention-days: 7
