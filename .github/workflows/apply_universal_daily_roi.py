@@ -120,6 +120,33 @@ def main() -> None:
         "portfolio universal risk",
     )
 
+    # A strategy-provided stop can end up behind the signal price after a fast
+    # move (notably an M1 Bollinger-band overshoot). Taking Math.Abs() then
+    # turns that invalid level into a tiny stop and an oversized position.
+    # Preserve the signal and target, but require at least one signal ATR of
+    # execution room. This scales naturally across FX, metals and CFDs.
+    replace_once(
+        """            if (slPips < minSlPips) slPips = minSlPips * 1.05;
+            if (tpPips < minTpPips) tpPips = minTpPips * 1.05;
+
+            double rr = tpPips / slPips;
+""",
+        """            if (slPips < minSlPips) slPips = minSlPips * 1.05;
+            if (tpPips < minTpPips) tpPips = minTpPips * 1.05;
+
+            double atrExecutionFloorPips = sig.Atr > 0 ? sig.Atr / sym.PipSize : 0.0;
+            if (atrExecutionFloorPips > 0 && slPips < atrExecutionFloorPips)
+            {
+                Log("ADJUST {0}-{1}: SL {2:F1}p raised to ATR floor {3:F1}p",
+                    cell.Bot, sym.Name, slPips, atrExecutionFloorPips);
+                slPips = atrExecutionFloorPips;
+            }
+
+            double rr = tpPips / slPips;
+""",
+        "ATR execution stop floor",
+    )
+
     # The losing XAUUSD sample was concentrated around the thin rollover
     # window, including a stop gap. Balanced keeps crypto continuous but
     # restricts forex/metals to the liquid London/New York span.
@@ -164,13 +191,17 @@ def main() -> None:
     # guard. Use the broker minimum only when that minimum still fits the hard
     # cash-risk cap; otherwise reject the candidate before execution.
     replace_once(
-        """            if (volume < sym.VolumeInUnitsMin)
+        """            double volume = UniversalVolumeForRisk(sym, desiredRiskUsd, slPips);
+            volume = sym.NormalizeVolumeInUnits(volume, RoundingMode.Down);
+
+            if (volume < sym.VolumeInUnitsMin)
             {
                 Log("BLOCK {0}-{1}: risk-sized volume below broker minimum (risk={2:F2})", cell.Bot, sym.Name, desiredRiskUsd);
                 return;
             }
 """,
-        """            if (volume < sym.VolumeInUnitsMin)
+        """            double rawVolume = UniversalVolumeForRisk(sym, desiredRiskUsd, slPips);
+            if (rawVolume < sym.VolumeInUnitsMin)
             {
                 double minimumVolumeRiskUsd = UniversalAmountRisked(sym, sym.VolumeInUnitsMin, slPips);
                 if (minimumVolumeRiskUsd > hardTradeCap * 1.05)
@@ -179,10 +210,36 @@ def main() -> None:
                         cell.Bot, sym.Name, minimumVolumeRiskUsd, hardTradeCap);
                     return;
                 }
-                volume = sym.VolumeInUnitsMin;
+                rawVolume = sym.VolumeInUnitsMin;
             }
+
+            double volume = sym.NormalizeVolumeInUnits(rawVolume, RoundingMode.Down);
 """,
-        "minimum-volume preflight guard",
+        "pre-normalization minimum-volume risk guard",
+    )
+
+    # Some brokers clamp any below-minimum request back to their minimum during
+    # normalization. Revalidate after every defensive clamp so such an order is
+    # blocked before submission instead of opened and immediately closed.
+    replace_once(
+        """                actualRiskUsd = UniversalAmountRisked(sym, volume, slPips);
+            }
+
+            string label = string.Format("{0}-{1}-{2}", Label, cell.Bot, sym.Name);
+""",
+        """                actualRiskUsd = UniversalAmountRisked(sym, volume, slPips);
+            }
+
+            if (actualRiskUsd > hardTradeCap * 1.05)
+            {
+                Log("BLOCK {0}-{1}: normalized broker risk {2:F2} exceeds hard cap {3:F2}",
+                    cell.Bot, sym.Name, actualRiskUsd, hardTradeCap);
+                return;
+            }
+
+            string label = string.Format("{0}-{1}-{2}", Label, cell.Bot, sym.Name);
+""",
+        "final pre-submit cash-risk guard",
     )
 
     risk_anchor = """        private double CurrentOpenRiskUsd()
