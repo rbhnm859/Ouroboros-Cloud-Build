@@ -1,6 +1,12 @@
 name: Backtest Ouroboros V2.2 - Daily ROI Universal M1 30D
 
 on:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/backtest-ouroboros-v22-1y.yml"
+      - ".github/workflows/apply_universal_daily_roi.py"
   workflow_dispatch:
 
 concurrency:
@@ -12,25 +18,16 @@ permissions:
 
 jobs:
   backtest:
+    name: XAUUSD M1 30-day fast backtest
     runs-on: ubuntu-latest
     timeout-minutes: 120
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - symbol: XAUUSD
-            id: XAUUSD
-          - symbol: EURUSD
-            id: EURUSD
-          - symbol: BITCOIN
-            id: BITCOIN
     env:
       START_DATE: "07/08/2026"
       END_DATE: "06/09/2026"
       STARTING_BALANCE: "200"
       BASE_PERIOD: "m1"
-      TEST_SYMBOL: ${{ matrix.symbol }}
-      TEST_ID: ${{ matrix.id }}
+      TEST_SYMBOL: "XAUUSD"
+      TEST_ID: "XAUUSD"
 
     steps:
       - name: Checkout repository
@@ -161,6 +158,7 @@ jobs:
         run: |
           CTRADER_CTID="$(printf '%s' "$CTRADER_CTID" | tr -d '[:space:]')"
           CTRADER_ACCOUNT="$(printf '%s' "$CTRADER_ACCOUNT" | tr -d '[:space:]')"
+          set -o pipefail
           docker run --rm \
             -v "$PWD/backtest:/work" \
             -e "CTID=$CTRADER_CTID" \
@@ -178,15 +176,18 @@ jobs:
             --data-dir="/work/cache/$TEST_ID" \
             --report="/work/reports/$TEST_ID-M1-30D.html" \
             --report-json="/work/reports/$TEST_ID-M1-30D.json" \
-            --exit-on-stop
+            --exit-on-stop 2>&1 | tee backtest/reports/XAUUSD-console.log
 
       - name: Build verified backtest summary
         if: success()
         run: |
           python3 - <<'PYCODE'
           from pathlib import Path
+          from collections import Counter
+          from datetime import datetime
           import json
           import os
+          import re
 
           test_id = os.environ["TEST_ID"]
           symbol = os.environ["TEST_SYMBOL"]
@@ -194,45 +195,76 @@ jobs:
           data = json.loads(report.read_text())
           balance = 200.0
 
-          def find_metric(node, key):
-              if isinstance(node, dict):
-                  if key in node:
-                      return node[key]
-                  for value in node.values():
-                      found = find_metric(value, key)
-                      if found is not None:
-                          return found
-              elif isinstance(node, list):
-                  for value in node:
-                      found = find_metric(value, key)
-                      if found is not None:
-                          return found
-              return None
+          main = data.get("main", {})
+          equity = data.get("equity", {})
+          closed = data.get("history", {}).get("items", [])
 
-          def number(key, default=0.0):
-              value = find_metric(data, key)
+          def value(node, key, default=0.0):
               try:
-                  return float(value)
-              except (TypeError, ValueError):
+                  return float(node.get(key, default))
+              except (AttributeError, TypeError, ValueError):
                   return default
 
-          total = int(number("TotalTrades"))
-          wins = int(number("WinningTrades"))
-          losses = int(number("LosingTrades"))
-          net = number("NetProfit")
+          trade_nets = [value(trade, "net") for trade in closed]
+          total = len(trade_nets)
+          wins = sum(net_value > 0 for net_value in trade_nets)
+          losses = sum(net_value < 0 for net_value in trade_nets)
+          flats = total - wins - losses
+          net = value(main, "netProfit", sum(trade_nets))
+          gross_profit = sum(net_value for net_value in trade_nets if net_value > 0)
+          gross_loss = -sum(net_value for net_value in trade_nets if net_value < 0)
+          profit_factor = gross_profit / gross_loss if gross_loss > 0 else (float("inf") if gross_profit > 0 else 0.0)
+          max_equity_dd = value(equity, "maxEquityDrawdownPercent")
           win_rate = wins / total * 100 if total else 0.0
           roi = net / balance * 100 if balance else 0.0
+          average_trade = net / total if total else 0.0
+          start = datetime.strptime(os.environ["START_DATE"], "%d/%m/%Y")
+          end = datetime.strptime(os.environ["END_DATE"], "%d/%m/%Y")
+          elapsed_days = max(1, (end - start).days)
+          daily_average = total / elapsed_days
+
+          console_path = Path(f"backtest/reports/{test_id}-console.log")
+          console = console_path.read_text(errors="replace") if console_path.exists() else ""
+          block_reasons = Counter()
+          hold_reasons = Counter()
+          for line in console.splitlines():
+              block = re.search(r"BLOCK [^:]+:\s*(.*)", line)
+              if block:
+                  reason = re.sub(r"\d+(?:\.\d+)?", "#", block.group(1)).strip()
+                  block_reasons[reason] += 1
+              hold = re.search(r"HOLD [^:]+:\s*(.*)", line)
+              if hold:
+                  hold_reasons[hold.group(1).strip()] += 1
+
+          diagnostic = ""
+          if total == 0:
+              diagnostic_lines = ["", "## Zero-trade diagnostics", ""]
+              diagnostic_lines.append(f"Wired cells: {len(re.findall(r'WIRED ', console))}")
+              diagnostic_lines.append(f"Candidate signals blocked: {len(re.findall(r'BLOCK ', console))}")
+              diagnostic_lines.append(f"Hold decisions: {len(re.findall(r'HOLD ', console))}")
+              if block_reasons:
+                  diagnostic_lines.extend(["", "Top block reasons:"])
+                  diagnostic_lines.extend(f"- {count}x {reason}" for reason, count in block_reasons.most_common(12))
+              if hold_reasons:
+                  diagnostic_lines.extend(["", "Top hold reasons:"])
+                  diagnostic_lines.extend(f"- {count}x {reason}" for reason, count in hold_reasons.most_common(12))
+              diagnostic = "\n".join(diagnostic_lines) + "\n"
+
           summary = (
               f"# Ouroboros V2.2 Daily ROI — {symbol} M1 30-day backtest\n\n"
               "Period: 07/08/2026 to 06/09/2026 UTC\n"
               f"Trades: {total}\n"
               f"Wins: {wins}\n"
               f"Losses: {losses}\n"
+              f"Flat/immediate risk-guard closes: {flats}\n"
               f"Win rate: {win_rate:.2f}%\n"
               f"Net profit: ${net:.2f}\n"
               f"ROI: {roi:.2f}%\n"
-              f"Profit factor: {number('ProfitFactor'):.2f}\n"
-              f"Max equity drawdown: {number('MaxEquityDrawdownPercentages'):.2f}%\n"
+              f"Profit factor: {profit_factor:.2f}\n"
+              f"Max equity drawdown: {max_equity_dd:.2f}%\n"
+              f"Average trade P/L: ${average_trade:.4f}\n"
+              f"Average trades/day: {daily_average:.2f}\n"
+              f"{diagnostic}"
           )
           Path(f"backtest/reports/{test_id}-summary.md").write_text(summary)
           print(summary)
@@ -246,7 +278,7 @@ jobs:
         if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: Ouroboros-Advanced-Universal-Mobile-V2.2-Daily-ROI-${{ matrix.id }}
+          name: Ouroboros-Advanced-Universal-Mobile-V2.2-Daily-ROI-XAUUSD
           path: artifact/OuroborosAdvancedUniversalMobileV22.algo
           if-no-files-found: error
 
@@ -254,6 +286,6 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: Ouroboros-V2.2-Daily-ROI-${{ matrix.id }}-M1-30D-Reports
+          name: Ouroboros-V2.2-Daily-ROI-XAUUSD-M1-30D-Reports
           path: backtest/reports/
           if-no-files-found: warn

@@ -120,6 +120,71 @@ def main() -> None:
         "portfolio universal risk",
     )
 
+    # The losing XAUUSD sample was concentrated around the thin rollover
+    # window, including a stop gap. Balanced keeps crypto continuous but
+    # restricts forex/metals to the liquid London/New York span.
+    replace_once(
+        """            if (UseSessionFilter && !WithinUtcSession(Server.Time.Hour))
+            {
+                reason = "outside configured UTC session";
+                return false;
+            }
+""",
+        """            if (!WithinEffectiveSession(sym))
+            {
+                reason = "outside effective liquid UTC session";
+                return false;
+            }
+""",
+        "effective liquid session guard",
+    )
+
+    session_anchor = """        private bool WithinUtcSession(int hour)
+        {
+"""
+    session_helper = """        private bool WithinEffectiveSession(Symbol sym)
+        {
+            if (UseSessionFilter)
+                return WithinUtcSession(Server.Time.Hour);
+
+            if (Preset != OuroborosPreset.Balanced || sym == null)
+                return true;
+
+            OuroborosMarket market = DetectMarket(sym.Name);
+            if (market == OuroborosMarket.Forex || market == OuroborosMarket.Metals)
+                return Server.Time.Hour >= 6 && Server.Time.Hour <= 20;
+
+            return true;
+        }
+
+"""
+    replace_once(session_anchor, session_helper + session_anchor, "effective session helper")
+
+    # Never submit an order that will be closed immediately by the post-fill
+    # guard. Use the broker minimum only when that minimum still fits the hard
+    # cash-risk cap; otherwise reject the candidate before execution.
+    replace_once(
+        """            if (volume < sym.VolumeInUnitsMin)
+            {
+                Log("BLOCK {0}-{1}: risk-sized volume below broker minimum (risk={2:F2})", cell.Bot, sym.Name, desiredRiskUsd);
+                return;
+            }
+""",
+        """            if (volume < sym.VolumeInUnitsMin)
+            {
+                double minimumVolumeRiskUsd = UniversalAmountRisked(sym, sym.VolumeInUnitsMin, slPips);
+                if (minimumVolumeRiskUsd > hardTradeCap * 1.05)
+                {
+                    Log("BLOCK {0}-{1}: broker minimum risk {2:F2} exceeds hard cap {3:F2}",
+                        cell.Bot, sym.Name, minimumVolumeRiskUsd, hardTradeCap);
+                    return;
+                }
+                volume = sym.VolumeInUnitsMin;
+            }
+""",
+        "minimum-volume preflight guard",
+    )
+
     risk_anchor = """        private double CurrentOpenRiskUsd()
         {
 """
