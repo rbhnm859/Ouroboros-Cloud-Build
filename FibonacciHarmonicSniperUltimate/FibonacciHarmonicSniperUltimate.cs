@@ -117,6 +117,57 @@ namespace cAlgo.Robots
         [Parameter("Cooldown Bars", DefaultValue = 3, MinValue = 0, MaxValue = 500, Group = "Limits")]
         public int CooldownBars { get; set; }
 
+        [Parameter("Max ATR (pips, 0=off)", DefaultValue = 0.0, MinValue = 0.0, Group = "Limits")]
+        public double MaxAtrPips { get; set; }
+
+        // ----- Trade management (break-even / trailing / partial exit) -----
+        [Parameter("Use Break Even", DefaultValue = true, Group = "Management")]
+        public bool UseBreakEven { get; set; }
+
+        [Parameter("Break Even Trigger R", DefaultValue = 1.0, MinValue = 0.1, MaxValue = 10.0, Group = "Management")]
+        public double BreakEvenTriggerR { get; set; }
+
+        [Parameter("Break Even Offset (pips)", DefaultValue = 2.0, MinValue = 0.0, MaxValue = 200.0, Group = "Management")]
+        public double BreakEvenOffsetPips { get; set; }
+
+        [Parameter("Use Partial Close", DefaultValue = true, Group = "Management")]
+        public bool UsePartialClose { get; set; }
+
+        [Parameter("Partial Close R", DefaultValue = 1.0, MinValue = 0.1, MaxValue = 10.0, Group = "Management")]
+        public double PartialCloseR { get; set; }
+
+        [Parameter("Partial Close %", DefaultValue = 50.0, MinValue = 5.0, MaxValue = 95.0, Group = "Management")]
+        public double PartialClosePercent { get; set; }
+
+        [Parameter("Use Trailing Stop", DefaultValue = true, Group = "Management")]
+        public bool UseTrailingStop { get; set; }
+
+        [Parameter("Trailing Start R", DefaultValue = 1.2, MinValue = 0.1, MaxValue = 10.0, Group = "Management")]
+        public double TrailingStartR { get; set; }
+
+        [Parameter("Trailing ATR Mult", DefaultValue = 1.5, MinValue = 0.2, MaxValue = 10.0, Group = "Management")]
+        public double TrailingAtrMult { get; set; }
+
+        // ----- Session filter (UTC hours) -----
+        [Parameter("Use Session Filter", DefaultValue = true, Group = "Session")]
+        public bool UseSessionFilter { get; set; }
+
+        [Parameter("Session Start Hour UTC", DefaultValue = 7, MinValue = 0, MaxValue = 23, Group = "Session")]
+        public int SessionStartHour { get; set; }
+
+        [Parameter("Session End Hour UTC", DefaultValue = 20, MinValue = 0, MaxValue = 24, Group = "Session")]
+        public int SessionEndHour { get; set; }
+
+        // ----- PRZ confluence (multiple overlapping patterns) -----
+        [Parameter("Require Confluence", DefaultValue = false, Group = "Confluence")]
+        public bool RequireConfluence { get; set; }
+
+        [Parameter("Confluence Window ATR", DefaultValue = 0.50, MinValue = 0.05, MaxValue = 5.0, Group = "Confluence")]
+        public double ConfluenceWindowAtr { get; set; }
+
+        [Parameter("Min Confluence Count", DefaultValue = 2, MinValue = 1, MaxValue = 10, Group = "Confluence")]
+        public int MinConfluenceCount { get; set; }
+
         [Parameter("Debug Logging", DefaultValue = true, Group = "Diagnostics")]
         public bool DebugLogging { get; set; }
 
@@ -131,6 +182,7 @@ namespace cAlgo.Robots
         private int _lastBearishDIndex = -1;
         private readonly HashSet<string> _consumedSignals = new HashSet<string>(StringComparer.Ordinal);
         private readonly Dictionary<long, string> _positionPattern = new Dictionary<long, string>();
+        private readonly Dictionary<long, TradeState> _tradeState = new Dictionary<long, TradeState>();
         private readonly Dictionary<string, PatternStats> _stats = new Dictionary<string, PatternStats>(StringComparer.OrdinalIgnoreCase);
 
         protected override void OnStart()
@@ -151,10 +203,17 @@ namespace cAlgo.Robots
             if (Bars.Count < Math.Max(100, PivotLeft + PivotRight + 20))
                 return;
 
+            // Manage live positions every bar (break-even, trailing, partial exit)
+            // regardless of whether new entries are allowed this bar.
+            ManageOpenPositions();
+
             if (Server.Time.Date != _day)
                 ResetDay();
 
             if (!PassGlobalLimits())
+                return;
+
+            if (!IsWithinSession())
                 return;
 
             var pivots = BuildConfirmedPivots();
