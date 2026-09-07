@@ -13,7 +13,7 @@ permissions:
 jobs:
   smoke:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 20
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -31,7 +31,7 @@ jobs:
           dotnet restore "$PROJ"
           dotnet build "$PROJ" -c Release --no-restore | tee /tmp/keltner-build.log
           grep -q '0 Error(s)' /tmp/keltner-build.log
-          mkdir -p Keltner-Channels-Trader-v2/smoke/reports Keltner-Channels-Trader-v2/smoke/cache
+          mkdir -p Keltner-Channels-Trader-v2/smoke/reports
           ALGO=$(find 'Keltner-Channels-Trader-v2/source/bin/Release' -type f -name '*.algo' | head -n 1)
           test -n "$ALGO"
           cp "$ALGO" Keltner-Channels-Trader-v2/smoke/KeltnerChannelsTraderV2_Baseline.algo
@@ -54,32 +54,7 @@ jobs:
           umask 077
           printf '%s' "$CTRADER_PASSWORD" > Keltner-Channels-Trader-v2/smoke/ctrader.pwd
 
-      - name: Discover actual account symbols
-        env:
-          CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
-          CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          docker run --rm \
-            -v "$PWD/Keltner-Channels-Trader-v2/smoke:/work" \
-            ghcr.io/spotware/ctrader-console:5.9.11 \
-            symbols \
-            --ctid="$CTRADER_CTID" \
-            --pwd-file=/work/ctrader.pwd \
-            --account="$CTRADER_ACCOUNT" | tee Keltner-Channels-Trader-v2/smoke/symbols.txt
-          python3 - <<'PY'
-          from pathlib import Path
-          text = Path('Keltner-Channels-Trader-v2/smoke/symbols.txt').read_text(errors='replace')
-          wanted = ['EURUSD','GBPUSD','USDJPY','GBPJPY','AUDUSD','XAUUSD','BITCOIN','BTC','ETHEREUM','ETH','SOLANA','SOL']
-          print('=== Requested-name matches ===')
-          for line in text.splitlines():
-              u=line.upper()
-              if any(x in u for x in wanted):
-                  print(line)
-          PY
-
-      - name: EURUSD one-month plumbing backtest
+      - name: Fast EURUSD report-json plumbing test
         env:
           CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
           CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
@@ -96,10 +71,11 @@ jobs:
             --symbol=EURUSD \
             --period=m15 \
             --start='01/08/2026' \
-            --end='31/08/2026' \
+            --end='07/08/2026' \
             --balance=200 \
-            --data-mode=m1 \
-            --data-dir=/work/cache \
+            --commission=35 \
+            --spread=1 \
+            --data-mode=open \
             --report=/work/reports/eurusd-m15-smoke.html \
             --report-json=/work/reports/eurusd-m15-smoke.json | tee /work/reports/eurusd-m15-smoke.log
           test -s Keltner-Channels-Trader-v2/smoke/reports/eurusd-m15-smoke.json
@@ -110,8 +86,8 @@ jobs:
           d=json.loads(p.read_text())
           print('=== report-json top-level keys ===')
           print('\n'.join(sorted(map(str,d.keys()))))
-          for k in ['NetProfit','ProfitFactor','TotalTrades','WinningTrades','LosingTrades','MaxEquityDrawdownPercentages','MaxBalanceDrawdownPercentages','AverageTrade']:
-              print(f'{k}={d.get(k)}')
+          print('=== report-json full object ===')
+          print(json.dumps(d, indent=2, sort_keys=True))
           PY
 
       - name: Remove credentials
@@ -123,8 +99,6 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: Keltner-v2-cloud-smoke
-          path: |
-            Keltner-Channels-Trader-v2/smoke/symbols.txt
-            Keltner-Channels-Trader-v2/smoke/reports/
+          path: Keltner-Channels-Trader-v2/smoke/reports/
           if-no-files-found: warn
           retention-days: 7
