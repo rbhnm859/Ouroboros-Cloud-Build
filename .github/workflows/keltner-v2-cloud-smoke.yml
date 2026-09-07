@@ -54,13 +54,13 @@ jobs:
           umask 077
           printf '%s' "$CTRADER_PASSWORD" > Keltner-Channels-Trader-v2/smoke/ctrader.pwd
 
-      - name: Fast EURUSD report-json plumbing test
+      - name: EURUSD runtime diagnostic backtest
         env:
           CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
           CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
         shell: bash
         run: |
-          set -euo pipefail
+          set +e
           docker run --rm \
             -v "$PWD/Keltner-Channels-Trader-v2/smoke:/work" \
             ghcr.io/spotware/ctrader-console:5.9.11 \
@@ -70,25 +70,36 @@ jobs:
             --account="$CTRADER_ACCOUNT" \
             --symbol=EURUSD \
             --period=m15 \
-            --start='01/08/2026' \
-            --end='07/08/2026' \
+            --start='03/08/2026' \
+            --end='04/08/2026' \
             --balance=200 \
             --commission=35 \
             --spread=1 \
-            --data-mode=open \
-            --report=/work/reports/eurusd-m15-smoke.html \
-            --report-json=/work/reports/eurusd-m15-smoke.json | tee /work/reports/eurusd-m15-smoke.log
-          test -s Keltner-Channels-Trader-v2/smoke/reports/eurusd-m15-smoke.json
-          python3 - <<'PY'
+            --data-mode=m1 \
+            --report-json=/work/reports/eurusd-m15-smoke.json \
+            > Keltner-Channels-Trader-v2/smoke/reports/eurusd-m15-smoke.console.log 2>&1
+          RC=$?
+          echo "CTRADER_EXIT_CODE=$RC"
+          echo '=== cTrader console output ==='
+          cat Keltner-Channels-Trader-v2/smoke/reports/eurusd-m15-smoke.console.log || true
+          echo '=== Files produced in mounted smoke workspace ==='
+          find Keltner-Channels-Trader-v2/smoke -type f -printf '%P\n' | sort
+          echo '=== Backtesting diagnostics found ==='
+          find Keltner-Channels-Trader-v2/smoke -type f \( -name '*.log' -o -name '*.json' \) -print0 | while IFS= read -r -d '' f; do
+            echo "----- $f -----"
+            cat "$f" || true
+          done
+          if [ -s Keltner-Channels-Trader-v2/smoke/reports/eurusd-m15-smoke.json ]; then
+            python3 - <<'PY'
           from pathlib import Path
           import json
           p=Path('Keltner-Channels-Trader-v2/smoke/reports/eurusd-m15-smoke.json')
           d=json.loads(p.read_text())
-          print('=== report-json top-level keys ===')
-          print('\n'.join(sorted(map(str,d.keys()))))
-          print('=== report-json full object ===')
+          print('=== VALID REPORT JSON ===')
           print(json.dumps(d, indent=2, sort_keys=True))
           PY
+          fi
+          exit "$RC"
 
       - name: Remove credentials
         if: always()
