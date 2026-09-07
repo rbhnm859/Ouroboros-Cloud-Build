@@ -120,6 +120,38 @@ def main() -> None:
         "portfolio universal risk",
     )
 
+    # Mean reversion should enter after price starts moving back toward fair
+    # value, not while the closing bar is still extending away from it. Requiring
+    # both candle-body and close-to-close confirmation retains the Bollinger/RSI
+    # setup while avoiding repeated falling-knife entries across every market.
+    replace_once(
+        """            sig.Symbol = sym.Name; // actual broker symbol for cross-bot agreement
+
+            double minConf = EffectiveMinConfidence(cell.Bot, sym.Name);
+""",
+        """            sig.Symbol = sym.Name; // actual broker symbol for cross-bot agreement
+
+            if (string.Equals(cell.StrategyId, "mamba_reversion", StringComparison.OrdinalIgnoreCase) &&
+                bars != null && bars.Count >= 2)
+            {
+                double barOpen = bars.OpenPrices.Last(0);
+                double barClose = bars.ClosePrices.Last(0);
+                double previousClose = bars.ClosePrices.Last(1);
+                bool reversalConfirmed = sig.Direction == Vote.Buy
+                    ? barClose > barOpen && barClose > previousClose
+                    : barClose < barOpen && barClose < previousClose;
+                if (!reversalConfirmed)
+                {
+                    Log("BLOCK {0}-{1}: mean-reversion candle has not turned toward mid-band", cell.Bot, sym.Name);
+                    return;
+                }
+            }
+
+            double minConf = EffectiveMinConfidence(cell.Bot, sym.Name);
+""",
+        "mean-reversion candle confirmation",
+    )
+
     # A strategy-provided stop can end up behind the signal price after a fast
     # move (notably an M1 Bollinger-band overshoot). Taking Math.Abs() then
     # turns that invalid level into a tiny stop and an oversized position.
