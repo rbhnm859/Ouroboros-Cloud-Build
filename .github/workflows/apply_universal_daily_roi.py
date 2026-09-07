@@ -84,6 +84,9 @@ def main() -> None:
     replace_once("Preset == OuroborosPreset.Balanced ? 6.00", "Preset == OuroborosPreset.Balanced ? 8.00", "balanced total DD")
     replace_once("Preset == OuroborosPreset.Balanced ? 12", "Preset == OuroborosPreset.Balanced ? 24", "balanced daily trades")
     replace_once("Preset == OuroborosPreset.Balanced ? 10", "Preset == OuroborosPreset.Balanced ? 3", "balanced cooldown")
+    replace_once("Preset == OuroborosPreset.Balanced ? 4\n            : Preset == OuroborosPreset.OriginalLike ? 0 : MaxConsecutiveLosses;",
+                 "Preset == OuroborosPreset.Balanced ? 2\n            : Preset == OuroborosPreset.OriginalLike ? 0 : MaxConsecutiveLosses;",
+                 "balanced consecutive-loss pause")
     replace_once("Preset == OuroborosPreset.Balanced ? 0.90", "Preset == OuroborosPreset.Balanced ? 1.10", "balanced minimum RR")
     replace_once("Preset == OuroborosPreset.Balanced ? 20.0", "Preset == OuroborosPreset.Balanced ? 15.0", "balanced spread ATR")
     replace_once(
@@ -134,6 +137,15 @@ def main() -> None:
             if (string.Equals(cell.StrategyId, "mamba_reversion", StringComparison.OrdinalIgnoreCase) &&
                 bars != null && bars.Count >= 2)
             {
+                // Mamba assigns 0.70 only while the close is still outside the
+                // Bollinger band. Wait for a 0.60 inside-band approach signal;
+                // fading an unrecovered breakout is not mean reversion.
+                if (sig.Confidence >= 0.70)
+                {
+                    Log("BLOCK {0}-{1}: outside-band close; wait for band re-entry", cell.Bot, sym.Name);
+                    return;
+                }
+
                 double barOpen = bars.OpenPrices.Last(0);
                 double barClose = bars.ClosePrices.Last(0);
                 double previousClose = bars.ClosePrices.Last(1);
