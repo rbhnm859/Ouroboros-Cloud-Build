@@ -112,7 +112,7 @@ namespace cAlgo.Robots
 
         private ExponentialMovingAverage _ema;
         private ExponentialMovingAverage _htfEma;
-        private Momentum _momentum;
+        private RelativeStrengthIndex _rsi;
         private AverageTrueRange _atr;
         private Bars _higherBars;
         private TimeSpan _sessionStart;
@@ -140,7 +140,7 @@ namespace cAlgo.Robots
             }
 
             _ema = Indicators.ExponentialMovingAverage(Bars.ClosePrices, PrimaryEmaPeriod);
-            _momentum = Indicators.Momentum(Bars.ClosePrices, MomentumPeriod);
+            _rsi = Indicators.RelativeStrengthIndex(Bars.ClosePrices, MomentumPeriod);
             _atr = Indicators.AverageTrueRange(AtrPeriod, MovingAverageType.Exponential);
 
             _higherBars = MarketData.GetBars(HigherTimeFrame, SymbolName);
@@ -155,6 +155,8 @@ namespace cAlgo.Robots
             _currentDay = Server.Time.Date;
             _dayStartEquity = Account.Equity;
             _initialEquity = Account.Equity;
+            Positions.Opened += OnPositionsOpened;
+            Positions.Closed += OnPositionsClosed;
 
             Print("[START] {0} symbol={1} tf={2} htf={3}", BotLabel, SymbolName, TimeFrame, HigherTimeFrame);
             Print("[SYMBOL] PipSize={0} TickSize={1} Digits={2} VolMin={3} VolMax={4} VolStep={5} MinSL={6} MinTP={7} MinDistanceType={8}",
@@ -241,8 +243,9 @@ namespace cAlgo.Robots
             ManageOpenPosition();
         }
 
-        protected override void OnPositionOpened(Position position)
+        private void OnPositionsOpened(PositionOpenedEventArgs args)
         {
+            var position = args.Position;
             if (!IsManagedPosition(position))
                 return;
 
@@ -254,8 +257,9 @@ namespace cAlgo.Robots
             }
         }
 
-        protected override void OnPositionClosed(Position position)
+        private void OnPositionsClosed(PositionClosedEventArgs args)
         {
+            var position = args.Position;
             if (!IsManagedPosition(position))
                 return;
 
@@ -386,8 +390,8 @@ namespace cAlgo.Robots
 
             return IsFinite(_ema.Result.Last(1)) &&
                    IsFinite(_ema.Result.Last(2)) &&
-                   IsFinite(_momentum.Result.Last(1)) &&
-                   IsFinite(_momentum.Result.Last(2)) &&
+                   IsFinite(_rsi.Result.Last(1)) &&
+                   IsFinite(_rsi.Result.Last(2)) &&
                    IsFinite(_atr.Result.Last(1)) &&
                    signalBarIndex > Math.Max(Math.Max(PrimaryEmaPeriod, MomentumPeriod), AtrPeriod);
         }
@@ -547,8 +551,8 @@ namespace cAlgo.Robots
             double closePrev = Bars.ClosePrices.Last(2);
             double highPrev = Bars.HighPrices.Last(2);
             double lowPrev = Bars.LowPrices.Last(2);
-            double momentumNow = _momentum.Result.Last(1);
-            double momentumPrev = _momentum.Result.Last(2);
+            double rsiNow = _rsi.Result.Last(1);
+            double rsiPrev = _rsi.Result.Last(2);
             double atrPrice = _atr.Result.Last(1);
 
             if (!IsFinite(emaNow) || !IsFinite(emaPrev) || !IsFinite(atrPrice))
@@ -565,8 +569,8 @@ namespace cAlgo.Robots
             bool pullbackBuy = lowPrev <= emaNow + atrPrice * PullbackAtrMultiplier && closePrev >= emaNow - atrPrice * PullbackAtrMultiplier;
             bool pullbackSell = highPrev >= emaNow - atrPrice * PullbackAtrMultiplier && closePrev <= emaNow + atrPrice * PullbackAtrMultiplier;
 
-            bool momentumBull = momentumNow > 100 && momentumNow > momentumPrev;
-            bool momentumBear = momentumNow < 100 && momentumNow < momentumPrev;
+            bool momentumBull = rsiNow > 50 && rsiNow > rsiPrev;
+            bool momentumBear = rsiNow < 50 && rsiNow < rsiPrev;
 
             bool resumeBuy = closeNow > highPrev && closeNow > emaNow;
             bool resumeSell = closeNow < lowPrev && closeNow < emaNow;

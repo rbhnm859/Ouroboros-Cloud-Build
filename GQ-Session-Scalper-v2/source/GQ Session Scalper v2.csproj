@@ -4,8 +4,13 @@
     <ImplicitUsings>disable</ImplicitUsings>
     <Nullable>disable</Nullable>
     <RootNamespace>cAlgo.Robots</RootNamespace>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="cTrader.Automate" Version="1.*-*" />
+  </ItemGroup>
+  <ItemGroup>
+    <Compile Include="GQ_Session_Scalper_v2.cs" />
+    <None Include="GQ_Session_Scalper_original.cs" />
   </ItemGroup>
 </Project>
