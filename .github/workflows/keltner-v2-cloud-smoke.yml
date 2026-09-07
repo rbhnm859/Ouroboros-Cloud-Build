@@ -23,7 +23,7 @@ jobs:
         with:
           dotnet-version: '8.0.x'
 
-      - name: Build isolated Keltner baseline
+      - name: Build isolated hardened Keltner baseline
         shell: bash
         run: |
           set -euo pipefail
@@ -37,8 +37,8 @@ jobs:
           cp "$ALGO" Keltner-Channels-Trader-v2/smoke/KeltnerChannelsTraderV2_Baseline.algo
           sha256sum Keltner-Channels-Trader-v2/smoke/KeltnerChannelsTraderV2_Baseline.algo
 
-      - name: Pull official cTrader Console
-        run: docker pull ghcr.io/spotware/ctrader-console:5.9.11
+      - name: Pull current official cTrader Console
+        run: docker pull ghcr.io/spotware/ctrader-console:latest
 
       - name: Prepare credentials
         env:
@@ -54,7 +54,7 @@ jobs:
           umask 077
           printf '%s' "$CTRADER_PASSWORD" > Keltner-Channels-Trader-v2/smoke/ctrader.pwd
 
-      - name: EURUSD runtime diagnostic backtest
+      - name: Fast EURUSD engine and report plumbing test
         env:
           CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
           CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
@@ -63,32 +63,32 @@ jobs:
           set +e
           docker run --rm \
             -v "$PWD/Keltner-Channels-Trader-v2/smoke:/work" \
-            ghcr.io/spotware/ctrader-console:5.9.11 \
+            ghcr.io/spotware/ctrader-console:latest \
             backtest /work/KeltnerChannelsTraderV2_Baseline.algo \
             --ctid="$CTRADER_CTID" \
             --pwd-file=/work/ctrader.pwd \
             --account="$CTRADER_ACCOUNT" \
             --symbol=EURUSD \
             --period=m15 \
-            --start='03/08/2026' \
-            --end='04/08/2026' \
+            --start='01/08/2026' \
+            --end='31/08/2026' \
             --balance=200 \
             --commission=35 \
+            --commission-type=UsdPerMillionUsdVolume \
             --spread=1 \
-            --data-mode=m1 \
+            --data-mode=open \
+            --RiskMode=FixedLots \
+            --FixedVolumeLots=0.01 \
+            --MaxSpreadPips=0 \
+            --LogDiagnostics=true \
             --report-json=/work/reports/eurusd-m15-smoke.json \
             > Keltner-Channels-Trader-v2/smoke/reports/eurusd-m15-smoke.console.log 2>&1
           RC=$?
           echo "CTRADER_EXIT_CODE=$RC"
           echo '=== cTrader console output ==='
           cat Keltner-Channels-Trader-v2/smoke/reports/eurusd-m15-smoke.console.log || true
-          echo '=== Files produced in mounted smoke workspace ==='
+          echo '=== Files produced ==='
           find Keltner-Channels-Trader-v2/smoke -type f -printf '%P\n' | sort
-          echo '=== Backtesting diagnostics found ==='
-          find Keltner-Channels-Trader-v2/smoke -type f \( -name '*.log' -o -name '*.json' \) -print0 | while IFS= read -r -d '' f; do
-            echo "----- $f -----"
-            cat "$f" || true
-          done
           if [ -s Keltner-Channels-Trader-v2/smoke/reports/eurusd-m15-smoke.json ]; then
             python3 - <<'PY'
           from pathlib import Path
@@ -99,6 +99,11 @@ jobs:
           print(json.dumps(d, indent=2, sort_keys=True))
           PY
           fi
+          echo '=== Native Backtesting files ==='
+          find Keltner-Channels-Trader-v2/smoke -type f \( -name 'Log*' -o -name 'Events*' -o -name '*.cbotset' \) -print0 | while IFS= read -r -d '' f; do
+            echo "----- $f -----"
+            cat "$f" || true
+          done
           exit "$RC"
 
       - name: Remove credentials
@@ -109,7 +114,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: Keltner-v2-cloud-smoke
+          name: Keltner-v2-cloud-smoke-latest
           path: Keltner-Channels-Trader-v2/smoke/reports/
           if-no-files-found: warn
           retention-days: 7
