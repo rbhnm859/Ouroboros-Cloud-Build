@@ -76,9 +76,9 @@ def main() -> None:
         "quality threshold",
     )
     text = text.replace('min confidence", DefaultValue = 0.65', 'min confidence", DefaultValue = 0.60')
-    replace_once("Preset == OuroborosPreset.Balanced ? 0.50", "Preset == OuroborosPreset.Balanced ? 0.75", "balanced base risk")
-    replace_once("Preset == OuroborosPreset.Balanced ? 1.00", "Preset == OuroborosPreset.Balanced ? 1.25", "balanced trade cap")
     replace_once("Preset == OuroborosPreset.Balanced ? 2.00", "Preset == OuroborosPreset.Balanced ? 2.50", "balanced portfolio cap")
+    replace_once("Preset == OuroborosPreset.Balanced ? 1.00", "Preset == OuroborosPreset.Balanced ? 2.00", "balanced trade cap")
+    replace_once("Preset == OuroborosPreset.Balanced ? 0.50", "Preset == OuroborosPreset.Balanced ? 1.75", "balanced base risk")
     replace_once("Preset == OuroborosPreset.Balanced ? 4.00", "Preset == OuroborosPreset.Balanced ? 4.50", "balanced flatten DD")
     replace_once("Preset == OuroborosPreset.Balanced ? 3.50", "Preset == OuroborosPreset.Balanced ? 4.00", "balanced daily DD")
     replace_once("Preset == OuroborosPreset.Balanced ? 6.00", "Preset == OuroborosPreset.Balanced ? 8.00", "balanced total DD")
