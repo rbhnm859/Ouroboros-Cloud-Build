@@ -155,8 +155,6 @@ jobs:
               --balance="$RESEARCH_BALANCE" \
               --data-mode=m1 \
               --data-dir=/work/cache \
-              --commission-auto \
-              --precise-conversion \
               --RiskPercent=1.0 \
               "${PROFILE_ARGS[@]}" \
               --report="/work/reports/${PROFILE}-${{ matrix.symbol }}.html" \
