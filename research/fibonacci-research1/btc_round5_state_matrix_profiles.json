@@ -1,0 +1,33 @@
+{
+  "r5_observe_matrix": {
+    "Round5Mode": "ObserveOnly",
+    "D1Patterns": "Gartley,Bat,Butterfly,Crab,Deep Crab",
+    "H4Patterns": "Gartley,Bat,Crab,Reciprocal ABCD",
+    "H1Patterns": "Reciprocal ABCD",
+    "M30Patterns": "Reciprocal ABCD,ABCD",
+    "M15Patterns": "ABCD,Reciprocal ABCD",
+    "M5Patterns": "ABCD",
+    "M1Patterns": "ABCD"
+  },
+  "r5_macro_veto": {
+    "Round5Mode": "MacroVeto",
+    "D1Patterns": "Gartley,Bat,Butterfly,Crab,Deep Crab",
+    "H4Patterns": "Gartley,Bat,Crab,Reciprocal ABCD",
+    "H1Patterns": "Reciprocal ABCD",
+    "M30Patterns": "Reciprocal ABCD,ABCD",
+    "M15Patterns": "ABCD,Reciprocal ABCD",
+    "M5Patterns": "ABCD",
+    "M1Patterns": "ABCD"
+  },
+  "r5_weighted_research": {
+    "Round5Mode": "WeightedGate",
+    "WeightedGateThreshold": "0.35",
+    "D1Weight": "4.0",
+    "H4Weight": "3.0",
+    "H1Weight": "2.5",
+    "M30Weight": "2.0",
+    "M15Weight": "1.0",
+    "M5Weight": "0.5",
+    "M1Weight": "0.25"
+  }
+}
