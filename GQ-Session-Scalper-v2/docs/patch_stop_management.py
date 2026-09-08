@@ -71,7 +71,7 @@ new = '''            PositionState state;
             if (!improves)
                 return;
 
-            var result = ModifyPosition(position, candidateStop, position.TakeProfit, ProtectionType.Absolute);
+            var result = position.ModifyStopLossPrice(candidateStop);
             if (!result.IsSuccessful)
             {
                 Print("[STOP_UPDATE_ERROR] reason={0} error={1}", reason, result.Error);
@@ -90,5 +90,13 @@ if "double minimumImprovement = Math.Max(Symbol.TickSize, Symbol.PipSize * 0.1);
         raise SystemExit("TryImproveStop anchor not found")
     s = s.replace(old, new, 1)
 
+old_modify = "            var result = ModifyPosition(position, candidateStop, position.TakeProfit, ProtectionType.Absolute);\n"
+new_modify = "            var result = position.ModifyStopLossPrice(candidateStop);\n"
+if old_modify in s:
+    s = s.replace(old_modify, new_modify, 1)
+
+if "position.ModifyStopLossPrice(candidateStop)" not in s:
+    raise SystemExit("Stop-only modify patch was not applied")
+
 SOURCE.write_text(s, encoding="utf-8")
-print("GQ stop-management and minimum-distance patches applied or already present.")
+print("GQ stop-management patch applied: stop-only modification + distance/de-dup guards.")
