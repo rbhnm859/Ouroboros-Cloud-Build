@@ -32,7 +32,7 @@ jobs:
           set -euo pipefail
           PROJ='CumulativeDeltaScalper-EURUSD-v1/CumulativeDeltaScalper_EURUSD_v1.csproj'
           test -f "$PROJ"
-          dotnet restore "$PROJ"
+          dotnet restore "$PROJ" -p:TargetFramework=net6.0
           dotnet build "$PROJ" -c Release -p:TargetFramework=net6.0 -p:AlgoName=CumulativeDeltaScalper_EURUSD_v1 -p:AlgoBuild=true -p:AlgoPublish=false -p:IncludeSource=true | tee /tmp/cdscalper-build.log
 
       - name: Locate and stage .algo
