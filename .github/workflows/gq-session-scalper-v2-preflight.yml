@@ -1,0 +1,163 @@
+name: GQ Session Scalper v2 Broker Preflight
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - gq-session-scalper-v2-robust-20260908
+    paths:
+      - '.github/workflows/gq-session-scalper-v2-preflight.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  preflight:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify required secure inputs
+        env:
+          CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+          CTRADER_PASSWORD: ${{ secrets.CTRADER_PASSWORD }}
+          CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${CTRADER_CTID:-}" || { echo 'Missing CTRADER_CTID secret'; exit 1; }
+          test -n "${CTRADER_PASSWORD:-}" || { echo 'Missing CTRADER_PASSWORD secret'; exit 1; }
+          test -n "${CTRADER_ACCOUNT:-}" || { echo 'Missing CTRADER_ACCOUNT secret'; exit 1; }
+          mkdir -p GQ-Session-Scalper-v2/logs GQ-Session-Scalper-v2/reports GQ-Session-Scalper-v2/presets
+          printf '%s' "$CTRADER_PASSWORD" > GQ-Session-Scalper-v2/logs/ctrader-preflight.pwd
+          chmod 600 GQ-Session-Scalper-v2/logs/ctrader-preflight.pwd
+
+      - name: Pull official cTrader container
+        run: docker pull ghcr.io/spotware/ctrader-console:latest
+
+      - name: Read account and symbol catalog without exposing credentials
+        env:
+          CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+          CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker run --rm \
+            -v "$PWD/GQ-Session-Scalper-v2:/work" \
+            -e "CTID=$CTRADER_CTID" \
+            -e 'PWD-FILE=/work/logs/ctrader-preflight.pwd' \
+            ghcr.io/spotware/ctrader-console:latest \
+            accounts --environment-variables > /tmp/gq-accounts.out
+
+          docker run --rm \
+            -v "$PWD/GQ-Session-Scalper-v2:/work" \
+            -e "CTID=$CTRADER_CTID" \
+            -e 'PWD-FILE=/work/logs/ctrader-preflight.pwd' \
+            -e "ACCOUNT=$CTRADER_ACCOUNT" \
+            ghcr.io/spotware/ctrader-console:latest \
+            symbols --environment-variables > /tmp/gq-symbols.out
+
+          test -s /tmp/gq-accounts.out
+          test -s /tmp/gq-symbols.out
+          echo 'Authenticated account lookup succeeded.'
+          echo 'Authenticated symbol catalog lookup succeeded.'
+
+      - name: Produce sanitized broker and symbol mapping report
+        env:
+          CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import json, os, re
+
+          account_text = Path('/tmp/gq-accounts.out').read_text(errors='replace')
+          symbols_text = Path('/tmp/gq-symbols.out').read_text(errors='replace')
+          target = os.environ.get('CTRADER_ACCOUNT','')
+
+          # Never persist the target account number or raw account response.
+          selected = None
+          try:
+              data = json.loads(account_text)
+              candidates = data if isinstance(data, list) else data.get('accounts', data.get('items', [])) if isinstance(data, dict) else []
+              for a in candidates:
+                  if isinstance(a, dict) and target and target in {str(v) for v in a.values()}:
+                      selected = a
+                      break
+              if selected is None and len(candidates) == 1 and isinstance(candidates[0], dict):
+                  selected = candidates[0]
+          except Exception:
+              selected = None
+
+          def pick(d, keys):
+              if not isinstance(d, dict): return None
+              lower = {str(k).lower(): v for k,v in d.items()}
+              for k in keys:
+                  if k.lower() in lower:
+                      return lower[k.lower()]
+              return None
+
+          broker = pick(selected, ['brokerName','broker','broker_name'])
+          currency = pick(selected, ['currency','depositCurrency','asset'])
+          leverage = pick(selected, ['leverage'])
+          environment = pick(selected, ['environment','accountType','type','live'])
+
+          # Tokenize symbol output and keep only symbol-like values. Exact generic names win.
+          tokens = sorted(set(re.findall(r'(?<![A-Za-z0-9])[A-Za-z][A-Za-z0-9._-]{2,30}(?![A-Za-z0-9])', symbols_text)))
+          upper_map = {}
+          for t in tokens:
+              upper_map.setdefault(t.upper(), t)
+
+          generics = ['EURUSD','GBPUSD','XAUUSD','BTCUSD','ETHUSD','USDJPY','AUDUSD']
+          aliases = {
+              'BTCUSD': ['BTCUSD','BITCOIN','BTCUSD.','BTCUSD_','BTC/USD'],
+              'ETHUSD': ['ETHUSD','ETHEREUM','ETHUSD.','ETHUSD_','ETH/USD'],
+              'XAUUSD': ['XAUUSD','GOLD','XAU/USD'],
+          }
+          mapping = {}
+          for g in generics:
+              if g in upper_map:
+                  mapping[g] = upper_map[g]
+                  continue
+              probes = aliases.get(g,[g])
+              matches = []
+              for t in tokens:
+                  u = t.upper()
+                  if any(p.replace('/','') in u.replace('/','') for p in probes):
+                      matches.append(t)
+              mapping[g] = sorted(matches, key=lambda x:(len(x),x))[0] if matches else None
+
+          report = ['# Broker / Symbol Preflight — 2026-09-08','',
+                    '- Authentication: PASS (GitHub Secrets + temporary password file; no credential persisted)',
+                    f'- Broker: {broker if broker is not None else "authenticated; name not exposed by batch response"}',
+                    f'- Environment / account type: {environment if environment is not None else "not exposed by batch response"}',
+                    f'- Currency: {currency if currency is not None else "not exposed by batch response"}',
+                    f'- Leverage: {leverage if leverage is not None else "not exposed by batch response"}',
+                    '', '## Generic → broker symbol mapping','']
+          for g,v in mapping.items():
+              report.append(f'- `{g}` → `{v}`' if v else f'- `{g}` → **NOT RESOLVED**')
+          report += ['', 'Raw account output is intentionally not stored. Raw symbol catalog is intentionally not committed.',
+                     'This is a read-only preflight; no orders or positions are created.']
+          Path('GQ-Session-Scalper-v2/reports/broker_preflight_20260908.md').write_text('\n'.join(report)+'\n')
+          Path('GQ-Session-Scalper-v2/presets/symbol_mapping.json').write_text(json.dumps(mapping, indent=2)+'\n')
+          print('\n'.join(report))
+          PY
+
+      - name: Remove temporary credential and raw responses
+        if: always()
+        shell: bash
+        run: |
+          rm -f GQ-Session-Scalper-v2/logs/ctrader-preflight.pwd /tmp/gq-accounts.out /tmp/gq-symbols.out
+
+      - name: Commit sanitized preflight only
+        if: success()
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add GQ-Session-Scalper-v2/reports/broker_preflight_20260908.md GQ-Session-Scalper-v2/presets/symbol_mapping.json
+          git commit -m 'Record GQ Session Scalper v2 broker preflight [skip ci]' || exit 0
+          git push origin HEAD:${GITHUB_REF_NAME}
