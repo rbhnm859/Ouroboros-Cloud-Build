@@ -1,0 +1,96 @@
+name: GQ Session Scalper v2 Metadata Diagnostic
+
+on:
+  push:
+    branches:
+      - gq-session-scalper-v2-robust-20260908
+    paths:
+      - '.github/workflows/gq-session-scalper-v2-metadata-diagnostic.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout GQ branch
+        uses: actions/checkout@v4
+
+      - name: Pull official cTrader container
+        run: docker pull ghcr.io/spotware/ctrader-console:latest
+
+      - name: Rebuild GQ cBot
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf GQ-Session-Scalper-v2/src/bin GQ-Session-Scalper-v2/src/obj
+          docker run --rm --entrypoint sh -v "$PWD:/repo" -w /repo \
+            ghcr.io/spotware/ctrader-console:latest -c \
+            "dotnet restore GQ-Session-Scalper-v2/src/GQ_Session_Scalper_v2.csproj && dotnet build GQ-Session-Scalper-v2/src/GQ_Session_Scalper_v2.csproj --configuration Release --no-restore -p:AlgoPublish=False -p:IncludeSource=True"
+          find GQ-Session-Scalper-v2/src/bin -type f -name '*.algo' -print
+
+      - name: Build isolated Spotware-style Robot control
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/gq-control
+          cat > /tmp/gq-control/ControlRobot.cs <<'CS'
+          using cAlgo.API;
+          namespace cAlgo.Robots
+          {
+              [Robot(TimeZone = TimeZones.UTC, AccessRights = AccessRights.None)]
+              public class ControlRobot : Robot
+              {
+                  [Parameter("Enabled", DefaultValue = true)]
+                  public bool Enabled { get; set; }
+                  protected override void OnStart() { }
+                  protected override void OnBarClosed() { }
+              }
+          }
+          CS
+          cat > /tmp/gq-control/ControlRobot.csproj <<'XML'
+          <Project Sdk="Microsoft.NET.Sdk">
+            <PropertyGroup>
+              <TargetFramework>net6.0</TargetFramework>
+              <ImplicitUsings>disable</ImplicitUsings>
+              <Nullable>disable</Nullable>
+              <RootNamespace>cAlgo.Robots</RootNamespace>
+            </PropertyGroup>
+            <ItemGroup>
+              <PackageReference Include="cTrader.Automate" Version="1.*-*" />
+            </ItemGroup>
+          </Project>
+          XML
+          docker run --rm --entrypoint sh -v /tmp/gq-control:/control -w /control \
+            ghcr.io/spotware/ctrader-console:latest -c \
+            "dotnet restore ControlRobot.csproj && dotnet build ControlRobot.csproj --configuration Release --no-restore -p:AlgoPublish=False -p:IncludeSource=True"
+          find /tmp/gq-control -type f -name '*.algo' -print
+
+      - name: Compare metadata classification
+        shell: bash
+        run: |
+          set -euo pipefail
+          GQ_ALGO="$(find GQ-Session-Scalper-v2/src/bin -type f -name '*.algo' -print -quit)"
+          CONTROL_ALGO="$(find /tmp/gq-control -type f -name '*.algo' -print -quit)"
+          test -n "$GQ_ALGO"
+          test -n "$CONTROL_ALGO"
+          cp "$GQ_ALGO" /tmp/gq-control/GQ.algo
+          echo '=== GQ METADATA ==='
+          docker run --rm -v /tmp/gq-control:/work ghcr.io/spotware/ctrader-console:latest metadata /work/GQ.algo | tee /tmp/gq-control/gq-metadata.json
+          echo '=== CONTROL METADATA ==='
+          docker run --rm -v /tmp/gq-control:/work ghcr.io/spotware/ctrader-console:latest metadata /work/$(basename "$CONTROL_ALGO") | tee /tmp/gq-control/control-metadata.json
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          gq = json.loads(Path('/tmp/gq-control/gq-metadata.json').read_text())
+          control = json.loads(Path('/tmp/gq-control/control-metadata.json').read_text())
+          print('GQ type:', gq.get('Type'))
+          print('Control type:', control.get('Type'))
+          if gq.get('Type') == control.get('Type'):
+              print('CLASSIFICATION_MATCH: metadata classification is toolchain-wide, not GQ-specific.')
+          else:
+              print('CLASSIFICATION_MISMATCH: GQ packaging differs from isolated Robot control.')
+          PY
