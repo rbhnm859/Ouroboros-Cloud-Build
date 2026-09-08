@@ -1,4 +1,4 @@
-name: GQ Session Scalper v2 source compatibility fix
+name: GQ Session Scalper v2 stop-management fix
 
 on:
   push:
@@ -15,7 +15,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Fix risk sizing and protection overload compatibility
+
+      - name: Prevent duplicate stop modification requests
         shell: bash
         run: |
           set -euo pipefail
@@ -23,29 +24,79 @@ jobs:
           from pathlib import Path
           p = Path('GQ-Session-Scalper-v2/src/GQ_Session_Scalper_v2.cs')
           s = p.read_text()
-          old = '            double volume = Symbol.VolumeForProportionalRisk(RiskType.Equity, riskPercent, stopLossPips, RoundingMode.Down);\n'
-          new = ('            double minimumVolumeRisk = Symbol.AmountRisked(Symbol.VolumeInUnitsMin, stopLossPips);\n'
-                 '            double volume = IsFinitePositive(minimumVolumeRisk)\n'
-                 '                ? Symbol.VolumeInUnitsMin * (Account.Equity * riskPercent / 100.0) / minimumVolumeRisk\n'
-                 '                : 0;\n')
+
+          field_anchor = '            public string ManagedExitReason;\n'
+          field_new = ('            public string ManagedExitReason;\n'
+                       '            public double LastAppliedStopPrice;\n')
+          if 'public double LastAppliedStopPrice;' not in s:
+              if field_anchor not in s:
+                  raise SystemExit('PositionState anchor not found')
+              s = s.replace(field_anchor, field_new, 1)
+
+          old = '''            bool improves = !position.StopLoss.HasValue ||
+                (position.TradeType == TradeType.Buy && candidateStop > position.StopLoss.Value) ||
+                (position.TradeType == TradeType.Sell && candidateStop < position.StopLoss.Value);
+            if (!improves)
+                return;
+
+            var result = ModifyPosition(position, candidateStop, position.TakeProfit, ProtectionType.Absolute);
+            if (!result.IsSuccessful)
+            {
+                Print("[STOP_UPDATE_ERROR] reason={0} error={1}", reason, result.Error);
+                return;
+            }
+            PositionState state;
+            if (_states.TryGetValue(position.Id, out state))
+                state.ManagedExitReason = reason;
+'''
+          new = '''            PositionState state;
+            _states.TryGetValue(position.Id, out state);
+            double referenceStop = position.StopLoss ?? 0.0;
+            if (state != null && IsFinitePositive(state.LastAppliedStopPrice))
+            {
+                referenceStop = !IsFinitePositive(referenceStop)
+                    ? state.LastAppliedStopPrice
+                    : (position.TradeType == TradeType.Buy
+                        ? Math.Max(referenceStop, state.LastAppliedStopPrice)
+                        : Math.Min(referenceStop, state.LastAppliedStopPrice));
+            }
+            double minimumImprovement = Math.Max(Symbol.TickSize, Symbol.PipSize * 0.1);
+            bool improves = !IsFinitePositive(referenceStop) ||
+                (position.TradeType == TradeType.Buy && candidateStop >= referenceStop + minimumImprovement) ||
+                (position.TradeType == TradeType.Sell && candidateStop <= referenceStop - minimumImprovement);
+            if (!improves)
+                return;
+
+            var result = ModifyPosition(position, candidateStop, position.TakeProfit, ProtectionType.Absolute);
+            if (!result.IsSuccessful)
+            {
+                Print("[STOP_UPDATE_ERROR] reason={0} error={1}", reason, result.Error);
+                return;
+            }
+            if (state != null)
+            {
+                state.LastAppliedStopPrice = candidateStop;
+                state.ManagedExitReason = reason;
+            }
+'''
           if old not in s:
-              raise SystemExit('Risk sizing anchor not found')
-          s = s.replace(old, new, 1)
-          old = '            var result = ModifyPosition(position, candidateStop, position.TakeProfit);\n'
-          new = '            var result = ModifyPosition(position, candidateStop, position.TakeProfit, ProtectionType.Absolute);\n'
-          if old not in s:
-              raise SystemExit('ModifyPosition anchor not found')
+              raise SystemExit('TryImproveStop anchor not found')
           s = s.replace(old, new, 1)
           p.write_text(s)
           PY
-          grep -n 'minimumVolumeRisk\|ProtectionType.Absolute' GQ-Session-Scalper-v2/src/GQ_Session_Scalper_v2.cs
-          ! grep -n 'RiskType\|VolumeForProportionalRisk' GQ-Session-Scalper-v2/src/GQ_Session_Scalper_v2.cs
-      - name: Commit compatibility fix
+
+          grep -n 'LastAppliedStopPrice\|minimumImprovement' GQ-Session-Scalper-v2/src/GQ_Session_Scalper_v2.cs
+
+      - name: Commit GQ stop-management fix
         shell: bash
         run: |
           set -euo pipefail
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add GQ-Session-Scalper-v2/src/GQ_Session_Scalper_v2.cs
-          git commit -m 'Fix GQ v2 risk sizing API compatibility'
-          git push origin HEAD:${GITHUB_REF_NAME}
+          if git diff --cached --quiet; then
+            echo 'No GQ source changes required.'
+          else
+            git commit -m 'Fix GQ v2 duplicate stop modification requests'
+            git push origin HEAD:${GITHUB_REF_NAME}
+          fi
