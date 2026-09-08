@@ -1,18 +1,13 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
+    <Version>2.0.0</Version>
     <TargetFramework>net6.0</TargetFramework>
-    <EnableDefaultItems>False</EnableDefaultItems>
-    <GenerateAssemblyInfo>False</GenerateAssemblyInfo>
-    <LangVersion>latest</LangVersion>
-    <Configuration Condition=" '$(Configuration)' == '' ">Release</Configuration>
-    <Platform Condition=" '$(Platform)' == '' ">AnyCPU</Platform>
-    <RootNamespace>cAlgo</RootNamespace>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <Nullable>disable</Nullable>
+    <RootNamespace>cAlgo.Robots</RootNamespace>
     <AssemblyName>GQ_Session_Scalper_v2</AssemblyName>
   </PropertyGroup>
   <ItemGroup>
-    <PackageReference Include="cTrader.Automate" Version="*-*" />
-  </ItemGroup>
-  <ItemGroup>
-    <Compile Include="GQ_Session_Scalper_v2.cs" />
+    <PackageReference Include="cTrader.Automate" Version="1.*-*" />
   </ItemGroup>
 </Project>
