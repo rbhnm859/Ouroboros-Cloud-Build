@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# Round8 excursion analyzer; this comment intentionally triggers the research workflow.
 from __future__ import annotations
 
 import argparse
