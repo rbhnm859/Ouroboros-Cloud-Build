@@ -1,0 +1,51 @@
+{
+  "fix3_control": {
+    "StopAnchorMode": "LegacyD",
+    "TargetRiskRewardPolicy": "LegacyFallback",
+    "MaxEntryDistanceAtr": "1.50",
+    "ConfirmationMoveAtr": "0.10",
+    "MaxPatternAgeBars": "12",
+    "MinPatternScore": "85"
+  },
+  "strict_geometry": {
+    "StopAnchorMode": "PatternInvalidation",
+    "TargetRiskRewardPolicy": "RejectPoorGeometry",
+    "MaxEntryDistanceAtr": "1.00",
+    "ConfirmationMoveAtr": "0.05",
+    "MaxPatternAgeBars": "8",
+    "MinPatternScore": "85"
+  },
+  "near_d": {
+    "StopAnchorMode": "PatternInvalidation",
+    "TargetRiskRewardPolicy": "RejectPoorGeometry",
+    "MaxEntryDistanceAtr": "0.75",
+    "ConfirmationMoveAtr": "0.00",
+    "MaxPatternAgeBars": "6",
+    "MinPatternScore": "85"
+  },
+  "strict_target_legacy_stop": {
+    "StopAnchorMode": "LegacyD",
+    "TargetRiskRewardPolicy": "RejectPoorGeometry",
+    "MaxEntryDistanceAtr": "1.00",
+    "ConfirmationMoveAtr": "0.05",
+    "MaxPatternAgeBars": "8",
+    "MinPatternScore": "85"
+  },
+  "pattern_stop_legacy_target": {
+    "StopAnchorMode": "PatternInvalidation",
+    "TargetRiskRewardPolicy": "LegacyFallback",
+    "MaxEntryDistanceAtr": "1.00",
+    "ConfirmationMoveAtr": "0.05",
+    "MaxPatternAgeBars": "8",
+    "MinPatternScore": "85"
+  },
+  "classic_harmonics": {
+    "StopAnchorMode": "PatternInvalidation",
+    "TargetRiskRewardPolicy": "RejectPoorGeometry",
+    "MaxEntryDistanceAtr": "0.90",
+    "ConfirmationMoveAtr": "0.00",
+    "MaxPatternAgeBars": "8",
+    "MinPatternScore": "85",
+    "EnabledPatterns": "Gartley,Bat,Alt Bat,Butterfly,Crab,Deep Crab,ABCD"
+  }
+}
