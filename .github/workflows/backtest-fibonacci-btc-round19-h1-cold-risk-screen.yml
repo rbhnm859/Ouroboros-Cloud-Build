@@ -1,0 +1,83 @@
+name: Fibonacci BTC Round19 H1 Cold Risk Screen
+on:
+  push:
+    branches: [fibonacci-research1-build]
+    paths:
+      - '.github/workflows/backtest-fibonacci-btc-round19-h1-cold-risk-screen.yml'
+      - 'tools/create_fibonacci_btc_round19_h1_cold_risk.py'
+  workflow_dispatch:
+permissions:
+  contents: read
+env:
+  CTRADER_IMAGE: ghcr.io/spotware/ctrader-console:5.9.11
+  BALANCE: '10000'
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: |
+          python3 tools/create_fibonacci_research1.py --repo-root "$PWD" --force
+          python3 tools/create_fibonacci_btc_round4.py --repo-root "$PWD" --force
+          python3 tools/create_fibonacci_btc_round5.py --repo-root "$PWD" --force
+          python3 tools/create_fibonacci_btc_round6.py --repo-root "$PWD" --force
+          python3 tools/create_fibonacci_btc_round7.py --repo-root "$PWD" --force
+          python3 tools/create_fibonacci_btc_round8.py --repo-root "$PWD" --force
+          python3 tools/create_fibonacci_btc_round9.py --repo-root "$PWD" --force
+          python3 tools/create_fibonacci_btc_round10.py --repo-root "$PWD" --force
+          python3 tools/create_fibonacci_btc_round15.py --repo-root "$PWD" --force
+          python3 tools/create_fibonacci_btc_round16_h1_health.py --repo-root "$PWD" --force
+          python3 tools/create_fibonacci_btc_round17_m30_half_risk.py --repo-root "$PWD" --force
+          python3 tools/create_fibonacci_btc_round19_h1_cold_risk.py --repo-root "$PWD" --force
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('Fibonacci-v0.17.1-btc-round19-h1-cold-risk/FibonacciHarmonicSniperUltimate.cs')
+          s=p.read_text(); s=s.replace('[Parameter("Trading Enabled", DefaultValue = false','[Parameter("Trading Enabled", DefaultValue = true',1); p.write_text(s)
+          PY
+          docker pull "$CTRADER_IMAGE"
+          docker run --rm --entrypoint sh -v "$PWD:/repo" -w /repo "$CTRADER_IMAGE" -c 'dotnet restore Fibonacci-v0.17.1-btc-round19-h1-cold-risk/FibonacciHarmonicSniperUltimate.csproj && dotnet build Fibonacci-v0.17.1-btc-round19-h1-cold-risk/FibonacciHarmonicSniperUltimate.csproj -c Release --no-restore -p:AlgoPublish=False -p:IncludeSource=True'
+          mkdir artifact
+          cp "$(find Fibonacci-v0.17.1-btc-round19-h1-cold-risk -name '*.algo' -print -quit)" artifact/R19.algo
+      - uses: actions/upload-artifact@v4
+        with:
+          name: r19-build
+          path: artifact/R19.algo
+  backtest:
+    needs: build
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix:
+        include:
+          - {case: old_a_ctrl, start: '08/09/2025 00:00', end: '07/12/2025 23:59', commission: 65, spread: 0, cold: 'false'}
+          - {case: old_a_cold, start: '08/09/2025 00:00', end: '07/12/2025 23:59', commission: 65, spread: 0, cold: 'true'}
+          - {case: old_b_ctrl, start: '08/12/2025 00:00', end: '07/03/2026 23:59', commission: 65, spread: 0, cold: 'false'}
+          - {case: old_b_cold, start: '08/12/2025 00:00', end: '07/03/2026 23:59', commission: 65, spread: 0, cold: 'true'}
+          - {case: pre6_cold, start: '08/09/2025 00:00', end: '07/03/2026 23:59', commission: 65, spread: 0, cold: 'true'}
+          - {case: pre6_cold_harsh, start: '08/09/2025 00:00', end: '07/03/2026 23:59', commission: 100, spread: 1500, cold: 'true'}
+          - {case: full6_cold, start: '08/03/2026 00:00', end: '08/09/2026 00:00', commission: 65, spread: 0, cold: 'true'}
+          - {case: full6_cold_harsh, start: '08/03/2026 00:00', end: '08/09/2026 00:00', commission: 100, spread: 1500, cold: 'true'}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with: {name: r19-build, path: work}
+      - name: Prepare
+        env:
+          CTRADER_PASSWORD: ${{ secrets.CTRADER_PASSWORD }}
+        run: |
+          mkdir -p work/cache work/report
+          printf '%s' "$CTRADER_PASSWORD" > work/pwd
+          docker pull "$CTRADER_IMAGE"
+      - name: Backtest
+        env:
+          CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+          CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+        run: |
+          docker run --rm -v "$PWD/work:/work" -e "CTID=$CTRADER_CTID" -e 'PWD-FILE=/work/pwd' -e "ACCOUNT=$CTRADER_ACCOUNT" "$CTRADER_IMAGE" backtest /work/R19.algo --environment-variables --exit-on-stop --symbol=BITCOIN --period=h1 --start='${{ matrix.start }}' --end='${{ matrix.end }}' --balance="$BALANCE" --data-mode=m1 --data-dir=/work/cache --commission='${{ matrix.commission }}' --spread='${{ matrix.spread }}' --RiskPercent=1.0 --Round17M30RiskPercent=0.50 --Round19EnableH1ColdRisk='${{ matrix.cold }}' --Round19H1ColdRiskPercent=0.50 --MaxOpenPositions=1 --MaxTradesPerDay=6 --MaxDailyLossPercent=5 --EnabledPatterns='Reciprocal ABCD' --PivotLeft=2 --PivotRight=2 --RatioTolerancePercent=6 --MinPatternScore=84 --MaxPatternAgeBars=16 --MaxEntryDistanceAtr=1.80 --ConfirmationMoveAtr=0.05 --UseCandleConfirmation=true --CooldownBars=2 --FallbackRiskReward=1.80 --MinimumRiskReward=1.50 --StopAnchorMode=LegacyD --TargetRiskRewardPolicy=LegacyFallback --Round5Mode=ObserveOnly --MtfMode=Off --Round6RequireM30SellConfirm=false --Round7VetoM30SellAlignment=false --Round8LogExcursions=false --Round9ShadowTpContinuation=false --Round10LogFunnel=false --Round15EnableM30Engine=true --Round16H1HealthGate=true --DebugLogging=false --report=/work/report/report.html --report-json=/work/report/report.json
+      - run: rm -f work/pwd
+        if: always()
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: btc-r19-${{ matrix.case }}
+          path: work/report
