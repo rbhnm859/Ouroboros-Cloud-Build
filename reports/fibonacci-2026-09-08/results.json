@@ -172,5 +172,296 @@
       "applyCommissionAutomatically": false
     },
     "run_url": "https://github.com/rbhnm859/Ouroboros-Cloud-Build/actions/runs/34176307277"
+  },
+  {
+    "version": "v0.3.0-fix3",
+    "case": "eur-h1-baseline",
+    "timeframe": "H1",
+    "trend_filter_mode": "ScoreOnly",
+    "symbol": "EURUSD",
+    "period": {
+      "duration": "3m",
+      "startDate": 1780876800000,
+      "endDate": 1788825600000,
+      "formatted": "3m (08/06/2026 - 08/09/2026)"
+    },
+    "trades": 6,
+    "wins": 0,
+    "win_rate_percent": 0.0,
+    "net_profit_usd": -9.36,
+    "roi_percent": -4.68,
+    "max_equity_drawdown_percent": 5.21553224282804,
+    "starting_capital": 200,
+    "spread": {
+      "type": "fixed",
+      "min": null,
+      "max": null,
+      "value": 1
+    },
+    "commissions": {
+      "type": "usdPerMillionUsdVolume",
+      "value": 35,
+      "applyCommissionAutomatically": true
+    },
+    "run_url": "https://github.com/rbhnm859/Ouroboros-Cloud-Build/actions/runs/34186235715"
+  },
+  {
+    "version": "v0.3.0-fix4",
+    "case": "eur-h1-fix4",
+    "timeframe": "H1",
+    "trend_filter_mode": "ScoreOnly",
+    "symbol": "EURUSD",
+    "period": {
+      "duration": "3m",
+      "startDate": 1780876800000,
+      "endDate": 1788825600000,
+      "formatted": "3m (08/06/2026 - 08/09/2026)"
+    },
+    "trades": 1,
+    "wins": 0,
+    "win_rate_percent": 0.0,
+    "net_profit_usd": -1.3,
+    "roi_percent": -0.65,
+    "max_equity_drawdown_percent": 4.051378627649821,
+    "starting_capital": 200,
+    "spread": {
+      "type": "fixed",
+      "min": null,
+      "max": null,
+      "value": 1
+    },
+    "commissions": {
+      "type": "usdPerMillionUsdVolume",
+      "value": 35,
+      "applyCommissionAutomatically": true
+    },
+    "run_url": "https://github.com/rbhnm859/Ouroboros-Cloud-Build/actions/runs/34186235715"
+  },
+  {
+    "version": "v0.3.0-fix4",
+    "case": "eur-m15-fix4",
+    "timeframe": "M15",
+    "trend_filter_mode": "ScoreOnly",
+    "symbol": "EURUSD",
+    "period": {
+      "duration": "3m",
+      "startDate": 1780876800000,
+      "endDate": 1788825600000,
+      "formatted": "3m (08/06/2026 - 08/09/2026)"
+    },
+    "trades": 7,
+    "wins": 1,
+    "win_rate_percent": 14.285714285714286,
+    "net_profit_usd": -12.27,
+    "roi_percent": -6.13,
+    "max_equity_drawdown_percent": 6.394999999999968,
+    "starting_capital": 200,
+    "spread": {
+      "type": "fixed",
+      "min": null,
+      "max": null,
+      "value": 1
+    },
+    "commissions": {
+      "type": "usdPerMillionUsdVolume",
+      "value": 35,
+      "applyCommissionAutomatically": true
+    },
+    "run_url": "https://github.com/rbhnm859/Ouroboros-Cloud-Build/actions/runs/34186235715"
+  },
+  {
+    "version": "v0.3.0-fix4",
+    "case": "eur-m15-trend",
+    "timeframe": "M15",
+    "trend_filter_mode": "ConfirmOnly",
+    "symbol": "EURUSD",
+    "period": {
+      "duration": "3m",
+      "startDate": 1780876800000,
+      "endDate": 1788825600000,
+      "formatted": "3m (08/06/2026 - 08/09/2026)"
+    },
+    "trades": 1,
+    "wins": 0,
+    "win_rate_percent": 0.0,
+    "net_profit_usd": -2.73,
+    "roi_percent": -1.36,
+    "max_equity_drawdown_percent": 2.2205700123915686,
+    "starting_capital": 200,
+    "spread": {
+      "type": "fixed",
+      "min": null,
+      "max": null,
+      "value": 1
+    },
+    "commissions": {
+      "type": "usdPerMillionUsdVolume",
+      "value": 35,
+      "applyCommissionAutomatically": true
+    },
+    "run_url": "https://github.com/rbhnm859/Ouroboros-Cloud-Build/actions/runs/34186235715"
+  },
+  {
+    "version": "v0.3.0-fix4",
+    "case": "xau-h1-fix4",
+    "timeframe": "H1",
+    "trend_filter_mode": "ScoreOnly",
+    "symbol": "XAUUSD",
+    "period": {
+      "duration": "3m",
+      "startDate": 1780876800000,
+      "endDate": 1788825600000,
+      "formatted": "3m (08/06/2026 - 08/09/2026)"
+    },
+    "trades": 0,
+    "wins": 0,
+    "win_rate_percent": null,
+    "net_profit_usd": 0,
+    "roi_percent": 0,
+    "max_equity_drawdown_percent": 0,
+    "starting_capital": 200,
+    "spread": {
+      "type": "fixed",
+      "min": null,
+      "max": null,
+      "value": 30
+    },
+    "commissions": {
+      "type": "usdPerMillionUsdVolume",
+      "value": 35,
+      "applyCommissionAutomatically": true
+    },
+    "run_url": "https://github.com/rbhnm859/Ouroboros-Cloud-Build/actions/runs/34186235715"
+  },
+  {
+    "version": "v0.3.0-fix4",
+    "case": "xau-m15-fix4",
+    "timeframe": "M15",
+    "trend_filter_mode": "ScoreOnly",
+    "symbol": "XAUUSD",
+    "period": {
+      "duration": "3m",
+      "startDate": 1780876800000,
+      "endDate": 1788825600000,
+      "formatted": "3m (08/06/2026 - 08/09/2026)"
+    },
+    "trades": 0,
+    "wins": 0,
+    "win_rate_percent": null,
+    "net_profit_usd": 0,
+    "roi_percent": 0,
+    "max_equity_drawdown_percent": 0,
+    "starting_capital": 200,
+    "spread": {
+      "type": "fixed",
+      "min": null,
+      "max": null,
+      "value": 30
+    },
+    "commissions": {
+      "type": "usdPerMillionUsdVolume",
+      "value": 35,
+      "applyCommissionAutomatically": true
+    },
+    "run_url": "https://github.com/rbhnm859/Ouroboros-Cloud-Build/actions/runs/34186235715"
+  },
+  {
+    "version": "v0.3.0-fix5",
+    "case": "eur-h1-fix5",
+    "timeframe": "H1",
+    "trend_filter_mode": "ScoreOnly",
+    "execution_cost_reserve_pips": 2,
+    "symbol": "EURUSD",
+    "period": {
+      "duration": "3m",
+      "startDate": 1780876800000,
+      "endDate": 1788825600000,
+      "formatted": "3m (08/06/2026 - 08/09/2026)"
+    },
+    "trades": 1,
+    "wins": 0,
+    "win_rate_percent": 0.0,
+    "net_profit_usd": -1.3,
+    "roi_percent": -0.65,
+    "max_equity_drawdown_percent": 4.051378627649821,
+    "starting_capital": 200,
+    "spread": {
+      "type": "fixed",
+      "min": null,
+      "max": null,
+      "value": 1
+    },
+    "commissions": {
+      "type": "usdPerMillionUsdVolume",
+      "value": 35,
+      "applyCommissionAutomatically": true
+    },
+    "run_url": "https://github.com/rbhnm859/Ouroboros-Cloud-Build/actions/runs/34186495014"
+  },
+  {
+    "version": "v0.3.0-fix5",
+    "case": "eur-m15-fix5",
+    "timeframe": "M15",
+    "trend_filter_mode": "ScoreOnly",
+    "execution_cost_reserve_pips": 2,
+    "symbol": "EURUSD",
+    "period": {
+      "duration": "3m",
+      "startDate": 1780876800000,
+      "endDate": 1788825600000,
+      "formatted": "3m (08/06/2026 - 08/09/2026)"
+    },
+    "trades": 3,
+    "wins": 0,
+    "win_rate_percent": 0.0,
+    "net_profit_usd": -3.96,
+    "roi_percent": -1.98,
+    "max_equity_drawdown_percent": 2.1414665801427746,
+    "starting_capital": 200,
+    "spread": {
+      "type": "fixed",
+      "min": null,
+      "max": null,
+      "value": 1
+    },
+    "commissions": {
+      "type": "usdPerMillionUsdVolume",
+      "value": 35,
+      "applyCommissionAutomatically": true
+    },
+    "run_url": "https://github.com/rbhnm859/Ouroboros-Cloud-Build/actions/runs/34186495014"
+  },
+  {
+    "version": "v0.3.0-fix5",
+    "case": "xau-m15-fix5",
+    "timeframe": "M15",
+    "trend_filter_mode": "ScoreOnly",
+    "execution_cost_reserve_pips": 40,
+    "symbol": "XAUUSD",
+    "period": {
+      "duration": "3m",
+      "startDate": 1780876800000,
+      "endDate": 1788825600000,
+      "formatted": "3m (08/06/2026 - 08/09/2026)"
+    },
+    "trades": 0,
+    "wins": 0,
+    "win_rate_percent": null,
+    "net_profit_usd": 0,
+    "roi_percent": 0,
+    "max_equity_drawdown_percent": 0,
+    "starting_capital": 200,
+    "spread": {
+      "type": "fixed",
+      "min": null,
+      "max": null,
+      "value": 30
+    },
+    "commissions": {
+      "type": "usdPerMillionUsdVolume",
+      "value": 35,
+      "applyCommissionAutomatically": true
+    },
+    "run_url": "https://github.com/rbhnm859/Ouroboros-Cloud-Build/actions/runs/34186495014"
   }
 ]
