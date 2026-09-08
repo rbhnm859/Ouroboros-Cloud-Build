@@ -616,6 +616,15 @@ namespace cAlgo.Robots
             if (!improves)
                 return;
 
+            double marketDistancePips = position.TradeType == TradeType.Buy
+                ? (Symbol.Bid - candidateStop) / Symbol.PipSize
+                : (candidateStop - Symbol.Ask) / Symbol.PipSize;
+            double currentStopForLog = position.StopLoss ?? double.NaN;
+            double takeProfitForLog = position.TakeProfit ?? double.NaN;
+            Print("[STOP_ATTEMPT] reason={0} side={1} bid={2} ask={3} candidate={4} currentSL={5} TP={6} distancePips={7:F3} minDistancePips={8:F3}",
+                reason, position.TradeType, Symbol.Bid, Symbol.Ask, candidateStop, currentStopForLog, takeProfitForLog,
+                marketDistancePips, minimumDistancePrice / Symbol.PipSize);
+
             var result = position.ModifyStopLossPrice(candidateStop);
             if (!result.IsSuccessful)
             {
