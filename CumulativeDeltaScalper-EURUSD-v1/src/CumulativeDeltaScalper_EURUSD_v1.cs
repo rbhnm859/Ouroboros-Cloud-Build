@@ -137,7 +137,7 @@ namespace cAlgo.Robots
         [Parameter("Max Daily Trades", DefaultValue = 3, MinValue = 1, Group = "Protection")]
         public int MaxDailyTrades { get; set; }
 
-        [Parameter("Max Daily Loss %", DefaultValue = 2.0, MinValue = 0.1, Step = 0.1, Group = "Protection")]
+        [Parameter("Max Daily Loss %", DefaultValue = 2.0, MinValue = 0.0, Step = 0.1, Group = "Protection")]
         public double MaxDailyLossPercent { get; set; }
 
         [Parameter("Max Daily Loss Money", DefaultValue = 3.00, MinValue = 0.0, Step = 0.01, Group = "Protection")]
@@ -182,6 +182,10 @@ namespace cAlgo.Robots
         private int _bufferIndex;
         private int _bufferFilled;
         private int _prevCumDelta;
+        private int _closedBarPreviousDelta;
+        private bool _dailyLossLatched;
+        private bool _protectionFailure;
+        private DateTime _lastModifyAttempt = DateTime.MinValue;
         private int[] _spreadHistory;
         private int _spreadHistoryIndex;
         private int _spreadHistoryFilled;
@@ -223,7 +227,7 @@ namespace cAlgo.Robots
             }
 
             _atr = Indicators.AverageTrueRange(AtrPeriod, MovingAverageType.Simple);
-            _htfBars = MarketData.GetBars(TimeFrame.Minute15);
+            _htfBars = MarketData.GetBars(cAlgo.API.TimeFrame.Minute15);
             _htfEma = Indicators.ExponentialMovingAverage(_htfBars.ClosePrices, EmaPeriod);
             _htfDms = Indicators.DirectionalMovementSystem(_htfBars, AdxPeriod);
 
@@ -233,6 +237,9 @@ namespace cAlgo.Robots
             _currentDay = Server.Time.Date;
             _dayStartBalance = Account.Balance;
 
+            SyncDailyStatsFromHistory();
+            // Reconstruct account balance at UTC midnight, including other strategies.
+            _dayStartBalance = Account.Balance - History.Where(h => h.ClosingTime >= _currentDay).Sum(h => h.NetProfit);
             Positions.Closed += OnPositionClosed;
 
             Debug("started on " + SymbolName + " " + TimeFrame + " label=" + TradeLabel);
@@ -247,8 +254,8 @@ namespace cAlgo.Robots
         protected override void OnTick()
         {
             ResetDailyIfNeeded();
-            SyncDailyStatsFromHistory();
             ProcessTickDelta();
+            UpdateDailyLossGuard();
 
             if (HasOpenPosition())
             {
@@ -260,12 +267,11 @@ namespace cAlgo.Robots
         {
             ResetDailyIfNeeded();
             SyncDailyStatsFromHistory();
-            FinalizeClosedBarDelta();
-
             DateTime barTime = Bars.OpenTimes.LastValue;
             if (barTime == _lastProcessedBarTime)
                 return;
             _lastProcessedBarTime = barTime;
+            FinalizeClosedBarDelta();
 
             if (HasOpenPosition())
             {
@@ -292,17 +298,17 @@ namespace cAlgo.Robots
 
         private bool ValidateSymbol()
         {
-            string allowed = string.IsNullOrWhiteSpace(AllowedSymbolPrefix) ? "EURUSD" : AllowedSymbolPrefix.Trim().ToUpperInvariant();
-            string current = SymbolName.ToUpperInvariant();
-            return current.StartsWith(allowed);
+            return string.Equals(AllowedSymbolPrefix == null ? "EURUSD" : AllowedSymbolPrefix.Trim(),
+                "EURUSD", StringComparison.OrdinalIgnoreCase)
+                && SymbolName.StartsWith("EURUSD", StringComparison.OrdinalIgnoreCase);
         }
 
         private bool ValidateTimeFrame()
         {
-            if (AllowM1 && TimeFrame == TimeFrame.Minute) return true;
-            if (AllowM5 && TimeFrame == TimeFrame.Minute5) return true;
-            if (AllowM15 && TimeFrame == TimeFrame.Minute15) return true;
-            if (AllowM30 && TimeFrame == TimeFrame.Minute30) return true;
+            if (AllowM1 && TimeFrame == cAlgo.API.TimeFrame.Minute) return true;
+            if (AllowM5 && TimeFrame == cAlgo.API.TimeFrame.Minute5) return true;
+            if (AllowM15 && TimeFrame == cAlgo.API.TimeFrame.Minute15) return true;
+            if (AllowM30 && TimeFrame == cAlgo.API.TimeFrame.Minute30) return true;
             return false;
         }
 
@@ -316,6 +322,7 @@ namespace cAlgo.Robots
 
         private void FinalizeClosedBarDelta()
         {
+            _closedBarPreviousDelta = _prevCumDelta;
             int candleDelta = _uptickCount - _downtickCount;
             _deltaBuffer[_bufferIndex] = candleDelta;
             _bufferIndex = (_bufferIndex + 1) % WindowSize;
@@ -326,6 +333,7 @@ namespace cAlgo.Robots
             _spreadHistoryIndex = (_spreadHistoryIndex + 1) % _spreadHistory.Length;
             if (_spreadHistoryFilled < _spreadHistory.Length) _spreadHistoryFilled++;
 
+            _prevCumDelta = CalculateCumulativeDelta();
             _uptickCount = 0;
             _downtickCount = 0;
 
@@ -338,8 +346,7 @@ namespace cAlgo.Robots
                 return 0;
 
             int cumulativeDelta = CalculateCumulativeDelta();
-            int previous = _prevCumDelta;
-            _prevCumDelta = cumulativeDelta;
+            int previous = _closedBarPreviousDelta;
 
             int signal = 0;
             if (previous <= DeltaThreshold && cumulativeDelta > DeltaThreshold) signal = 1;
@@ -380,14 +387,14 @@ namespace cAlgo.Robots
         private bool CheckHtfEma(int signal)
         {
             if (!UseHtfEmaFilter) return true;
-            double ema = _htfEma.Result.LastValue;
-            if (ema <= 0) return false;
+            double ema = _htfEma.Result.Last(1);
+            if (!IsPositiveFinite(ema)) return false;
             return signal > 0 ? Symbol.Bid > ema : Symbol.Bid < ema;
         }
 
         private bool CheckEmaSlope(int signal)
         {
-            int last = _htfEma.Result.Count - 1;
+            int last = _htfEma.Result.Count - 2;
             int bars = Math.Max(1, EmaSlopeBars);
             if (last < bars) return false;
 
@@ -399,7 +406,7 @@ namespace cAlgo.Robots
 
         private bool CheckAdx()
         {
-            return _htfDms.ADX.LastValue >= AdxThreshold;
+            return _htfDms.ADX.Last(1) >= AdxThreshold;
         }
 
         private bool CheckSpreadDynamic()
@@ -415,6 +422,9 @@ namespace cAlgo.Robots
         {
             reason = string.Empty;
 
+            if (_protectionFailure) { reason = "protection failure latched; restart after investigation"; return false; }
+            if (Bars.Count < AtrPeriod + 2 || _htfBars.Count < EmaPeriod + EmaSlopeBars + 2)
+            { reason = "indicator warmup"; return false; }
             if (!ValidateSymbol()) { reason = "invalid symbol"; return false; }
             if (!ValidateTimeFrame()) { reason = "invalid timeframe"; return false; }
             if (UseSessionFilter && !IsInSession()) { reason = "out of session"; return false; }
@@ -423,15 +433,15 @@ namespace cAlgo.Robots
             if (_dailyTradeCount >= MaxDailyTrades) { reason = "daily trade limit hit"; return false; }
             if (_consecutiveLosses >= MaxConsecutiveLosses) { reason = "consecutive loss limit hit"; return false; }
 
-            double dailyLimitByPercent = _dayStartBalance * MaxDailyLossPercent / 100.0;
-            double dailyLossLimit = MaxDailyLossMoney > 0 ? Math.Min(dailyLimitByPercent, MaxDailyLossMoney) : dailyLimitByPercent;
-            if (dailyLossLimit > 0 && _dailyClosedPnl <= -dailyLossLimit) { reason = "daily loss limit hit"; return false; }
+            UpdateDailyLossGuard();
+            if (_dailyLossLatched) { reason = "daily loss limit hit"; return false; }
             if (DailyProfitTargetMoney > 0 && _dailyClosedPnl >= DailyProfitTargetMoney) { reason = "daily profit target hit"; return false; }
 
             if (_lastTradeTime != DateTime.MinValue && Server.Time < _lastTradeTime.AddSeconds(MinSecondsBetweenTrades)) { reason = "cooldown active"; return false; }
             if (_lastLossTime != DateTime.MinValue && Server.Time < _lastLossTime.AddMinutes(LossCooldownMinutes)) { reason = "loss cooldown active"; return false; }
 
-            double atr = _atr.Result.LastValue;
+            double atr = _atr.Result.Last(1);
+            if (!IsPositiveFinite(atr)) { reason = "ATR not ready"; return false; }
             if (atr < MinAtr) { reason = "ATR too low"; return false; }
             if (MaxAtr > 0 && atr > MaxAtr) { reason = "ATR too high"; return false; }
 
@@ -440,7 +450,7 @@ namespace cAlgo.Robots
 
         private bool IsInSession()
         {
-            int now = Server.Time.ToUniversalTime().Hour * 60 + Server.Time.ToUniversalTime().Minute;
+            int now = Server.Time.Hour * 60 + Server.Time.Minute;
             int start = SessionStartHour * 60 + SessionStartMinute;
             int end = SessionEndHour * 60 + SessionEndMinute;
             if (start == end) return true;
@@ -450,8 +460,9 @@ namespace cAlgo.Robots
 
         private void OpenTrade(int signal)
         {
-            double slPips = PriceDistanceToPips(_atr.Result.LastValue * SlAtrMultiplier);
-            double tpPips = PriceDistanceToPips(_atr.Result.LastValue * TpAtrMultiplier);
+            if (HasOpenPosition() || _protectionFailure) return;
+            double slPips = PriceDistanceToPips(_atr.Result.Last(1) * SlAtrMultiplier);
+            double tpPips = PriceDistanceToPips(_atr.Result.Last(1) * TpAtrMultiplier);
 
             string distanceReason;
             if (!ValidateStopDistances(slPips, tpPips, out distanceReason))
@@ -461,7 +472,7 @@ namespace cAlgo.Robots
             }
 
             double volume = CalculateVolumeInUnits(slPips);
-            if (volume < Symbol.VolumeInUnitsMin)
+            if (!IsPositiveFinite(volume) || volume < Symbol.VolumeInUnitsMin)
             {
                 Debug("volume below broker minimum, trade skipped. volume=" + volume + " min=" + Symbol.VolumeInUnitsMin);
                 return;
@@ -471,13 +482,28 @@ namespace cAlgo.Robots
                 volume = Symbol.VolumeInUnitsMax;
 
             volume = Symbol.NormalizeVolumeInUnits(volume, RoundingMode.Down);
-            if (volume < Symbol.VolumeInUnitsMin)
+            if (!IsPositiveFinite(volume) || volume < Symbol.VolumeInUnitsMin)
             {
                 Debug("normalized volume below broker minimum, trade skipped");
                 return;
             }
 
             TradeType tradeType = signal > 0 ? TradeType.Buy : TradeType.Sell;
+            if (Symbol.VolumeInUnitsStep <= 0 || !IsPositiveFinite(Symbol.GetEstimatedMargin(tradeType, volume))
+                || Symbol.GetEstimatedMargin(tradeType, volume) > Account.FreeMargin)
+            {
+                Debug("trade skipped: invalid volume step or insufficient free margin");
+                return;
+            }
+            double estimatedRisk = Symbol.AmountRisked(volume, slPips);
+            if (!IsPositiveFinite(estimatedRisk)) return;
+            double riskBudget = RiskMode == CdsRiskMode.FixedMoneyRisk ? FixedMoneyRisk
+                : Account.Balance * RiskPercentPerTrade / 100.0;
+            if (RiskMode != CdsRiskMode.FixedLots && estimatedRisk > riskBudget + 0.000001)
+            { Debug("trade skipped: normalized volume exceeds risk budget"); return; }
+            double dailyLimit = DailyLossLimit();
+            if (dailyLimit > 0 && estimatedRisk > dailyLimit + _dailyClosedPnl)
+            { Debug("trade skipped: insufficient remaining daily loss budget"); return; }
             TradeResult result = ExecuteMarketOrder(tradeType, SymbolName, volume, TradeLabel, slPips, tpPips);
 
             if (!result.IsSuccessful)
@@ -486,6 +512,19 @@ namespace cAlgo.Robots
                 return;
             }
 
+            if (result.Position == null)
+            {
+                _protectionFailure = true;
+                Print(Prefix + "PROTECTION_FAILURE: successful order returned no position");
+                return;
+            }
+            if (!HasProtection(result.Position))
+            {
+                _protectionFailure = true;
+                Print(Prefix + "PROTECTION_FAILURE: missing SL/TP; emergency close requested");
+                ClosePositionWithLog(result.Position, "MISSING_PROTECTION");
+                return;
+            }
             _lastTradeTime = Server.Time;
             _openTradeTime = Server.Time;
             _openTradeDirection = signal;
@@ -518,20 +557,12 @@ namespace cAlgo.Robots
             reason = string.Empty;
             if (slPips <= 0 || tpPips <= 0) { reason = "invalid SL / TP distance"; return false; }
 
-            double slPriceDistance = slPips * Symbol.PipSize;
-            double tpPriceDistance = tpPips * Symbol.PipSize;
-
-            if (Symbol.MinStopLossDistance > 0 && slPriceDistance < Symbol.MinStopLossDistance)
-            {
-                reason = "SL below broker minimum distance";
-                return false;
-            }
-
-            if (Symbol.MinTakeProfitDistance > 0 && tpPriceDistance < Symbol.MinTakeProfitDistance)
-            {
-                reason = "TP below broker minimum distance";
-                return false;
-            }
+            double minSl = MinimumDistancePips(Symbol.MinStopLossDistance);
+            double minTp = MinimumDistancePips(Symbol.MinTakeProfitDistance);
+            if (!IsPositiveFinite(slPips) || !IsPositiveFinite(tpPips) || double.IsNaN(minSl) || double.IsNaN(minTp))
+            { reason = "non-finite SL/TP or unsupported distance type"; return false; }
+            if (slPips < minSl) { reason = "SL below broker minimum distance"; return false; }
+            if (tpPips < minTp) { reason = "TP below broker minimum distance"; return false; }
 
             return true;
         }
@@ -543,6 +574,21 @@ namespace cAlgo.Robots
             {
                 _openTradeDirection = 0;
                 _openTradeTime = DateTime.MinValue;
+                return;
+            }
+
+            _openTradeTime = position.EntryTime;
+            _openTradeDirection = position.TradeType == TradeType.Buy ? 1 : -1;
+            if (!HasProtection(position))
+            {
+                _protectionFailure = true;
+                Print(Prefix + "PROTECTION_FAILURE: detected missing SL/TP");
+                ClosePositionWithLog(position, "MISSING_PROTECTION");
+                return;
+            }
+            if (_dailyLossLatched)
+            {
+                ClosePositionWithLog(position, "DAILY_LOSS_GUARD");
                 return;
             }
 
@@ -578,38 +624,64 @@ namespace cAlgo.Robots
 
         private void TryBreakeven(Position position)
         {
-            double buffer = BreakevenBufferPips * Symbol.PipSize;
-            double? tp = position.TakeProfit;
+            if (!HasProtection(position) || position.Pips < BreakevenPips
+                || Server.Time < _lastModifyAttempt.AddSeconds(5)) return;
+            bool buy = position.TradeType == TradeType.Buy;
+            double requested = position.EntryPrice + (buy ? 1 : -1) * BreakevenBufferPips * Symbol.PipSize;
+            double newSl = Math.Round((buy ? Math.Floor(requested / Symbol.TickSize)
+                : Math.Ceiling(requested / Symbol.TickSize)) * Symbol.TickSize, Symbol.Digits);
+            if (buy ? newSl <= position.StopLoss.Value : newSl >= position.StopLoss.Value) return;
+            double distance = (buy ? Symbol.Bid - newSl : newSl - Symbol.Ask) / Symbol.PipSize;
+            double minimum = MinimumDistancePips(Symbol.MinStopLossDistance);
+            if (double.IsNaN(minimum) || distance < minimum + Symbol.TickSize / Symbol.PipSize) return;
+            _lastModifyAttempt = Server.Time;
+            TradeResult result = ModifyPosition(position, newSl, position.TakeProfit, ProtectionType.Absolute);
+            if (result.IsSuccessful) _breakevenApplied = true;
+            else Debug("breakeven modify failed: " + result.Error);
+        }
 
-            if (position.TradeType == TradeType.Buy)
+        private static bool IsPositiveFinite(double value)
+        {
+            return value > 0 && !double.IsNaN(value) && !double.IsInfinity(value);
+        }
+
+        private static bool HasProtection(Position position)
+        {
+            return position.StopLoss.HasValue && position.TakeProfit.HasValue
+                && IsPositiveFinite(position.StopLoss.Value) && IsPositiveFinite(position.TakeProfit.Value);
+        }
+
+        private double MinimumDistancePips(double minimum)
+        {
+            if (Symbol.MinDistanceType == SymbolMinDistanceType.Pips) return minimum;
+            if (Symbol.MinDistanceType == SymbolMinDistanceType.Percentage)
+                return Math.Max(Symbol.Ask, Symbol.Bid) * minimum / 100.0 / Symbol.PipSize;
+            return double.NaN;
+        }
+
+        private double DailyLossLimit()
+        {
+            double percentLimit = MaxDailyLossPercent > 0 ? _dayStartBalance * MaxDailyLossPercent / 100.0 : 0;
+            if (percentLimit > 0 && MaxDailyLossMoney > 0) return Math.Min(percentLimit, MaxDailyLossMoney);
+            return percentLimit > 0 ? percentLimit : MaxDailyLossMoney;
+        }
+
+        private void UpdateDailyLossGuard()
+        {
+            double limit = DailyLossLimit();
+            double pnl = _dailyClosedPnl + Positions.Where(p => p.SymbolName == SymbolName && p.Label == TradeLabel).Sum(p => p.NetProfit);
+            if (!_dailyLossLatched && limit > 0 && pnl <= -limit)
             {
-                double profitPips = (Symbol.Bid - position.EntryPrice) / Symbol.PipSize;
-                if (profitPips < BreakevenPips) return;
-                double newSl = position.EntryPrice + buffer;
-                if (!position.StopLoss.HasValue || newSl > position.StopLoss.Value)
-                {
-                    TradeResult result = ModifyPosition(position, newSl, tp);
-                    if (result.IsSuccessful) _breakevenApplied = true;
-                    else Debug("breakeven modify failed: " + result.Error);
-                }
-            }
-            else
-            {
-                double profitPips = (position.EntryPrice - Symbol.Ask) / Symbol.PipSize;
-                if (profitPips < BreakevenPips) return;
-                double newSl = position.EntryPrice - buffer;
-                if (!position.StopLoss.HasValue || newSl < position.StopLoss.Value)
-                {
-                    TradeResult result = ModifyPosition(position, newSl, tp);
-                    if (result.IsSuccessful) _breakevenApplied = true;
-                    else Debug("breakeven modify failed: " + result.Error);
-                }
+                _dailyLossLatched = true;
+                Print(Prefix + "DAILY_LOSS_GUARD triggered pnl=" + pnl);
             }
         }
 
         private bool HasOpenPosition()
         {
-            return Positions.Any(p => p.SymbolName == SymbolName && p.Label == TradeLabel);
+            // Account-wide gate, including manual/other-bot positions and pending orders.
+            // Other independent instances must not trade concurrently on this account.
+            return Positions.Count > 0 || PendingOrders.Count > 0;
         }
 
         private int SpreadInPoints()
@@ -640,50 +712,44 @@ namespace cAlgo.Robots
             _dailyClosedPnl = 0;
             _dailyTradeCount = 0;
             _consecutiveLosses = 0;
+            _dailyLossLatched = false;
+            SyncDailyStatsFromHistory();
+            _dayStartBalance = Account.Balance - History.Where(h => h.ClosingTime >= today).Sum(h => h.NetProfit);
             Debug("new trading day balance=" + _dayStartBalance);
         }
 
         private void SyncDailyStatsFromHistory()
         {
             DateTime dayStart = Server.Time.Date;
-            double pnl = 0;
-            int count = 0;
-
-            foreach (HistoricalTrade h in History)
+            var trades = History.Where(h => h.SymbolName == SymbolName && h.Label == TradeLabel)
+                .OrderBy(h => h.ClosingTime).ToArray();
+            _dailyClosedPnl = trades.Where(h => h.ClosingTime >= dayStart).Sum(h => h.NetProfit);
+            _dailyTradeCount = trades.Where(h => h.EntryTime >= dayStart).Select(h => h.PositionId)
+                .Concat(Positions.Where(p => p.SymbolName == SymbolName && p.Label == TradeLabel && p.EntryTime >= dayStart)
+                    .Select(p => p.Id)).Distinct().Count();
+            _consecutiveLosses = 0;
+            foreach (var trade in trades)
             {
-                if (h.SymbolName != SymbolName) continue;
-                if (h.Label != TradeLabel) continue;
-                if (h.ClosingTime < dayStart) continue;
-                pnl += h.NetProfit;
-                count++;
+                if (trade.EntryTime > _lastTradeTime) _lastTradeTime = trade.EntryTime;
+                if (trade.NetProfit < 0 && trade.ClosingTime > _lastLossTime) _lastLossTime = trade.ClosingTime;
+                if (trade.ClosingTime < dayStart) continue;
+                if (trade.NetProfit < 0) _consecutiveLosses++;
+                else if (trade.NetProfit > 0) _consecutiveLosses = 0;
             }
-
-            foreach (Position p in Positions.Where(p => p.SymbolName == SymbolName && p.Label == TradeLabel))
-            {
-                if (p.EntryTime >= dayStart) count++;
-            }
-
-            _dailyClosedPnl = pnl;
-            _dailyTradeCount = Math.Max(_dailyTradeCount, count);
+            foreach (var position in Positions.Where(p => p.SymbolName == SymbolName && p.Label == TradeLabel))
+                if (position.EntryTime > _lastTradeTime) _lastTradeTime = position.EntryTime;
         }
 
         private void OnPositionClosed(PositionClosedEventArgs args)
         {
             Position p = args.Position;
             if (p.SymbolName != SymbolName || p.Label != TradeLabel) return;
-
-            if (p.NetProfit < 0)
-            {
-                _consecutiveLosses++;
-                _lastLossTime = Server.Time;
-            }
-            else if (p.NetProfit > 0)
-            {
-                _consecutiveLosses = 0;
-            }
-
+            ResetDailyIfNeeded();
+            SyncDailyStatsFromHistory();
+            UpdateDailyLossGuard();
             _openTradeDirection = 0;
             _openTradeTime = DateTime.MinValue;
+            _breakevenApplied = false;
             Debug("position closed pnl=" + p.NetProfit + " consecutiveLosses=" + _consecutiveLosses);
         }
 
