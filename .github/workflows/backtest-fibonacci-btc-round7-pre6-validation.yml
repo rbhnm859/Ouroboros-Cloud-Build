@@ -1,0 +1,150 @@
+name: Fibonacci BTC Round7 untouched prior-6m validation
+
+on:
+  push:
+    branches: [fibonacci-research1-build]
+    paths:
+      - '.github/workflows/backtest-fibonacci-btc-round7-pre6-validation.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fibonacci-btc-round7-pre6-validation
+  cancel-in-progress: true
+
+env:
+  CTRADER_IMAGE: ghcr.io/spotware/ctrader-console:5.9.11
+  BALANCE: '10000'
+  PRE_A_START: '08/09/2025 00:00'
+  PRE_A_END: '07/12/2025 23:59'
+  PRE_B_START: '08/12/2025 00:00'
+  PRE_B_END: '07/03/2026 23:59'
+  PRE6_START: '08/09/2025 00:00'
+  PRE6_END: '07/03/2026 23:59'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - run: python3 tools/create_fibonacci_research1.py --repo-root "$PWD" --force
+      - run: python3 tools/create_fibonacci_btc_round4.py --repo-root "$PWD" --force
+      - run: python3 tools/create_fibonacci_btc_round5.py --repo-root "$PWD" --force
+      - run: python3 tools/create_fibonacci_btc_round6.py --repo-root "$PWD" --force
+      - run: python3 tools/create_fibonacci_btc_round7.py --repo-root "$PWD" --force
+      - name: Enable trading
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('Fibonacci-v0.9.0-btc-round7-inverse-veto/FibonacciHarmonicSniperUltimate.cs')
+          s=p.read_text(encoding='utf-8')
+          old='[Parameter("Trading Enabled", DefaultValue = false'
+          new='[Parameter("Trading Enabled", DefaultValue = true'
+          if old not in s: raise SystemExit('Trading Enabled parameter not found')
+          p.write_text(s.replace(old,new,1),encoding='utf-8')
+          PY
+      - name: Build
+        run: |
+          docker pull "$CTRADER_IMAGE"
+          docker run --rm --entrypoint sh -v "$PWD:/repo" -w /repo "$CTRADER_IMAGE" -c \
+            'dotnet restore Fibonacci-v0.9.0-btc-round7-inverse-veto/FibonacciHarmonicSniperUltimate.csproj && dotnet build Fibonacci-v0.9.0-btc-round7-inverse-veto/FibonacciHarmonicSniperUltimate.csproj --configuration Release --no-restore -p:AlgoPublish=False -p:IncludeSource=True'
+          mkdir -p artifact
+          ALGO="$(find Fibonacci-v0.9.0-btc-round7-inverse-veto -type f -name '*.algo' -print -quit)"
+          test -n "$ALGO"
+          cp "$ALGO" artifact/FibonacciHarmonicSniperUltimate-BTC-Round7.algo
+      - uses: actions/upload-artifact@v4
+        with:
+          name: fibonacci-btc-round7-pre6-build
+          path: artifact/FibonacciHarmonicSniperUltimate-BTC-Round7.algo
+          retention-days: 30
+
+  validate:
+    needs: build
+    strategy:
+      fail-fast: false
+      max-parallel: 3
+      matrix:
+        include:
+          - id: champion
+            inverse_veto: false
+            m30_age: 12
+          - id: inverse_age4
+            inverse_veto: true
+            m30_age: 4
+          - id: inverse_age12
+            inverse_veto: true
+            m30_age: 12
+    runs-on: ubuntu-latest
+    timeout-minutes: 70
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: fibonacci-btc-round7-pre6-build
+          path: work
+      - name: Prepare
+        env:
+          CTRADER_PASSWORD: ${{ secrets.CTRADER_PASSWORD }}
+        run: |
+          set -euo pipefail
+          test -n "${CTRADER_PASSWORD:-}"
+          mkdir -p work/cache work/reports
+          umask 077
+          printf '%s' "$CTRADER_PASSWORD" > work/ctrader.pwd
+          docker pull "$CTRADER_IMAGE"
+      - name: Untouched prior validation ${{ matrix.id }}
+        env:
+          CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+          CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+          PROFILE: ${{ matrix.id }}
+          INVERSE_VETO: ${{ matrix.inverse_veto }}
+          M30_AGE: ${{ matrix.m30_age }}
+        run: |
+          set -euo pipefail
+          for SPEC in 'PREA|0|65' 'PREB|0|65' 'PRE6|0|65' 'PRE6HARSH|1500|100'; do
+            IFS='|' read -r PHASE SPREAD COMM <<< "$SPEC"
+            case "$PHASE" in
+              PREA) START="$PRE_A_START"; END="$PRE_A_END" ;;
+              PREB) START="$PRE_B_START"; END="$PRE_B_END" ;;
+              PRE6|PRE6HARSH) START="$PRE6_START"; END="$PRE6_END" ;;
+            esac
+            echo "=== $PROFILE $PHASE | inverseVeto=$INVERSE_VETO m30Age=$M30_AGE ==="
+            timeout --signal=TERM --kill-after=30s 20m docker run --rm \
+              -v "$PWD/work:/work" -e "CTID=$CTRADER_CTID" -e 'PWD-FILE=/work/ctrader.pwd' -e "ACCOUNT=$CTRADER_ACCOUNT" "$CTRADER_IMAGE" \
+              backtest /work/FibonacciHarmonicSniperUltimate-BTC-Round7.algo --environment-variables --exit-on-stop \
+              --symbol=BITCOIN --period=h1 --start="$START" --end="$END" --balance="$BALANCE" \
+              --data-mode=m1 --data-dir=/work/cache --commission="$COMM" --spread="$SPREAD" --RiskPercent=1.0 \
+              --EnabledPatterns='Reciprocal ABCD' --Round5Mode=ObserveOnly --MtfMode=Off \
+              --M30Patterns='Reciprocal ABCD' --DirectionStateMinScore=84 --M30StateMaxAge="$M30_AGE" \
+              --Round6RequireM30SellConfirm=false --Round7VetoM30SellAlignment="$INVERSE_VETO" --Round7LogVetoedSell=true \
+              --report="/work/reports/${PROFILE}-BITCOIN-${PHASE}.html" --report-json="/work/reports/${PROFILE}-BITCOIN-${PHASE}.json"
+          done
+      - name: Clean credentials
+        if: always()
+        run: rm -f work/ctrader.pwd
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: btc-r7-pre6-${{ matrix.id }}
+          path: work/reports/${{ matrix.id }}-BITCOIN-*
+          if-no-files-found: error
+          retention-days: 30
+
+  collect:
+    needs: validate
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: btc-r7-pre6-*
+          path: bundle
+      - uses: actions/upload-artifact@v4
+        with:
+          name: fibonacci-btc-round7-pre6-validation-results
+          path: bundle
+          if-no-files-found: warn
+          retention-days: 30
