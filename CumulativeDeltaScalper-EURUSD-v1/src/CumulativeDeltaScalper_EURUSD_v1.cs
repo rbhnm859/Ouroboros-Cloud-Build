@@ -574,7 +574,7 @@ namespace cAlgo.Robots
             if (!shouldModify)
                 return;
 
-            var modify = ModifyPosition(position, targetStop, position.TakeProfit);
+            var modify = ModifyPosition(position, targetStop, position.TakeProfit, ProtectionType.Absolute);
             if (modify.IsSuccessful)
                 LogDebug("Breakeven applied to position {0} at {1}", position.Id, targetStop);
         }
