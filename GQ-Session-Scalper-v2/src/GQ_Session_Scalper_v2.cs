@@ -452,7 +452,10 @@ namespace cAlgo.Robots
 
         private double CalculateRiskBasedVolume(double stopLossPips, double riskPercent)
         {
-            double volume = Symbol.VolumeForProportionalRisk(RiskType.Equity, riskPercent, stopLossPips, RoundingMode.Down);
+            double minimumVolumeRisk = Symbol.AmountRisked(Symbol.VolumeInUnitsMin, stopLossPips);
+            double volume = IsFinitePositive(minimumVolumeRisk)
+                ? Symbol.VolumeInUnitsMin * (Account.Equity * riskPercent / 100.0) / minimumVolumeRisk
+                : 0;
             if (!IsFinitePositive(volume))
                 return 0;
             volume = Math.Min(volume, Symbol.VolumeInUnitsMax);
@@ -596,7 +599,7 @@ namespace cAlgo.Robots
             if (!improves)
                 return;
 
-            var result = ModifyPosition(position, candidateStop, position.TakeProfit);
+            var result = ModifyPosition(position, candidateStop, position.TakeProfit, ProtectionType.Absolute);
             if (!result.IsSuccessful)
             {
                 Print("[STOP_UPDATE_ERROR] reason={0} error={1}", reason, result.Error);
