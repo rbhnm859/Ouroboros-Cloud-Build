@@ -1,0 +1,95 @@
+name: GQ Session Scalper v2 CI
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - gq-session-scalper-v2-robust-20260908
+    paths:
+      - 'GQ-Session-Scalper-v2/**'
+      - '.github/workflows/gq-session-scalper-v2-ci.yml'
+  pull_request:
+    paths:
+      - 'GQ-Session-Scalper-v2/**'
+      - '.github/workflows/gq-session-scalper-v2-ci.yml'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: gq-session-scalper-v2-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Secret scan scoped to GQ project
+        shell: bash
+        run: |
+          set -euo pipefail
+          if grep -RInE --exclude='*.algo' --exclude='*.md' '(sk-[A-Za-z0-9_-]{20,}|ghp_[A-Za-z0-9]{20,}|BEGIN (RSA|OPENSSH|EC) PRIVATE KEY|password[[:space:]]*=[[:space:]]*[^[:space:]]+|otp[[:space:]]*=[[:space:]]*[0-9]{4,})' GQ-Session-Scalper-v2; then
+            echo 'Potential secret found in GQ project.'
+            exit 1
+          fi
+          echo 'Scoped secret scan passed.'
+
+      - name: Pull official cTrader container
+        run: docker pull ghcr.io/spotware/ctrader-console:latest
+
+      - name: Native cTrader build
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p GQ-Session-Scalper-v2/builds GQ-Session-Scalper-v2/logs
+          docker run --rm --entrypoint sh -v "$PWD:/repo" -w /repo \
+            ghcr.io/spotware/ctrader-console:latest -c \
+            "dotnet restore 'GQ-Session-Scalper-v2/src/GQ_Session_Scalper_v2.csproj' && dotnet build 'GQ-Session-Scalper-v2/src/GQ_Session_Scalper_v2.csproj' --configuration Release --no-restore -p:AlgoPublish=False -p:IncludeSource=True" \
+            2>&1 | tee GQ-Session-Scalper-v2/logs/native_build.log
+          ALGO="$(find GQ-Session-Scalper-v2/src -type f -name 'GQ_Session_Scalper_v2.algo' -print -quit)"
+          if [ -z "$ALGO" ]; then
+            echo 'Native build returned no .algo artifact.' | tee -a GQ-Session-Scalper-v2/logs/native_build.log
+            find GQ-Session-Scalper-v2/src -maxdepth 8 -type f -print | tee -a GQ-Session-Scalper-v2/logs/native_build.log
+            exit 1
+          fi
+          cp "$ALGO" GQ-Session-Scalper-v2/builds/GQ_Session_Scalper_v2.algo
+          test -s GQ-Session-Scalper-v2/builds/GQ_Session_Scalper_v2.algo
+
+      - name: Read cBot metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker run --rm -v "$PWD/GQ-Session-Scalper-v2:/work" \
+            ghcr.io/spotware/ctrader-console:latest \
+            metadata /work/builds/GQ_Session_Scalper_v2.algo \
+            2>&1 | tee GQ-Session-Scalper-v2/logs/metadata.log || true
+
+      - name: Upload native build
+        uses: actions/upload-artifact@v4
+        with:
+          name: GQ-Session-Scalper-v2-native-build
+          path: |
+            GQ-Session-Scalper-v2/builds/GQ_Session_Scalper_v2.algo
+            GQ-Session-Scalper-v2/logs/native_build.log
+            GQ-Session-Scalper-v2/logs/metadata.log
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Commit native build to working branch
+        if: github.event_name == 'push'
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add GQ-Session-Scalper-v2/builds/GQ_Session_Scalper_v2.algo GQ-Session-Scalper-v2/logs/native_build.log GQ-Session-Scalper-v2/logs/metadata.log
+          if git diff --cached --quiet; then
+            echo 'No native build changes to commit.'
+          else
+            git commit -m 'Build GQ Session Scalper v2 native .algo [skip ci]'
+            git push origin HEAD:${GITHUB_REF_NAME}
+          fi
