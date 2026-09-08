@@ -1,0 +1,6 @@
+canonical_symbol,ctrader_symbol,asset_class,default_timeframes,price_digits,volume_unit,spread_source,commission_source,status,notes
+EURUSD,EURUSD,FX,M5|M15|H1,5,units,broker_quote,broker_statement,TEMPLATE,Verify suffix and contract size
+GBPUSD,GBPUSD,FX,M5|M15|H1,5,units,broker_quote,broker_statement,TEMPLATE,Verify suffix and contract size
+XAUUSD,XAUUSD,Metal,M5|M15|H1,2,units,broker_quote,broker_statement,TEMPLATE,Some brokers use GOLD
+BTC,BTCUSD,Crypto,M5|M15|H1,2,units,broker_quote,broker_statement,TEMPLATE,Map BTC to broker's exact CFD symbol
+ETH,ETHUSD,Crypto,M5|M15|H1,2,units,broker_quote,broker_statement,TEMPLATE,Map ETH to broker's exact CFD symbol
