@@ -1,0 +1,441 @@
+{
+  "Name": "GQ_Session_Scalper_v2",
+  "Type": "Indicator",
+  "AccessRights": "None",
+  "BuildTime": "2026-09-08T08:18:13.7123298Z",
+  "Parameters": [
+    {
+      "PropertyName": "TradingEnabled",
+      "FriendlyName": "Trading Enabled",
+      "GroupName": "General",
+      "Type": "Boolean",
+      "DefaultValue": true
+    },
+    {
+      "PropertyName": "SessionStart",
+      "FriendlyName": "Session Start (HH:mm)",
+      "GroupName": "Session",
+      "Type": "String",
+      "DefaultValue": "08:00"
+    },
+    {
+      "PropertyName": "SessionEnd",
+      "FriendlyName": "Session End (HH:mm)",
+      "GroupName": "Session",
+      "Type": "String",
+      "DefaultValue": "16:00"
+    },
+    {
+      "PropertyName": "FridayLastEntryHourUtc",
+      "FriendlyName": "Friday Last Entry UTC Hour",
+      "GroupName": "Session",
+      "Type": "Integer",
+      "DefaultValue": 18,
+      "MinValue": 0,
+      "MaxValue": 23
+    },
+    {
+      "PropertyName": "FridayForceCloseHourUtc",
+      "FriendlyName": "Friday Force Close UTC Hour",
+      "GroupName": "Session",
+      "Type": "Integer",
+      "DefaultValue": 20,
+      "MinValue": 0,
+      "MaxValue": 23
+    },
+    {
+      "PropertyName": "RiskPerTradePercent",
+      "FriendlyName": "Risk Per Trade (%)",
+      "GroupName": "Risk",
+      "Type": "Double",
+      "DefaultValue": 0.5,
+      "MinValue": 0.05,
+      "MaxValue": 1.0
+    },
+    {
+      "PropertyName": "MaxDailyLossPercent",
+      "FriendlyName": "Max Daily Loss (%)",
+      "GroupName": "Risk",
+      "Type": "Double",
+      "DefaultValue": 2.0,
+      "MinValue": 0.25,
+      "MaxValue": 10.0
+    },
+    {
+      "PropertyName": "MaxSessionLossR",
+      "FriendlyName": "Max Session Loss (R)",
+      "GroupName": "Risk",
+      "Type": "Double",
+      "DefaultValue": 2.0,
+      "MinValue": 0.5,
+      "MaxValue": 10.0
+    },
+    {
+      "PropertyName": "MaxLosingRPerDay",
+      "FriendlyName": "Max Losing R / Day",
+      "GroupName": "Risk",
+      "Type": "Double",
+      "DefaultValue": 3.0,
+      "MinValue": 0.5,
+      "MaxValue": 10.0
+    },
+    {
+      "PropertyName": "MaxConsecutiveLosses",
+      "FriendlyName": "Max Consecutive Losses",
+      "GroupName": "Risk",
+      "Type": "Integer",
+      "DefaultValue": 3,
+      "MinValue": 1,
+      "MaxValue": 10
+    },
+    {
+      "PropertyName": "MaxTradesPerDay",
+      "FriendlyName": "Max Trades / Day",
+      "GroupName": "Risk",
+      "Type": "Integer",
+      "DefaultValue": 6,
+      "MinValue": 1,
+      "MaxValue": 30
+    },
+    {
+      "PropertyName": "MinimumEquity",
+      "FriendlyName": "Minimum Equity",
+      "GroupName": "Risk",
+      "Type": "Double",
+      "MinValue": 0.0
+    },
+    {
+      "PropertyName": "ProfitLockTriggerR",
+      "FriendlyName": "Profit Lock Trigger (R, 0=off)",
+      "GroupName": "Risk",
+      "Type": "Double",
+      "MinValue": 0.0,
+      "MaxValue": 10.0
+    },
+    {
+      "PropertyName": "ProfitLockRiskMultiplier",
+      "FriendlyName": "Profit Lock Risk Multiplier",
+      "GroupName": "Risk",
+      "Type": "Double",
+      "DefaultValue": 1.0,
+      "MinValue": 0.25,
+      "MaxValue": 1.0
+    },
+    {
+      "PropertyName": "EMAPeriod",
+      "FriendlyName": "EMA Period",
+      "GroupName": "Entry",
+      "Type": "Integer",
+      "DefaultValue": 21,
+      "MinValue": 2,
+      "MaxValue": 200
+    },
+    {
+      "PropertyName": "MomentumPeriod",
+      "FriendlyName": "Momentum Period",
+      "GroupName": "Entry",
+      "Type": "Integer",
+      "DefaultValue": 14,
+      "MinValue": 2,
+      "MaxValue": 100
+    },
+    {
+      "PropertyName": "MomentumThreshold",
+      "FriendlyName": "Momentum Threshold",
+      "GroupName": "Entry",
+      "Type": "Double",
+      "DefaultValue": 100.0,
+      "MinValue": 1.0,
+      "MaxValue": 200.0
+    },
+    {
+      "PropertyName": "PullbackAtrFraction",
+      "FriendlyName": "Pullback ATR Fraction",
+      "GroupName": "Entry",
+      "Type": "Double",
+      "DefaultValue": 0.5,
+      "MinValue": 0.05,
+      "MaxValue": 2.0
+    },
+    {
+      "PropertyName": "AllowGradeB",
+      "FriendlyName": "Allow Grade B",
+      "GroupName": "Entry",
+      "Type": "Boolean",
+      "DefaultValue": false
+    },
+    {
+      "PropertyName": "TrendFastPeriod",
+      "FriendlyName": "Trend EMA Fast",
+      "GroupName": "HTF Trend",
+      "Type": "Integer",
+      "DefaultValue": 50,
+      "MinValue": 2,
+      "MaxValue": 200
+    },
+    {
+      "PropertyName": "TrendSlowPeriod",
+      "FriendlyName": "Trend EMA Slow",
+      "GroupName": "HTF Trend",
+      "Type": "Integer",
+      "DefaultValue": 200,
+      "MinValue": 10,
+      "MaxValue": 500
+    },
+    {
+      "PropertyName": "TrendTimeFrame",
+      "FriendlyName": "Trend TimeFrame",
+      "GroupName": "HTF Trend",
+      "Type": "TimeFrame",
+      "DefaultValue": {
+        "Type": 0,
+        "Size": 60
+      }
+    },
+    {
+      "PropertyName": "ATRPeriod",
+      "FriendlyName": "ATR Period",
+      "GroupName": "Volatility",
+      "Type": "Integer",
+      "DefaultValue": 14,
+      "MinValue": 2,
+      "MaxValue": 100
+    },
+    {
+      "PropertyName": "MinAtrPips",
+      "FriendlyName": "Min ATR (pips, 0=off)",
+      "GroupName": "Volatility",
+      "Type": "Double",
+      "MinValue": 0.0
+    },
+    {
+      "PropertyName": "MaxAtrPips",
+      "FriendlyName": "Max ATR (pips, 0=off)",
+      "GroupName": "Volatility",
+      "Type": "Double",
+      "MinValue": 0.0
+    },
+    {
+      "PropertyName": "ExtremeAtrPercent",
+      "FriendlyName": "Extreme ATR %",
+      "GroupName": "Volatility",
+      "Type": "Double",
+      "DefaultValue": 1.5,
+      "MinValue": 0.05,
+      "MaxValue": 20.0
+    },
+    {
+      "PropertyName": "AtrSlMultiplier",
+      "FriendlyName": "ATR SL Multiplier",
+      "GroupName": "Volatility",
+      "Type": "Double",
+      "DefaultValue": 1.5,
+      "MinValue": 0.5,
+      "MaxValue": 5.0
+    },
+    {
+      "PropertyName": "MinimumSlPips",
+      "FriendlyName": "Minimum SL (pips)",
+      "GroupName": "Volatility",
+      "Type": "Double",
+      "DefaultValue": 5.0,
+      "MinValue": 0.1,
+      "MaxValue": 10000.0
+    },
+    {
+      "PropertyName": "MaximumSlPips",
+      "FriendlyName": "Maximum SL (pips, 0=off)",
+      "GroupName": "Volatility",
+      "Type": "Double",
+      "MinValue": 0.0,
+      "MaxValue": 100000.0
+    },
+    {
+      "PropertyName": "TpRMultiple",
+      "FriendlyName": "TP R Multiple",
+      "GroupName": "Trade Management",
+      "Type": "Double",
+      "DefaultValue": 1.5,
+      "MinValue": 1.0,
+      "MaxValue": 5.0
+    },
+    {
+      "PropertyName": "BreakevenTriggerR",
+      "FriendlyName": "Breakeven Trigger (R)",
+      "GroupName": "Trade Management",
+      "Type": "Double",
+      "DefaultValue": 1.0,
+      "MinValue": 0.5,
+      "MaxValue": 3.0
+    },
+    {
+      "PropertyName": "BreakevenCostBufferPips",
+      "FriendlyName": "Breakeven Cost Buffer (pips)",
+      "GroupName": "Trade Management",
+      "Type": "Double",
+      "DefaultValue": 0.3,
+      "MinValue": 0.0,
+      "MaxValue": 100.0
+    },
+    {
+      "PropertyName": "TrailingTriggerR",
+      "FriendlyName": "Trailing Trigger (R)",
+      "GroupName": "Trade Management",
+      "Type": "Double",
+      "DefaultValue": 1.5,
+      "MinValue": 0.5,
+      "MaxValue": 5.0
+    },
+    {
+      "PropertyName": "TrailingMode",
+      "FriendlyName": "Trailing Mode",
+      "GroupName": "Trade Management",
+      "Type": "Enum",
+      "DefaultValue": 0,
+      "EnumValues": {
+        "Atr": 0,
+        "Swing": 1,
+        "Chandelier": 2
+      }
+    },
+    {
+      "PropertyName": "TrailingAtrMultiplier",
+      "FriendlyName": "Trailing ATR Multiplier",
+      "GroupName": "Trade Management",
+      "Type": "Double",
+      "DefaultValue": 1.2,
+      "MinValue": 0.25,
+      "MaxValue": 5.0
+    },
+    {
+      "PropertyName": "SwingLookbackBars",
+      "FriendlyName": "Swing Lookback Bars",
+      "GroupName": "Trade Management",
+      "Type": "Integer",
+      "DefaultValue": 3,
+      "MinValue": 2,
+      "MaxValue": 20
+    },
+    {
+      "PropertyName": "MaxHoldingBars",
+      "FriendlyName": "Max Holding Bars (0=off)",
+      "GroupName": "Trade Management",
+      "Type": "Integer",
+      "MinValue": 0,
+      "MaxValue": 500
+    },
+    {
+      "PropertyName": "StagnationBars",
+      "FriendlyName": "Stagnation Bars (0=off)",
+      "GroupName": "Trade Management",
+      "Type": "Integer",
+      "MinValue": 0,
+      "MaxValue": 500
+    },
+    {
+      "PropertyName": "StagnationMinMfeR",
+      "FriendlyName": "Stagnation Min MFE (R)",
+      "GroupName": "Trade Management",
+      "Type": "Double",
+      "DefaultValue": 0.35,
+      "MinValue": 0.0,
+      "MaxValue": 5.0
+    },
+    {
+      "PropertyName": "StructuralFailureExit",
+      "FriendlyName": "Structural Failure Exit",
+      "GroupName": "Trade Management",
+      "Type": "Boolean",
+      "DefaultValue": false
+    },
+    {
+      "PropertyName": "PartialExitTriggerR",
+      "FriendlyName": "Partial Exit Trigger (R, 0=off)",
+      "GroupName": "Trade Management",
+      "Type": "Double",
+      "MinValue": 0.0,
+      "MaxValue": 5.0
+    },
+    {
+      "PropertyName": "PartialExitPercent",
+      "FriendlyName": "Partial Exit (%)",
+      "GroupName": "Trade Management",
+      "Type": "Double",
+      "DefaultValue": 50.0,
+      "MinValue": 10.0,
+      "MaxValue": 90.0
+    },
+    {
+      "PropertyName": "CooldownBars",
+      "FriendlyName": "Cooldown Bars",
+      "GroupName": "Execution",
+      "Type": "Integer",
+      "DefaultValue": 1,
+      "MinValue": 0,
+      "MaxValue": 100
+    },
+    {
+      "PropertyName": "LossCooldownBars",
+      "FriendlyName": "Loss Cooldown Bars",
+      "GroupName": "Execution",
+      "Type": "Integer",
+      "DefaultValue": 3,
+      "MinValue": 0,
+      "MaxValue": 200
+    },
+    {
+      "PropertyName": "ConsecutiveLossExtraBars",
+      "FriendlyName": "Consecutive Loss Extra Bars",
+      "GroupName": "Execution",
+      "Type": "Integer",
+      "DefaultValue": 2,
+      "MinValue": 0,
+      "MaxValue": 100
+    },
+    {
+      "PropertyName": "MaximumSpreadPips",
+      "FriendlyName": "Maximum Spread (pips)",
+      "GroupName": "Costs",
+      "Type": "Double",
+      "DefaultValue": 2.0,
+      "MinValue": 0.1,
+      "MaxValue": 10000.0
+    },
+    {
+      "PropertyName": "EstimatedSlippagePips",
+      "FriendlyName": "Estimated Slippage (pips)",
+      "GroupName": "Costs",
+      "Type": "Double",
+      "DefaultValue": 0.2,
+      "MinValue": 0.0,
+      "MaxValue": 100.0
+    },
+    {
+      "PropertyName": "EstimatedCommissionPips",
+      "FriendlyName": "Estimated Commission (pips RT)",
+      "GroupName": "Costs",
+      "Type": "Double",
+      "DefaultValue": 0.2,
+      "MinValue": 0.0,
+      "MaxValue": 100.0
+    },
+    {
+      "PropertyName": "MaxSpreadToSlRatio",
+      "FriendlyName": "Max Spread / SL",
+      "GroupName": "Costs",
+      "Type": "Double",
+      "DefaultValue": 0.15,
+      "MinValue": 0.01,
+      "MaxValue": 1.0
+    },
+    {
+      "PropertyName": "MaxCostToExpectedProfitRatio",
+      "FriendlyName": "Max Cost / Expected TP",
+      "GroupName": "Costs",
+      "Type": "Double",
+      "DefaultValue": 0.2,
+      "MinValue": 0.01,
+      "MaxValue": 1.0
+    }
+  ]
+}

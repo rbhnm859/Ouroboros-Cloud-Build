@@ -1,0 +1,35 @@
+
+Welcome to .NET 6.0!
+---------------------
+SDK Version: 6.0.100
+
+Telemetry
+---------
+The .NET tools collect usage data in order to help us improve your experience. It is collected by Microsoft and shared with the community. You can opt-out of telemetry by setting the DOTNET_CLI_TELEMETRY_OPTOUT environment variable to '1' or 'true' using your favorite shell.
+
+Read more about .NET CLI Tools telemetry: https://aka.ms/dotnet-cli-telemetry
+
+----------------
+Installed an ASP.NET Core HTTPS development certificate.
+To trust the certificate run 'dotnet dev-certs https --trust' (Windows and macOS only).
+Learn about HTTPS: https://aka.ms/dotnet-https
+----------------
+Write your first app: https://aka.ms/dotnet-hello-world
+Find out what's new: https://aka.ms/dotnet-whats-new
+Explore documentation: https://aka.ms/dotnet-docs
+Report issues and find source on GitHub: https://github.com/dotnet/core
+Use 'dotnet --help' to see available commands or visit: https://aka.ms/dotnet-cli
+--------------------------------------------------------------------------------------
+  Determining projects to restore...
+  Restored /repo/GQ-Session-Scalper-v2/src/GQ_Session_Scalper_v2.csproj (in 569 ms).
+Microsoft (R) Build Engine version 17.0.0+c9eb9dd64 for .NET
+Copyright (C) Microsoft Corporation. All rights reserved.
+
+  GQ_Session_Scalper_v2 -> /repo/GQ-Session-Scalper-v2/src/bin/Release/net6.0/GQ_Session_Scalper_v2.dll
+  GQ_Session_Scalper_v2 -> /repo/GQ-Session-Scalper-v2/src/bin/Release/net6.0/GQ-Session-Scalper-v2.algo
+
+Build succeeded.
+    0 Warning(s)
+    0 Error(s)
+
+Time Elapsed 00:00:01.63
