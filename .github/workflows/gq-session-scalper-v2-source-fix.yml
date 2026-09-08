@@ -1,0 +1,54 @@
+name: GQ Session Scalper v2 source compatibility fix
+
+on:
+  push:
+    branches:
+      - gq-session-scalper-v2-robust-20260908
+    paths:
+      - '.github/workflows/gq-session-scalper-v2-source-fix.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Replace unavailable Momentum API with ratio momentum
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('GQ-Session-Scalper-v2/src/GQ_Session_Scalper_v2.cs')
+          s = p.read_text()
+          old = '        private Momentum _momentum;\n'
+          if old not in s:
+              raise SystemExit('Momentum field anchor not found')
+          s = s.replace(old, '', 1)
+          old = '                _momentum = Indicators.Momentum(Bars.ClosePrices, MomentumPeriod);\n'
+          if old not in s:
+              raise SystemExit('Momentum initializer anchor not found')
+          s = s.replace(old, '', 1)
+          old = '            double momentum = _momentum.Result.Last(0);\n'
+          new = ('            double momentumReference = Bars.ClosePrices.Last(MomentumPeriod);\n'
+                 '            double momentum = momentumReference > 0\n'
+                 '                ? close / momentumReference * 100.0\n'
+                 '                : 100.0;\n')
+          if old not in s:
+              raise SystemExit('Momentum signal anchor not found')
+          s = s.replace(old, new, 1)
+          p.write_text(s)
+          PY
+          grep -n 'momentumReference\|double momentum =' GQ-Session-Scalper-v2/src/GQ_Session_Scalper_v2.cs
+          ! grep -n 'Indicators.Momentum(' GQ-Session-Scalper-v2/src/GQ_Session_Scalper_v2.cs
+      - name: Commit compatibility fix
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add GQ-Session-Scalper-v2/src/GQ_Session_Scalper_v2.cs
+          git commit -m 'Fix GQ v2 momentum compatibility'
+          git push origin HEAD:${GITHUB_REF_NAME}
