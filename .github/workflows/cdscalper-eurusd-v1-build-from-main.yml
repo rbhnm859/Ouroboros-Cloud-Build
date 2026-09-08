@@ -40,7 +40,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p 'CumulativeDeltaScalper-EURUSD-v1/builds'
-          ALGO=$(find 'CumulativeDeltaScalper-EURUSD-v1' -type f -name '*.algo' | head -n 1)
+          ALGO=$(find 'CumulativeDeltaScalper-EURUSD-v1/bin/Release' -type f -name '*.algo' | head -n 1)
           test -n "$ALGO"
           cp "$ALGO" 'CumulativeDeltaScalper-EURUSD-v1/builds/CumulativeDeltaScalper_EURUSD_v1.algo'
           sha256sum 'CumulativeDeltaScalper-EURUSD-v1/builds/CumulativeDeltaScalper_EURUSD_v1.algo' | tee 'CumulativeDeltaScalper-EURUSD-v1/builds/CumulativeDeltaScalper_EURUSD_v1.algo.sha256'
@@ -50,17 +50,18 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          cat > 'CumulativeDeltaScalper-EURUSD-v1/reports/build_result.md' <<'EOF'
-# Build Result
-
-- Status: success
-- Build method: GitHub Actions ubuntu-latest + dotnet build + cTrader.Automate NuGet
-- Project: CumulativeDeltaScalper-EURUSD-v1/CumulativeDeltaScalper_EURUSD_v1.csproj
-- Artifact: CumulativeDeltaScalper-EURUSD-v1/builds/CumulativeDeltaScalper_EURUSD_v1.algo
-- SHA256: see CumulativeDeltaScalper-EURUSD-v1/builds/CumulativeDeltaScalper_EURUSD_v1.algo.sha256
-
-This file is expected to be a real cTrader .algo produced by the cTrader.Automate build pipeline, not a renamed zip file.
-EOF
+          mkdir -p 'CumulativeDeltaScalper-EURUSD-v1/reports'
+          {
+            echo '# Build Result'
+            echo
+            echo '- Status: success'
+            echo '- Build method: GitHub Actions ubuntu-latest + dotnet build + cTrader.Automate NuGet'
+            echo '- Project: CumulativeDeltaScalper-EURUSD-v1/CumulativeDeltaScalper_EURUSD_v1.csproj'
+            echo '- Artifact: CumulativeDeltaScalper-EURUSD-v1/builds/CumulativeDeltaScalper_EURUSD_v1.algo'
+            echo '- SHA256: see CumulativeDeltaScalper-EURUSD-v1/builds/CumulativeDeltaScalper_EURUSD_v1.algo.sha256'
+            echo
+            echo 'This file is expected to be a real cTrader .algo produced by the cTrader.Automate build pipeline, not a renamed zip file.'
+          } > 'CumulativeDeltaScalper-EURUSD-v1/reports/build_result.md'
 
       - name: Commit .algo to cds-eurusd-v1 branch
         shell: bash
