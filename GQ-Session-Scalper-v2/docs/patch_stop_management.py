@@ -4,10 +4,7 @@ SOURCE = Path("GQ-Session-Scalper-v2/src/GQ_Session_Scalper_v2.cs")
 s = SOURCE.read_text(encoding="utf-8")
 
 field_anchor = "            public string ManagedExitReason;\n"
-field_insert = (
-    "            public string ManagedExitReason;\n"
-    "            public double LastAppliedStopPrice;\n"
-)
+field_insert = field_anchor + "            public double LastAppliedStopPrice;\n"
 if "public double LastAppliedStopPrice;" not in s:
     if field_anchor not in s:
         raise SystemExit("PositionState field anchor not found")
@@ -50,7 +47,6 @@ old = '''            bool improves = !position.StopLoss.HasValue ||
             if (_states.TryGetValue(position.Id, out state))
                 state.ManagedExitReason = reason;
 '''
-
 new = '''            PositionState state;
             _states.TryGetValue(position.Id, out state);
 
@@ -84,19 +80,34 @@ new = '''            PositionState state;
                 state.ManagedExitReason = reason;
             }
 '''
-
 if "double minimumImprovement = Math.Max(Symbol.TickSize, Symbol.PipSize * 0.1);" not in s:
     if old not in s:
         raise SystemExit("TryImproveStop anchor not found")
     s = s.replace(old, new, 1)
 
 old_modify = "            var result = ModifyPosition(position, candidateStop, position.TakeProfit, ProtectionType.Absolute);\n"
-new_modify = "            var result = position.ModifyStopLossPrice(candidateStop);\n"
 if old_modify in s:
-    s = s.replace(old_modify, new_modify, 1)
+    s = s.replace(old_modify, "            var result = position.ModifyStopLossPrice(candidateStop);\n", 1)
+
+attempt_anchor = "            var result = position.ModifyStopLossPrice(candidateStop);\n"
+attempt_block = '''            double marketDistancePips = position.TradeType == TradeType.Buy
+                ? (Symbol.Bid - candidateStop) / Symbol.PipSize
+                : (candidateStop - Symbol.Ask) / Symbol.PipSize;
+            double currentStopForLog = position.StopLoss ?? double.NaN;
+            double takeProfitForLog = position.TakeProfit ?? double.NaN;
+            Print("[STOP_ATTEMPT] reason={0} side={1} bid={2} ask={3} candidate={4} currentSL={5} TP={6} distancePips={7:F3} minDistancePips={8:F3}",
+                reason, position.TradeType, Symbol.Bid, Symbol.Ask, candidateStop, currentStopForLog, takeProfitForLog,
+                marketDistancePips, minimumDistancePrice / Symbol.PipSize);
+
+            var result = position.ModifyStopLossPrice(candidateStop);
+'''
+if "[STOP_ATTEMPT]" not in s:
+    if attempt_anchor not in s:
+        raise SystemExit("Stop-only modify anchor not found")
+    s = s.replace(attempt_anchor, attempt_block, 1)
 
 if "position.ModifyStopLossPrice(candidateStop)" not in s:
     raise SystemExit("Stop-only modify patch was not applied")
 
 SOURCE.write_text(s, encoding="utf-8")
-print("GQ stop-management patch applied: stop-only modification + distance/de-dup guards.")
+print("GQ stop-management patch applied with stop-only updates and diagnostic distance logging.")
