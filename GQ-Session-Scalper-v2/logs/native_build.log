@@ -21,7 +21,7 @@ Report issues and find source on GitHub: https://github.com/dotnet/core
 Use 'dotnet --help' to see available commands or visit: https://aka.ms/dotnet-cli
 --------------------------------------------------------------------------------------
   Determining projects to restore...
-  Restored /repo/GQ-Session-Scalper-v2/src/GQ_Session_Scalper_v2.csproj (in 513 ms).
+  Restored /repo/GQ-Session-Scalper-v2/src/GQ_Session_Scalper_v2.csproj (in 489 ms).
 Microsoft (R) Build Engine version 17.0.0+c9eb9dd64 for .NET
 Copyright (C) Microsoft Corporation. All rights reserved.
 
@@ -32,4 +32,4 @@ Build succeeded.
     0 Warning(s)
     0 Error(s)
 
-Time Elapsed 00:00:02.33
+Time Elapsed 00:00:02.27
