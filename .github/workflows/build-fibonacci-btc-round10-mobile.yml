@@ -48,3 +48,5 @@ jobs:
           name: fibonacci-btc-round10-mobile-build
           path: artifact
           retention-days: 30
+
+# mobile build trigger
