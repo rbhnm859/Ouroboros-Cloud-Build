@@ -1,0 +1,159 @@
+name: Fibonacci BTC Round4 MTF cross-test
+
+on:
+  push:
+    branches: [fibonacci-research1-build]
+    paths:
+      - '.github/workflows/backtest-fibonacci-btc-round4-cross.yml'
+      - 'tools/create_fibonacci_btc_round4.py'
+      - 'research/fibonacci-research1/btc_round4_mtf_profiles.json'
+      - 'research/fibonacci-research1/btc_round4_args.py'
+      - 'research/fibonacci-research1/summarize_btc_round4.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fibonacci-btc-round4-cross
+  cancel-in-progress: true
+
+env:
+  CTRADER_IMAGE: ghcr.io/spotware/ctrader-console:5.9.11
+  BALANCE: '10000'
+  OOS_START: '09/08/2026 00:00'
+  OOS_END: '08/09/2026 00:00'
+  FULL3_START: '08/06/2026 00:00'
+  FULL3_END: '08/09/2026 00:00'
+  FULL6_START: '08/03/2026 00:00'
+  FULL6_END: '08/09/2026 00:00'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - name: Create Research1 baseline candidate
+        run: python3 tools/create_fibonacci_research1.py --repo-root "$PWD" --force
+      - name: Create BTC Round4 MTF candidate
+        run: python3 tools/create_fibonacci_btc_round4.py --repo-root "$PWD" --force
+      - name: Enable trading in ephemeral candidate
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('Fibonacci-v0.6.0-btc-round4-mtf/FibonacciHarmonicSniperUltimate.cs')
+          s=p.read_text(encoding='utf-8')
+          old='[Parameter("Trading Enabled", DefaultValue = false'
+          new='[Parameter("Trading Enabled", DefaultValue = true'
+          if old not in s: raise SystemExit('Trading Enabled parameter not found')
+          p.write_text(s.replace(old,new,1),encoding='utf-8')
+          PY
+      - name: Build cBot
+        run: |
+          docker pull "$CTRADER_IMAGE"
+          docker run --rm --entrypoint sh -v "$PWD:/repo" -w /repo "$CTRADER_IMAGE" -c \
+            'dotnet restore Fibonacci-v0.6.0-btc-round4-mtf/FibonacciHarmonicSniperUltimate.csproj && dotnet build Fibonacci-v0.6.0-btc-round4-mtf/FibonacciHarmonicSniperUltimate.csproj --configuration Release --no-restore -p:AlgoPublish=False -p:IncludeSource=True'
+          mkdir -p build-artifact
+          ALGO="$(find Fibonacci-v0.6.0-btc-round4-mtf -type f -name '*.algo' -print -quit)"
+          test -n "$ALGO"
+          cp "$ALGO" build-artifact/FibonacciHarmonicSniperUltimate_BTC_Round4_MTF.algo
+      - uses: actions/upload-artifact@v4
+        with:
+          name: fibonacci-btc-round4-cross-algo
+          path: build-artifact/FibonacciHarmonicSniperUltimate_BTC_Round4_MTF.algo
+          retention-days: 30
+
+  cross-test:
+    needs: build
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix:
+        profile:
+          - h4_h1_strict
+          - h4_h1_sell_confirm
+          - h1_m30_strict
+          - h1_m30_sell_confirm
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: fibonacci-btc-round4-cross-algo
+          path: btc
+      - name: Prepare
+        env:
+          CTRADER_PASSWORD: ${{ secrets.CTRADER_PASSWORD }}
+        run: |
+          set -euo pipefail
+          test -n "${CTRADER_PASSWORD:-}"
+          mkdir -p btc/cache btc/reports
+          umask 077
+          printf '%s' "$CTRADER_PASSWORD" > btc/ctrader.pwd
+          docker pull "$CTRADER_IMAGE"
+      - name: Run fixed cross-test profile
+        env:
+          CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+          CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+          PROFILE: ${{ matrix.profile }}
+        run: |
+          set -euo pipefail
+          mapfile -t RAW < <(python3 research/fibonacci-research1/btc_round4_args.py "$PROFILE")
+          PERIOD="${RAW[0]#__PERIOD__=}"
+          ARGS=("${RAW[@]:1}")
+          echo "PROFILE=$PROFILE PERIOD=$PERIOD"
+          for SPEC in 'FULL3|0|65' 'FULL6|0|65' 'OOS|0|65' 'OOSHARSH|1500|100' 'FULL6HARSH|1500|100'; do
+            IFS='|' read -r PHASE SPREAD COMM <<< "$SPEC"
+            case "$PHASE" in
+              FULL3) START="$FULL3_START"; END="$FULL3_END" ;;
+              FULL6|FULL6HARSH) START="$FULL6_START"; END="$FULL6_END" ;;
+              OOS|OOSHARSH) START="$OOS_START"; END="$OOS_END" ;;
+            esac
+            echo "=== $PROFILE / $PHASE / period=$PERIOD spread=$SPREAD commission=$COMM ==="
+            timeout --signal=TERM --kill-after=30s 15m docker run --rm \
+              -v "$PWD/btc:/work" -e "CTID=$CTRADER_CTID" -e 'PWD-FILE=/work/ctrader.pwd' -e "ACCOUNT=$CTRADER_ACCOUNT" "$CTRADER_IMAGE" \
+              backtest /work/FibonacciHarmonicSniperUltimate_BTC_Round4_MTF.algo --environment-variables --exit-on-stop \
+              --symbol=BITCOIN --period="$PERIOD" --start="$START" --end="$END" --balance="$BALANCE" \
+              --data-mode=m1 --data-dir=/work/cache --commission="$COMM" --spread="$SPREAD" --RiskPercent=1.0 \
+              "${ARGS[@]}" \
+              --report="/work/reports/${PROFILE}-BITCOIN-${PHASE}.html" \
+              --report-json="/work/reports/${PROFILE}-BITCOIN-${PHASE}.json"
+          done
+      - name: Clean credentials
+        if: always()
+        run: rm -f btc/ctrader.pwd
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: fibonacci-btc-round4-${{ matrix.profile }}
+          path: btc/reports/${{ matrix.profile }}-BITCOIN-*
+          if-no-files-found: error
+          retention-days: 30
+
+  summarize:
+    needs: cross-test
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: fibonacci-btc-round4-*
+          path: collected
+          merge-multiple: true
+      - name: Summarize cross-test
+        run: |
+          mkdir -p summary
+          python3 research/fibonacci-research1/summarize_btc_round4.py \
+            --reports-dir collected \
+            --out-json summary/btc-round4-cross-summary.json \
+            --out-csv summary/btc-round4-cross-summary.csv \
+            --out-md summary/btc-round4-cross-summary.md
+      - uses: actions/upload-artifact@v4
+        with:
+          name: fibonacci-btc-round4-cross-summary
+          path: summary
+          if-no-files-found: error
+          retention-days: 30
