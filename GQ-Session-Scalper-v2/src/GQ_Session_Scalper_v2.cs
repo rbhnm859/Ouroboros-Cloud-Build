@@ -196,6 +196,7 @@ namespace cAlgo.Robots
             public string SignalId;
             public string Session;
             public string ManagedExitReason;
+            public double LastAppliedStopPrice;
         }
 
         private ExponentialMovingAverage _entryEma;
@@ -593,9 +594,23 @@ namespace cAlgo.Robots
                 candidateStop = Math.Max(candidateStop, Symbol.Ask + minPips * Symbol.PipSize);
             candidateStop = Math.Round(candidateStop, Symbol.Digits);
 
-            bool improves = !position.StopLoss.HasValue ||
-                (position.TradeType == TradeType.Buy && candidateStop > position.StopLoss.Value) ||
-                (position.TradeType == TradeType.Sell && candidateStop < position.StopLoss.Value);
+            PositionState state;
+            _states.TryGetValue(position.Id, out state);
+
+            double referenceStop = position.StopLoss ?? 0.0;
+            if (state != null && IsFinitePositive(state.LastAppliedStopPrice))
+            {
+                referenceStop = !IsFinitePositive(referenceStop)
+                    ? state.LastAppliedStopPrice
+                    : (position.TradeType == TradeType.Buy
+                        ? Math.Max(referenceStop, state.LastAppliedStopPrice)
+                        : Math.Min(referenceStop, state.LastAppliedStopPrice));
+            }
+
+            double minimumImprovement = Math.Max(Symbol.TickSize, Symbol.PipSize * 0.1);
+            bool improves = !IsFinitePositive(referenceStop) ||
+                (position.TradeType == TradeType.Buy && candidateStop >= referenceStop + minimumImprovement) ||
+                (position.TradeType == TradeType.Sell && candidateStop <= referenceStop - minimumImprovement);
             if (!improves)
                 return;
 
@@ -605,9 +620,12 @@ namespace cAlgo.Robots
                 Print("[STOP_UPDATE_ERROR] reason={0} error={1}", reason, result.Error);
                 return;
             }
-            PositionState state;
-            if (_states.TryGetValue(position.Id, out state))
+
+            if (state != null)
+            {
+                state.LastAppliedStopPrice = candidateStop;
                 state.ManagedExitReason = reason;
+            }
         }
 
         private void TryPartialExit(Position position, PositionState state)
