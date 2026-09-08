@@ -1,3 +1,4 @@
+# Retest source patch: 09caa783a22d8c5d4a20b57fafb9a1959f4b4c09
 name: GQ Session Scalper v2 Stop Diagnostic
 
 on:
@@ -109,8 +110,6 @@ jobs:
 
           successful_set = set()
           duplicate_after_success = []
-          success_iter = iter([])
-          # Walk chronologically so a retry after a failed request is not falsely flagged.
           for line in lines:
               m_ok = ok_re.search(line)
               if m_ok:
