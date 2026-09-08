@@ -1,0 +1,78 @@
+name: Build Fibonacci v0.4.0 Research1
+
+on:
+  push:
+    branches:
+      - fibonacci-research1-build
+    paths:
+      - '.github/workflows/build-fibonacci-research1.yml'
+      - 'tools/create_fibonacci_research1.py'
+      - 'Fibonacci-v0.3.0-fix3/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fibonacci-research1-build
+  cancel-in-progress: true
+
+env:
+  CTRADER_IMAGE: ghcr.io/spotware/ctrader-console:5.9.11
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Create independent Research1 candidate
+        run: |
+          python3 tools/create_fibonacci_research1.py --repo-root "$PWD" --force
+          test -f Fibonacci-v0.4.0-research1/FibonacciHarmonicSniperUltimate.cs
+          test -f Fibonacci-v0.4.0-research1/FibonacciHarmonicSniperUltimate.csproj
+
+      - name: Stamp project version
+        run: |
+          python3 - <<'PYCODE'
+          from pathlib import Path
+          p = Path('Fibonacci-v0.4.0-research1/FibonacciHarmonicSniperUltimate.csproj')
+          s = p.read_text(encoding='utf-8')
+          s = s.replace('<Version>0.3.0-fix3</Version>', '<Version>0.4.0-research1</Version>')
+          p.write_text(s, encoding='utf-8')
+          PYCODE
+
+      - name: Build with official cTrader console image
+        run: |
+          docker pull "$CTRADER_IMAGE"
+          docker run --rm --entrypoint sh \
+            -v "$PWD:/repo" -w /repo "$CTRADER_IMAGE" -c \
+            'dotnet restore Fibonacci-v0.4.0-research1/FibonacciHarmonicSniperUltimate.csproj && \
+             dotnet build Fibonacci-v0.4.0-research1/FibonacciHarmonicSniperUltimate.csproj \
+             --configuration Release --no-restore -p:AlgoPublish=False -p:IncludeSource=True'
+
+      - name: Collect build outputs
+        run: |
+          mkdir -p build-output/source
+          ALGO="$(find Fibonacci-v0.4.0-research1 -type f -name '*.algo' -print -quit)"
+          if [ -z "$ALGO" ]; then
+            echo 'No .algo artifact was produced.' >&2
+            find Fibonacci-v0.4.0-research1 -maxdepth 6 -type f -print
+            exit 1
+          fi
+          cp "$ALGO" build-output/Fibonacci_Harmonic_Sniper_v0.4.0-research1.algo
+          cp Fibonacci-v0.4.0-research1/FibonacciHarmonicSniperUltimate.cs build-output/source/
+          cp Fibonacci-v0.4.0-research1/FibonacciHarmonicSniperUltimate.csproj build-output/source/
+          sha256sum build-output/Fibonacci_Harmonic_Sniper_v0.4.0-research1.algo > build-output/SHA256SUMS.txt
+          printf 'branch=%s\ncommit=%s\n' "$GITHUB_REF_NAME" "$GITHUB_SHA" > build-output/BUILD_INFO.txt
+
+      - name: Upload compiled cBot
+        uses: actions/upload-artifact@v4
+        with:
+          name: Fibonacci-Harmonic-Sniper-v0.4.0-research1-build
+          path: build-output/
+          if-no-files-found: error
+          retention-days: 30
