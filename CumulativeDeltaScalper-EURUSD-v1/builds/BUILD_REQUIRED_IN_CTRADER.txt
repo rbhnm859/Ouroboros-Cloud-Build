@@ -1,0 +1,9 @@
+No .algo artifact is included yet.
+
+Build must be performed in cTrader Desktop Automate or a working cTrader build environment.
+
+Source:
+../src/CumulativeDeltaScalper_EURUSD_v1.cs
+
+Expected output after successful cTrader build:
+CumulativeDeltaScalper_EURUSD_v1.algo

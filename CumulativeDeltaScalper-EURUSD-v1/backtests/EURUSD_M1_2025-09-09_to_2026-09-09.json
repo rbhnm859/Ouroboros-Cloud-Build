@@ -1,0 +1,80 @@
+{
+  "schema_version": 1,
+  "symbol": "EURUSD",
+  "timeframe": "M1",
+  "period": {
+    "start": "2025-09-09",
+    "end": "2026-09-09",
+    "timezone": "UTC",
+    "end_inclusive": false
+  },
+  "parameter_source": "CumulativeDeltaScalper-EURUSD-v1/presets/eurusd_m1_conservative.json",
+  "parameters": {
+    "symbol": "EURUSD",
+    "timeframe": "M1",
+    "bot_label": "CDScalper_EURUSD_v1",
+    "debug_logging": true,
+    "risk_mode": "FixedMoneyRisk",
+    "fixed_money_risk": 1,
+    "risk_percent_per_trade": 1,
+    "fixed_lot_size": 0.01,
+    "max_lot_size": 0.05,
+    "window_size": 10,
+    "delta_threshold": 300,
+    "min_confirmations": 5,
+    "min_atr": 0.0003,
+    "max_atr": 0.002,
+    "max_spread_points": 15,
+    "max_daily_trades": 3,
+    "max_daily_loss_percent": 2,
+    "max_daily_loss_money": 3,
+    "daily_profit_target_money": 5,
+    "max_consecutive_losses": 2,
+    "min_seconds_between_trades": 900
+  },
+  "platform": {
+    "requested": "cTrader Automate/CLI",
+    "available": false,
+    "environment": "Replit sandbox via GitHub connector"
+  },
+  "compile": {
+    "status": "not_compiled",
+    "artifact_status": "not_generated",
+    "artifact_path": "CumulativeDeltaScalper-EURUSD-v1/builds/CumulativeDeltaScalper_EURUSD_v1.algo"
+  },
+  "backtest": {
+    "status": "not_run_environment_unavailable",
+    "data_source": "none",
+    "broker": null,
+    "metrics": {
+      "net_profit": null,
+      "profit_factor": null,
+      "win_rate": null,
+      "max_drawdown": null,
+      "total_trades": null,
+      "average_trade": null,
+      "largest_loss": null,
+      "largest_win": null,
+      "consecutive_losses": null
+    },
+    "safety_observations": {
+      "daily_loss_guard_triggered": null,
+      "duplicate_entry_detected": null,
+      "every_trade_had_sl_tp": null,
+      "broker_rejected_orders": null,
+      "invalid_request_errors": null,
+      "volume_below_broker_minimum_events": null
+    }
+  },
+  "errors": [
+    "cTrader Desktop/Automate and cTrader CLI are not available in the execution environment.",
+    "cTrader API assemblies and broker historical data are not available; no real M1 result can be computed."
+  ],
+  "next_steps": [
+    "Compile the source in cTrader Desktop Automate.",
+    "Run EURUSD M1 with the recorded preset over 2025-09-09 through 2026-09-09.",
+    "Replace null metrics with the native cTrader report values; do not infer profitability from this file."
+  ],
+  "generated_by": "Replit task execution",
+  "generated_at": "2026-09-09"
+}

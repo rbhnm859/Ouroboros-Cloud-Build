@@ -1,0 +1,23 @@
+{
+  "symbol": "EURUSD",
+  "timeframe": "M1",
+  "bot_label": "CDScalper_EURUSD_v1",
+  "debug_logging": true,
+  "risk_mode": "FixedMoneyRisk",
+  "fixed_money_risk": 1.0,
+  "risk_percent_per_trade": 1.0,
+  "fixed_lot_size": 0.01,
+  "max_lot_size": 0.05,
+  "window_size": 10,
+  "delta_threshold": 300,
+  "min_confirmations": 5,
+  "min_atr": 0.00030,
+  "max_atr": 0.00200,
+  "max_spread_points": 15,
+  "max_daily_trades": 3,
+  "max_daily_loss_percent": 2.0,
+  "max_daily_loss_money": 3.0,
+  "daily_profit_target_money": 5.0,
+  "max_consecutive_losses": 2,
+  "min_seconds_between_trades": 900
+}
