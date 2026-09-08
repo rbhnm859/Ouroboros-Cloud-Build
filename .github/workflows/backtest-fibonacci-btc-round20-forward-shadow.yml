@@ -1,0 +1,139 @@
+name: Fibonacci BTC Round20 Frozen Forward Shadow
+
+on:
+  push:
+    branches: [fibonacci-research1-build]
+    paths:
+      - '.github/workflows/backtest-fibonacci-btc-round20-forward-shadow.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CTRADER_IMAGE: ghcr.io/spotware/ctrader-console:5.9.11
+  BALANCE: '10000'
+  FORWARD_START: '08/09/2026 00:00'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - run: python3 tools/create_fibonacci_research1.py --repo-root "$PWD" --force
+      - run: python3 tools/create_fibonacci_btc_round4.py --repo-root "$PWD" --force
+      - run: python3 tools/create_fibonacci_btc_round5.py --repo-root "$PWD" --force
+      - run: python3 tools/create_fibonacci_btc_round6.py --repo-root "$PWD" --force
+      - run: python3 tools/create_fibonacci_btc_round7.py --repo-root "$PWD" --force
+      - run: python3 tools/create_fibonacci_btc_round8.py --repo-root "$PWD" --force
+      - run: python3 tools/create_fibonacci_btc_round9.py --repo-root "$PWD" --force
+      - run: python3 tools/create_fibonacci_btc_round10.py --repo-root "$PWD" --force
+      - run: python3 tools/create_fibonacci_btc_round15.py --repo-root "$PWD" --force
+      - run: python3 tools/create_fibonacci_btc_round16_h1_health.py --repo-root "$PWD" --force
+      - run: python3 tools/create_fibonacci_btc_round17_m30_half_risk.py --repo-root "$PWD" --force
+      - name: Enable trading
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('Fibonacci-v0.16.0-btc-round17-m30-half-risk/FibonacciHarmonicSniperUltimate.cs')
+          s=p.read_text(encoding='utf-8')
+          old='[Parameter("Trading Enabled", DefaultValue = false'
+          new='[Parameter("Trading Enabled", DefaultValue = true'
+          if old not in s: raise SystemExit('Trading Enabled parameter not found')
+          p.write_text(s.replace(old,new,1),encoding='utf-8')
+          PY
+      - name: Build frozen Round17
+        run: |
+          docker pull "$CTRADER_IMAGE"
+          docker run --rm --entrypoint sh -v "$PWD:/repo" -w /repo "$CTRADER_IMAGE" -c \
+            'dotnet restore Fibonacci-v0.16.0-btc-round17-m30-half-risk/FibonacciHarmonicSniperUltimate.csproj && dotnet build Fibonacci-v0.16.0-btc-round17-m30-half-risk/FibonacciHarmonicSniperUltimate.csproj --configuration Release --no-restore -p:AlgoPublish=False -p:IncludeSource=True'
+          mkdir -p artifact
+          ALGO="$(find Fibonacci-v0.16.0-btc-round17-m30-half-risk -type f -name '*.algo' -print -quit)"
+          test -n "$ALGO"
+          cp "$ALGO" artifact/FibonacciHarmonicSniperUltimate-BTC-Round17-Frozen.algo
+          sha256sum artifact/* > artifact/SHA256SUMS.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: r20-frozen-round17-build
+          path: artifact
+          retention-days: 90
+
+  backtest:
+    needs: build
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - profile: normal
+            commission: 65
+            spread: 0
+          - profile: harsh
+            commission: 100
+            spread: 1500
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: r20-frozen-round17-build
+          path: work
+      - name: Prepare
+        env:
+          CTRADER_PASSWORD: ${{ secrets.CTRADER_PASSWORD }}
+        run: |
+          set -euo pipefail
+          test -n "${CTRADER_PASSWORD:-}"
+          mkdir -p work/cache work/report
+          umask 077
+          printf '%s' "$CTRADER_PASSWORD" > work/ctrader.pwd
+          echo "FORWARD_END=$(date -u '+%d/%m/%Y %H:%M')" >> "$GITHUB_ENV"
+          docker pull "$CTRADER_IMAGE"
+      - name: Backtest forward ${{ matrix.profile }}
+        env:
+          CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+          CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "Frozen forward window: $FORWARD_START -> $FORWARD_END"
+          timeout --signal=TERM --kill-after=30s 30m docker run --rm \
+            -v "$PWD/work:/work" -e "CTID=$CTRADER_CTID" -e 'PWD-FILE=/work/ctrader.pwd' -e "ACCOUNT=$CTRADER_ACCOUNT" "$CTRADER_IMAGE" \
+            backtest /work/FibonacciHarmonicSniperUltimate-BTC-Round17-Frozen.algo --environment-variables --exit-on-stop \
+            --symbol=BITCOIN --period=h1 --start="$FORWARD_START" --end="$FORWARD_END" --balance="$BALANCE" \
+            --data-mode=m1 --data-dir=/work/cache --commission="${{ matrix.commission }}" --spread="${{ matrix.spread }}" \
+            --RiskPercent=1.0 --Round17M30RiskPercent=0.50 --MaxOpenPositions=1 --MaxTradesPerDay=6 --MaxDailyLossPercent=5 \
+            --EnabledPatterns='Reciprocal ABCD' --PivotLeft=2 --PivotRight=2 --RatioTolerancePercent=6 --MinPatternScore=84 \
+            --MaxPatternAgeBars=16 --MaxEntryDistanceAtr=1.80 --ConfirmationMoveAtr=0.05 --UseCandleConfirmation=true --CooldownBars=2 \
+            --FallbackRiskReward=1.80 --MinimumRiskReward=1.50 --StopAnchorMode=LegacyD --TargetRiskRewardPolicy=LegacyFallback \
+            --Round5Mode=ObserveOnly --MtfMode=Off --Round6RequireM30SellConfirm=false --Round7VetoM30SellAlignment=false \
+            --Round8LogExcursions=false --Round9ShadowTpContinuation=false --Round10LogFunnel=false \
+            --Round15EnableM30Engine=true --Round16H1HealthGate=true --DebugLogging=false \
+            --report=/work/report/report.html --report-json=/work/report/report.json 2>&1 | tee work/report/report.log
+          printf '%s\n' "$FORWARD_START" > work/report/forward_start.txt
+          printf '%s\n' "$FORWARD_END" > work/report/forward_end.txt
+      - name: Clean credentials
+        if: always()
+        run: rm -f work/ctrader.pwd
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: r20-forward-${{ matrix.profile }}
+          path: work/report
+          if-no-files-found: error
+          retention-days: 90
+
+  collect:
+    needs: backtest
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: r20-forward-*
+          path: results
+      - uses: actions/upload-artifact@v4
+        with:
+          name: fibonacci-btc-round20-forward-shadow-results
+          path: results
+          retention-days: 90
