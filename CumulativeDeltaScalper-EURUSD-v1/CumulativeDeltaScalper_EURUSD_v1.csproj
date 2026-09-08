@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net7.0</TargetFramework>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <Nullable>disable</Nullable>
+    <AssemblyName>CumulativeDeltaScalper_EURUSD_v1</AssemblyName>
+    <RootNamespace>cAlgo.Robots</RootNamespace>
+    <AlgoName>CumulativeDeltaScalper_EURUSD_v1</AlgoName>
+    <AlgoBuild>true</AlgoBuild>
+    <AlgoPublish>false</AlgoPublish>
+    <IncludeSource>true</IncludeSource>
+    <IncludeSymbols>false</IncludeSymbols>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Remove="**/*.cs" />
+    <Compile Include="src/CumulativeDeltaScalper_EURUSD_v1.cs" />
+    <PackageReference Include="cTrader.Automate" Version="1.*-*" />
+  </ItemGroup>
+</Project>
