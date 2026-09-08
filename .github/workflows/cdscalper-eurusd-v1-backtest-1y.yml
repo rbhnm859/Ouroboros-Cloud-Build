@@ -1,0 +1,332 @@
+name: Backtest CDScalper EURUSD v1 M1 1Y
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - cds-eurusd-v1
+    paths:
+      - '.github/workflows/cdscalper-eurusd-v1-backtest-1y.yml'
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  eurusd-m1-1y:
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    env:
+      BOT_ROOT: CumulativeDeltaScalper-EURUSD-v1
+      ALGO_PATH: CumulativeDeltaScalper-EURUSD-v1/builds/CumulativeDeltaScalper_EURUSD_v1.algo
+      JSON_OUT: CumulativeDeltaScalper-EURUSD-v1/backtests/EURUSD_M1_2025-09-09_to_2026-09-09.json
+      MD_OUT: CumulativeDeltaScalper-EURUSD-v1/reports/EURUSD_M1_backtest_summary.md
+      START_DATE_ISO: '2025-09-09'
+      END_DATE_ISO: '2026-09-09'
+      START_DATE_CTRADER: '09/09/2025'
+      END_DATE_CTRADER: '09/09/2026'
+      STARTING_BALANCE: '100'
+      SYMBOL: EURUSD
+      TIMEFRAME: m1
+      CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+      CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+      CTRADER_PASSWORD: ${{ secrets.CTRADER_PASSWORD }}
+
+    steps:
+      - name: Checkout cds-eurusd-v1
+        uses: actions/checkout@v4
+        with:
+          ref: cds-eurusd-v1
+
+      - name: Preflight
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$BOT_ROOT/backtests" "$BOT_ROOT/reports" backtest/reports backtest/cache/EURUSD
+          if [ ! -s "$ALGO_PATH" ]; then
+            echo "BACKTEST_STATUS=not_run_missing_algo" >> "$GITHUB_ENV"
+            exit 0
+          fi
+          if [ -z "${CTRADER_CTID:-}" ] || [ -z "${CTRADER_ACCOUNT:-}" ] || [ -z "${CTRADER_PASSWORD:-}" ]; then
+            echo "BACKTEST_STATUS=not_run_missing_github_secrets" >> "$GITHUB_ENV"
+            exit 0
+          fi
+          cp "$ALGO_PATH" backtest/CumulativeDeltaScalper_EURUSD_v1.algo
+          echo "BACKTEST_STATUS=ready" >> "$GITHUB_ENV"
+
+      - name: Run cTrader console backtest EURUSD M1 1Y
+        if: env.BACKTEST_STATUS == 'ready'
+        id: run_backtest
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -euo pipefail
+          printf '%s' "$CTRADER_PASSWORD" | tr -d '\r\n' > backtest/ctrader.pwd
+          chmod 600 backtest/ctrader.pwd
+          docker run --rm -v "$PWD/backtest:/work" \
+            -e "CTID=$CTRADER_CTID" \
+            -e "PWD-FILE=/work/ctrader.pwd" \
+            -e "ACCOUNT=$CTRADER_ACCOUNT" \
+            ghcr.io/spotware/ctrader-console:5.9.11 \
+            backtest /work/CumulativeDeltaScalper_EURUSD_v1.algo --environment-variables \
+            --symbol="$SYMBOL" \
+            --period="$TIMEFRAME" \
+            --start="$START_DATE_CTRADER" \
+            --end="$END_DATE_CTRADER" \
+            --balance="$STARTING_BALANCE" \
+            --data-mode=m1 \
+            --data-dir="/work/cache/EURUSD" \
+            --report="/work/reports/EURUSD-M1.html" \
+            --report-json="/work/reports/EURUSD-M1.json" \
+            --exit-on-stop 2>&1 | sed -E 's/[0-9]{5,}/[redacted]/g' | tee backtest/reports/console.log
+          rm -f backtest/ctrader.pwd
+
+      - name: Publish backtest result files
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json, os, math
+          from pathlib import Path
+
+          bot_root = Path(os.environ['BOT_ROOT'])
+          json_out = Path(os.environ['JSON_OUT'])
+          md_out = Path(os.environ['MD_OUT'])
+          report_json = Path('backtest/reports/EURUSD-M1.json')
+          console_log = Path('backtest/reports/console.log')
+          status = os.environ.get('BACKTEST_STATUS', 'unknown')
+          algo_path = os.environ.get('ALGO_PATH')
+
+          def safe_float(x):
+              try:
+                  if x is None: return None
+                  v = float(x)
+                  if math.isfinite(v): return v
+              except Exception:
+                  return None
+              return None
+
+          def find_key(obj, names):
+              names_l = {n.lower() for n in names}
+              if isinstance(obj, dict):
+                  for k, v in obj.items():
+                      if str(k).lower() in names_l:
+                          return v
+                  for v in obj.values():
+                      r = find_key(v, names)
+                      if r is not None:
+                          return r
+              elif isinstance(obj, list):
+                  for v in obj:
+                      r = find_key(v, names)
+                      if r is not None:
+                          return r
+              return None
+
+          def find_history(obj):
+              candidates = []
+              if isinstance(obj, dict):
+                  h = obj.get('history')
+                  if isinstance(h, dict) and isinstance(h.get('items'), list):
+                      candidates.append(h.get('items'))
+                  for k, v in obj.items():
+                      if str(k).lower() in {'trades','positions','deals','historyitems'} and isinstance(v, list):
+                          candidates.append(v)
+                      elif isinstance(v, (dict, list)):
+                          sub = find_history(v)
+                          if sub:
+                              candidates.append(sub)
+              elif isinstance(obj, list):
+                  for v in obj:
+                      sub = find_history(v)
+                      if sub:
+                          candidates.append(sub)
+              return max(candidates, key=len) if candidates else []
+
+          errors = []
+          metrics = {
+              'initial_balance': safe_float(os.environ.get('STARTING_BALANCE')),
+              'final_balance': None,
+              'net_profit': None,
+              'return_percent': None,
+              'profit_factor': None,
+              'win_rate': None,
+              'max_drawdown': None,
+              'total_trades': None,
+              'average_trade': None,
+              'largest_win': None,
+              'largest_loss': None,
+              'consecutive_losses': None,
+              'gross_profit': None,
+              'gross_loss': None
+          }
+          safety = {
+              'daily_loss_guard_triggered': None,
+              'daily_profit_target_triggered': None,
+              'duplicate_entry_detected': None,
+              'every_trade_had_sl_tp': None,
+              'unprotected_position_detected': None,
+              'broker_rejected_orders': None,
+              'invalid_request_count': None,
+              'volume_below_minimum_count': None,
+              'spread_filter_rejections': None,
+              'cooldown_rejections': None
+          }
+          backtest_status = status
+          data_source = 'none'
+
+          if status == 'ready' and report_json.exists():
+              data_source = 'cTrader console JSON report'
+              try:
+                  d = json.loads(report_json.read_text(encoding='utf-8'))
+                  hist = find_history(d)
+                  nets = []
+                  for t in hist:
+                      if isinstance(t, dict):
+                          n = find_key(t, ['net', 'netProfit', 'profit', 'net_profit'])
+                          n = safe_float(n)
+                          if n is not None:
+                              nets.append(n)
+                  total = len(nets)
+                  wins = sum(1 for n in nets if n > 0)
+                  losses = sum(1 for n in nets if n < 0)
+                  gross_profit = sum(n for n in nets if n > 0)
+                  gross_loss = -sum(n for n in nets if n < 0)
+                  initial = metrics['initial_balance']
+                  net_profit = safe_float(find_key(d, ['netProfit','net_profit','Net Profit']))
+                  if net_profit is None and nets:
+                      net_profit = sum(nets)
+                  final_balance = safe_float(find_key(d, ['finalBalance','balance','endingBalance','equity']))
+                  if final_balance is None and initial is not None and net_profit is not None:
+                      final_balance = initial + net_profit
+                  max_dd = safe_float(find_key(d, ['maxEquityDrawdownPercent','maxDrawdown','max_drawdown','drawdown']))
+                  metrics.update({
+                      'final_balance': final_balance,
+                      'net_profit': net_profit,
+                      'return_percent': ((net_profit / initial) * 100 if initial and net_profit is not None else None),
+                      'profit_factor': (gross_profit / gross_loss if gross_loss > 0 else (None if gross_profit == 0 else 'inf')),
+                      'win_rate': ((wins / total) * 100 if total else None),
+                      'max_drawdown': max_dd,
+                      'total_trades': total,
+                      'average_trade': (sum(nets) / total if total else None),
+                      'largest_win': (max(nets) if nets else None),
+                      'largest_loss': (min(nets) if nets else None),
+                      'gross_profit': gross_profit,
+                      'gross_loss': gross_loss,
+                  })
+                  # consecutive losses from extracted net series
+                  max_consec = cur = 0
+                  for n in nets:
+                      if n < 0:
+                          cur += 1
+                          max_consec = max(max_consec, cur)
+                      else:
+                          cur = 0
+                  metrics['consecutive_losses'] = max_consec if nets else None
+                  backtest_status = 'completed'
+              except Exception as e:
+                  backtest_status = 'failed_parse_report'
+                  errors.append(f'Could not parse cTrader report JSON: {type(e).__name__}: {e}')
+          elif status == 'ready':
+              backtest_status = 'failed_no_report_json'
+              errors.append('cTrader console did not produce backtest/reports/EURUSD-M1.json')
+          elif status == 'not_run_missing_github_secrets':
+              errors.append('Missing one or more required GitHub Actions secrets: CTRADER_CTID, CTRADER_ACCOUNT, CTRADER_PASSWORD')
+          elif status == 'not_run_missing_algo':
+              errors.append(f'Missing algo file at {algo_path}')
+          else:
+              errors.append(f'Backtest did not run; status={status}')
+
+          if console_log.exists() and backtest_status not in {'completed'}:
+              # Keep only a sanitized short excerpt; never include account IDs or passwords.
+              text = console_log.read_text(errors='ignore')[-3000:]
+              errors.append('Console log excerpt available in workflow artifact or job log; not embedded fully to avoid leaking account data.')
+
+          out = {
+              'schema_version': 2,
+              'bot': 'CumulativeDeltaScalper-EURUSD-v1',
+              'symbol': os.environ.get('SYMBOL', 'EURUSD'),
+              'timeframe': 'M1',
+              'period': {
+                  'start': os.environ.get('START_DATE_ISO'),
+                  'end': os.environ.get('END_DATE_ISO'),
+                  'timezone': 'UTC',
+                  'end_inclusive': False
+              },
+              'parameter_source': 'CumulativeDeltaScalper-EURUSD-v1/presets/eurusd_m1_conservative.json',
+              'execution': {
+                  'environment': 'GitHub Actions ubuntu-latest',
+                  'engine': 'ghcr.io/spotware/ctrader-console:5.9.11 when secrets are configured',
+                  'starting_balance_usd': safe_float(os.environ.get('STARTING_BALANCE')),
+                  'leverage': 'broker/account default; requested 1:500 if supported by the account',
+                  'artifact_path': algo_path
+              },
+              'backtest': {
+                  'status': backtest_status,
+                  'data_source': data_source,
+                  'broker': 'configured via GitHub secret CTRADER_ACCOUNT' if os.environ.get('CTRADER_ACCOUNT') else None,
+                  'metrics': metrics,
+                  'safety_observations': safety,
+                  'is_suitable_for_further_optimization': bool(backtest_status == 'completed' and (metrics.get('total_trades') or 0) > 0)
+              },
+              'errors': errors,
+              'generated_by': 'GitHub Actions workflow cdscalper-eurusd-v1-backtest-1y.yml',
+              'generated_at': '2026-09-09'
+          }
+          json_out.write_text(json.dumps(out, indent=2, ensure_ascii=False), encoding='utf-8')
+
+          m = metrics
+          md = []
+          md.append('# EURUSD M1 近一年回測摘要')
+          md.append('')
+          md.append(f"- Bot: CumulativeDeltaScalper-EURUSD-v1")
+          md.append(f"- Symbol: EURUSD")
+          md.append(f"- Timeframe: M1")
+          md.append(f"- Period: {out['period']['start']} ~ {out['period']['end']} UTC")
+          md.append(f"- Backtest status: {backtest_status}")
+          md.append(f"- Data source: {data_source}")
+          md.append(f"- Algo path: {algo_path}")
+          md.append('')
+          md.append('## Metrics')
+          for key in ['initial_balance','final_balance','net_profit','return_percent','profit_factor','win_rate','max_drawdown','total_trades','average_trade','largest_win','largest_loss','consecutive_losses','gross_profit','gross_loss']:
+              md.append(f"- {key}: {m.get(key)}")
+          md.append('')
+          md.append('## Safety checks')
+          for key, value in safety.items():
+              md.append(f"- {key}: {value}")
+          if errors:
+              md.append('')
+              md.append('## Errors / limitations')
+              for e in errors:
+                  md.append(f"- {e}")
+          md.append('')
+          md.append('本報告只反映 GitHub Actions 實際能取得的 cTrader 回測結果；若 status 不是 completed，不能用來判斷策略盈利能力。')
+          md_out.write_text('\n'.join(md) + '\n', encoding='utf-8')
+          print(json.dumps({'status': backtest_status, 'metrics': metrics, 'errors': errors}, indent=2, ensure_ascii=False))
+          PY
+
+      - name: Commit backtest result
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add "$JSON_OUT" "$MD_OUT"
+          git status --short
+          git commit -m 'Run CDScalper EURUSD M1 one-year backtest' || echo 'No changes to commit'
+          git push origin HEAD:cds-eurusd-v1
+
+      - name: Upload backtest reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: CDScalper_EURUSD_M1_1Y_backtest_reports
+          path: |
+            CumulativeDeltaScalper-EURUSD-v1/backtests/EURUSD_M1_2025-09-09_to_2026-09-09.json
+            CumulativeDeltaScalper-EURUSD-v1/reports/EURUSD_M1_backtest_summary.md
+            backtest/reports/EURUSD-M1.html
+            backtest/reports/EURUSD-M1.json
+          if-no-files-found: ignore
+          retention-days: 14
