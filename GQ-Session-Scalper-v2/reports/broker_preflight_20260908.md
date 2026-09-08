@@ -2,9 +2,9 @@
 
 - Authentication: PASS (GitHub Secrets + temporary password file; no credential persisted)
 - Broker: FxPro
-- Environment / account type: False
+- Environment / account type: Demo (broker `live=false`)
 - Currency: USD
-- Leverage: 500
+- Leverage: 1:500
 
 ## Generic → broker symbol mapping
 
