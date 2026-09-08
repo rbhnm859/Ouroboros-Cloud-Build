@@ -1,0 +1,1 @@
+c1adca6e37ac50e97d4e124572439ca0b9063de8c661866aae9ffed3fcde874a  Fibonacci-v0.16.0-btc-round17-m30-half-risk/builds/FibonacciHarmonicSniperUltimate-BTC-Round17-Mobile.algo
