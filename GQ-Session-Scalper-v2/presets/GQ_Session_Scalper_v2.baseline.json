@@ -1,0 +1,42 @@
+{
+  "name": "GQ-Session-Scalper-v2-baseline",
+  "data_label": "SIMULATION DATA",
+  "time_zone": "UTC",
+  "primary_timeframes": ["M5", "M15"],
+  "trend_timeframe": "H1",
+  "symbols": ["EURUSD", "GBPUSD", "XAUUSD", "BTC", "ETH"],
+  "parameters": {
+    "SessionStart": "08:00",
+    "SessionEnd": "16:00",
+    "RiskPerTradePercent": 0.5,
+    "MaxDailyLossPercent": 2.0,
+    "MaxConsecutiveLosses": 3,
+    "EMAPeriod": 21,
+    "MomentumPeriod": 14,
+    "MomentumThreshold": 100.0,
+    "PullbackAtrFraction": 0.5,
+    "TrendFastPeriod": 50,
+    "TrendSlowPeriod": 200,
+    "ATRPeriod": 14,
+    "AtrSlMultiplier": 1.5,
+    "MinimumSlPips": 5.0,
+    "TpRMultiple": 1.5,
+    "BreakevenTriggerR": 1.0,
+    "BreakevenOffsetPips": 0.2,
+    "TrailingTriggerR": 1.5,
+    "TrailingAtrMultiplier": 1.0,
+    "CooldownMinutes": 30,
+    "MaximumSpreadPips": 1.5,
+    "EstimatedSlippagePips": 0.2,
+    "CommissionPerLot": 7.0
+  },
+  "constraints": {
+    "max_positions_per_symbol_and_label": 1,
+    "hedging": false,
+    "grid": false,
+    "martingale": false,
+    "dca": false,
+    "recovery": false,
+    "loss_averaging": false
+  }
+}
