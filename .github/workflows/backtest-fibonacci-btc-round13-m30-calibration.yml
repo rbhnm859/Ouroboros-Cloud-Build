@@ -1,0 +1,168 @@
+name: Fibonacci BTC Round13 M30 Reciprocal Calibration
+
+on:
+  push:
+    branches: [fibonacci-research1-build]
+    paths:
+      - '.github/workflows/backtest-fibonacci-btc-round13-m30-calibration.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fibonacci-btc-round13-m30-calibration
+  cancel-in-progress: true
+
+env:
+  CTRADER_IMAGE: ghcr.io/spotware/ctrader-console:5.9.11
+  BALANCE: '10000'
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.m.outputs.matrix }}
+    steps:
+      - id: m
+        shell: bash
+        run: |
+          python3 - <<'PY' >> "$GITHUB_OUTPUT"
+          import json
+          profiles = [
+            ('p2_s84_c005_cd4',2,84,0.05,4),
+            ('p2_s86_c005_cd4',2,86,0.05,4),
+            ('p2_s88_c005_cd4',2,88,0.05,4),
+            ('p3_s84_c005_cd4',3,84,0.05,4),
+            ('p3_s86_c005_cd4',3,86,0.05,4),
+            ('p2_s84_c000_cd4',2,84,0.00,4),
+            ('p2_s84_c005_cd2',2,84,0.05,2),
+            ('p3_s84_c000_cd4',3,84,0.00,4),
+          ]
+          folds = [
+            ('dev_a','08/03/2026 00:00','31/05/2026 23:59'),
+            ('dev_b','01/06/2026 00:00','08/08/2026 00:00'),
+            ('dev5','08/03/2026 00:00','08/08/2026 00:00'),
+          ]
+          inc=[]
+          for n,piv,score,conf,cd in profiles:
+            for fold,start,end in folds:
+              inc.append({'profile':n,'pivot':piv,'score':score,'confirm':conf,'cooldown':cd,'fold':fold,'start':start,'end':end})
+          print('matrix='+json.dumps({'include':inc},separators=(',',':')))
+          PY
+
+  build:
+    needs: prepare
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - run: python3 tools/create_fibonacci_research1.py --repo-root "$PWD" --force
+      - run: python3 tools/create_fibonacci_btc_round4.py --repo-root "$PWD" --force
+      - run: python3 tools/create_fibonacci_btc_round5.py --repo-root "$PWD" --force
+      - run: python3 tools/create_fibonacci_btc_round6.py --repo-root "$PWD" --force
+      - run: python3 tools/create_fibonacci_btc_round7.py --repo-root "$PWD" --force
+      - run: python3 tools/create_fibonacci_btc_round8.py --repo-root "$PWD" --force
+      - run: python3 tools/create_fibonacci_btc_round9.py --repo-root "$PWD" --force
+      - run: python3 tools/create_fibonacci_btc_round10.py --repo-root "$PWD" --force
+      - name: Enable trading
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('Fibonacci-v0.12.0-btc-round10-funnel/FibonacciHarmonicSniperUltimate.cs')
+          s=p.read_text(encoding='utf-8')
+          old='[Parameter("Trading Enabled", DefaultValue = false'
+          new='[Parameter("Trading Enabled", DefaultValue = true'
+          if old not in s: raise SystemExit('Trading Enabled parameter not found')
+          p.write_text(s.replace(old,new,1),encoding='utf-8')
+          PY
+      - name: Build M30 research binary
+        run: |
+          docker pull "$CTRADER_IMAGE"
+          docker run --rm --entrypoint sh -v "$PWD:/repo" -w /repo "$CTRADER_IMAGE" -c \
+            'dotnet restore Fibonacci-v0.12.0-btc-round10-funnel/FibonacciHarmonicSniperUltimate.csproj && dotnet build Fibonacci-v0.12.0-btc-round10-funnel/FibonacciHarmonicSniperUltimate.csproj --configuration Release --no-restore -p:AlgoPublish=False -p:IncludeSource=True'
+          mkdir -p artifact
+          ALGO="$(find Fibonacci-v0.12.0-btc-round10-funnel -type f -name '*.algo' -print -quit)"
+          test -n "$ALGO"
+          cp "$ALGO" artifact/FibonacciHarmonicSniperUltimate-BTC-Round13-M30.algo
+      - uses: actions/upload-artifact@v4
+        with:
+          name: fibonacci-btc-round13-m30-build
+          path: artifact
+          retention-days: 30
+
+  backtest:
+    needs: [prepare, build]
+    strategy:
+      fail-fast: false
+      max-parallel: 6
+      matrix: ${{ fromJson(needs.prepare.outputs.matrix) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: fibonacci-btc-round13-m30-build
+          path: work
+      - name: Prepare
+        env:
+          CTRADER_PASSWORD: ${{ secrets.CTRADER_PASSWORD }}
+        run: |
+          set -euo pipefail
+          test -n "${CTRADER_PASSWORD:-}"
+          mkdir -p work/cache work/reports/${{ matrix.profile }}/${{ matrix.fold }}
+          umask 077
+          printf '%s' "$CTRADER_PASSWORD" > work/ctrader.pwd
+          docker pull "$CTRADER_IMAGE"
+      - name: Backtest ${{ matrix.profile }} ${{ matrix.fold }}
+        env:
+          CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+          CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+          START: ${{ matrix.start }}
+          END: ${{ matrix.end }}
+          PIVOT: ${{ matrix.pivot }}
+          SCORE: ${{ matrix.score }}
+          CONFIRM: ${{ matrix.confirm }}
+          COOLDOWN: ${{ matrix.cooldown }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          timeout --signal=TERM --kill-after=30s 30m docker run --rm \
+            -v "$PWD/work:/work" -e "CTID=$CTRADER_CTID" -e 'PWD-FILE=/work/ctrader.pwd' -e "ACCOUNT=$CTRADER_ACCOUNT" "$CTRADER_IMAGE" \
+            backtest /work/FibonacciHarmonicSniperUltimate-BTC-Round13-M30.algo --environment-variables --exit-on-stop \
+            --symbol=BITCOIN --period=m30 --start="$START" --end="$END" --balance="$BALANCE" \
+            --data-mode=m1 --data-dir=/work/cache --commission=65 --spread=0 --RiskPercent=1.0 \
+            --EnabledPatterns='Reciprocal ABCD' --PivotLeft="$PIVOT" --PivotRight="$PIVOT" --RatioTolerancePercent=6 --MinPatternScore="$SCORE" \
+            --MaxPatternAgeBars=32 --MaxEntryDistanceAtr=1.80 --ConfirmationMoveAtr="$CONFIRM" --UseCandleConfirmation=true --CooldownBars="$COOLDOWN" \
+            --FallbackRiskReward=1.80 --MinimumRiskReward=1.50 --StopAnchorMode=LegacyD --TargetRiskRewardPolicy=LegacyFallback \
+            --Round5Mode=ObserveOnly --MtfMode=Off --Round6RequireM30SellConfirm=false --Round7VetoM30SellAlignment=false \
+            --Round8LogExcursions=false --Round9ShadowTpContinuation=false --Round10LogFunnel=false --DebugLogging=false \
+            --report="/work/reports/${{ matrix.profile }}/${{ matrix.fold }}/report.html" \
+            --report-json="/work/reports/${{ matrix.profile }}/${{ matrix.fold }}/report.json" \
+            2>&1 | tee "work/reports/${{ matrix.profile }}/${{ matrix.fold }}/report.log"
+      - name: Clean credentials
+        if: always()
+        run: rm -f work/ctrader.pwd
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: btc-r13-${{ matrix.profile }}-${{ matrix.fold }}
+          path: work/reports/${{ matrix.profile }}/${{ matrix.fold }}
+          if-no-files-found: error
+          retention-days: 30
+
+  collect:
+    needs: backtest
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: btc-r13-*
+          path: results
+      - uses: actions/upload-artifact@v4
+        with:
+          name: fibonacci-btc-round13-m30-calibration-results
+          path: results
+          retention-days: 30
