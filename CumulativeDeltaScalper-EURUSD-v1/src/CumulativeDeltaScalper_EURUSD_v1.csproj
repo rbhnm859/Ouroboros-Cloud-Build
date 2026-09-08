@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net6.0</TargetFramework>
+    <EnableDefaultItems>False</EnableDefaultItems>
+    <GenerateAssemblyInfo>False</GenerateAssemblyInfo>
+    <LangVersion>latest</LangVersion>
+    <Configuration Condition=" '$(Configuration)' == '' ">Release</Configuration>
+    <Platform Condition=" '$(Platform)' == '' ">AnyCPU</Platform>
+    <RootNamespace>cAlgo.Robots</RootNamespace>
+    <AssemblyName>CumulativeDeltaScalper_EURUSD_v1</AssemblyName>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="cTrader.Automate" Version="*-*" />
+  </ItemGroup>
+  <ItemGroup>
+    <Compile Include="CumulativeDeltaScalper_EURUSD_v1.cs" />
+  </ItemGroup>
+</Project>
