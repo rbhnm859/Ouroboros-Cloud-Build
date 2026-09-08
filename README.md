@@ -1,40 +1,36 @@
-# cTrader cBot Workspace
+# Bot 實驗室
 
-这个 repository 依 cBot 项目分类，主分支只保留当前源码、必要构建链、有效回测/验证资料与可确认用途的成品。
+這個 repository 是 cTrader cBot 的集中實驗與開發工作區，依不同 Bot 專案分類，避免原始碼、編譯成品、回測報告與歷史檔案散落在根目錄。
 
-## Bot 项目
+## Bot 專案
 
 - `FibonacciHarmonicSniperUltimate/`
-  - 主线源码与项目文件
+  - 主線原始碼與專案檔
   - `versions/v0.3.0-fix5/`：目前保留的最新修正版
-  - `research-archives/`：研究输入/封存
-  - `reports/`：回测与诊断结果
+  - `research-archives/`：研究輸入與封存
+  - `reports/`：回測與診斷結果
 - `GQ-Session-Scalper-v2/`
-  - `src/`：源码
-  - `presets/`：参数基线
-  - `reports/`：候选与验证报告
-  - `logs/`：构建/验证记录
-  - `docs/`：Broker/Symbol 等技术资料
-  - 主分支不再保存会被误认为原生编译成品的便携 `.algo` 包；需以真实 cTrader 编译结果为准
+  - `src/`：策略原始碼
+  - `presets/`：基準參數
+  - `reports/`：驗證與候選比較
+  - `logs/`：建置紀錄
+  - `docs/`：Broker / Symbol 等說明
+  - 未保留非 cTrader 原生編譯的假 `.algo` 成品
 - `Keltner-Channels-Trader-v2/`
-  - `source/`：可编译源码
+  - `source/`：目前可編譯原始碼
 - `Ouroboros/`
-  - `builds/`：已保存的 Mobile/Cloud `.algo`
-  - `handoff/`：交付封装与说明
+  - `builds/`：已編譯 Mobile / Cloud `.algo`
+  - `handoff/`：交付封裝與說明
 
-## GitHub Actions
+## CI / Backtest
 
-`.github/workflows/` 只保留仍有实际用途的构建、回测与工具流程。一次性修补、已失效诊断、旧版重复流程会从主分支移除。
+GitHub Actions 位於 `.github/workflows/`，只保留目前仍有用途或仍被編譯鏈依賴的流程。
 
-## Backup
+## Backups
 
-整理前状态均可从以下分支恢复：
+整理前狀態保留在：
 
 - `backup/pre-reorg-2026-09-08`
 - `backup/pre-deep-cleanup-2026-09-08`
 
-## Cleanup policy
-
-- 不删除当前交易源码与关键验证报告。
-- 删除重复压缩包、失效 workflow、一次性补丁 workflow、误导性非原生成品与无关对话记录。
-- 不修改 cBot 交易逻辑。
+主分支只保留目前需要的 Bot、原始碼、有效建置流程、回測與必要研究資料。
