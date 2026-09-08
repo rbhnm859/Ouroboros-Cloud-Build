@@ -616,7 +616,7 @@ namespace cAlgo.Robots
             if (!improves)
                 return;
 
-            var result = ModifyPosition(position, candidateStop, position.TakeProfit, ProtectionType.Absolute);
+            var result = position.ModifyStopLossPrice(candidateStop);
             if (!result.IsSuccessful)
             {
                 Print("[STOP_UPDATE_ERROR] reason={0} error={1}", reason, result.Error);
