@@ -1,0 +1,173 @@
+name: Fibonacci fix1 3M Diagnostic
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/backtest-fibonacci-fix1-3m.yml'
+      - 'Fibonacci-v0.3.0-fix1/**'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fibonacci-fix1-3m
+  cancel-in-progress: true
+
+jobs:
+  backtest:
+    name: Fibonacci ${{ matrix.symbol }} H1 3M
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        symbol: [XAUUSD, EURUSD]
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Pull official cTrader CLI
+        run: docker pull ghcr.io/spotware/ctrader-console:5.9.11
+
+      - name: Prepare checked-in Fibonacci source with trading enabled
+        run: |
+          python3 - <<'PYCODE'
+          from pathlib import Path
+          import shutil
+
+          source_project = Path('Fibonacci-v0.3.0-fix1')
+          project = Path('fibonacci-backtest/FibonacciHarmonicSniperUltimate')
+          if not (source_project / 'FibonacciHarmonicSniperUltimate.cs').is_file():
+              raise SystemExit('Checked-in Fibonacci source was not found')
+          if project.exists():
+              shutil.rmtree(project)
+          shutil.copytree(source_project, project)
+
+          source_path = project / 'FibonacciHarmonicSniperUltimate.cs'
+          source = source_path.read_text()
+          old = '[Parameter("Trading Enabled", DefaultValue = false'
+          new = '[Parameter("Trading Enabled", DefaultValue = true'
+          if old not in source:
+              raise SystemExit('Trading Enabled parameter was not found')
+          source_path.write_text(source.replace(old, new, 1))
+          print('Prepared checked-in Fibonacci Harmonic Sniper Ultimate with Trading Enabled=true')
+          PYCODE
+
+      - name: Build Fibonacci cBot
+        run: |
+          mkdir -p backtest/cache backtest/reports
+          docker run --rm --entrypoint sh -v "$PWD:/repo" -w /repo \
+            ghcr.io/spotware/ctrader-console:5.9.11 -c \
+            'dotnet restore fibonacci-backtest/FibonacciHarmonicSniperUltimate/FibonacciHarmonicSniperUltimate.csproj && dotnet build fibonacci-backtest/FibonacciHarmonicSniperUltimate/FibonacciHarmonicSniperUltimate.csproj --configuration Release --no-restore -p:AlgoPublish=False -p:IncludeSource=True'
+
+          ALGO="$(find fibonacci-backtest -type f -name '*.algo' -print -quit)"
+          if [ -z "$ALGO" ]; then
+            echo 'Build completed but no .algo was found'
+            find fibonacci-backtest -maxdepth 8 -type f -print
+            exit 1
+          fi
+          cp "$ALGO" backtest/FibonacciHarmonicSniperUltimate.algo
+
+      - name: Preserve compiled diagnostic algo before backtest
+        uses: actions/upload-artifact@v4
+        with:
+          name: Fibonacci-v0.3.0-fix1-diagnostic-${{ matrix.symbol }}
+          path: backtest/FibonacciHarmonicSniperUltimate.algo
+          if-no-files-found: error
+
+      - name: Create cTrader password file
+        env:
+          CTRADER_PASSWORD: ${{ secrets.CTRADER_PASSWORD }}
+        run: |
+          test -n "${CTRADER_PASSWORD:-}" || { echo 'Missing CTRADER_PASSWORD'; exit 1; }
+          printf '%s' "$CTRADER_PASSWORD" > backtest/ctrader.pwd
+          chmod 600 backtest/ctrader.pwd
+
+      - name: Backtest ${{ matrix.symbol }} H1 with M1 data for 3 months
+        env:
+          CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+          CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+        run: |
+          test -n "${CTRADER_CTID:-}" || { echo 'Missing CTRADER_CTID'; exit 1; }
+          test -n "${CTRADER_ACCOUNT:-}" || { echo 'Missing CTRADER_ACCOUNT'; exit 1; }
+
+          START_DATE='08/06/2026'
+          END_DATE='08/09/2026'
+          echo "Running ${{ matrix.symbol }} H1 backtest from $START_DATE to $END_DATE with M1 data"
+
+          set +e
+          timeout --signal=TERM --kill-after=30s 10m docker run --rm \
+            -v "$PWD/backtest:/work" \
+            -e "CTID=$CTRADER_CTID" \
+            -e 'PWD-FILE=/work/ctrader.pwd' \
+            -e "ACCOUNT=$CTRADER_ACCOUNT" \
+            ghcr.io/spotware/ctrader-console:5.9.11 \
+            backtest /work/FibonacciHarmonicSniperUltimate.algo \
+            --environment-variables \
+            --symbol=${{ matrix.symbol }} \
+            --period=h1 \
+            --start="$START_DATE" \
+            --end="$END_DATE" \
+            --balance=200 \
+            --data-mode=m1 \
+            --data-dir=/work/cache \
+            --report=/work/reports/${{ matrix.symbol }}-3M.html \
+            --report-json=/work/reports/${{ matrix.symbol }}-3M.json
+          rc=$?
+          set -e
+          echo "CLI exit code: $rc"
+          # Preserve reports even on timeout, but do not label a killed process successful.
+          exit "$rc"
+
+
+      - name: Create diagnostic summary
+        if: always()
+        run: |
+          python3 - <<'PYCODE'
+          from pathlib import Path
+          import json, os
+          p = Path('backtest/reports/${{ matrix.symbol }}-3M.json')
+          if not p.exists():
+              raise SystemExit('No report produced')
+          d = json.loads(p.read_text())
+          m, t = d['main'], d['tradeStatistics']
+          n = t['totalTrades']['all']
+          wins = t['winningTrades']['all']
+          result = {
+              'version': 'v0.3.0-fix1',
+              'symbol': m['symbol'],
+              'period': m['testingPeriod'],
+              'trades': n,
+              'win_rate': wins / n * 100 if n else None,
+              'net_profit': m['netProfit'],
+              'roi': m['roi'],
+              'max_equity_drawdown_percent': d['equity']['maxEquityDrawdownPercent'],
+              'validation': 'Diagnostic only; inspect CLI exit and cost assumptions before accepting performance.'
+          }
+          summary = json.dumps(result, indent=2)
+          Path('backtest/reports/${{ matrix.symbol }}-3M-summary.md').write_text(summary)
+          with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as f:
+              f.write(summary)
+          PYCODE
+
+      - name: Remove credentials
+        if: always()
+        run: rm -f backtest/ctrader.pwd
+
+      - name: Upload HTML and JSON reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Fibonacci-Harmonic-${{ matrix.symbol }}-H1-3M-Reports
+          path: |
+            backtest/reports/${{ matrix.symbol }}-3M.html
+            backtest/reports/${{ matrix.symbol }}-3M.json
+            backtest/reports/${{ matrix.symbol }}-3M-summary.md
+          if-no-files-found: warn
+          retention-days: 30
+
