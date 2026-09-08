@@ -1,0 +1,6 @@
+[
+  {"id":"champion","inverse_veto":false,"m30_age":12},
+  {"id":"inverse_age4","inverse_veto":true,"m30_age":4},
+  {"id":"inverse_age8","inverse_veto":true,"m30_age":8},
+  {"id":"inverse_age12","inverse_veto":true,"m30_age":12}
+]
