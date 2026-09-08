@@ -1,0 +1,12 @@
+/home/runner/work/Ouroboros-Cloud-Build/Ouroboros-Cloud-Build/Bar-Breakout-Trading/source/bin/Release/net6.0/Bar Breakout Trading.deps.json
+/home/runner/work/Ouroboros-Cloud-Build/Ouroboros-Cloud-Build/Bar-Breakout-Trading/source/bin/Release/net6.0/Bar Breakout Trading.dll
+/home/runner/work/Ouroboros-Cloud-Build/Ouroboros-Cloud-Build/Bar-Breakout-Trading/source/bin/Release/net6.0/Bar Breakout Trading.pdb
+/home/runner/work/Ouroboros-Cloud-Build/Ouroboros-Cloud-Build/Bar-Breakout-Trading/source/obj/Release/net6.0/Bar Breakout Trading.csproj.AssemblyReference.cache
+/home/runner/work/Ouroboros-Cloud-Build/Ouroboros-Cloud-Build/Bar-Breakout-Trading/source/obj/Release/net6.0/Bar Breakout Trading.GeneratedMSBuildEditorConfig.editorconfig
+/home/runner/work/Ouroboros-Cloud-Build/Ouroboros-Cloud-Build/Bar-Breakout-Trading/source/obj/Release/net6.0/Bar Breakout Trading.AssemblyInfoInputs.cache
+/home/runner/work/Ouroboros-Cloud-Build/Ouroboros-Cloud-Build/Bar-Breakout-Trading/source/obj/Release/net6.0/Bar Breakout Trading.AssemblyInfo.cs
+/home/runner/work/Ouroboros-Cloud-Build/Ouroboros-Cloud-Build/Bar-Breakout-Trading/source/obj/Release/net6.0/Bar Breakout Trading.csproj.CoreCompileInputs.cache
+/home/runner/work/Ouroboros-Cloud-Build/Ouroboros-Cloud-Build/Bar-Breakout-Trading/source/obj/Release/net6.0/Bar Breakout Trading.dll
+/home/runner/work/Ouroboros-Cloud-Build/Ouroboros-Cloud-Build/Bar-Breakout-Trading/source/obj/Release/net6.0/refint/Bar Breakout Trading.dll
+/home/runner/work/Ouroboros-Cloud-Build/Ouroboros-Cloud-Build/Bar-Breakout-Trading/source/obj/Release/net6.0/Bar Breakout Trading.pdb
+/home/runner/work/Ouroboros-Cloud-Build/Ouroboros-Cloud-Build/Bar-Breakout-Trading/source/obj/Release/net6.0/ref/Bar Breakout Trading.dll

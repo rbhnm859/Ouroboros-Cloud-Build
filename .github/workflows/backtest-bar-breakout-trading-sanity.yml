@@ -1,0 +1,86 @@
+name: Bar Breakout Trading Sanity Backtest
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  sanity:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Build algo
+        shell: bash
+        run: |
+          set -euo pipefail
+          PROJ='Bar-Breakout-Trading/source/Bar Breakout Trading.csproj'
+          dotnet restore "$PROJ"
+          dotnet build "$PROJ" -c Release --no-restore
+          mkdir -p Bar-Breakout-Trading/compiled/release Bar-Breakout-Trading/reports/backtests
+          ALGO=$(find 'Bar-Breakout-Trading/source/bin/Release' -type f -name '*.algo' | head -n 1)
+          test -n "$ALGO"
+          cp "$ALGO" Bar-Breakout-Trading/compiled/release/BarBreakoutTrading.algo
+
+      - name: Pull cTrader Console
+        run: docker pull ghcr.io/spotware/ctrader-console:latest
+
+      - name: Prepare credentials
+        env:
+          CTRADER_PASSWORD: ${{ secrets.CTRADER_PASSWORD }}
+          CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+          CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${CTRADER_PASSWORD:-}" || { echo 'Missing CTRADER_PASSWORD'; exit 2; }
+          test -n "${CTRADER_CTID:-}" || { echo 'Missing CTRADER_CTID'; exit 2; }
+          test -n "${CTRADER_ACCOUNT:-}" || { echo 'Missing CTRADER_ACCOUNT'; exit 2; }
+          umask 077
+          printf '%s' "$CTRADER_PASSWORD" > Bar-Breakout-Trading/ctrader.pwd
+
+      - name: Run sanity backtest
+        env:
+          CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+          CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+        shell: bash
+        run: |
+          set +e
+          docker run --rm \
+            -v "$PWD/Bar-Breakout-Trading:/work" \
+            -e "CTID=$CTRADER_CTID" \
+            -e 'PWD-FILE=/work/ctrader.pwd' \
+            -e "ACCOUNT=$CTRADER_ACCOUNT" \
+            ghcr.io/spotware/ctrader-console:latest \
+            backtest /work/compiled/release/BarBreakoutTrading.algo \
+            --environment-variables \
+            --symbol=EURUSD \
+            --period=m15 \
+            --start='01/07/2026' \
+            --end='01/09/2026' \
+            --balance=10000 \
+            --commission=35 \
+            --spread=1 \
+            --data-mode=open \
+            > /work/reports/backtests/sanity.console.log 2>&1
+          echo "exit_code=$?" >> /work/reports/backtests/sanity.console.log
+          grep -E 'START|OPEN|EXIT|ENTRY|CRITICAL|InvalidOperationException|Message expected|Progress \| Backtesting' /work/reports/backtests/sanity.console.log || true
+          exit 0
+
+      - name: Cleanup credentials
+        if: always()
+        run: rm -f Bar-Breakout-Trading/ctrader.pwd
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: BarBreakoutTrading-sanity-logs
+          path: Bar-Breakout-Trading/reports/backtests/
+          retention-days: 7

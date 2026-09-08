@@ -1,0 +1,45 @@
+name: Build Bar Breakout Trading
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main, copilot/bar-breakout-trading ]
+    paths:
+      - 'Bar-Breakout-Trading/**'
+      - '.github/workflows/build-bar-breakout-trading.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Restore and build
+        shell: bash
+        run: |
+          set -euo pipefail
+          PROJ='Bar-Breakout-Trading/source/Bar Breakout Trading.csproj'
+          dotnet restore "$PROJ"
+          dotnet build "$PROJ" -c Release --no-restore
+
+      - name: Collect algo
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p Bar-Breakout-Trading/compiled/release
+          ALGO=$(find 'Bar-Breakout-Trading/source/bin/Release' -type f -name '*.algo' | head -n 1)
+          test -n "$ALGO"
+          cp "$ALGO" 'Bar-Breakout-Trading/compiled/release/BarBreakoutTrading.algo'
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: BarBreakoutTrading-algo
+          path: Bar-Breakout-Trading/compiled/release/
+          retention-days: 14
