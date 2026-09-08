@@ -18,15 +18,15 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Pull current official cTrader Console
-        run: docker pull ghcr.io/spotware/ctrader-console:latest
+      - name: Pull pinned cTrader Console
+        run: docker pull ghcr.io/spotware/ctrader-console:5.9.11
 
       - name: Extract untouched original Keltner package
         shell: bash
         run: |
           set -euo pipefail
           rm -rf Keltner-Channels-Trader-v2/original-smoke
-          mkdir -p Keltner-Channels-Trader-v2/original-smoke/source Keltner-Channels-Trader-v2/original-smoke/output
+          mkdir -p Keltner-Channels-Trader-v2/original-smoke/source Keltner-Channels-Trader-v2/original-smoke/output Keltner-Channels-Trader-v2/original-smoke/cache
           unzip -q Keltner-Channels-Trader-v2/Keltner_Channels_Trader_v2_source.zip -d Keltner-Channels-Trader-v2/original-smoke/source
           echo '=== ORIGINAL FILES ==='
           find Keltner-Channels-Trader-v2/original-smoke/source -type f -printf '%P\n' | sort
@@ -39,7 +39,7 @@ jobs:
           PROJ="$(find Keltner-Channels-Trader-v2/original-smoke/source -type f -name '*.csproj' -print -quit)"
           test -n "$PROJ"
           docker run --rm --entrypoint sh -v "$PWD:/repo" -w /repo \
-            ghcr.io/spotware/ctrader-console:latest -c \
+            ghcr.io/spotware/ctrader-console:5.9.11 -c \
             "dotnet restore '$PROJ' && dotnet build '$PROJ' --configuration Release --no-restore -p:AlgoPublish=False -p:IncludeSource=True"
           ALGO="$(find Keltner-Channels-Trader-v2/original-smoke/source -type f -name '*.algo' -print -quit)"
           test -n "$ALGO"
@@ -67,22 +67,27 @@ jobs:
         shell: bash
         run: |
           set +e
+          START_DATE='01/08/2026 00:00'
+          END_DATE='07/08/2026 00:00'
           docker run --rm \
             -v "$PWD/Keltner-Channels-Trader-v2/original-smoke:/work" \
             -e "CTID=$CTRADER_CTID" \
             -e 'PWD-FILE=/work/ctrader.pwd' \
             -e "ACCOUNT=$CTRADER_ACCOUNT" \
-            ghcr.io/spotware/ctrader-console:latest \
+            ghcr.io/spotware/ctrader-console:5.9.11 \
             backtest /work/KeltnerOriginal.algo \
-            --environment-variables \
+            --environment-variables --exit-on-stop \
             --symbol=EURUSD \
             --period=m15 \
-            --start='01/08/2026' \
-            --end='07/08/2026' \
+            --start="$START_DATE" \
+            --end="$END_DATE" \
             --balance=200 \
             --commission=35 \
             --spread=1 \
-            --data-mode=open \
+            --data-mode=m1 \
+            --data-dir=/work/cache \
+            --report=/work/output/original-smoke.html \
+            --report-json=/work/output/original-smoke.json \
             > Keltner-Channels-Trader-v2/original-smoke/output/original.console.log 2>&1
           RC=$?
           echo "CTRADER_EXIT_CODE=$RC"
