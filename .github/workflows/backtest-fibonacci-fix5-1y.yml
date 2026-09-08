@@ -1,0 +1,129 @@
+name: Backtest Fibonacci fix5 - XAUUSD EURUSD 1Y
+
+on:
+  workflow_dispatch:
+    inputs:
+      start_date:
+        description: "UTC start date (DD/MM/YYYY)"
+        required: true
+        default: "08/09/2025"
+      end_date:
+        description: "UTC end date (DD/MM/YYYY)"
+        required: true
+        default: "08/09/2026"
+      starting_balance:
+        description: "Starting balance USD"
+        required: true
+        default: "200"
+      chart_period:
+        description: "Chart period"
+        required: true
+        default: "h1"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fibonacci-fix5-1y
+  cancel-in-progress: true
+
+jobs:
+  backtest:
+    name: Fibonacci fix5 ${{ matrix.symbol }} 1Y
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        symbol: [XAUUSD, EURUSD]
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Pull official cTrader CLI
+        run: docker pull ghcr.io/spotware/ctrader-console:5.9.11
+
+      - name: Prepare latest retained fix5 source
+        run: |
+          python3 - <<'PYCODE'
+          from pathlib import Path
+          import shutil
+
+          source_project = Path('FibonacciHarmonicSniperUltimate/versions/v0.3.0-fix5')
+          project = Path('fibonacci-backtest/FibonacciHarmonicSniperUltimate')
+          source_file = source_project / 'FibonacciHarmonicSniperUltimate.cs'
+          if not source_file.is_file():
+              raise SystemExit('Retained Fibonacci fix5 source was not found')
+          if project.exists():
+              shutil.rmtree(project)
+          shutil.copytree(source_project, project)
+
+          source_path = project / 'FibonacciHarmonicSniperUltimate.cs'
+          source = source_path.read_text()
+          old = '[Parameter("Trading Enabled", DefaultValue = false'
+          new = '[Parameter("Trading Enabled", DefaultValue = true'
+          if old not in source:
+              raise SystemExit('Trading Enabled parameter was not found')
+          source_path.write_text(source.replace(old, new, 1))
+          PYCODE
+
+      - name: Build Fibonacci cBot
+        run: |
+          mkdir -p backtest/cache backtest/reports
+          docker run --rm --entrypoint sh -v "$PWD:/repo" -w /repo \
+            ghcr.io/spotware/ctrader-console:5.9.11 -c \
+            'dotnet restore fibonacci-backtest/FibonacciHarmonicSniperUltimate/FibonacciHarmonicSniperUltimate.csproj && dotnet build fibonacci-backtest/FibonacciHarmonicSniperUltimate/FibonacciHarmonicSniperUltimate.csproj --configuration Release --no-restore -p:AlgoPublish=False -p:IncludeSource=True'
+
+          ALGO="$(find fibonacci-backtest -type f -name '*.algo' -print -quit)"
+          test -n "$ALGO"
+          cp "$ALGO" backtest/FibonacciHarmonicSniperUltimate.algo
+
+      - name: Create cTrader password file
+        env:
+          CTRADER_PASSWORD: ${{ secrets.CTRADER_PASSWORD }}
+        run: |
+          test -n "${CTRADER_PASSWORD:-}" || { echo 'Missing CTRADER_PASSWORD'; exit 1; }
+          printf '%s' "$CTRADER_PASSWORD" > backtest/ctrader.pwd
+          chmod 600 backtest/ctrader.pwd
+
+      - name: Backtest ${{ matrix.symbol }}
+        env:
+          CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+          CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+        run: |
+          test -n "${CTRADER_CTID:-}" || { echo 'Missing CTRADER_CTID'; exit 1; }
+          test -n "${CTRADER_ACCOUNT:-}" || { echo 'Missing CTRADER_ACCOUNT'; exit 1; }
+
+          docker run --rm \
+            -v "$PWD/backtest:/work" \
+            -e "CTID=$CTRADER_CTID" \
+            -e 'PWD-FILE=/work/ctrader.pwd' \
+            -e "ACCOUNT=$CTRADER_ACCOUNT" \
+            ghcr.io/spotware/ctrader-console:5.9.11 \
+            backtest /work/FibonacciHarmonicSniperUltimate.algo \
+            --environment-variables --exit-on-stop \
+            --symbol=${{ matrix.symbol }} \
+            --period="${{ inputs.chart_period }}" \
+            --start="${{ inputs.start_date }}" \
+            --end="${{ inputs.end_date }}" \
+            --balance="${{ inputs.starting_balance }}" \
+            --data-mode=m1 \
+            --data-dir=/work/cache \
+            --report="/work/reports/${{ matrix.symbol }}-1Y.html" \
+            --report-json="/work/reports/${{ matrix.symbol }}-1Y.json"
+
+      - name: Remove credentials
+        if: always()
+        run: rm -f backtest/ctrader.pwd
+
+      - name: Upload reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Fibonacci-fix5-${{ matrix.symbol }}-1Y-Reports
+          path: |
+            backtest/reports/${{ matrix.symbol }}-1Y.html
+            backtest/reports/${{ matrix.symbol }}-1Y.json
+          if-no-files-found: warn
+          retention-days: 30
