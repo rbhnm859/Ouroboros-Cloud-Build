@@ -108,7 +108,7 @@ jobs:
             -e "ACCOUNT=$CTRADER_ACCOUNT" \
             ghcr.io/spotware/ctrader-console:5.9.11 \
             backtest /work/FibonacciHarmonicSniperUltimate.algo \
-            --environment-variables \
+            --environment-variables --exit-on-stop \
             --symbol=${{ matrix.symbol }} \
             --period=h1 \
             --start="$START_DATE" \
