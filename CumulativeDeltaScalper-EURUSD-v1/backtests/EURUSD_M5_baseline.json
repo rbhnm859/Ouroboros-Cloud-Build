@@ -1,0 +1,11 @@
+{
+  "symbol": "EURUSD",
+  "timeframe": "M5",
+  "status": "pending_real_ctrader_backtest",
+  "net_profit": null,
+  "profit_factor": null,
+  "win_rate": null,
+  "max_drawdown": null,
+  "total_trades": null,
+  "notes": "Run in cTrader with broker data. Do not treat this placeholder as a real backtest."
+}
