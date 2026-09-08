@@ -1,0 +1,179 @@
+name: Fibonacci XAUUSD 1 - 3M Build and Backtest
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - fibonacci-xauusd-round1
+    paths:
+      - 'FibonacciHarmonicSniperUltimate/versions/xauusd_1/**'
+      - '.github/workflows/backtest-fibonacci-xauusd-1.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fibonacci-xauusd-1-3m
+  cancel-in-progress: true
+
+jobs:
+  build-backtest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Reconstruct source
+        shell: bash
+        run: |
+          set -euo pipefail
+          ROOT='FibonacciHarmonicSniperUltimate/versions/xauusd_1'
+          mkdir -p "$ROOT/src" backtest/cache backtest/reports backtest/package
+          base64 -d "$ROOT/source.gz.b64" | gzip -dc > "$ROOT/src/FibonacciXAUUSD1.cs"
+          sha256sum "$ROOT/src/FibonacciXAUUSD1.cs" | tee backtest/package/source.sha256
+          cp "$ROOT/src/FibonacciXAUUSD1.cs" backtest/package/FibonacciXAUUSD1.cs
+          cp "$ROOT/README.md" backtest/package/README.md
+
+      - name: Pull official cTrader CLI
+        run: docker pull ghcr.io/spotware/ctrader-console:5.9.11
+
+      - name: Build xauusd_1.algo
+        shell: bash
+        run: |
+          set -euo pipefail
+          ROOT='FibonacciHarmonicSniperUltimate/versions/xauusd_1'
+          docker run --rm --entrypoint sh -v "$PWD:/repo" -w /repo \
+            ghcr.io/spotware/ctrader-console:5.9.11 -c \
+            "dotnet restore $ROOT/FibonacciXAUUSD1.csproj && dotnet build $ROOT/FibonacciXAUUSD1.csproj --configuration Release --no-restore -p:AlgoPublish=False -p:IncludeSource=True"
+          ALGO="$(find "$ROOT" -type f -name '*.algo' -print -quit)"
+          test -n "$ALGO"
+          cp "$ALGO" backtest/xauusd_1.algo
+          cp "$ALGO" backtest/package/xauusd_1.algo
+          sha256sum backtest/xauusd_1.algo | tee backtest/package/algo.sha256
+
+      - name: Create cTrader password file
+        env:
+          CTRADER_PASSWORD: ${{ secrets.CTRADER_PASSWORD }}
+        run: |
+          test -n "${CTRADER_PASSWORD:-}" || { echo 'Missing CTRADER_PASSWORD'; exit 1; }
+          printf '%s' "$CTRADER_PASSWORD" > backtest/ctrader.pwd
+          chmod 600 backtest/ctrader.pwd
+
+      - name: Backtest 3 months - FxPro average cost
+        env:
+          CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+          CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${CTRADER_CTID:-}" || { echo 'Missing CTRADER_CTID'; exit 1; }
+          test -n "${CTRADER_ACCOUNT:-}" || { echo 'Missing CTRADER_ACCOUNT'; exit 1; }
+          docker run --rm \
+            -v "$PWD/backtest:/work" \
+            -e "CTID=$CTRADER_CTID" \
+            -e 'PWD-FILE=/work/ctrader.pwd' \
+            -e "ACCOUNT=$CTRADER_ACCOUNT" \
+            ghcr.io/spotware/ctrader-console:5.9.11 \
+            backtest /work/xauusd_1.algo \
+            --environment-variables --exit-on-stop \
+            --symbol=XAUUSD --period=h1 \
+            --start='09/06/2026' --end='09/09/2026' \
+            --balance=10000 --data-mode=m1 --data-dir=/work/cache \
+            --commission=35 --commission-type=UsdPerMillionUsdVolume --spread=17.42 \
+            --RiskPercent=0.50 --MaxDailyLossPercent=3.0 \
+            --report=/work/reports/xauusd_1-3m-standard.html \
+            --report-json=/work/reports/xauusd_1-3m-standard.json \
+            2>&1 | tee /work/reports/xauusd_1-3m-standard.log
+          test -s backtest/reports/xauusd_1-3m-standard.json
+
+      - name: Backtest 3 months - harsh cost
+        env:
+          CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+          CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker run --rm \
+            -v "$PWD/backtest:/work" \
+            -e "CTID=$CTRADER_CTID" \
+            -e 'PWD-FILE=/work/ctrader.pwd' \
+            -e "ACCOUNT=$CTRADER_ACCOUNT" \
+            ghcr.io/spotware/ctrader-console:5.9.11 \
+            backtest /work/xauusd_1.algo \
+            --environment-variables --exit-on-stop \
+            --symbol=XAUUSD --period=h1 \
+            --start='09/06/2026' --end='09/09/2026' \
+            --balance=10000 --data-mode=m1 --data-dir=/work/cache \
+            --commission=50 --commission-type=UsdPerMillionUsdVolume --spread=30 \
+            --RiskPercent=0.50 --MaxDailyLossPercent=3.0 \
+            --report=/work/reports/xauusd_1-3m-harsh.html \
+            --report-json=/work/reports/xauusd_1-3m-harsh.json \
+            2>&1 | tee /work/reports/xauusd_1-3m-harsh.log
+          test -s backtest/reports/xauusd_1-3m-harsh.json
+
+      - name: Summarize reports
+        if: always()
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import json
+
+          def clean(v):
+              if isinstance(v, dict):
+                  for k in ('all','All','value','Value'):
+                      if k in v: return clean(v[k])
+                  return None
+              return v
+
+          def num(v, default=0.0):
+              v=clean(v)
+              try: return float(v)
+              except: return default
+
+          rows=[]
+          for label in ('standard','harsh'):
+              p=Path(f'backtest/reports/xauusd_1-3m-{label}.json')
+              if not p.exists():
+                  rows.append((label,'NO_REPORT','','','','','',''))
+                  continue
+              d=json.loads(p.read_text())
+              trades=int(num(d.get('totalTrades',d.get('TotalTrades'))))
+              wins=int(num(d.get('winningTrades',d.get('WinningTrades'))))
+              losses=int(num(d.get('losingTrades',d.get('LosingTrades'))))
+              net=num(d.get('netProfit',d.get('NetProfit')))
+              pf=num(d.get('profitFactor',d.get('ProfitFactor')))
+              dd=num(d.get('maxEquityDrawdownPercentages',d.get('MaxEquityDrawdownPercentages')))
+              equity=num(d.get('equity',d.get('Equity')),10000+net)
+              roi=(net/10000)*100
+              wr=(wins/trades*100) if trades else 0
+              rows.append((label,'OK',trades,wins,losses,wr,net,roi,pf,dd,equity))
+
+          out=['# xauusd_1 3M Backtest','', 'Period: 2026-06-09 to 2026-09-09 UTC', 'Symbol: XAUUSD | H1 | M1 data | Balance: $10,000 | Risk: 0.5%', '', '| Cost | Status | Trades | Wins | Losses | WR % | Net $ | ROI % | PF | Max Eq DD % | Equity |', '|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|']
+          for r in rows:
+              if r[1]!='OK': out.append(f'| {r[0]} | {r[1]} | | | | | | | | | |')
+              else: out.append(f'| {r[0]} | OK | {r[2]} | {r[3]} | {r[4]} | {r[5]:.2f} | {r[6]:.2f} | {r[7]:.2f} | {r[8]:.2f} | {r[9]:.2f} | {r[10]:.2f} |')
+          text='\n'.join(out)+'\n'
+          Path('backtest/reports/SUMMARY.md').write_text(text)
+          print(text)
+          with open(__import__('os').environ['GITHUB_STEP_SUMMARY'],'a') as f: f.write(text)
+          PY
+
+      - name: Package reports and build
+        if: always()
+        run: |
+          cp -r backtest/reports backtest/package/reports || true
+
+      - name: Remove credentials
+        if: always()
+        run: rm -f backtest/ctrader.pwd
+
+      - name: Upload xauusd_1 package
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: xauusd_1-3m-build-and-backtest
+          path: backtest/package/
+          if-no-files-found: error
+          retention-days: 30
