@@ -85,8 +85,8 @@ def main():
         "data_mode": "M1 server data",
         "research_balance_usd": 10000,
         "risk_percent_equity": 1.0,
-        "commission": "auto",
-        "spread": "CLI default (no fixed --spread override in this screening pass)",
+        "commission": "cTrader CLI/account default for console 5.9.11 (no explicit --commission override)",
+        "spread": "cTrader CLI/account default (no explicit --spread override in this screening pass)",
         "rows": rows,
         "best_by_symbol": best,
         "note": "Three-month screening only; not untouched OOS approval or a guarantee of live profitability."
