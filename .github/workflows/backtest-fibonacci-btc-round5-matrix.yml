@@ -1,0 +1,250 @@
+name: Fibonacci BTC Round5 timeframe pattern matrix
+
+on:
+  push:
+    branches: [fibonacci-research1-build]
+    paths:
+      - '.github/workflows/backtest-fibonacci-btc-round5-matrix.yml'
+      - 'tools/create_fibonacci_btc_round5.py'
+      - 'research/fibonacci-research1/btc_round5_matrix_cells.json'
+      - 'research/fibonacci-research1/rank_btc_round5_matrix.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fibonacci-btc-round5-matrix
+  cancel-in-progress: true
+
+env:
+  CTRADER_IMAGE: ghcr.io/spotware/ctrader-console:5.9.11
+  BALANCE: '10000'
+  DEV_START: '08/03/2026 00:00'
+  DEV_END: '08/08/2026 23:59'
+  OOS_START: '09/08/2026 00:00'
+  OOS_END: '08/09/2026 00:00'
+  FULL3_START: '08/06/2026 00:00'
+  FULL3_END: '08/09/2026 00:00'
+  FULL6_START: '08/03/2026 00:00'
+  FULL6_END: '08/09/2026 00:00'
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.matrix.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: matrix
+        run: |
+          MATRIX=$(python3 - <<'PY'
+          import json
+          cells=json.load(open('research/fibonacci-research1/btc_round5_matrix_cells.json'))
+          print(json.dumps({'include':cells},separators=(',',':')))
+          PY
+          )
+          echo "matrix=$MATRIX" >> "$GITHUB_OUTPUT"
+
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - name: Create Research1 baseline candidate
+        run: python3 tools/create_fibonacci_research1.py --repo-root "$PWD" --force
+      - name: Create Round4 candidate
+        run: python3 tools/create_fibonacci_btc_round4.py --repo-root "$PWD" --force
+      - name: Create Round5 candidate
+        run: python3 tools/create_fibonacci_btc_round5.py --repo-root "$PWD" --force
+      - name: Enable trading in ephemeral build copy
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('Fibonacci-v0.7.0-btc-round5-state-matrix/FibonacciHarmonicSniperUltimate.cs')
+          s=p.read_text(encoding='utf-8')
+          old='[Parameter("Trading Enabled", DefaultValue = false'
+          new='[Parameter("Trading Enabled", DefaultValue = true'
+          if old not in s: raise SystemExit('Trading Enabled parameter not found')
+          p.write_text(s.replace(old,new,1),encoding='utf-8')
+          PY
+      - name: Build Round5 cBot
+        run: |
+          docker pull "$CTRADER_IMAGE"
+          docker run --rm --entrypoint sh -v "$PWD:/repo" -w /repo "$CTRADER_IMAGE" -c \
+            'dotnet restore Fibonacci-v0.7.0-btc-round5-state-matrix/FibonacciHarmonicSniperUltimate.csproj && dotnet build Fibonacci-v0.7.0-btc-round5-state-matrix/FibonacciHarmonicSniperUltimate.csproj --configuration Release --no-restore -p:AlgoPublish=False -p:IncludeSource=True'
+          mkdir -p artifact
+          ALGO="$(find Fibonacci-v0.7.0-btc-round5-state-matrix -type f -name '*.algo' -print -quit)"
+          test -n "$ALGO"
+          cp "$ALGO" artifact/FibonacciHarmonicSniperUltimate-BTC-Round5.algo
+      - uses: actions/upload-artifact@v4
+        with:
+          name: fibonacci-btc-round5-matrix-algo
+          path: artifact/FibonacciHarmonicSniperUltimate-BTC-Round5.algo
+          retention-days: 30
+
+  development:
+    needs: [prepare, build]
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix: ${{ fromJSON(needs.prepare.outputs.matrix) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: fibonacci-btc-round5-matrix-algo
+          path: work
+      - name: Prepare
+        env:
+          CTRADER_PASSWORD: ${{ secrets.CTRADER_PASSWORD }}
+        run: |
+          set -euo pipefail
+          test -n "${CTRADER_PASSWORD:-}"
+          mkdir -p work/cache work/reports
+          umask 077
+          printf '%s' "$CTRADER_PASSWORD" > work/ctrader.pwd
+          docker pull "$CTRADER_IMAGE"
+      - name: Development screen ${{ matrix.id }}
+        env:
+          CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+          CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+          CELL_ID: ${{ matrix.id }}
+          PERIOD: ${{ matrix.period }}
+          PATTERN: ${{ matrix.pattern }}
+        run: |
+          set -euo pipefail
+          echo "=== DEV $CELL_ID | $PERIOD | $PATTERN ==="
+          timeout --signal=TERM --kill-after=30s 15m docker run --rm \
+            -v "$PWD/work:/work" -e "CTID=$CTRADER_CTID" -e 'PWD-FILE=/work/ctrader.pwd' -e "ACCOUNT=$CTRADER_ACCOUNT" "$CTRADER_IMAGE" \
+            backtest /work/FibonacciHarmonicSniperUltimate-BTC-Round5.algo --environment-variables --exit-on-stop \
+            --symbol=BITCOIN --period="$PERIOD" --start="$DEV_START" --end="$DEV_END" --balance="$BALANCE" \
+            --data-mode=m1 --data-dir=/work/cache --commission=65 --spread=0 --RiskPercent=1.0 \
+            --Round5Mode=ObserveOnly --EnabledPatterns="$PATTERN" \
+            --report="/work/reports/dev-${CELL_ID}-BITCOIN.html" --report-json="/work/reports/dev-${CELL_ID}-BITCOIN.json"
+      - name: Clean credentials
+        if: always()
+        run: rm -f work/ctrader.pwd
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: btc-r5-dev-${{ matrix.id }}
+          path: work/reports/dev-${{ matrix.id }}-BITCOIN.*
+          if-no-files-found: error
+          retention-days: 30
+
+  rank:
+    needs: development
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.selected.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: btc-r5-dev-*
+          path: dev
+          merge-multiple: true
+      - name: Rank per timeframe and freeze validation cells
+        run: |
+          python3 research/fibonacci-research1/rank_btc_round5_matrix.py \
+            --cells research/fibonacci-research1/btc_round5_matrix_cells.json \
+            --reports-dir dev \
+            --ranking-output btc-r5-dev-ranking.json \
+            --selected-output btc-r5-selected-matrix.json
+          cat btc-r5-selected-matrix.json
+      - id: selected
+        run: echo "matrix=$(cat btc-r5-selected-matrix.json)" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: fibonacci-btc-round5-matrix-ranking
+          path: |
+            btc-r5-dev-ranking.json
+            btc-r5-selected-matrix.json
+          retention-days: 30
+
+  validate:
+    needs: [build, rank]
+    strategy:
+      fail-fast: false
+      max-parallel: 3
+      matrix: ${{ fromJSON(needs.rank.outputs.matrix) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: fibonacci-btc-round5-matrix-algo
+          path: work
+      - name: Prepare
+        env:
+          CTRADER_PASSWORD: ${{ secrets.CTRADER_PASSWORD }}
+        run: |
+          set -euo pipefail
+          test -n "${CTRADER_PASSWORD:-}"
+          mkdir -p work/cache work/reports
+          umask 077
+          printf '%s' "$CTRADER_PASSWORD" > work/ctrader.pwd
+          docker pull "$CTRADER_IMAGE"
+      - name: Frozen validation ${{ matrix.id }}
+        env:
+          CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+          CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+          CELL_ID: ${{ matrix.id }}
+          PERIOD: ${{ matrix.period }}
+          PATTERN: ${{ matrix.pattern }}
+        run: |
+          set -euo pipefail
+          for SPEC in 'OOS|0|65' 'OOSHARSH|1500|100' 'FULL3|0|65' 'FULL6|0|65' 'FULL6HARSH|1500|100'; do
+            IFS='|' read -r PHASE SPREAD COMM <<< "$SPEC"
+            case "$PHASE" in
+              OOS|OOSHARSH) START="$OOS_START"; END="$OOS_END" ;;
+              FULL3) START="$FULL3_START"; END="$FULL3_END" ;;
+              FULL6|FULL6HARSH) START="$FULL6_START"; END="$FULL6_END" ;;
+            esac
+            echo "=== $PHASE $CELL_ID | $PERIOD | $PATTERN ==="
+            timeout --signal=TERM --kill-after=30s 18m docker run --rm \
+              -v "$PWD/work:/work" -e "CTID=$CTRADER_CTID" -e 'PWD-FILE=/work/ctrader.pwd' -e "ACCOUNT=$CTRADER_ACCOUNT" "$CTRADER_IMAGE" \
+              backtest /work/FibonacciHarmonicSniperUltimate-BTC-Round5.algo --environment-variables --exit-on-stop \
+              --symbol=BITCOIN --period="$PERIOD" --start="$START" --end="$END" --balance="$BALANCE" \
+              --data-mode=m1 --data-dir=/work/cache --commission="$COMM" --spread="$SPREAD" --RiskPercent=1.0 \
+              --Round5Mode=ObserveOnly --EnabledPatterns="$PATTERN" \
+              --report="/work/reports/${CELL_ID}-BITCOIN-${PHASE}.html" --report-json="/work/reports/${CELL_ID}-BITCOIN-${PHASE}.json"
+          done
+      - name: Clean credentials
+        if: always()
+        run: rm -f work/ctrader.pwd
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: btc-r5-validate-${{ matrix.id }}
+          path: work/reports/${{ matrix.id }}-BITCOIN-*
+          if-no-files-found: error
+          retention-days: 30
+
+  collect:
+    needs: [development, rank, validate]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: btc-r5-dev-*
+          path: bundle/development
+      - uses: actions/download-artifact@v4
+        with:
+          name: fibonacci-btc-round5-matrix-ranking
+          path: bundle/ranking
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: btc-r5-validate-*
+          path: bundle/validation
+      - uses: actions/upload-artifact@v4
+        with:
+          name: fibonacci-btc-round5-timeframe-pattern-matrix-results
+          path: bundle
+          if-no-files-found: warn
+          retention-days: 30
