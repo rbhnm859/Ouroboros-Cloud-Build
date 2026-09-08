@@ -1,0 +1,37 @@
+name: GQ Session Scalper v2 Stop Patch
+
+on:
+  push:
+    branches:
+      - gq-session-scalper-v2-robust-20260908
+    paths:
+      - '.github/workflows/gq-session-scalper-v2-stop-patch.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout GQ branch
+        uses: actions/checkout@v4
+
+      - name: Apply GQ stop-management patch
+        run: python3 GQ-Session-Scalper-v2/docs/patch_stop_management.py
+
+      - name: Commit GQ source patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add GQ-Session-Scalper-v2/src/GQ_Session_Scalper_v2.cs
+          if git diff --cached --quiet; then
+            echo 'GQ stop-management source already patched.'
+          else
+            git commit -m 'Fix GQ v2 duplicate stop modifications'
+            git push origin HEAD:${GITHUB_REF_NAME}
+          fi
