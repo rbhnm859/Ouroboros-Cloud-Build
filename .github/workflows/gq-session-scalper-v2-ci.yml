@@ -50,7 +50,7 @@ jobs:
             ghcr.io/spotware/ctrader-console:latest -c \
             "dotnet restore 'GQ-Session-Scalper-v2/src/GQ_Session_Scalper_v2.csproj' && dotnet build 'GQ-Session-Scalper-v2/src/GQ_Session_Scalper_v2.csproj' --configuration Release --no-restore -p:AlgoPublish=False -p:IncludeSource=True" \
             2>&1 | tee GQ-Session-Scalper-v2/logs/native_build.log
-          ALGO="$(find GQ-Session-Scalper-v2/src -type f -name 'GQ_Session_Scalper_v2.algo' -print -quit)"
+          ALGO="$(find GQ-Session-Scalper-v2/src -type f -name '*.algo' -print -quit)"
           if [ -z "$ALGO" ]; then
             echo 'Native build returned no .algo artifact.' | tee -a GQ-Session-Scalper-v2/logs/native_build.log
             find GQ-Session-Scalper-v2/src -maxdepth 8 -type f -print | tee -a GQ-Session-Scalper-v2/logs/native_build.log
