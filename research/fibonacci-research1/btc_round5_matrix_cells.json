@@ -1,0 +1,18 @@
+[
+  {"id":"m1_abcd","period":"m1","pattern":"ABCD","tier":"timing"},
+  {"id":"m5_abcd","period":"m5","pattern":"ABCD","tier":"confirmation"},
+  {"id":"m15_abcd","period":"m15","pattern":"ABCD","tier":"confirmation"},
+  {"id":"m15_recip","period":"m15","pattern":"Reciprocal ABCD","tier":"confirmation"},
+  {"id":"m30_abcd","period":"m30","pattern":"ABCD","tier":"direction"},
+  {"id":"m30_recip","period":"m30","pattern":"Reciprocal ABCD","tier":"direction"},
+  {"id":"h1_recip","period":"h1","pattern":"Reciprocal ABCD","tier":"setup"},
+  {"id":"h4_gartley","period":"h4","pattern":"Gartley","tier":"macro"},
+  {"id":"h4_bat","period":"h4","pattern":"Bat","tier":"macro"},
+  {"id":"h4_crab","period":"h4","pattern":"Crab","tier":"macro"},
+  {"id":"h4_recip","period":"h4","pattern":"Reciprocal ABCD","tier":"macro"},
+  {"id":"d1_gartley","period":"d1","pattern":"Gartley","tier":"macro"},
+  {"id":"d1_bat","period":"d1","pattern":"Bat","tier":"macro"},
+  {"id":"d1_butterfly","period":"d1","pattern":"Butterfly","tier":"macro"},
+  {"id":"d1_crab","period":"d1","pattern":"Crab","tier":"macro"},
+  {"id":"d1_deep_crab","period":"d1","pattern":"Deep Crab","tier":"macro"}
+]
