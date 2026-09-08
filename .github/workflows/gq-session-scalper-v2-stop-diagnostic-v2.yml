@@ -1,0 +1,141 @@
+name: GQ Session Scalper v2 Stop Diagnostic v2
+
+on:
+  push:
+    branches:
+      - gq-session-scalper-v2-robust-20260908
+    paths:
+      - '.github/workflows/gq-session-scalper-v2-stop-diagnostic-v2.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout GQ branch
+        uses: actions/checkout@v4
+
+      - name: Verify secure cTrader inputs
+        shell: bash
+        env:
+          CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+          CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+          CTRADER_PASSWORD: ${{ secrets.CTRADER_PASSWORD }}
+        run: |
+          set -euo pipefail
+          test -n "${CTRADER_CTID:-}"
+          test -n "${CTRADER_ACCOUNT:-}"
+          test -n "${CTRADER_PASSWORD:-}"
+
+      - name: Pull official cTrader container
+        run: docker pull ghcr.io/spotware/ctrader-console:latest
+
+      - name: Build GQ cBot
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p GQ-Session-Scalper-v2/backtests/stop-diagnostic-v2/{cache,reports,logs}
+          docker run --rm --entrypoint sh -v "$PWD:/repo" -w /repo \
+            ghcr.io/spotware/ctrader-console:latest -c \
+            "dotnet restore GQ-Session-Scalper-v2/src/GQ_Session_Scalper_v2.csproj && dotnet build GQ-Session-Scalper-v2/src/GQ_Session_Scalper_v2.csproj --configuration Release --no-restore -p:AlgoPublish=False -p:IncludeSource=True"
+          ALGO="$(find GQ-Session-Scalper-v2/src/bin -type f -name '*.algo' -print -quit)"
+          test -n "$ALGO"
+          cp "$ALGO" GQ-Session-Scalper-v2/backtests/stop-diagnostic-v2/GQ_Session_Scalper_v2.algo
+
+      - name: Create temporary password file
+        shell: bash
+        env:
+          CTRADER_PASSWORD: ${{ secrets.CTRADER_PASSWORD }}
+        run: |
+          printf '%s' "$CTRADER_PASSWORD" > GQ-Session-Scalper-v2/backtests/stop-diagnostic-v2/ctrader.pwd
+          chmod 600 GQ-Session-Scalper-v2/backtests/stop-diagnostic-v2/ctrader.pwd
+
+      - name: Run EURUSD M15 diagnostic
+        shell: bash
+        env:
+          CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+          CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+        run: |
+          set -euo pipefail
+          LOG='GQ-Session-Scalper-v2/backtests/stop-diagnostic-v2/logs/run.log'
+          timeout --signal=TERM --kill-after=30s 9m docker run --rm \
+            -v "$PWD/GQ-Session-Scalper-v2/backtests/stop-diagnostic-v2:/work" \
+            -e "CTID=$CTRADER_CTID" -e 'PWD-FILE=/work/ctrader.pwd' -e "ACCOUNT=$CTRADER_ACCOUNT" \
+            ghcr.io/spotware/ctrader-console:latest \
+            backtest /work/GQ_Session_Scalper_v2.algo --environment-variables --exit-on-stop \
+            --symbol=EURUSD --period=m15 \
+            --start='08/06/2026 00:00' --end='30/06/2026 23:59' \
+            --balance=1000 --spread=1 --commission=35 --data-mode=m1 --data-dir=/work/cache \
+            --report=/work/reports/report.html --report-json=/work/reports/report.json \
+            2>&1 | tee "$LOG"
+          test -s GQ-Session-Scalper-v2/backtests/stop-diagnostic-v2/reports/report.json
+
+      - name: Validate stop behavior
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import json, re
+          root = Path('GQ-Session-Scalper-v2/backtests/stop-diagnostic-v2')
+          lines = (root / 'logs/run.log').read_text(errors='replace').splitlines()
+          req = re.compile(r'\| Trade \| Modifying position (PID\d+) \(SL: ([0-9.]+)')
+          ok = re.compile(r'\| Trade \| → Modifying position (PID\d+) \(SL: ([0-9.]+).*SUCCEEDED')
+          successful = set()
+          requests = 0
+          successes = 0
+          duplicates = 0
+          for line in lines:
+              mo = ok.search(line)
+              if mo:
+                  successes += 1
+                  successful.add((mo.group(1), mo.group(2)))
+                  continue
+              mr = req.search(line)
+              if mr:
+                  requests += 1
+                  if (mr.group(1), mr.group(2)) in successful:
+                      duplicates += 1
+          stop_errors = sum('[STOP_UPDATE_ERROR]' in x for x in lines)
+          invalid_errors = sum('FAILED with error "InvalidStopLossTakeProfit"' in x for x in lines)
+          report = json.loads((root / 'reports/report.json').read_text())
+          main = report.get('main', {})
+          stats = report.get('tradeStatistics', {})
+          summary = {
+              'source_patch': '09caa783a22d8c5d4a20b57fafb9a1959f4b4c09',
+              'period': '2026-06-08 to 2026-06-30',
+              'symbol': main.get('symbol'),
+              'timeframe': 'M15',
+              'trades': stats.get('totalTrades', {}).get('all'),
+              'net_profit_diagnostic_only': main.get('netProfit'),
+              'roi_diagnostic_only': main.get('roi'),
+              'stop_modify_requests': requests,
+              'stop_modify_successes': successes,
+              'duplicate_identical_requests_after_success': duplicates,
+              'stop_update_errors': stop_errors,
+              'invalid_stop_loss_take_profit_failures': invalid_errors,
+          }
+          summary['stop_patch_gate'] = 'PASS' if successes > 0 and duplicates == 0 and stop_errors == 0 and invalid_errors == 0 else 'FAIL'
+          (root / 'reports/stop-management-summary.json').write_text(json.dumps(summary, indent=2))
+          print(json.dumps(summary, indent=2))
+          if summary['stop_patch_gate'] != 'PASS':
+              raise SystemExit('STOP_PATCH_GATE_FAILED')
+          PY
+
+      - name: Remove temporary credentials
+        if: always()
+        run: rm -f GQ-Session-Scalper-v2/backtests/stop-diagnostic-v2/ctrader.pwd
+
+      - name: Upload GQ diagnostic
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: GQ-Session-Scalper-v2-stop-diagnostic-v2
+          path: |
+            GQ-Session-Scalper-v2/backtests/stop-diagnostic-v2/reports/
+            GQ-Session-Scalper-v2/backtests/stop-diagnostic-v2/logs/run.log
+          if-no-files-found: warn
+          retention-days: 30
