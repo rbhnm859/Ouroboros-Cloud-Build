@@ -6,6 +6,7 @@ on:
       - gq-session-scalper-v2-robust-20260908
     paths:
       - '.github/workflows/gq-session-scalper-v2-stop-patch.yml'
+      - 'GQ-Session-Scalper-v2/docs/patch_stop_management.py'
   workflow_dispatch:
 
 permissions:
@@ -32,6 +33,6 @@ jobs:
           if git diff --cached --quiet; then
             echo 'GQ stop-management source already patched.'
           else
-            git commit -m 'Fix GQ v2 duplicate stop modifications'
+            git commit -m 'Fix GQ v2 stop-management broker distance'
             git push origin HEAD:${GITHUB_REF_NAME}
           fi
