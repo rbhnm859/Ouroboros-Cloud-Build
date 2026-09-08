@@ -1,0 +1,224 @@
+name: Fibonacci Research1 optimize XAU first BTC second
+
+on:
+  push:
+    branches: [fibonacci-research1-build]
+    paths:
+      - '.github/workflows/optimize-fibonacci-research1-xau-btc.yml'
+      - 'research/fibonacci-research1/optimization1_profiles.json'
+      - 'research/fibonacci-research1/optimization1_args.py'
+      - 'research/fibonacci-research1/rank_optimization1.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fibonacci-research1-xau-btc-opt1
+  cancel-in-progress: true
+
+env:
+  CTRADER_IMAGE: ghcr.io/spotware/ctrader-console:5.9.11
+  BALANCE: '10000'
+  IS_START: '08/06/2026 00:00'
+  IS_END: '08/08/2026 23:59'
+  OOS_START: '09/08/2026 00:00'
+  OOS_END: '08/09/2026 00:00'
+  FULL_START: '08/06/2026 00:00'
+  FULL_END: '08/09/2026 00:00'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Create Research1 candidate
+        run: python3 tools/create_fibonacci_research1.py --repo-root "$PWD" --force
+      - name: Enable trading in ephemeral build copy
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('Fibonacci-v0.4.0-research1/FibonacciHarmonicSniperUltimate.cs')
+          s=p.read_text(encoding='utf-8')
+          old='[Parameter("Trading Enabled", DefaultValue = false'
+          new='[Parameter("Trading Enabled", DefaultValue = true'
+          if old not in s: raise SystemExit('Trading Enabled parameter not found')
+          p.write_text(s.replace(old,new,1),encoding='utf-8')
+          PY
+      - name: Build cBot
+        run: |
+          docker pull "$CTRADER_IMAGE"
+          docker run --rm --entrypoint sh -v "$PWD:/repo" -w /repo "$CTRADER_IMAGE" -c \
+            'dotnet restore Fibonacci-v0.4.0-research1/FibonacciHarmonicSniperUltimate.csproj && dotnet build Fibonacci-v0.4.0-research1/FibonacciHarmonicSniperUltimate.csproj --configuration Release --no-restore -p:AlgoPublish=False -p:IncludeSource=True'
+          mkdir -p build-artifact
+          ALGO="$(find Fibonacci-v0.4.0-research1 -type f -name '*.algo' -print -quit)"
+          test -n "$ALGO"
+          cp "$ALGO" build-artifact/FibonacciHarmonicSniperUltimate.algo
+      - uses: actions/upload-artifact@v4
+        with:
+          name: fibonacci-research1-opt1-algo
+          path: build-artifact/FibonacciHarmonicSniperUltimate.algo
+          retention-days: 30
+
+  xau-optimize:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: fibonacci-research1-opt1-algo
+          path: opt
+      - name: Prepare
+        env:
+          CTRADER_PASSWORD: ${{ secrets.CTRADER_PASSWORD }}
+        run: |
+          set -euo pipefail
+          test -n "${CTRADER_PASSWORD:-}"
+          mkdir -p opt/cache opt/reports
+          umask 077
+          printf '%s' "$CTRADER_PASSWORD" > opt/ctrader.pwd
+          docker pull "$CTRADER_IMAGE"
+      - name: XAUUSD IS search
+        env:
+          CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+          CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+        run: |
+          set -euo pipefail
+          mapfile -t PROFILES < <(python3 - <<'PY'
+          import json
+          p=json.load(open('research/fibonacci-research1/optimization1_profiles.json'))
+          print('\n'.join(p['XAUUSD'].keys()))
+          PY
+          )
+          for PROFILE in "${PROFILES[@]}"; do
+            echo "=== XAUUSD IS / $PROFILE ==="
+            mapfile -t ARGS < <(python3 research/fibonacci-research1/optimization1_args.py XAUUSD "$PROFILE")
+            timeout --signal=TERM --kill-after=30s 8m docker run --rm \
+              -v "$PWD/opt:/work" -e "CTID=$CTRADER_CTID" -e 'PWD-FILE=/work/ctrader.pwd' -e "ACCOUNT=$CTRADER_ACCOUNT" "$CTRADER_IMAGE" \
+              backtest /work/FibonacciHarmonicSniperUltimate.algo --environment-variables --exit-on-stop \
+              --symbol=XAUUSD --period=h1 --start="$IS_START" --end="$IS_END" --balance="$BALANCE" \
+              --data-mode=m1 --data-dir=/work/cache --commission=35 --spread=17.07 --RiskPercent=1.0 \
+              "${ARGS[@]}" --report="/work/reports/${PROFILE}-XAUUSD-IS.html" --report-json="/work/reports/${PROFILE}-XAUUSD-IS.json"
+          done
+      - name: Rank XAUUSD IS and select top 3
+        run: |
+          python3 research/fibonacci-research1/rank_optimization1.py --reports-dir opt/reports --symbol XAUUSD --phase IS --top 3 --selected-output opt/xau-selected.txt --json-output opt/xau-is-ranking.json
+          cat opt/xau-selected.txt
+      - name: XAUUSD OOS primary stress and full window
+        env:
+          CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+          CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+        run: |
+          set -euo pipefail
+          while IFS= read -r PROFILE; do
+            test -n "$PROFILE" || continue
+            mapfile -t ARGS < <(python3 research/fibonacci-research1/optimization1_args.py XAUUSD "$PROFILE")
+            for SPEC in 'OOS:17.07:35' 'OOSSTRESS:30:35' 'FULL:17.07:35'; do
+              IFS=: read -r PHASE SPREAD COMM <<< "$SPEC"
+              if [ "$PHASE" = FULL ]; then START="$FULL_START"; END="$FULL_END"; else START="$OOS_START"; END="$OOS_END"; fi
+              echo "=== XAUUSD $PHASE / $PROFILE ==="
+              timeout --signal=TERM --kill-after=30s 8m docker run --rm \
+                -v "$PWD/opt:/work" -e "CTID=$CTRADER_CTID" -e 'PWD-FILE=/work/ctrader.pwd' -e "ACCOUNT=$CTRADER_ACCOUNT" "$CTRADER_IMAGE" \
+                backtest /work/FibonacciHarmonicSniperUltimate.algo --environment-variables --exit-on-stop \
+                --symbol=XAUUSD --period=h1 --start="$START" --end="$END" --balance="$BALANCE" --data-mode=m1 --data-dir=/work/cache \
+                --commission="$COMM" --spread="$SPREAD" --RiskPercent=1.0 "${ARGS[@]}" \
+                --report="/work/reports/${PROFILE}-XAUUSD-${PHASE}.html" --report-json="/work/reports/${PROFILE}-XAUUSD-${PHASE}.json"
+            done
+          done < opt/xau-selected.txt
+      - name: Clean credentials
+        if: always()
+        run: rm -f opt/ctrader.pwd
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: fibonacci-research1-opt1-XAUUSD
+          path: |
+            opt/reports/*XAUUSD*
+            opt/xau-selected.txt
+            opt/xau-is-ranking.json
+          if-no-files-found: error
+          retention-days: 30
+
+  btc-optimize:
+    needs: [build, xau-optimize]
+    runs-on: ubuntu-latest
+    timeout-minutes: 70
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: fibonacci-research1-opt1-algo
+          path: opt
+      - name: Prepare
+        env:
+          CTRADER_PASSWORD: ${{ secrets.CTRADER_PASSWORD }}
+        run: |
+          set -euo pipefail
+          test -n "${CTRADER_PASSWORD:-}"
+          mkdir -p opt/cache opt/reports
+          umask 077
+          printf '%s' "$CTRADER_PASSWORD" > opt/ctrader.pwd
+          docker pull "$CTRADER_IMAGE"
+      - name: BITCOIN IS search
+        env:
+          CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+          CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+        run: |
+          set -euo pipefail
+          mapfile -t PROFILES < <(python3 - <<'PY'
+          import json
+          p=json.load(open('research/fibonacci-research1/optimization1_profiles.json'))
+          print('\n'.join(p['BITCOIN'].keys()))
+          PY
+          )
+          for PROFILE in "${PROFILES[@]}"; do
+            echo "=== BITCOIN IS / $PROFILE ==="
+            mapfile -t ARGS < <(python3 research/fibonacci-research1/optimization1_args.py BITCOIN "$PROFILE")
+            timeout --signal=TERM --kill-after=30s 8m docker run --rm \
+              -v "$PWD/opt:/work" -e "CTID=$CTRADER_CTID" -e 'PWD-FILE=/work/ctrader.pwd' -e "ACCOUNT=$CTRADER_ACCOUNT" "$CTRADER_IMAGE" \
+              backtest /work/FibonacciHarmonicSniperUltimate.algo --environment-variables --exit-on-stop \
+              --symbol=BITCOIN --period=h1 --start="$IS_START" --end="$IS_END" --balance="$BALANCE" \
+              --data-mode=m1 --data-dir=/work/cache --commission=0 --spread=0 --RiskPercent=1.0 \
+              "${ARGS[@]}" --report="/work/reports/${PROFILE}-BITCOIN-IS.html" --report-json="/work/reports/${PROFILE}-BITCOIN-IS.json"
+          done
+      - name: Rank BITCOIN IS and select top 3
+        run: |
+          python3 research/fibonacci-research1/rank_optimization1.py --reports-dir opt/reports --symbol BITCOIN --phase IS --top 3 --selected-output opt/btc-selected.txt --json-output opt/btc-is-ranking.json
+          cat opt/btc-selected.txt
+      - name: BITCOIN OOS primary commission stress and full window
+        env:
+          CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+          CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+        run: |
+          set -euo pipefail
+          while IFS= read -r PROFILE; do
+            test -n "$PROFILE" || continue
+            mapfile -t ARGS < <(python3 research/fibonacci-research1/optimization1_args.py BITCOIN "$PROFILE")
+            for SPEC in 'OOS:0:0' 'OOSSTRESS:0:65' 'FULL:0:0'; do
+              IFS=: read -r PHASE SPREAD COMM <<< "$SPEC"
+              if [ "$PHASE" = FULL ]; then START="$FULL_START"; END="$FULL_END"; else START="$OOS_START"; END="$OOS_END"; fi
+              echo "=== BITCOIN $PHASE / $PROFILE ==="
+              timeout --signal=TERM --kill-after=30s 8m docker run --rm \
+                -v "$PWD/opt:/work" -e "CTID=$CTRADER_CTID" -e 'PWD-FILE=/work/ctrader.pwd' -e "ACCOUNT=$CTRADER_ACCOUNT" "$CTRADER_IMAGE" \
+                backtest /work/FibonacciHarmonicSniperUltimate.algo --environment-variables --exit-on-stop \
+                --symbol=BITCOIN --period=h1 --start="$START" --end="$END" --balance="$BALANCE" --data-mode=m1 --data-dir=/work/cache \
+                --commission="$COMM" --spread="$SPREAD" --RiskPercent=1.0 "${ARGS[@]}" \
+                --report="/work/reports/${PROFILE}-BITCOIN-${PHASE}.html" --report-json="/work/reports/${PROFILE}-BITCOIN-${PHASE}.json"
+            done
+          done < opt/btc-selected.txt
+      - name: Clean credentials
+        if: always()
+        run: rm -f opt/ctrader.pwd
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: fibonacci-research1-opt1-BITCOIN
+          path: |
+            opt/reports/*BITCOIN*
+            opt/btc-selected.txt
+            opt/btc-is-ranking.json
+          if-no-files-found: error
+          retention-days: 30
