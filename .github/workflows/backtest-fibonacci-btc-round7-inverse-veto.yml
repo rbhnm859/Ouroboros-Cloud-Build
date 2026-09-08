@@ -1,0 +1,178 @@
+name: Fibonacci BTC Round7 M30 sell inverse veto A-B
+
+on:
+  push:
+    branches: [fibonacci-research1-build]
+    paths:
+      - '.github/workflows/backtest-fibonacci-btc-round7-inverse-veto.yml'
+      - 'tools/create_fibonacci_btc_round7.py'
+      - 'research/fibonacci-research1/btc_round7_profiles.json'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fibonacci-btc-round7-inverse-veto
+  cancel-in-progress: true
+
+env:
+  CTRADER_IMAGE: ghcr.io/spotware/ctrader-console:5.9.11
+  BALANCE: '10000'
+  DEV1_START: '08/03/2026 00:00'
+  DEV1_END: '22/05/2026 23:59'
+  DEV2_START: '23/05/2026 00:00'
+  DEV2_END: '08/08/2026 23:59'
+  OOS_START: '09/08/2026 00:00'
+  OOS_END: '08/09/2026 00:00'
+  FULL6_START: '08/03/2026 00:00'
+  FULL6_END: '08/09/2026 00:00'
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.matrix.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: matrix
+        run: |
+          MATRIX=$(python3 - <<'PY'
+          import json
+          p=json.load(open('research/fibonacci-research1/btc_round7_profiles.json'))
+          print(json.dumps({'include':p},separators=(',',':')))
+          PY
+          )
+          echo "matrix=$MATRIX" >> "$GITHUB_OUTPUT"
+
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Create Research1 baseline candidate
+        run: python3 tools/create_fibonacci_research1.py --repo-root "$PWD" --force
+      - name: Create Round4 candidate
+        run: python3 tools/create_fibonacci_btc_round4.py --repo-root "$PWD" --force
+      - name: Create Round5 candidate
+        run: python3 tools/create_fibonacci_btc_round5.py --repo-root "$PWD" --force
+      - name: Create Round6 candidate
+        run: python3 tools/create_fibonacci_btc_round6.py --repo-root "$PWD" --force
+      - name: Create Round7 candidate
+        run: python3 tools/create_fibonacci_btc_round7.py --repo-root "$PWD" --force
+      - name: Enable trading in ephemeral build copy
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('Fibonacci-v0.9.0-btc-round7-inverse-veto/FibonacciHarmonicSniperUltimate.cs')
+          s=p.read_text(encoding='utf-8')
+          old='[Parameter("Trading Enabled", DefaultValue = false'
+          new='[Parameter("Trading Enabled", DefaultValue = true'
+          if old not in s: raise SystemExit('Trading Enabled parameter not found')
+          p.write_text(s.replace(old,new,1),encoding='utf-8')
+          PY
+      - name: Build Round7 cBot
+        run: |
+          docker pull "$CTRADER_IMAGE"
+          docker run --rm --entrypoint sh -v "$PWD:/repo" -w /repo "$CTRADER_IMAGE" -c \
+            'dotnet restore Fibonacci-v0.9.0-btc-round7-inverse-veto/FibonacciHarmonicSniperUltimate.csproj && dotnet build Fibonacci-v0.9.0-btc-round7-inverse-veto/FibonacciHarmonicSniperUltimate.csproj --configuration Release --no-restore -p:AlgoPublish=False -p:IncludeSource=True'
+          mkdir -p artifact
+          ALGO="$(find Fibonacci-v0.9.0-btc-round7-inverse-veto -type f -name '*.algo' -print -quit)"
+          test -n "$ALGO"
+          cp "$ALGO" artifact/FibonacciHarmonicSniperUltimate-BTC-Round7.algo
+          cp Fibonacci-v0.9.0-btc-round7-inverse-veto/FibonacciHarmonicSniperUltimate.cs artifact/FibonacciHarmonicSniperUltimate-BTC-Round7.cs
+          sha256sum artifact/FibonacciHarmonicSniperUltimate-BTC-Round7.algo > artifact/SHA256SUMS.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: fibonacci-btc-round7-build
+          path: artifact
+          retention-days: 30
+
+  backtest:
+    needs: [prepare, build]
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix: ${{ fromJSON(needs.prepare.outputs.matrix) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 70
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: fibonacci-btc-round7-build
+          path: work
+      - name: Prepare
+        env:
+          CTRADER_PASSWORD: ${{ secrets.CTRADER_PASSWORD }}
+        run: |
+          set -euo pipefail
+          test -n "${CTRADER_PASSWORD:-}"
+          mkdir -p work/cache work/reports
+          umask 077
+          printf '%s' "$CTRADER_PASSWORD" > work/ctrader.pwd
+          docker pull "$CTRADER_IMAGE"
+      - name: A-B backtest ${{ matrix.id }}
+        env:
+          CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+          CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+          PROFILE: ${{ matrix.id }}
+          INVERSE_VETO: ${{ matrix.inverse_veto }}
+          M30_AGE: ${{ matrix.m30_age }}
+        run: |
+          set -euo pipefail
+          for SPEC in \
+            'DEV1|0|65' \
+            'DEV2|0|65' \
+            'OOS|0|65' \
+            'OOSHARSH|1500|100' \
+            'FULL6|0|65' \
+            'FULL6HARSH|1500|100'; do
+            IFS='|' read -r PHASE SPREAD COMM <<< "$SPEC"
+            case "$PHASE" in
+              DEV1) START="$DEV1_START"; END="$DEV1_END" ;;
+              DEV2) START="$DEV2_START"; END="$DEV2_END" ;;
+              OOS|OOSHARSH) START="$OOS_START"; END="$OOS_END" ;;
+              FULL6|FULL6HARSH) START="$FULL6_START"; END="$FULL6_END" ;;
+            esac
+            echo "=== $PROFILE $PHASE | inverseVeto=$INVERSE_VETO m30Age=$M30_AGE ==="
+            timeout --signal=TERM --kill-after=30s 20m docker run --rm \
+              -v "$PWD/work:/work" -e "CTID=$CTRADER_CTID" -e 'PWD-FILE=/work/ctrader.pwd' -e "ACCOUNT=$CTRADER_ACCOUNT" "$CTRADER_IMAGE" \
+              backtest /work/FibonacciHarmonicSniperUltimate-BTC-Round7.algo --environment-variables --exit-on-stop \
+              --symbol=BITCOIN --period=h1 --start="$START" --end="$END" --balance="$BALANCE" \
+              --data-mode=m1 --data-dir=/work/cache --commission="$COMM" --spread="$SPREAD" --RiskPercent=1.0 \
+              --EnabledPatterns='Reciprocal ABCD' --Round5Mode=ObserveOnly --MtfMode=Off \
+              --M30Patterns='Reciprocal ABCD' --DirectionStateMinScore=84 --M30StateMaxAge="$M30_AGE" \
+              --Round6RequireM30SellConfirm=false --Round7VetoM30SellAlignment="$INVERSE_VETO" --Round7LogVetoedSell=true \
+              --report="/work/reports/${PROFILE}-BITCOIN-${PHASE}.html" --report-json="/work/reports/${PROFILE}-BITCOIN-${PHASE}.json"
+          done
+      - name: Clean credentials
+        if: always()
+        run: rm -f work/ctrader.pwd
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: btc-r7-${{ matrix.id }}
+          path: work/reports/${{ matrix.id }}-BITCOIN-*
+          if-no-files-found: error
+          retention-days: 30
+
+  collect:
+    needs: backtest
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: btc-r7-*
+          path: bundle/results
+      - uses: actions/download-artifact@v4
+        with:
+          name: fibonacci-btc-round7-build
+          path: bundle/build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: fibonacci-btc-round7-inverse-veto-results
+          path: bundle
+          if-no-files-found: warn
+          retention-days: 30
