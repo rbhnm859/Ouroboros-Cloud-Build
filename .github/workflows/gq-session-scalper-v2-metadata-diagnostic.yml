@@ -58,6 +58,7 @@ jobs:
               <ImplicitUsings>disable</ImplicitUsings>
               <Nullable>disable</Nullable>
               <RootNamespace>cAlgo.Robots</RootNamespace>
+              <AssemblyName>ControlRobot</AssemblyName>
             </PropertyGroup>
             <ItemGroup>
               <PackageReference Include="cTrader.Automate" Version="1.*-*" />
@@ -67,21 +68,22 @@ jobs:
           docker run --rm --entrypoint sh -v /tmp/gq-control:/control -w /control \
             ghcr.io/spotware/ctrader-console:latest -c \
             "dotnet restore ControlRobot.csproj && dotnet build ControlRobot.csproj --configuration Release --no-restore -p:AlgoPublish=False -p:IncludeSource=True"
-          find /tmp/gq-control -type f -name '*.algo' -print
+          CONTROL_ALGO="$(find /tmp/gq-control -type f -name '*.algo' -print -quit)"
+          test -n "$CONTROL_ALGO"
+          cp "$CONTROL_ALGO" /tmp/gq-control/ControlRobot.algo
+          ls -l /tmp/gq-control/ControlRobot.algo
 
       - name: Compare metadata classification
         shell: bash
         run: |
           set -euo pipefail
           GQ_ALGO="$(find GQ-Session-Scalper-v2/src/bin -type f -name '*.algo' -print -quit)"
-          CONTROL_ALGO="$(find /tmp/gq-control -type f -name '*.algo' -print -quit)"
           test -n "$GQ_ALGO"
-          test -n "$CONTROL_ALGO"
           cp "$GQ_ALGO" /tmp/gq-control/GQ.algo
           echo '=== GQ METADATA ==='
           docker run --rm -v /tmp/gq-control:/work ghcr.io/spotware/ctrader-console:latest metadata /work/GQ.algo | tee /tmp/gq-control/gq-metadata.json
           echo '=== CONTROL METADATA ==='
-          docker run --rm -v /tmp/gq-control:/work ghcr.io/spotware/ctrader-console:latest metadata /work/$(basename "$CONTROL_ALGO") | tee /tmp/gq-control/control-metadata.json
+          docker run --rm -v /tmp/gq-control:/work ghcr.io/spotware/ctrader-console:latest metadata /work/ControlRobot.algo | tee /tmp/gq-control/control-metadata.json
           python3 - <<'PY'
           import json
           from pathlib import Path
