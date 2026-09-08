@@ -1,0 +1,103 @@
+name: Build and Publish Fibonacci BTC Round17 Mobile
+
+on:
+  push:
+    branches: [fibonacci-research1-build]
+    paths:
+      - '.github/workflows/build-publish-fibonacci-btc-round17-mobile.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  CTRADER_IMAGE: ghcr.io/spotware/ctrader-console:5.9.11
+  TARGET_DIR: Fibonacci-v0.16.0-btc-round17-m30-half-risk/builds
+  TARGET_NAME: FibonacciHarmonicSniperUltimate-BTC-Round17-Mobile.algo
+
+jobs:
+  build-publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fibonacci-research1-build
+          fetch-depth: 0
+
+      - name: Recreate frozen Round17 source
+        run: |
+          set -euo pipefail
+          python3 tools/create_fibonacci_research1.py --repo-root "$PWD" --force
+          python3 tools/create_fibonacci_btc_round4.py --repo-root "$PWD" --force
+          python3 tools/create_fibonacci_btc_round5.py --repo-root "$PWD" --force
+          python3 tools/create_fibonacci_btc_round6.py --repo-root "$PWD" --force
+          python3 tools/create_fibonacci_btc_round7.py --repo-root "$PWD" --force
+          python3 tools/create_fibonacci_btc_round8.py --repo-root "$PWD" --force
+          python3 tools/create_fibonacci_btc_round9.py --repo-root "$PWD" --force
+          python3 tools/create_fibonacci_btc_round10.py --repo-root "$PWD" --force
+          python3 tools/create_fibonacci_btc_round15.py --repo-root "$PWD" --force
+          python3 tools/create_fibonacci_btc_round16_h1_health.py --repo-root "$PWD" --force
+          python3 tools/create_fibonacci_btc_round17_m30_half_risk.py --repo-root "$PWD" --force
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('Fibonacci-v0.16.0-btc-round17-m30-half-risk/FibonacciHarmonicSniperUltimate.cs')
+          s=p.read_text(encoding='utf-8')
+          old='[Parameter("Trading Enabled", DefaultValue = false'
+          new='[Parameter("Trading Enabled", DefaultValue = true'
+          if old not in s:
+              raise SystemExit('Trading Enabled parameter not found')
+          p.write_text(s.replace(old,new,1),encoding='utf-8')
+          PY
+
+      - name: Compile cTrader Mobile Cloud algo
+        run: |
+          set -euo pipefail
+          docker pull "$CTRADER_IMAGE"
+          docker run --rm --entrypoint sh -v "$PWD:/repo" -w /repo "$CTRADER_IMAGE" -c \
+            'dotnet restore Fibonacci-v0.16.0-btc-round17-m30-half-risk/FibonacciHarmonicSniperUltimate.csproj && dotnet build Fibonacci-v0.16.0-btc-round17-m30-half-risk/FibonacciHarmonicSniperUltimate.csproj --configuration Release --no-restore -p:AlgoPublish=False -p:IncludeSource=True'
+
+      - name: Stage mobile artifact
+        run: |
+          set -euo pipefail
+          mkdir -p "$TARGET_DIR"
+          ALGO="$(find Fibonacci-v0.16.0-btc-round17-m30-half-risk -type f -name '*.algo' -print -quit)"
+          test -n "$ALGO"
+          cp "$ALGO" "$TARGET_DIR/$TARGET_NAME"
+          sha256sum "$TARGET_DIR/$TARGET_NAME" > "$TARGET_DIR/SHA256SUMS.txt"
+          cat > "$TARGET_DIR/BUILD_INFO.md" <<'EOF'
+          # Fibonacci BTC Round17 Mobile Build
+
+          Frozen BTC Harmonic Frequency Research Champion build for cTrader Mobile / Cloud.
+
+          - H1 Reciprocal ABCD primary engine
+          - M30 Reciprocal ABCD frequency engine
+          - H1 risk 1.0% equity
+          - M30 risk 0.5% equity
+          - M30 health gate: at least 2 of last 3 closed H1 trades profitable
+          - MaxOpenPositions = 1
+          - no hedging / grid / martingale / DCA / recovery / loss averaging
+          - Built with ghcr.io/spotware/ctrader-console:5.9.11
+          EOF
+
+      - name: Commit binary build to repository
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add "$TARGET_DIR/$TARGET_NAME" "$TARGET_DIR/SHA256SUMS.txt" "$TARGET_DIR/BUILD_INFO.md"
+          if git diff --cached --quiet; then
+            echo 'No build changes to commit.'
+          else
+            git commit -m 'Publish Round17 BTC mobile algo build'
+            git push origin HEAD:fibonacci-research1-build
+          fi
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: fibonacci-btc-round17-mobile-published
+          path: |
+            ${{ env.TARGET_DIR }}/${{ env.TARGET_NAME }}
+            ${{ env.TARGET_DIR }}/SHA256SUMS.txt
+            ${{ env.TARGET_DIR }}/BUILD_INFO.md
+          retention-days: 90
