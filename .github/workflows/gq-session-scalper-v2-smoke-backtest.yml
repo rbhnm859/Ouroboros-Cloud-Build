@@ -64,8 +64,9 @@ jobs:
           CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
         run: |
           set -euo pipefail
-          START_DATE='09/01/2026 00:00'
-          END_DATE='09/07/2026 23:59'
+          # cTrader CLI parses these dates as DD/MM/YYYY.
+          START_DATE='01/09/2026 00:00'
+          END_DATE='07/09/2026 23:59'
           echo "GQ smoke backtest: EURUSD M15 $START_DATE -> $END_DATE"
           timeout --signal=TERM --kill-after=30s 8m docker run --rm \
             -v "$PWD/GQ-Session-Scalper-v2/backtests/smoke:/work" \
@@ -93,7 +94,7 @@ jobs:
         run: |
           python3 - <<'PY'
           from pathlib import Path
-          import json
+          import json, datetime
           p = Path('GQ-Session-Scalper-v2/backtests/smoke/reports/EURUSD-M15-smoke.json')
           if not p.exists():
               print('SMOKE_RESULT=NO_REPORT')
@@ -102,12 +103,22 @@ jobs:
           main = d.get('main', {})
           stats = d.get('tradeStatistics', {})
           total = stats.get('totalTrades', {}).get('all')
+          period = main.get('testingPeriod', {})
+          start_ms = period.get('startDate') if isinstance(period, dict) else None
+          end_ms = period.get('endDate') if isinstance(period, dict) else None
+          start = datetime.datetime.fromtimestamp(start_ms / 1000, datetime.timezone.utc).date().isoformat() if start_ms else None
+          end = datetime.datetime.fromtimestamp(end_ms / 1000, datetime.timezone.utc).date().isoformat() if end_ms else None
           print('SMOKE_RESULT=REPORT_CREATED')
           print('symbol=', main.get('symbol'))
-          print('period=', main.get('testingPeriod'))
+          print('period=', period)
+          print('resolvedStart=', start)
+          print('resolvedEnd=', end)
           print('netProfit=', main.get('netProfit'))
           print('roi=', main.get('roi'))
           print('trades=', total)
+          if start != '2026-09-01' or end != '2026-09-07':
+              raise SystemExit(f'DATE_ASSERTION_FAILED: {start} -> {end}')
+          print('DATE_ASSERTION=PASS')
           print('This run validates cBot lifecycle only; it is not a profitability verdict.')
           PY
 
@@ -119,7 +130,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: GQ-Session-Scalper-v2-EURUSD-M15-smoke
+          name: GQ-Session-Scalper-v2-EURUSD-M15-smoke-correct-dates
           path: |
             GQ-Session-Scalper-v2/backtests/smoke/reports/EURUSD-M15-smoke.html
             GQ-Session-Scalper-v2/backtests/smoke/reports/EURUSD-M15-smoke.json
