@@ -24,12 +24,6 @@ env:
   DEV1_END: '08/07/2026 23:59'
   DEV2_START: '09/07/2026 00:00'
   DEV2_END: '08/08/2026 23:59'
-  OOS_START: '09/08/2026 00:00'
-  OOS_END: '08/09/2026 00:00'
-  FULL3_START: '08/06/2026 00:00'
-  FULL3_END: '08/09/2026 00:00'
-  FULL6_START: '08/03/2026 00:00'
-  FULL6_END: '08/09/2026 00:00'
 
 jobs:
   build:
@@ -133,15 +127,11 @@ jobs:
             test -n "$PROFILE" || continue
             mapfile -t ARGS < <(python3 research/fibonacci-research1/btc_round2_args.py "$PROFILE")
             for SPEC in \
-              'OOS:09/08/2026 00:00:08/09/2026 00:00:0:65' \
-              'OOSHARSH:09/08/2026 00:00:08/09/2026 00:00:1500:100' \
-              'FULL3:08/06/2026 00:00:08/09/2026 00:00:0:65' \
-              'FULL6:08/03/2026 00:00:08/09/2026 00:00:0:65'; do
-              PHASE="${SPEC%%:*}"
-              REST="${SPEC#*:}"
-              START="${REST%%:*}"; REST="${REST#*:}"
-              END="${REST%%:*}"; REST="${REST#*:}"
-              SPREAD="${REST%%:*}"; COMM="${REST##*:}"
+              'OOS|09/08/2026 00:00|08/09/2026 00:00|0|65' \
+              'OOSHARSH|09/08/2026 00:00|08/09/2026 00:00|1500|100' \
+              'FULL3|08/06/2026 00:00|08/09/2026 00:00|0|65' \
+              'FULL6|08/03/2026 00:00|08/09/2026 00:00|0|65'; do
+              IFS='|' read -r PHASE START END SPREAD COMM <<< "$SPEC"
               echo "=== BITCOIN $PHASE / $PROFILE spread=$SPREAD commission=$COMM ==="
               timeout --signal=TERM --kill-after=30s 10m docker run --rm \
                 -v "$PWD/btc:/work" -e "CTID=$CTRADER_CTID" -e 'PWD-FILE=/work/ctrader.pwd' -e "ACCOUNT=$CTRADER_ACCOUNT" "$CTRADER_IMAGE" \
