@@ -2,7 +2,7 @@
   "Name": "GQ_Session_Scalper_v2",
   "Type": "Indicator",
   "AccessRights": "None",
-  "BuildTime": "2026-09-08T08:42:56.5369786Z",
+  "BuildTime": "2026-09-08T08:47:05.3974613Z",
   "Parameters": [
     {
       "PropertyName": "TradingEnabled",
