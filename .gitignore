@@ -1,0 +1,12 @@
+# Build/cache noise
+**/bin/
+**/obj/
+**/.vs/
+
+# Editor/OS temporary files
+.DS_Store
+Thumbs.db
+*.tmp
+*.bak
+*.user
+*.suo

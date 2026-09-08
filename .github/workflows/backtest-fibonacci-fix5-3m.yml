@@ -7,7 +7,7 @@ on:
       - main
     paths:
       - '.github/workflows/backtest-fibonacci-fix5-3m.yml'
-      - 'Fibonacci-v0.3.0-fix5/**'
+      - 'FibonacciHarmonicSniperUltimate/versions/v0.3.0-fix5/**'
 
 permissions:
   contents: read
@@ -26,9 +26,9 @@ jobs:
       max-parallel: 2
       matrix:
         include:
-          - {id: eur-h1-fix5, symbol: EURUSD, period: h1, source: Fibonacci-v0.3.0-fix5, spread: 1, trend: ScoreOnly, reserve: 2}
-          - {id: eur-m15-fix5, symbol: EURUSD, period: m15, source: Fibonacci-v0.3.0-fix5, spread: 1, trend: ScoreOnly, reserve: 2}
-          - {id: xau-m15-fix5, symbol: XAUUSD, period: m15, source: Fibonacci-v0.3.0-fix5, spread: 30, trend: ScoreOnly, reserve: 40}
+          - {id: eur-h1-fix5, symbol: EURUSD, period: h1, source: FibonacciHarmonicSniperUltimate/versions/v0.3.0-fix5, spread: 1, trend: ScoreOnly, reserve: 2}
+          - {id: eur-m15-fix5, symbol: EURUSD, period: m15, source: FibonacciHarmonicSniperUltimate/versions/v0.3.0-fix5, spread: 1, trend: ScoreOnly, reserve: 2}
+          - {id: xau-m15-fix5, symbol: XAUUSD, period: m15, source: FibonacciHarmonicSniperUltimate/versions/v0.3.0-fix5, spread: 30, trend: ScoreOnly, reserve: 40}
 
     steps:
       - name: Checkout repository
@@ -128,9 +128,7 @@ jobs:
           rc=$?
           set -e
           echo "CLI exit code: $rc"
-          # Preserve reports even on timeout, but do not label a killed process successful.
           exit "$rc"
-
 
       - name: Create diagnostic summary
         if: always()
@@ -181,4 +179,3 @@ jobs:
             backtest/reports/${{ matrix.symbol }}-3M-summary.md
           if-no-files-found: warn
           retention-days: 30
-
