@@ -1,0 +1,78 @@
+name: Build Fibonacci BTC Round4 MTF
+
+on:
+  push:
+    branches: [fibonacci-research1-build]
+    paths:
+      - '.github/workflows/build-fibonacci-btc-round4.yml'
+      - 'tools/create_fibonacci_btc_round4.py'
+      - 'research/fibonacci-research1/btc_round4_mtf_profiles.json'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fibonacci-btc-round4-build
+  cancel-in-progress: true
+
+env:
+  CTRADER_IMAGE: ghcr.io/spotware/ctrader-console:5.9.11
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Create Research1 baseline candidate
+        run: python3 tools/create_fibonacci_research1.py --repo-root "$PWD" --force
+
+      - name: Create BTC Round4 MTF candidate
+        run: python3 tools/create_fibonacci_btc_round4.py --repo-root "$PWD" --force
+
+      - name: Enable trading in ephemeral Round4 build copy
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('Fibonacci-v0.6.0-btc-round4-mtf/FibonacciHarmonicSniperUltimate.cs')
+          s=p.read_text(encoding='utf-8')
+          old='[Parameter("Trading Enabled", DefaultValue = false'
+          new='[Parameter("Trading Enabled", DefaultValue = true'
+          if old not in s:
+              raise SystemExit('Trading Enabled parameter not found')
+          p.write_text(s.replace(old,new,1),encoding='utf-8')
+          PY
+
+      - name: Build BTC Round4 MTF cBot
+        run: |
+          docker pull "$CTRADER_IMAGE"
+          docker run --rm --entrypoint sh -v "$PWD:/repo" -w /repo "$CTRADER_IMAGE" -c \
+            'dotnet restore Fibonacci-v0.6.0-btc-round4-mtf/FibonacciHarmonicSniperUltimate.csproj && dotnet build Fibonacci-v0.6.0-btc-round4-mtf/FibonacciHarmonicSniperUltimate.csproj --configuration Release --no-restore -p:AlgoPublish=False -p:IncludeSource=True'
+
+      - name: Collect build outputs
+        run: |
+          set -euo pipefail
+          mkdir -p build-artifact/source
+          ALGO="$(find Fibonacci-v0.6.0-btc-round4-mtf -type f -name '*.algo' -print -quit)"
+          test -n "$ALGO"
+          cp "$ALGO" build-artifact/FibonacciHarmonicSniperUltimate_BTC_Round4_MTF.algo
+          cp Fibonacci-v0.6.0-btc-round4-mtf/FibonacciHarmonicSniperUltimate.cs build-artifact/source/
+          cp Fibonacci-v0.6.0-btc-round4-mtf/FibonacciHarmonicSniperUltimate.csproj build-artifact/source/
+          cp research/fibonacci-research1/btc_round4_mtf_profiles.json build-artifact/
+          sha256sum build-artifact/FibonacciHarmonicSniperUltimate_BTC_Round4_MTF.algo > build-artifact/SHA256SUMS.txt
+          {
+            echo "version=v0.6.0-btc-round4-mtf"
+            echo "branch=${GITHUB_REF_NAME}"
+            echo "commit=${GITHUB_SHA}"
+            echo "architecture=current-TF pattern + higher-TF harmonic direction agreement"
+            echo "supported-pairs=H4+H1,H1+M30"
+          } > build-artifact/BUILD_INFO.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Fibonacci-Harmonic-Sniper-BTC-Round4-MTF-build
+          path: build-artifact
+          if-no-files-found: error
+          retention-days: 30
