@@ -1,0 +1,58 @@
+{
+  "h4_h1_strict": {
+    "execution_period": "h1",
+    "parameters": {
+      "MTFMode": "RequireAgreement",
+      "HigherTimeFrame": "Hour4",
+      "HigherEnabledPatterns": "Reciprocal ABCD",
+      "HigherMinPatternScore": "84",
+      "HigherRatioTolerancePercent": "6",
+      "HigherPivotLeft": "2",
+      "HigherPivotRight": "2",
+      "HigherMaxPatternAgeBars": "6",
+      "ParentChildMaxHours": "12"
+    }
+  },
+  "h4_h1_sell_confirm": {
+    "execution_period": "h1",
+    "parameters": {
+      "MTFMode": "SellRequiresAgreement",
+      "HigherTimeFrame": "Hour4",
+      "HigherEnabledPatterns": "Reciprocal ABCD",
+      "HigherMinPatternScore": "84",
+      "HigherRatioTolerancePercent": "6",
+      "HigherPivotLeft": "2",
+      "HigherPivotRight": "2",
+      "HigherMaxPatternAgeBars": "6",
+      "ParentChildMaxHours": "12"
+    }
+  },
+  "h1_m30_strict": {
+    "execution_period": "m30",
+    "parameters": {
+      "MTFMode": "RequireAgreement",
+      "HigherTimeFrame": "Hour",
+      "HigherEnabledPatterns": "Reciprocal ABCD",
+      "HigherMinPatternScore": "84",
+      "HigherRatioTolerancePercent": "6",
+      "HigherPivotLeft": "2",
+      "HigherPivotRight": "2",
+      "HigherMaxPatternAgeBars": "8",
+      "ParentChildMaxHours": "6"
+    }
+  },
+  "h1_m30_sell_confirm": {
+    "execution_period": "m30",
+    "parameters": {
+      "MTFMode": "SellRequiresAgreement",
+      "HigherTimeFrame": "Hour",
+      "HigherEnabledPatterns": "Reciprocal ABCD",
+      "HigherMinPatternScore": "84",
+      "HigherRatioTolerancePercent": "6",
+      "HigherPivotLeft": "2",
+      "HigherPivotRight": "2",
+      "HigherMaxPatternAgeBars": "8",
+      "ParentChildMaxHours": "6"
+    }
+  }
+}
