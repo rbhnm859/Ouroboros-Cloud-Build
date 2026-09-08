@@ -1,17 +1,17 @@
 {
   "format": 1,
   "restore": {
-    "/home/runner/work/Ouroboros-Cloud-Build/Ouroboros-Cloud-Build/Bar-Breakout-Trading/source/Bar Breakout Trading.csproj": {}
+    "/home/runner/work/Ouroboros-Cloud-Build/Ouroboros-Cloud-Build/Keltner-Channels-Trader-v2/source/Keltner Channels Trader v2.csproj": {}
   },
   "projects": {
-    "/home/runner/work/Ouroboros-Cloud-Build/Ouroboros-Cloud-Build/Bar-Breakout-Trading/source/Bar Breakout Trading.csproj": {
+    "/home/runner/work/Ouroboros-Cloud-Build/Ouroboros-Cloud-Build/Keltner-Channels-Trader-v2/source/Keltner Channels Trader v2.csproj": {
       "version": "1.0.0",
       "restore": {
-        "projectUniqueName": "/home/runner/work/Ouroboros-Cloud-Build/Ouroboros-Cloud-Build/Bar-Breakout-Trading/source/Bar Breakout Trading.csproj",
-        "projectName": "Bar Breakout Trading",
-        "projectPath": "/home/runner/work/Ouroboros-Cloud-Build/Ouroboros-Cloud-Build/Bar-Breakout-Trading/source/Bar Breakout Trading.csproj",
+        "projectUniqueName": "/home/runner/work/Ouroboros-Cloud-Build/Ouroboros-Cloud-Build/Keltner-Channels-Trader-v2/source/Keltner Channels Trader v2.csproj",
+        "projectName": "KeltnerChannelsTraderV2_Optimized",
+        "projectPath": "/home/runner/work/Ouroboros-Cloud-Build/Ouroboros-Cloud-Build/Keltner-Channels-Trader-v2/source/Keltner Channels Trader v2.csproj",
         "packagesPath": "/tmp/codeql-scratch-74da7f61d946636b/dbs/csharp/working/packages",
-        "outputPath": "/home/runner/work/Ouroboros-Cloud-Build/Ouroboros-Cloud-Build/Bar-Breakout-Trading/source/obj/",
+        "outputPath": "/home/runner/work/Ouroboros-Cloud-Build/Ouroboros-Cloud-Build/Keltner-Channels-Trader-v2/source/obj/",
         "projectStyle": "PackageReference",
         "configFilePaths": [
           "/home/runner/.nuget/NuGet/NuGet.Config"
@@ -48,7 +48,7 @@
           "dependencies": {
             "cTrader.Automate": {
               "target": "Package",
-              "version": "[1.*-*, )"
+              "version": "[*-*, )"
             }
           },
           "imports": [

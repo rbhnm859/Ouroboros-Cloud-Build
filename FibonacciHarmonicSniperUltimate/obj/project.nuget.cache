@@ -1,8 +1,8 @@
 {
   "version": 2,
-  "dgSpecHash": "3S/gJM9sbeI=",
+  "dgSpecHash": "GYrTYL5lJSc=",
   "success": true,
-  "projectFilePath": "/home/runner/work/Ouroboros-Cloud-Build/Ouroboros-Cloud-Build/Bar-Breakout-Trading/source/Bar Breakout Trading.csproj",
+  "projectFilePath": "/home/runner/work/Ouroboros-Cloud-Build/Ouroboros-Cloud-Build/FibonacciHarmonicSniperUltimate/FibonacciHarmonicSniperUltimate.csproj",
   "expectedPackageFiles": [
     "/tmp/codeql-scratch-74da7f61d946636b/dbs/csharp/working/packages/ctrader.automate/1.0.19/ctrader.automate.1.0.19.nupkg.sha512",
     "/tmp/codeql-scratch-74da7f61d946636b/dbs/csharp/working/packages/microsoft.netcore.app.ref/6.0.36/microsoft.netcore.app.ref.6.0.36.nupkg.sha512",
