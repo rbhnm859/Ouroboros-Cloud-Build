@@ -587,11 +587,13 @@ namespace cAlgo.Robots
         {
             if (!IsFinitePositive(candidateStop))
                 return;
-            double minPips = GetBrokerMinStopLossPips() * 1.05;
+            double brokerDistancePrice = GetBrokerMinStopLossPips() * Symbol.PipSize * 1.05;
+            double executionBufferPrice = Math.Max(Symbol.TickSize * 2.0, Symbol.PipSize * 0.2);
+            double minimumDistancePrice = Math.Max(brokerDistancePrice, executionBufferPrice);
             if (position.TradeType == TradeType.Buy)
-                candidateStop = Math.Min(candidateStop, Symbol.Bid - minPips * Symbol.PipSize);
+                candidateStop = Math.Min(candidateStop, Symbol.Bid - minimumDistancePrice);
             else
-                candidateStop = Math.Max(candidateStop, Symbol.Ask + minPips * Symbol.PipSize);
+                candidateStop = Math.Max(candidateStop, Symbol.Ask + minimumDistancePrice);
             candidateStop = Math.Round(candidateStop, Symbol.Digits);
 
             PositionState state;
