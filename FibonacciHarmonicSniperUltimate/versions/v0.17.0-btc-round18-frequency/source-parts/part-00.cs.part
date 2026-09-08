@@ -1,0 +1,375 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using cAlgo.API;
+using cAlgo.API.Indicators;
+
+namespace cAlgo.Robots
+{
+    [Robot(TimeZone = TimeZones.UTC, AccessRights = AccessRights.None)]
+    public class FibonacciHarmonicSniperUltimate : Robot
+    {
+        [Parameter("Trading Enabled", DefaultValue = true, Group = "General")]
+        public bool TradingEnabled { get; set; }
+
+        [Parameter("Bot Label", DefaultValue = "FHSU", Group = "General")]
+        public string BotLabel { get; set; }
+
+        [Parameter("Enabled Patterns", DefaultValue = "Reciprocal ABCD", Group = "Patterns")]
+        public string EnabledPatterns { get; set; }
+
+        [Parameter("Custom Pattern Ratios", DefaultValue = "", Group = "Patterns")]
+        public string CustomPatternRatios { get; set; }
+
+        [Parameter("Min Pattern Score %", DefaultValue = 84.0, MinValue = 50.0, MaxValue = 100.0, Group = "Patterns")]
+        public double MinPatternScore { get; set; }
+
+        [Parameter("Ratio Tolerance %", DefaultValue = 6.0, MinValue = 0.0, MaxValue = 25.0, Group = "Patterns")]
+        public double RatioTolerancePercent { get; set; }
+
+        [Parameter("MTF Mode", DefaultValue = MultiTimeframeMode.Off, Group = "BTC Round4 MTF")]
+        public MultiTimeframeMode MtfMode { get; set; }
+
+        [Parameter("Higher TimeFrame", DefaultValue = "Hour4", Group = "BTC Round4 MTF")]
+        public TimeFrame HigherTimeFrame { get; set; }
+
+        [Parameter("HTF Patterns", DefaultValue = "Reciprocal ABCD", Group = "BTC Round4 MTF")]
+        public string HigherEnabledPatterns { get; set; }
+
+        [Parameter("HTF Min Pattern Score %", DefaultValue = 84.0, MinValue = 50.0, MaxValue = 100.0, Group = "BTC Round4 MTF")]
+        public double HigherMinPatternScore { get; set; }
+
+        [Parameter("HTF Ratio Tolerance %", DefaultValue = 6.0, MinValue = 0.0, MaxValue = 25.0, Group = "BTC Round4 MTF")]
+        public double HigherRatioTolerancePercent { get; set; }
+
+        [Parameter("HTF Pivot Left", DefaultValue = 2, MinValue = 2, MaxValue = 30, Group = "BTC Round4 MTF")]
+        public int HigherPivotLeft { get; set; }
+
+        [Parameter("HTF Pivot Right", DefaultValue = 2, MinValue = 2, MaxValue = 30, Group = "BTC Round4 MTF")]
+        public int HigherPivotRight { get; set; }
+
+        [Parameter("HTF Pivot Lookback", DefaultValue = 500, MinValue = 100, MaxValue = 5000, Group = "BTC Round4 MTF")]
+        public int HigherPivotLookback { get; set; }
+
+        [Parameter("HTF Max Pattern Age Bars", DefaultValue = 6, MinValue = 1, MaxValue = 100, Group = "BTC Round4 MTF")]
+        public int HigherMaxPatternAgeBars { get; set; }
+
+        [Parameter("Parent/Child Max Hours", DefaultValue = 12.0, MinValue = 0.0, MaxValue = 168.0, Group = "BTC Round4 MTF")]
+        public double ParentChildMaxHours { get; set; }
+
+        [Parameter("Log Shadow Conflicts", DefaultValue = true, Group = "BTC Round4 MTF")]
+        public bool LogShadowConflicts { get; set; }
+
+        [Parameter("Round5 Decision Mode", DefaultValue = Round5DecisionMode.MacroVeto, Group = "BTC Round5 State")]
+        public Round5DecisionMode Round5Mode { get; set; }
+
+        [Parameter("D1 Patterns", DefaultValue = "Gartley,Bat,Butterfly,Crab,Deep Crab", Group = "BTC Round5 State")]
+        public string D1Patterns { get; set; }
+
+        [Parameter("H4 Patterns", DefaultValue = "Gartley,Bat,Crab,Reciprocal ABCD", Group = "BTC Round5 State")]
+        public string H4Patterns { get; set; }
+
+        [Parameter("H1 Patterns", DefaultValue = "Reciprocal ABCD", Group = "BTC Round5 State")]
+        public string H1Patterns { get; set; }
+
+        [Parameter("M30 Patterns", DefaultValue = "Reciprocal ABCD,ABCD", Group = "BTC Round5 State")]
+        public string M30Patterns { get; set; }
+
+        [Parameter("M15 Patterns", DefaultValue = "ABCD,Reciprocal ABCD", Group = "BTC Round5 State")]
+        public string M15Patterns { get; set; }
+
+        [Parameter("M5 Patterns", DefaultValue = "ABCD", Group = "BTC Round5 State")]
+        public string M5Patterns { get; set; }
+
+        [Parameter("M1 Patterns", DefaultValue = "ABCD", Group = "BTC Round5 State")]
+        public string M1Patterns { get; set; }
+
+        [Parameter("Macro Min Score %", DefaultValue = 82.0, MinValue = 50.0, MaxValue = 100.0, Group = "BTC Round5 State")]
+        public double MacroStateMinScore { get; set; }
+
+        [Parameter("Direction Min Score %", DefaultValue = 84.0, MinValue = 50.0, MaxValue = 100.0, Group = "BTC Round5 State")]
+        public double DirectionStateMinScore { get; set; }
+
+        [Parameter("Confirmation Min Score %", DefaultValue = 80.0, MinValue = 50.0, MaxValue = 100.0, Group = "BTC Round5 State")]
+        public double ConfirmationStateMinScore { get; set; }
+
+        [Parameter("Timing Min Score %", DefaultValue = 78.0, MinValue = 50.0, MaxValue = 100.0, Group = "BTC Round5 State")]
+        public double TimingStateMinScore { get; set; }
+
+        [Parameter("State Ratio Tolerance %", DefaultValue = 8.0, MinValue = 0.0, MaxValue = 25.0, Group = "BTC Round5 State")]
+        public double StateRatioTolerancePercent { get; set; }
+
+        [Parameter("State Pivot Left", DefaultValue = 2, MinValue = 2, MaxValue = 20, Group = "BTC Round5 State")]
+        public int StatePivotLeft { get; set; }
+
+        [Parameter("State Pivot Right", DefaultValue = 2, MinValue = 2, MaxValue = 20, Group = "BTC Round5 State")]
+        public int StatePivotRight { get; set; }
+
+        [Parameter("State Pivot Lookback", DefaultValue = 300, MinValue = 100, MaxValue = 2000, Group = "BTC Round5 State")]
+        public int StatePivotLookback { get; set; }
+
+        [Parameter("D1 Max Age Bars", DefaultValue = 5, MinValue = 1, MaxValue = 50, Group = "BTC Round5 State")]
+        public int D1StateMaxAge { get; set; }
+
+        [Parameter("H4 Max Age Bars", DefaultValue = 8, MinValue = 1, MaxValue = 100, Group = "BTC Round5 State")]
+        public int H4StateMaxAge { get; set; }
+
+        [Parameter("H1 Max Age Bars", DefaultValue = 16, MinValue = 1, MaxValue = 100, Group = "BTC Round5 State")]
+        public int H1StateMaxAge { get; set; }
+
+        [Parameter("M30 Max Age Bars", DefaultValue = 12, MinValue = 1, MaxValue = 100, Group = "BTC Round5 State")]
+        public int M30StateMaxAge { get; set; }
+
+        [Parameter("M15 Max Age Bars", DefaultValue = 10, MinValue = 1, MaxValue = 100, Group = "BTC Round5 State")]
+        public int M15StateMaxAge { get; set; }
+
+        [Parameter("M5 Max Age Bars", DefaultValue = 8, MinValue = 1, MaxValue = 100, Group = "BTC Round5 State")]
+        public int M5StateMaxAge { get; set; }
+
+        [Parameter("M1 Max Age Bars", DefaultValue = 6, MinValue = 1, MaxValue = 100, Group = "BTC Round5 State")]
+        public int M1StateMaxAge { get; set; }
+
+        [Parameter("State Age Decay %", DefaultValue = 50.0, MinValue = 0.0, MaxValue = 100.0, Group = "BTC Round5 State")]
+        public double StateAgeDecayPercent { get; set; }
+
+        [Parameter("Macro Weight D1", DefaultValue = 4.0, MinValue = 0.0, MaxValue = 20.0, Group = "BTC Round5 State")]
+        public double D1Weight { get; set; }
+
+        [Parameter("Macro Weight H4", DefaultValue = 3.0, MinValue = 0.0, MaxValue = 20.0, Group = "BTC Round5 State")]
+        public double H4Weight { get; set; }
+
+        [Parameter("Direction Weight H1", DefaultValue = 2.5, MinValue = 0.0, MaxValue = 20.0, Group = "BTC Round5 State")]
+        public double H1Weight { get; set; }
+
+        [Parameter("Direction Weight M30", DefaultValue = 2.0, MinValue = 0.0, MaxValue = 20.0, Group = "BTC Round5 State")]
+        public double M30Weight { get; set; }
+
+        [Parameter("Confirmation Weight M15", DefaultValue = 1.0, MinValue = 0.0, MaxValue = 20.0, Group = "BTC Round5 State")]
+        public double M15Weight { get; set; }
+
+        [Parameter("Confirmation Weight M5", DefaultValue = 0.5, MinValue = 0.0, MaxValue = 20.0, Group = "BTC Round5 State")]
+        public double M5Weight { get; set; }
+
+        [Parameter("Timing Weight M1", DefaultValue = 0.25, MinValue = 0.0, MaxValue = 20.0, Group = "BTC Round5 State")]
+        public double M1Weight { get; set; }
+
+        [Parameter("Weighted Gate Threshold", DefaultValue = 0.35, MinValue = 0.0, MaxValue = 1.0, Group = "BTC Round5 State")]
+        public double WeightedGateThreshold { get; set; }
+
+        [Parameter("Log Pattern Matrix", DefaultValue = true, Group = "BTC Round5 State")]
+        public bool LogPatternMatrix { get; set; }
+
+        [Parameter("R6 Require M30 Sell Confirm", DefaultValue = false, Group = "BTC Round6 Hybrid")]
+        public bool Round6RequireM30SellConfirm { get; set; }
+
+        [Parameter("R6 Log Rejected Sell", DefaultValue = true, Group = "BTC Round6 Hybrid")]
+        public bool Round6LogRejectedSell { get; set; }
+
+        [Parameter("R7 Veto M30 Sell Alignment", DefaultValue = true, Group = "BTC Round7 Inverse Veto")]
+        public bool Round7VetoM30SellAlignment { get; set; }
+
+        [Parameter("R7 Log Vetoed Sell", DefaultValue = true, Group = "BTC Round7 Inverse Veto")]
+        public bool Round7LogVetoedSell { get; set; }
+
+        [Parameter("R8 Log MFE MAE", DefaultValue = true, Group = "BTC Round8 Excursion")]
+        public bool Round8LogExcursions { get; set; }
+
+        [Parameter("R9 Shadow TP Continuation", DefaultValue = true, Group = "BTC Round9 Shadow")]
+        public bool Round9ShadowTpContinuation { get; set; }
+
+        [Parameter("R9 Shadow Horizon Hours", DefaultValue = 48, MinValue = 6, MaxValue = 96, Group = "BTC Round9 Shadow")]
+        public int Round9ShadowHorizonHours { get; set; }
+
+        [Parameter("R10 Log Rejection Funnel", DefaultValue = true, Group = "BTC Round10 Funnel")]
+        public bool Round10LogFunnel { get; set; }
+
+        [Parameter("R15 Enable M30 Frequency Engine", DefaultValue = true, Group = "BTC Round15 Portfolio")]
+        public bool Round15EnableM30Engine { get; set; }
+
+        [Parameter("R16 H1 Health Gate", DefaultValue = true, Group = "BTC Round16 Regime")]
+        public bool Round16H1HealthGate { get; set; }
+
+        [Parameter("R17 M30 Risk % Equity", DefaultValue = 0.50, MinValue = 0.05, MaxValue = 2.0, Group = "BTC Round17 Risk")]
+        public double Round17M30RiskPercent { get; set; }
+
+        [Parameter("R18 Enable Frequency Expansion", DefaultValue = true, Group = "BTC Round18 Frequency")]
+        public bool Round18EnableFrequencyExpansion { get; set; }
+
+        [Parameter("R18 M30 Cooldown Bars", DefaultValue = 3, MinValue = 1, MaxValue = 12, Group = "BTC Round18 Frequency")]
+        public int Round18M30CooldownBars { get; set; }
+
+        [Parameter("R18 H1 Alignment Bypass", DefaultValue = true, Group = "BTC Round18 Frequency")]
+        public bool Round18H1AlignmentBypass { get; set; }
+
+        [Parameter("R18 H1 Alignment Max Age", DefaultValue = 6, MinValue = 1, MaxValue = 24, Group = "BTC Round18 Frequency")]
+        public int Round18H1AlignmentMaxAgeBars { get; set; }
+
+        [Parameter("R18 H1 Min Confidence", DefaultValue = 0.65, MinValue = 0.0, MaxValue = 1.0, Group = "BTC Round18 Frequency")]
+        public double Round18H1MinConfidence { get; set; }
+
+        [Parameter("R18 Add ABCD M30", DefaultValue = true, Group = "BTC Round18 Frequency")]
+        public bool Round18AddAbcdM30 { get; set; }
+
+        [Parameter("R18 ABCD Min Score %", DefaultValue = 88.0, MinValue = 50.0, MaxValue = 100.0, Group = "BTC Round18 Frequency")]
+        public double Round18AbcdMinScore { get; set; }
+
+        [Parameter("R18 ABCD Ratio Tolerance %", DefaultValue = 5.0, MinValue = 0.0, MaxValue = 25.0, Group = "BTC Round18 Frequency")]
+        public double Round18AbcdRatioTolerancePercent { get; set; }
+
+        [Parameter("R18 ABCD Max Age Bars", DefaultValue = 20, MinValue = 1, MaxValue = 64, Group = "BTC Round18 Frequency")]
+        public int Round18AbcdMaxAgeBars { get; set; }
+
+        [Parameter("R18 ABCD Require M30 Trend", DefaultValue = true, Group = "BTC Round18 Frequency")]
+        public bool Round18AbcdRequireTrend { get; set; }
+
+        [Parameter("R18 ABCD Risk % Equity", DefaultValue = 0.25, MinValue = 0.05, MaxValue = 1.0, Group = "BTC Round18 Frequency")]
+        public double Round18AbcdRiskPercent { get; set; }
+
+        [Parameter("R18 Log Frequency Funnel", DefaultValue = true, Group = "BTC Round18 Frequency")]
+        public bool Round18LogFrequencyFunnel { get; set; }
+
+        [Parameter("Pivot Left Bars", DefaultValue = 2, MinValue = 2, MaxValue = 30, Group = "Pivots")]
+        public int PivotLeft { get; set; }
+
+        [Parameter("Pivot Right Bars", DefaultValue = 2, MinValue = 2, MaxValue = 30, Group = "Pivots")]
+        public int PivotRight { get; set; }
+
+        [Parameter("Pivot Lookback Bars", DefaultValue = 500, MinValue = 100, MaxValue = 5000, Group = "Pivots")]
+        public int PivotLookback { get; set; }
+
+        [Parameter("Max Pattern Age Bars", DefaultValue = 16, MinValue = 1, MaxValue = 100, Group = "Pivots")]
+        public int MaxPatternAgeBars { get; set; }
+
+        [Parameter("Min XA Size (pips)", DefaultValue = 0.0, MinValue = 0.0, Group = "Filters")]
+        public double MinXaPips { get; set; }
+
+        [Parameter("EMA Filter Mode", DefaultValue = TrendFilterMode.ScoreOnly, Group = "Filters")]
+        public TrendFilterMode EmaFilterMode { get; set; }
+
+        [Parameter("EMA Period", DefaultValue = 50, MinValue = 2, MaxValue = 500, Group = "Filters")]
+        public int EmaPeriod { get; set; }
+
+        [Parameter("Require EMA Slope", DefaultValue = true, Group = "Filters")]
+        public bool RequireEmaSlope { get; set; }
+
+        [Parameter("ATR Period", DefaultValue = 14, MinValue = 2, MaxValue = 200, Group = "Filters")]
+        public int AtrPeriod { get; set; }
+
+        [Parameter("Min ATR (pips, 0=off)", DefaultValue = 0.0, MinValue = 0.0, Group = "Filters")]
+        public double MinAtrPips { get; set; }
+
+        [Parameter("Max Spread (pips, 0=off)", DefaultValue = 0.0, MinValue = 0.0, Group = "Filters")]
+        public double MaxSpreadPips { get; set; }
+
+        [Parameter("Candle Confirmation", DefaultValue = true, Group = "Confirmation")]
+        public bool UseCandleConfirmation { get; set; }
+
+        [Parameter("Confirmation Move ATR", DefaultValue = 0.05, MinValue = 0.0, MaxValue = 2.0, Group = "Confirmation")]
+        public double ConfirmationMoveAtr { get; set; }
+
+        [Parameter("Max Entry Distance ATR", DefaultValue = 1.80, MinValue = 0.1, MaxValue = 10.0, Group = "Confirmation")]
+        public double MaxEntryDistanceAtr { get; set; }
+
+        [Parameter("Confirmation Mode", DefaultValue = EntryConfirmationMode.Balanced, Group = "Confirmation")]
+        public EntryConfirmationMode ConfirmationMode { get; set; }
+
+        [Parameter("Min Score Advantage", DefaultValue = 3.0, MinValue = 0.0, MaxValue = 50.0, Group = "Confirmation")]
+        public double MinScoreAdvantage { get; set; }
+
+        [Parameter("Risk Mode", DefaultValue = RiskSizingMode.RiskPercentEquity, Group = "Risk")]
+        public RiskSizingMode RiskMode { get; set; }
+
+        [Parameter("Fixed Lots", DefaultValue = 0.01, MinValue = 0.0, Group = "Risk")]
+        public double FixedLots { get; set; }
+
+        [Parameter("Risk % Equity", DefaultValue = 1.0, MinValue = 0.01, MaxValue = 20.0, Group = "Risk")]
+        public double RiskPercent { get; set; }
+
+        [Parameter("Fixed Risk Cash", DefaultValue = 1.0, MinValue = 0.01, Group = "Risk")]
+        public double FixedRiskCash { get; set; }
+
+        [Parameter("SL ATR Buffer", DefaultValue = 0.35, MinValue = 0.0, MaxValue = 5.0, Group = "Risk")]
+        public double SlAtrBuffer { get; set; }
+
+        [Parameter("Min Stop (pips)", DefaultValue = 1.0, MinValue = 0.1, Group = "Risk")]
+        public double MinStopPips { get; set; }
+
+        [Parameter("Max Stop (pips, 0=off)", DefaultValue = 0.0, MinValue = 0.0, Group = "Risk")]
+        public double MaxStopPips { get; set; }
+
+        [Parameter("Stop Anchor Mode", DefaultValue = StopAnchorModeKind.LegacyD, Group = "Risk")]
+        public StopAnchorModeKind StopAnchorMode { get; set; }
+
+        [Parameter("Target RR Policy", DefaultValue = TargetRiskRewardPolicyKind.LegacyFallback, Group = "Risk")]
+        public TargetRiskRewardPolicyKind TargetRiskRewardPolicy { get; set; }
+
+        [Parameter("TP Mode", DefaultValue = TakeProfitMode.Fib618AD, Group = "Risk")]
+        public TakeProfitMode TpMode { get; set; }
+
+        [Parameter("Fallback RR", DefaultValue = 1.80, MinValue = 0.5, MaxValue = 20.0, Group = "Risk")]
+        public double FallbackRiskReward { get; set; }
+
+        [Parameter("Minimum RR", DefaultValue = 1.50, MinValue = 0.2, MaxValue = 20.0, Group = "Risk")]
+        public double MinimumRiskReward { get; set; }
+
+        [Parameter("Max Open Positions", DefaultValue = 1, MinValue = 1, MaxValue = 20, Group = "Limits")]
+        public int MaxOpenPositions { get; set; }
+
+        [Parameter("Max Trades / Day", DefaultValue = 6, MinValue = 1, MaxValue = 100, Group = "Limits")]
+        public int MaxTradesPerDay { get; set; }
+
+        [Parameter("Daily Loss % (0=off)", DefaultValue = 5.0, MinValue = 0.0, MaxValue = 100.0, Group = "Limits")]
+        public double MaxDailyLossPercent { get; set; }
+
+        [Parameter("Cooldown Bars", DefaultValue = 2, MinValue = 0, MaxValue = 500, Group = "Limits")]
+        public int CooldownBars { get; set; }
+
+        [Parameter("Debug Logging", DefaultValue = true, Group = "Diagnostics")]
+        public bool DebugLogging { get; set; }
+
+        private readonly Dictionary<string, int> _diagnostics = new Dictionary<string, int>();
+        private readonly Dictionary<string, long> _round10Funnel = new Dictionary<string, long>(StringComparer.OrdinalIgnoreCase);
+        private AverageTrueRange _r15M30Atr;
+        private ExponentialMovingAverage _r15M30Ema;
+        private DateTime _r15LastSeenM30OpenTime = DateTime.MinValue;
+        private int _r15LastM30TradeClosedIndex = -1000000;
+        private int _r15LastM30BullishDIndex = -1;
+        private int _r15LastM30BearishDIndex = -1;
+        private readonly HashSet<string> _r15M30ConsumedSignals = new HashSet<string>(StringComparer.Ordinal);
+        private int _r15M30Opened;
+        private int _r15M30BlockedOpenPosition;
+        private int _r15M30BlockedLimits;
+        private readonly Queue<bool> _r16RecentH1Wins = new Queue<bool>();
+        private int _r16M30BlockedHealth;
+        private long _r18M30BarsSeen;
+        private long _r18M30Candidates;
+        private long _r18CoreCandidates;
+        private long _r18AbcdCandidates;
+        private long _r18BlockedCooldown;
+        private long _r18BlockedPosition;
+        private long _r18BlockedDailyLimit;
+        private long _r18BlockedDailyLoss;
+        private long _r18BlockedSpread;
+        private long _r18BlockedAtr;
+        private long _r18BlockedHealthAfterCandidate;
+        private long _r18HealthBypassUsed;
+        private long _r18BlockedConfirmation;
+        private long _r18BlockedPoorGeometry;
+        private long _r18BlockedVolume;
+        private long _r18OpenedCore;
+        private long _r18OpenedAbcd;
+        private void Round10Count(string key)
+        {
+            if (!Round10LogFunnel) return;
+            long n; _round10Funnel.TryGetValue(key, out n); _round10Funnel[key] = n + 1;
+        }
+        private void Round10Count(string key, TradeType direction)
+        {
+            Round10Count(key + "_" + direction.ToString().ToLowerInvariant());
+        }
+        private bool Reject(string reason)
+        {
+            if (!_diagnostics.ContainsKey(reason)) _diagnostics[reason] = 0;
+            _diagnostics[reason]++;
+            Round10Count("reject_" + reason);
+            return false;
