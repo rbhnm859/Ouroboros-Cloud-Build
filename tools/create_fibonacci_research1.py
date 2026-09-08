@@ -66,20 +66,14 @@ def build_candidate(repo_root: Path, force: bool = False) -> Path:
 '''
     source = replace_once(source, risk_insert_old, risk_insert_new, "risk parameters")
 
-    stop_old = '''            double atr = _atr.Result.LastValue;
-            double entry = m.Direction == TradeType.Buy ? Symbol.Ask : Symbol.Bid;
-            double slPrice = m.Direction == TradeType.Buy
+    stop_old = '''            double slPrice = m.Direction == TradeType.Buy
                 ? m.D.Price - atr * SlAtrBuffer
                 : m.D.Price + atr * SlAtrBuffer;
-            double stopDistance = m.Direction == TradeType.Buy ? entry - slPrice : slPrice - entry;
 '''
-    stop_new = '''            double atr = _atr.Result.LastValue;
-            double entry = m.Direction == TradeType.Buy ? Symbol.Ask : Symbol.Bid;
-            double stopAnchor = ResolveStopAnchor(m);
+    stop_new = '''            double stopAnchor = ResolveStopAnchor(m);
             double slPrice = m.Direction == TradeType.Buy
                 ? stopAnchor - atr * SlAtrBuffer
                 : stopAnchor + atr * SlAtrBuffer;
-            double stopDistance = m.Direction == TradeType.Buy ? entry - slPrice : slPrice - entry;
 '''
     source = replace_once(source, stop_old, stop_new, "structural stop")
 
@@ -88,6 +82,7 @@ def build_candidate(repo_root: Path, force: bool = False) -> Path:
                 tpPips = slPips * FallbackRiskReward;
             if (tpPips < slPips * MinimumRiskReward)
                 return;
+
             double volume = CalculateVolume(slPips);
 '''
     target_new = '''            double tpPips = CalculateTakeProfitPips(m, entry, slPips);
