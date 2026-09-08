@@ -1,0 +1,8 @@
+[
+  {"id":"control","be":"false","trigger":"0.75","buy":"true","sell":"true"},
+  {"id":"be050_all","be":"true","trigger":"0.50","buy":"true","sell":"true"},
+  {"id":"be075_all","be":"true","trigger":"0.75","buy":"true","sell":"true"},
+  {"id":"be100_all","be":"true","trigger":"1.00","buy":"true","sell":"true"},
+  {"id":"be075_buy","be":"true","trigger":"0.75","buy":"true","sell":"false"},
+  {"id":"be075_sell","be":"true","trigger":"0.75","buy":"false","sell":"true"}
+]
