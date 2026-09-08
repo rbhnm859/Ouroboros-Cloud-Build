@@ -83,9 +83,17 @@ jobs:
           docker run --rm -v "$PWD/symbol-check:/work" "$CTRADER_IMAGE" \
             symbols --ctid="$CTRADER_CTID" --pwd-file=/work/ctrader.pwd --account="$CTRADER_ACCOUNT" \
             | tee symbol-check/symbols.txt
-          for s in EURUSD XAUUSD BITCOIN ETHEREUM; do
-            grep -Fxq "$s" symbol-check/symbols.txt || { echo "Required symbol not found: $s"; exit 2; }
-          done
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          data = json.loads(Path('symbol-check/symbols.txt').read_text(encoding='utf-8'))
+          available = {row.get('Name') for row in data if isinstance(row, dict)}
+          required = {'EURUSD', 'XAUUSD', 'BITCOIN', 'ETHEREUM'}
+          missing = sorted(required - available)
+          print('Verified symbols:', ', '.join(sorted(required & available)))
+          if missing:
+              raise SystemExit('Required symbol(s) not found: ' + ', '.join(missing))
+          PY
           rm -f symbol-check/ctrader.pwd
       - uses: actions/upload-artifact@v4
         if: always()
