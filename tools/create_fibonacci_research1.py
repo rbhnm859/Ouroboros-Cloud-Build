@@ -56,11 +56,11 @@ def build_candidate(repo_root: Path, force: bool = False) -> Path:
     risk_insert_new = '''        [Parameter("Max Stop (pips, 0=off)", DefaultValue = 0.0, MinValue = 0.0, Group = "Risk")]
         public double MaxStopPips { get; set; }
 
-        [Parameter("Stop Anchor Mode", DefaultValue = StopAnchorMode.PatternInvalidation, Group = "Risk")]
-        public StopAnchorMode StopAnchorMode { get; set; }
+        [Parameter("Stop Anchor Mode", DefaultValue = StopAnchorModeKind.PatternInvalidation, Group = "Risk")]
+        public StopAnchorModeKind StopAnchorMode { get; set; }
 
-        [Parameter("Target RR Policy", DefaultValue = TargetRiskRewardPolicy.RejectPoorGeometry, Group = "Risk")]
-        public TargetRiskRewardPolicy TargetRiskRewardPolicy { get; set; }
+        [Parameter("Target RR Policy", DefaultValue = TargetRiskRewardPolicyKind.RejectPoorGeometry, Group = "Risk")]
+        public TargetRiskRewardPolicyKind TargetRiskRewardPolicy { get; set; }
 
         [Parameter("TP Mode", DefaultValue = TakeProfitMode.Fib618AD, Group = "Risk")]
 '''
@@ -88,7 +88,7 @@ def build_candidate(repo_root: Path, force: bool = False) -> Path:
     target_new = '''            double tpPips = CalculateTakeProfitPips(m, entry, slPips);
             if (tpPips < slPips * MinimumRiskReward)
             {
-                if (TargetRiskRewardPolicy == TargetRiskRewardPolicy.RejectPoorGeometry)
+                if (TargetRiskRewardPolicy == TargetRiskRewardPolicyKind.RejectPoorGeometry)
                 {
                     Reject("target_rr_too_low");
                     return;
@@ -110,7 +110,7 @@ def build_candidate(repo_root: Path, force: bool = False) -> Path:
 '''
     volume_method = '''        private double ResolveStopAnchor(PatternMatch match)
         {
-            if (StopAnchorMode == StopAnchorMode.LegacyD)
+            if (StopAnchorMode == StopAnchorModeKind.LegacyD)
                 return match.D.Price;
 
             bool dIsInsideXa = match.Xd <= 1.0;
@@ -125,13 +125,13 @@ def build_candidate(repo_root: Path, force: bool = False) -> Path:
     enum_anchor = '''        public enum RiskSizingMode
         {
 '''
-    enum_block = '''        public enum StopAnchorMode
+    enum_block = '''        public enum StopAnchorModeKind
         {
             LegacyD,
             PatternInvalidation
         }
 
-        public enum TargetRiskRewardPolicy
+        public enum TargetRiskRewardPolicyKind
         {
             LegacyFallback,
             RejectPoorGeometry
