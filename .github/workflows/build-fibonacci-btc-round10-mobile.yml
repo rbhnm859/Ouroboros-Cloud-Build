@@ -1,0 +1,50 @@
+name: Fibonacci BTC Round10 Mobile Build
+
+on:
+  push:
+    branches: [fibonacci-research1-build]
+    paths:
+      - '.github/workflows/build-fibonacci-btc-round10-mobile.yml'
+      - 'tools/create_fibonacci_btc_round10.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fibonacci-btc-round10-mobile-build
+  cancel-in-progress: true
+
+env:
+  CTRADER_IMAGE: ghcr.io/spotware/ctrader-console:5.9.11
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - run: python3 tools/create_fibonacci_research1.py --repo-root "$PWD" --force
+      - run: python3 tools/create_fibonacci_btc_round4.py --repo-root "$PWD" --force
+      - run: python3 tools/create_fibonacci_btc_round5.py --repo-root "$PWD" --force
+      - run: python3 tools/create_fibonacci_btc_round6.py --repo-root "$PWD" --force
+      - run: python3 tools/create_fibonacci_btc_round7.py --repo-root "$PWD" --force
+      - run: python3 tools/create_fibonacci_btc_round8.py --repo-root "$PWD" --force
+      - run: python3 tools/create_fibonacci_btc_round9.py --repo-root "$PWD" --force
+      - run: python3 tools/create_fibonacci_btc_round10.py --repo-root "$PWD" --force
+      - name: Build Round10 Mobile/Cloud algo
+        run: |
+          docker pull "$CTRADER_IMAGE"
+          docker run --rm --entrypoint sh -v "$PWD:/repo" -w /repo "$CTRADER_IMAGE" -c \
+            'dotnet restore Fibonacci-v0.12.0-btc-round10-funnel/FibonacciHarmonicSniperUltimate.csproj && dotnet build Fibonacci-v0.12.0-btc-round10-funnel/FibonacciHarmonicSniperUltimate.csproj --configuration Release --no-restore -p:AlgoPublish=False -p:IncludeSource=True'
+          mkdir -p artifact
+          ALGO="$(find Fibonacci-v0.12.0-btc-round10-funnel -type f -name '*.algo' -print -quit)"
+          test -n "$ALGO"
+          cp "$ALGO" artifact/FibonacciHarmonicSniperUltimate-BTC-Round10-Mobile.algo
+          cp Fibonacci-v0.12.0-btc-round10-funnel/FibonacciHarmonicSniperUltimate.cs artifact/FibonacciHarmonicSniperUltimate-BTC-Round10-Mobile.cs
+          sha256sum artifact/FibonacciHarmonicSniperUltimate-BTC-Round10-Mobile.algo > artifact/SHA256SUMS.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: fibonacci-btc-round10-mobile-build
+          path: artifact
+          retention-days: 30
