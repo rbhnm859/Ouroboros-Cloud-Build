@@ -1,0 +1,158 @@
+name: Fibonacci BTC Round11 Controlled Frequency Expansion
+
+on:
+  push:
+    branches: [fibonacci-research1-build]
+    paths:
+      - '.github/workflows/backtest-fibonacci-btc-round11-frequency.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fibonacci-btc-round11-frequency
+  cancel-in-progress: true
+
+env:
+  CTRADER_IMAGE: ghcr.io/spotware/ctrader-console:5.9.11
+  BALANCE: '10000'
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.m.outputs.matrix }}
+    steps:
+      - id: m
+        shell: bash
+        run: |
+          MATRIX='{"include":[
+            {"name":"control","score":"84","age":"16","distance":"1.80","move":"0.05","candle":"true"},
+            {"name":"confirm0","score":"84","age":"16","distance":"1.80","move":"0.00","candle":"true"},
+            {"name":"candle_off","score":"84","age":"16","distance":"1.80","move":"0.05","candle":"false"},
+            {"name":"distance20","score":"84","age":"16","distance":"2.00","move":"0.05","candle":"true"},
+            {"name":"score82","score":"82","age":"16","distance":"1.80","move":"0.05","candle":"true"},
+            {"name":"age18","score":"84","age":"18","distance":"1.80","move":"0.05","candle":"true"}
+          ]}'
+          echo "matrix=$(echo "$MATRIX" | tr -d '\n ')" >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: prepare
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - run: python3 tools/create_fibonacci_research1.py --repo-root "$PWD" --force
+      - run: python3 tools/create_fibonacci_btc_round4.py --repo-root "$PWD" --force
+      - run: python3 tools/create_fibonacci_btc_round5.py --repo-root "$PWD" --force
+      - run: python3 tools/create_fibonacci_btc_round6.py --repo-root "$PWD" --force
+      - run: python3 tools/create_fibonacci_btc_round7.py --repo-root "$PWD" --force
+      - run: python3 tools/create_fibonacci_btc_round8.py --repo-root "$PWD" --force
+      - run: python3 tools/create_fibonacci_btc_round9.py --repo-root "$PWD" --force
+      - run: python3 tools/create_fibonacci_btc_round10.py --repo-root "$PWD" --force
+      - name: Enable trading
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('Fibonacci-v0.12.0-btc-round10-funnel/FibonacciHarmonicSniperUltimate.cs')
+          s=p.read_text(encoding='utf-8')
+          old='[Parameter("Trading Enabled", DefaultValue = false'
+          new='[Parameter("Trading Enabled", DefaultValue = true'
+          if old not in s: raise SystemExit('Trading Enabled parameter not found')
+          p.write_text(s.replace(old,new,1),encoding='utf-8')
+          PY
+      - name: Build research binary
+        run: |
+          docker pull "$CTRADER_IMAGE"
+          docker run --rm --entrypoint sh -v "$PWD:/repo" -w /repo "$CTRADER_IMAGE" -c \
+            'dotnet restore Fibonacci-v0.12.0-btc-round10-funnel/FibonacciHarmonicSniperUltimate.csproj && dotnet build Fibonacci-v0.12.0-btc-round10-funnel/FibonacciHarmonicSniperUltimate.csproj --configuration Release --no-restore -p:AlgoPublish=False -p:IncludeSource=True'
+          mkdir -p artifact
+          ALGO="$(find Fibonacci-v0.12.0-btc-round10-funnel -type f -name '*.algo' -print -quit)"
+          test -n "$ALGO"
+          cp "$ALGO" artifact/FibonacciHarmonicSniperUltimate-BTC-Round11.algo
+      - uses: actions/upload-artifact@v4
+        with:
+          name: fibonacci-btc-round11-build
+          path: artifact
+          retention-days: 30
+
+  backtest:
+    needs: [prepare, build]
+    strategy:
+      fail-fast: false
+      max-parallel: 6
+      matrix: ${{ fromJson(needs.prepare.outputs.matrix) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 100
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: fibonacci-btc-round11-build
+          path: work
+      - name: Prepare
+        env:
+          CTRADER_PASSWORD: ${{ secrets.CTRADER_PASSWORD }}
+        run: |
+          set -euo pipefail
+          test -n "${CTRADER_PASSWORD:-}"
+          mkdir -p work/cache work/reports/${{ matrix.name }}
+          umask 077
+          printf '%s' "$CTRADER_PASSWORD" > work/ctrader.pwd
+          docker pull "$CTRADER_IMAGE"
+      - name: Backtest ${{ matrix.name }}
+        env:
+          CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+          CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          run_phase () {
+            PHASE="$1"; START="$2"; END="$3"; COMM="$4"; SPREAD="$5"
+            echo "=== ${{ matrix.name }} $PHASE ==="
+            timeout --signal=TERM --kill-after=30s 28m docker run --rm \
+              -v "$PWD/work:/work" -e "CTID=$CTRADER_CTID" -e 'PWD-FILE=/work/ctrader.pwd' -e "ACCOUNT=$CTRADER_ACCOUNT" "$CTRADER_IMAGE" \
+              backtest /work/FibonacciHarmonicSniperUltimate-BTC-Round11.algo --environment-variables --exit-on-stop \
+              --symbol=BITCOIN --period=h1 --start="$START" --end="$END" --balance="$BALANCE" \
+              --data-mode=m1 --data-dir=/work/cache --commission="$COMM" --spread="$SPREAD" --RiskPercent=1.0 \
+              --EnabledPatterns='Reciprocal ABCD' --PivotLeft=2 --PivotRight=2 --RatioTolerancePercent=6 \
+              --MinPatternScore=${{ matrix.score }} --MaxPatternAgeBars=${{ matrix.age }} --MaxEntryDistanceAtr=${{ matrix.distance }} \
+              --ConfirmationMoveAtr=${{ matrix.move }} --UseCandleConfirmation=${{ matrix.candle }} --CooldownBars=2 \
+              --FallbackRiskReward=1.80 --MinimumRiskReward=1.50 --StopAnchorMode=LegacyD --TargetRiskRewardPolicy=LegacyFallback \
+              --Round5Mode=ObserveOnly --MtfMode=Off --Round6RequireM30SellConfirm=false --Round7VetoM30SellAlignment=false \
+              --Round8LogExcursions=false --Round9ShadowTpContinuation=false --Round10LogFunnel=false --DebugLogging=false \
+              --report="/work/reports/${{ matrix.name }}/${PHASE}.html" --report-json="/work/reports/${{ matrix.name }}/${PHASE}.json" \
+              2>&1 | tee "work/reports/${{ matrix.name }}/${PHASE}.log"
+          }
+          run_phase DEV5 '08/03/2026 00:00' '08/08/2026 00:00' 65 0
+          run_phase OOS '09/08/2026 00:00' '08/09/2026 00:00' 65 0
+          run_phase OOSHARSH '09/08/2026 00:00' '08/09/2026 00:00' 100 1500
+          run_phase FULL6 '08/03/2026 00:00' '08/09/2026 00:00' 65 0
+          run_phase FULL6HARSH '08/03/2026 00:00' '08/09/2026 00:00' 100 1500
+          run_phase PRE6 '08/09/2025 00:00' '08/03/2026 00:00' 65 0
+      - name: Clean credentials
+        if: always()
+        run: rm -f work/ctrader.pwd
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: btc-r11-${{ matrix.name }}
+          path: work/reports/${{ matrix.name }}
+          if-no-files-found: error
+          retention-days: 30
+
+  collect:
+    needs: backtest
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: btc-r11-*
+          path: results
+      - uses: actions/upload-artifact@v4
+        with:
+          name: fibonacci-btc-round11-frequency-results
+          path: results
+          retention-days: 30
