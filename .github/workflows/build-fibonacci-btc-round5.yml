@@ -1,0 +1,84 @@
+name: Build Fibonacci BTC Round5 State Matrix
+
+on:
+  push:
+    branches: [fibonacci-research1-build]
+    paths:
+      - '.github/workflows/build-fibonacci-btc-round5.yml'
+      - 'tools/create_fibonacci_btc_round5.py'
+      - 'research/fibonacci-research1/btc_round5_state_matrix_profiles.json'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fibonacci-btc-round5-build
+  cancel-in-progress: true
+
+env:
+  CTRADER_IMAGE: ghcr.io/spotware/ctrader-console:5.9.11
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Create Research1 baseline candidate
+        run: python3 tools/create_fibonacci_research1.py --repo-root "$PWD" --force
+
+      - name: Create BTC Round4 MTF candidate
+        run: python3 tools/create_fibonacci_btc_round4.py --repo-root "$PWD" --force
+
+      - name: Create BTC Round5 State Matrix candidate
+        run: python3 tools/create_fibonacci_btc_round5.py --repo-root "$PWD" --force
+
+      - name: Enable trading in ephemeral Round5 build copy
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('Fibonacci-v0.7.0-btc-round5-state-matrix/FibonacciHarmonicSniperUltimate.cs')
+          s=p.read_text(encoding='utf-8')
+          old='[Parameter("Trading Enabled", DefaultValue = false'
+          new='[Parameter("Trading Enabled", DefaultValue = true'
+          if old not in s:
+              raise SystemExit('Trading Enabled parameter not found')
+          p.write_text(s.replace(old,new,1),encoding='utf-8')
+          PY
+
+      - name: Build BTC Round5 cBot
+        run: |
+          docker pull "$CTRADER_IMAGE"
+          docker run --rm --entrypoint sh -v "$PWD:/repo" -w /repo "$CTRADER_IMAGE" -c \
+            'dotnet restore Fibonacci-v0.7.0-btc-round5-state-matrix/FibonacciHarmonicSniperUltimate.csproj && dotnet build Fibonacci-v0.7.0-btc-round5-state-matrix/FibonacciHarmonicSniperUltimate.csproj --configuration Release --no-restore -p:AlgoPublish=False -p:IncludeSource=True'
+
+      - name: Collect Round5 build outputs
+        run: |
+          set -euo pipefail
+          mkdir -p build-artifact/source
+          ALGO="$(find Fibonacci-v0.7.0-btc-round5-state-matrix -type f -name '*.algo' -print -quit)"
+          test -n "$ALGO"
+          cp "$ALGO" build-artifact/FibonacciHarmonicSniperUltimate_BTC_Round5_State_Matrix.algo
+          cp Fibonacci-v0.7.0-btc-round5-state-matrix/FibonacciHarmonicSniperUltimate.cs build-artifact/source/
+          cp Fibonacci-v0.7.0-btc-round5-state-matrix/FibonacciHarmonicSniperUltimate.csproj build-artifact/source/
+          cp research/fibonacci-research1/btc_round5_state_matrix_profiles.json build-artifact/
+          sha256sum build-artifact/FibonacciHarmonicSniperUltimate_BTC_Round5_State_Matrix.algo > build-artifact/SHA256SUMS.txt
+          {
+            echo "version=v0.7.0-btc-round5-state-matrix"
+            echo "branch=${GITHUB_REF_NAME}"
+            echo "commit=${GITHUB_SHA}"
+            echo "execution-engine=H1 Reciprocal ABCD Growth Champion defaults"
+            echo "state-frames=D1,H4,H1,M30,M15,M5,M1"
+            echo "hierarchy=Macro,Direction,Confirmation,Timing"
+            echo "default-decision=MacroVeto"
+            echo "matrix-logging=true"
+          } > build-artifact/BUILD_INFO.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Fibonacci-Harmonic-Sniper-BTC-Round5-State-Matrix-build
+          path: build-artifact
+          if-no-files-found: error
+          retention-days: 30
