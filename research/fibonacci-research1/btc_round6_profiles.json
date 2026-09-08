@@ -1,0 +1,6 @@
+[
+  {"id":"champion","sell_confirm":false,"m30_age":12},
+  {"id":"hybrid_age4","sell_confirm":true,"m30_age":4},
+  {"id":"hybrid_age8","sell_confirm":true,"m30_age":8},
+  {"id":"hybrid_age12","sell_confirm":true,"m30_age":12}
+]
