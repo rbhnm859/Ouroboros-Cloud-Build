@@ -1,0 +1,223 @@
+name: Fibonacci BTC Round16 Regime Diagnostics
+
+on:
+  push:
+    branches: [fibonacci-research1-build]
+    paths:
+      - '.github/workflows/backtest-fibonacci-btc-round16-regime-diagnostics.yml'
+      - 'tools/create_fibonacci_btc_round16.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fibonacci-btc-round16-regime-diagnostics
+  cancel-in-progress: true
+
+env:
+  CTRADER_IMAGE: ghcr.io/spotware/ctrader-console:5.9.11
+  BALANCE: '10000'
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.m.outputs.matrix }}
+    steps:
+      - id: m
+        shell: bash
+        run: |
+          python3 - <<'PY' >> "$GITHUB_OUTPUT"
+          import json
+          rows=[
+            ('dev11','08/09/2025 00:00','08/08/2026 00:00',65,0),
+            ('dev11_harsh','08/09/2025 00:00','08/08/2026 00:00',100,1500),
+          ]
+          print('matrix='+json.dumps({'include':[{'period':n,'start':s,'end':e,'commission':c,'spread':sp} for n,s,e,c,sp in rows]},separators=(',',':')))
+          PY
+
+  build:
+    needs: prepare
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - run: python3 tools/create_fibonacci_research1.py --repo-root "$PWD" --force
+      - run: python3 tools/create_fibonacci_btc_round4.py --repo-root "$PWD" --force
+      - run: python3 tools/create_fibonacci_btc_round5.py --repo-root "$PWD" --force
+      - run: python3 tools/create_fibonacci_btc_round6.py --repo-root "$PWD" --force
+      - run: python3 tools/create_fibonacci_btc_round7.py --repo-root "$PWD" --force
+      - run: python3 tools/create_fibonacci_btc_round8.py --repo-root "$PWD" --force
+      - run: python3 tools/create_fibonacci_btc_round9.py --repo-root "$PWD" --force
+      - run: python3 tools/create_fibonacci_btc_round10.py --repo-root "$PWD" --force
+      - run: python3 tools/create_fibonacci_btc_round15.py --repo-root "$PWD" --force
+      - run: python3 tools/create_fibonacci_btc_round16.py --repo-root "$PWD" --force
+      - name: Enable trading
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('Fibonacci-v0.14.0-btc-round16-regime-diagnostics/FibonacciHarmonicSniperUltimate.cs')
+          s=p.read_text(encoding='utf-8')
+          old='[Parameter("Trading Enabled", DefaultValue = false'
+          new='[Parameter("Trading Enabled", DefaultValue = true'
+          if old not in s: raise SystemExit('Trading Enabled parameter not found')
+          p.write_text(s.replace(old,new,1),encoding='utf-8')
+          PY
+      - name: Build Round16 diagnostics
+        run: |
+          docker pull "$CTRADER_IMAGE"
+          docker run --rm --entrypoint sh -v "$PWD:/repo" -w /repo "$CTRADER_IMAGE" -c \
+            'dotnet restore Fibonacci-v0.14.0-btc-round16-regime-diagnostics/FibonacciHarmonicSniperUltimate.csproj && dotnet build Fibonacci-v0.14.0-btc-round16-regime-diagnostics/FibonacciHarmonicSniperUltimate.csproj --configuration Release --no-restore -p:AlgoPublish=False -p:IncludeSource=True'
+          mkdir -p artifact
+          ALGO="$(find Fibonacci-v0.14.0-btc-round16-regime-diagnostics -type f -name '*.algo' -print -quit)"
+          test -n "$ALGO"
+          cp "$ALGO" artifact/FibonacciHarmonicSniperUltimate-BTC-Round16-RegimeDiagnostics.algo
+          cp Fibonacci-v0.14.0-btc-round16-regime-diagnostics/FibonacciHarmonicSniperUltimate.cs artifact/FibonacciHarmonicSniperUltimate-BTC-Round16-RegimeDiagnostics.cs
+          sha256sum artifact/* > artifact/SHA256SUMS.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: fibonacci-btc-round16-regime-build
+          path: artifact
+          retention-days: 30
+
+  backtest:
+    needs: [prepare, build]
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix: ${{ fromJson(needs.prepare.outputs.matrix) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: fibonacci-btc-round16-regime-build
+          path: work
+      - name: Prepare
+        env:
+          CTRADER_PASSWORD: ${{ secrets.CTRADER_PASSWORD }}
+        run: |
+          set -euo pipefail
+          test -n "${CTRADER_PASSWORD:-}"
+          mkdir -p work/cache work/report
+          umask 077
+          printf '%s' "$CTRADER_PASSWORD" > work/ctrader.pwd
+          docker pull "$CTRADER_IMAGE"
+      - name: Backtest diagnostic ${{ matrix.period }}
+        env:
+          CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+          CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+          START: ${{ matrix.start }}
+          END: ${{ matrix.end }}
+          COMMISSION: ${{ matrix.commission }}
+          SPREAD: ${{ matrix.spread }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          timeout --signal=TERM --kill-after=30s 30m docker run --rm \
+            -v "$PWD/work:/work" -e "CTID=$CTRADER_CTID" -e 'PWD-FILE=/work/ctrader.pwd' -e "ACCOUNT=$CTRADER_ACCOUNT" "$CTRADER_IMAGE" \
+            backtest /work/FibonacciHarmonicSniperUltimate-BTC-Round16-RegimeDiagnostics.algo --environment-variables --exit-on-stop \
+            --symbol=BITCOIN --period=h1 --start="$START" --end="$END" --balance="$BALANCE" \
+            --data-mode=m1 --data-dir=/work/cache --commission="$COMMISSION" --spread="$SPREAD" \
+            --RiskPercent=1.0 --MaxOpenPositions=1 --MaxTradesPerDay=6 --MaxDailyLossPercent=5 \
+            --EnabledPatterns='Reciprocal ABCD' --PivotLeft=2 --PivotRight=2 --RatioTolerancePercent=6 --MinPatternScore=84 \
+            --MaxPatternAgeBars=16 --MaxEntryDistanceAtr=1.80 --ConfirmationMoveAtr=0.05 --UseCandleConfirmation=true --CooldownBars=2 \
+            --FallbackRiskReward=1.80 --MinimumRiskReward=1.50 --StopAnchorMode=LegacyD --TargetRiskRewardPolicy=LegacyFallback \
+            --Round5Mode=ObserveOnly --MtfMode=Off --Round6RequireM30SellConfirm=false --Round7VetoM30SellAlignment=false \
+            --Round8LogExcursions=true --Round9ShadowTpContinuation=false --Round10LogFunnel=false --Round15EnableM30Engine=true --Round16LogM30Regime=true --DebugLogging=false \
+            --report=/work/report/report.html --report-json=/work/report/report.json 2>&1 | tee work/report/report.log
+      - name: Clean credentials
+        if: always()
+        run: rm -f work/ctrader.pwd
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: btc-r16-${{ matrix.period }}
+          path: work/report
+          if-no-files-found: error
+          retention-days: 30
+
+  analyze:
+    needs: backtest
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: btc-r16-*
+          path: results
+      - name: Analyze M30 regime states
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import csv, math, re, statistics
+          from pathlib import Path
+          from datetime import datetime
+
+          out=Path('analysis'); out.mkdir()
+          features=['score','age','atrPct','atrRatio48','emaDistAtr','emaSlopeAtr','er24','trend24Atr','range48Atr','distanceAtr']
+          state_re=re.compile(r'\[R16 M30 STATE\] id=(\d+) t=(\S+) dir=(Buy|Sell) score=([-0-9.]+) age=(\d+) atrPct=([-0-9.]+) atrRatio48=([-0-9.]+) emaDistAtr=([-0-9.]+) emaSlopeAtr=([-0-9.]+) er24=([-0-9.]+) trend24Atr=([-0-9.]+) range48Atr=([-0-9.]+) distanceAtr=([-0-9.]+)')
+          exc_re=re.compile(r'\[R8 EXCURSION\] id=(\d+) dir=(Buy|Sell) pattern=(\S+).*?net=([-0-9.]+)')
+
+          def pf(rows):
+              gp=sum(r['net'] for r in rows if r['net']>0); gl=-sum(r['net'] for r in rows if r['net']<0)
+              return (gp/gl if gl>0 else (999.0 if gp>0 else 0.0))
+          def summary(rows):
+              return {'n':len(rows),'net':sum(r['net'] for r in rows),'pf':pf(rows),'wr':(100*sum(r['net']>0 for r in rows)/len(rows) if rows else 0)}
+          def quantile(vals,q):
+              if not vals:return 0
+              a=sorted(vals); x=(len(a)-1)*q; lo=int(math.floor(x)); hi=int(math.ceil(x))
+              if lo==hi:return a[lo]
+              return a[lo]+(a[hi]-a[lo])*(x-lo)
+
+          md=['# Round16 M30 Regime Diagnostic\n']
+          allsets={}
+          for period_dir in sorted(Path('results').iterdir()):
+              if not period_dir.is_dir(): continue
+              log=period_dir/'report.log'
+              if not log.exists(): continue
+              period=period_dir.name.replace('btc-r16-','')
+              states={}; exits={}
+              for line in log.read_text(errors='ignore').splitlines():
+                  m=state_re.search(line)
+                  if m:
+                      vals=m.groups(); pid=int(vals[0])
+                      states[pid]={'id':pid,'time':vals[1],'dir':vals[2],'score':float(vals[3]),'age':float(vals[4]),'atrPct':float(vals[5]),'atrRatio48':float(vals[6]),'emaDistAtr':float(vals[7]),'emaSlopeAtr':float(vals[8]),'er24':float(vals[9]),'trend24Atr':float(vals[10]),'range48Atr':float(vals[11]),'distanceAtr':float(vals[12])}
+                  e=exc_re.search(line)
+                  if e: exits[int(e.group(1))]=float(e.group(4))
+              rows=[]
+              for pid,s in states.items():
+                  if pid in exits:
+                      r=dict(s); r['net']=exits[pid]; rows.append(r)
+              allsets[period]=rows
+              with (out/f'{period}_trades.csv').open('w',newline='') as f:
+                  w=csv.DictWriter(f,fieldnames=['id','time','dir']+features+['net']);w.writeheader();w.writerows(rows)
+              sm=summary(rows); md.append(f'## {period}\n- matched M30 trades: {sm["n"]}\n- net: {sm["net"]:.2f}\n- PF: {sm["pf"]:.2f}\n- win rate: {sm["wr"]:.1f}%\n')
+              months={}
+              for r in rows: months.setdefault(r['time'][:7],[]).append(r)
+              md.append('| Month | N | Net | PF | WR |\n|---|---:|---:|---:|---:|')
+              for k in sorted(months):
+                  x=summary(months[k]); md.append(f'| {k} | {x["n"]} | {x["net"]:.2f} | {x["pf"]:.2f} | {x["wr"]:.1f}% |')
+              md.append('')
+              for feat in features:
+                  vals=[r[feat] for r in rows];
+                  if len(vals)<8: continue
+                  q1,q2,q3=quantile(vals,.25),quantile(vals,.5),quantile(vals,.75)
+                  bins=[[],[],[],[]]
+                  for r in rows:
+                      v=r[feat]; idx=0 if v<=q1 else 1 if v<=q2 else 2 if v<=q3 else 3; bins[idx].append(r)
+                  md.append(f'### {feat} quartiles ({q1:.4f}, {q2:.4f}, {q3:.4f})')
+                  md.append('| Q | N | Net | PF | WR |\n|---|---:|---:|---:|---:|')
+                  for i,b in enumerate(bins,1):
+                      x=summary(b); md.append(f'| Q{i} | {x["n"]} | {x["net"]:.2f} | {x["pf"]:.2f} | {x["wr"]:.1f}% |')
+                  md.append('')
+          (out/'round16_regime_summary.md').write_text('\n'.join(md))
+          print('\n'.join(md[:80]))
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: fibonacci-btc-round16-regime-analysis
+          path: analysis
+          retention-days: 30
