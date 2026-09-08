@@ -199,7 +199,6 @@ namespace cAlgo.Robots
         }
 
         private ExponentialMovingAverage _entryEma;
-        private Momentum _momentum;
         private AverageTrueRange _atr;
         private Bars _trendBars;
         private ExponentialMovingAverage _trendFast;
@@ -239,7 +238,6 @@ namespace cAlgo.Robots
             {
                 ValidateParameters();
                 _entryEma = Indicators.ExponentialMovingAverage(Bars.ClosePrices, EMAPeriod);
-                _momentum = Indicators.Momentum(Bars.ClosePrices, MomentumPeriod);
                 _atr = Indicators.AverageTrueRange(ATRPeriod, MovingAverageType.Exponential);
                 _trendBars = MarketData.GetBars(TrendTimeFrame);
                 _trendFast = Indicators.ExponentialMovingAverage(_trendBars.ClosePrices, TrendFastPeriod);
@@ -360,7 +358,10 @@ namespace cAlgo.Robots
             double previousClose = Bars.ClosePrices.Last(1);
             double ema = _entryEma.Result.Last(0);
             double previousEma = _entryEma.Result.Last(1);
-            double momentum = _momentum.Result.Last(0);
+            double momentumReference = Bars.ClosePrices.Last(MomentumPeriod);
+            double momentum = momentumReference > 0
+                ? close / momentumReference * 100.0
+                : 100.0;
             double atr = _atr.Result.Last(0);
             double trendFast = _trendFast.Result.Last(1);
             double trendSlow = _trendSlow.Result.Last(1);
