@@ -15,7 +15,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Replace unavailable Momentum API with ratio momentum
+      - name: Fix risk sizing and protection overload compatibility
         shell: bash
         run: |
           set -euo pipefail
@@ -23,26 +23,23 @@ jobs:
           from pathlib import Path
           p = Path('GQ-Session-Scalper-v2/src/GQ_Session_Scalper_v2.cs')
           s = p.read_text()
-          old = '        private Momentum _momentum;\n'
+          old = '            double volume = Symbol.VolumeForProportionalRisk(RiskType.Equity, riskPercent, stopLossPips, RoundingMode.Down);\n'
+          new = ('            double minimumVolumeRisk = Symbol.AmountRisked(Symbol.VolumeInUnitsMin, stopLossPips);\n'
+                 '            double volume = IsFinitePositive(minimumVolumeRisk)\n'
+                 '                ? Symbol.VolumeInUnitsMin * (Account.Equity * riskPercent / 100.0) / minimumVolumeRisk\n'
+                 '                : 0;\n')
           if old not in s:
-              raise SystemExit('Momentum field anchor not found')
-          s = s.replace(old, '', 1)
-          old = '                _momentum = Indicators.Momentum(Bars.ClosePrices, MomentumPeriod);\n'
+              raise SystemExit('Risk sizing anchor not found')
+          s = s.replace(old, new, 1)
+          old = '            var result = ModifyPosition(position, candidateStop, position.TakeProfit);\n'
+          new = '            var result = ModifyPosition(position, candidateStop, position.TakeProfit, ProtectionType.Absolute);\n'
           if old not in s:
-              raise SystemExit('Momentum initializer anchor not found')
-          s = s.replace(old, '', 1)
-          old = '            double momentum = _momentum.Result.Last(0);\n'
-          new = ('            double momentumReference = Bars.ClosePrices.Last(MomentumPeriod);\n'
-                 '            double momentum = momentumReference > 0\n'
-                 '                ? close / momentumReference * 100.0\n'
-                 '                : 100.0;\n')
-          if old not in s:
-              raise SystemExit('Momentum signal anchor not found')
+              raise SystemExit('ModifyPosition anchor not found')
           s = s.replace(old, new, 1)
           p.write_text(s)
           PY
-          grep -n 'momentumReference\|double momentum =' GQ-Session-Scalper-v2/src/GQ_Session_Scalper_v2.cs
-          ! grep -n 'Indicators.Momentum(' GQ-Session-Scalper-v2/src/GQ_Session_Scalper_v2.cs
+          grep -n 'minimumVolumeRisk\|ProtectionType.Absolute' GQ-Session-Scalper-v2/src/GQ_Session_Scalper_v2.cs
+          ! grep -n 'RiskType\|VolumeForProportionalRisk' GQ-Session-Scalper-v2/src/GQ_Session_Scalper_v2.cs
       - name: Commit compatibility fix
         shell: bash
         run: |
@@ -50,5 +47,5 @@ jobs:
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add GQ-Session-Scalper-v2/src/GQ_Session_Scalper_v2.cs
-          git commit -m 'Fix GQ v2 momentum compatibility'
+          git commit -m 'Fix GQ v2 risk sizing API compatibility'
           git push origin HEAD:${GITHUB_REF_NAME}
