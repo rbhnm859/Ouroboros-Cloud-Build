@@ -26,14 +26,22 @@ jobs:
         with:
           dotnet-version: '6.0.x'
 
+      - name: Set supported TargetFramework
+        shell: bash
+        run: |
+          set -euo pipefail
+          PROJ='CumulativeDeltaScalper-EURUSD-v1/CumulativeDeltaScalper_EURUSD_v1.csproj'
+          test -f "$PROJ"
+          sed -i 's#<TargetFramework>net7.0</TargetFramework>#<TargetFramework>net6.0</TargetFramework>#' "$PROJ"
+
       - name: Restore and build CDScalper .algo
         shell: bash
         run: |
           set -euo pipefail
           PROJ='CumulativeDeltaScalper-EURUSD-v1/CumulativeDeltaScalper_EURUSD_v1.csproj'
           test -f "$PROJ"
-          dotnet restore "$PROJ" -p:TargetFramework=net6.0
-          dotnet build "$PROJ" -c Release -p:TargetFramework=net6.0 -p:AlgoName=CumulativeDeltaScalper_EURUSD_v1 -p:AlgoBuild=true -p:AlgoPublish=false -p:IncludeSource=true | tee /tmp/cdscalper-build.log
+          dotnet restore "$PROJ"
+          dotnet build "$PROJ" -c Release -p:AlgoName=CumulativeDeltaScalper_EURUSD_v1 -p:AlgoBuild=true -p:AlgoPublish=false -p:IncludeSource=true | tee /tmp/cdscalper-build.log
 
       - name: Locate and stage .algo
         shell: bash
