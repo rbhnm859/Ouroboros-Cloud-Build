@@ -1,0 +1,188 @@
+name: Fibonacci XAUUSD 1 - Strong Confirm Quality v12
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [fibonacci-xauusd-round1]
+    paths:
+      - '.github/workflows/backtest-fibonacci-xauusd-1-strongconfirm-v12.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fibonacci-xauusd-1-strongconfirm-v12
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Reconstruct and patch v12 candidate source
+        shell: bash
+        run: |
+          set -euo pipefail
+          ROOT='FibonacciHarmonicSniperUltimate/versions/xauusd_1'
+          mkdir -p "$ROOT/src" package
+          base64 -d "$ROOT/source.gz.b64" | gzip -dc > "$ROOT/src/FibonacciXAUUSD1.cs"
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('FibonacciHarmonicSniperUltimate/versions/xauusd_1/src/FibonacciXAUUSD1.cs')
+          s=p.read_text()
+
+          ema_param='''        [Parameter("EMA Period", DefaultValue = 50, MinValue = 10, MaxValue = 300, Group = "Quality")]\n        public int EmaPeriod { get; set; }\n'''
+          insert=ema_param+'''\n        [Parameter("Require EMA Alignment", DefaultValue = true, Group = "Quality")]\n        public bool RequireEmaAlignment { get; set; }\n\n        [Parameter("Strong Confirm Quality Floor", DefaultValue = 72.0, MinValue = 50.0, MaxValue = 100.0, Group = "Quality")]\n        public double StrongConfirmQualityFloor { get; set; }\n'''
+          assert s.count(ema_param)==1
+          s=s.replace(ema_param,insert,1)
+
+          assert s.count('Print("VERSION xauusd_1 v1.1.0-gold-v7");')==1
+          s=s.replace('Print("VERSION xauusd_1 v1.1.0-gold-v7");','Print("VERSION xauusd_1 v1.4.0-gold-v12");',1)
+
+          m30_gate='''            if (UseM30Confirmation && m30Score < M30ConfirmRulesNeeded)\n            {\n                Reject("m30_confirm");\n                LogDecision(selected, "REJECT", "m30_confirm");\n                return;\n            }\n'''
+          ema_gate=m30_gate+'''\n            if (selected.Definition.Name == "ABCD" && RequireEmaAlignment && selected.EmaContextScore < 99.5)\n            {\n                Reject("ema_alignment");\n                LogDecision(selected, "REJECT", "ema_alignment");\n                return;\n            }\n'''
+          assert s.count(m30_gate)==1
+          s=s.replace(m30_gate,ema_gate,1)
+
+          old_quality='''            if (selected.FinalQuality < MinQualityScore)\n            {\n                Reject("quality");\n                LogDecision(selected, "REJECT", "quality");\n                return;\n            }\n'''
+          new_quality='''            double effectiveQualityFloor = MinQualityScore;\n            if (selected.EmaContextScore >= 99.5 && m30Score == 3)\n                effectiveQualityFloor = Math.Min(MinQualityScore, StrongConfirmQualityFloor);\n\n            if (selected.FinalQuality < effectiveQualityFloor)\n            {\n                Reject("quality");\n                LogDecision(selected, "REJECT", "quality");\n                return;\n            }\n'''
+          assert s.count(old_quality)==1
+          s=s.replace(old_quality,new_quality,1)
+          p.write_text(s)
+          PY
+          grep -q 'Strong Confirm Quality Floor' "$ROOT/src/FibonacciXAUUSD1.cs"
+          grep -q 'v1.4.0-gold-v12' "$ROOT/src/FibonacciXAUUSD1.cs"
+          grep -q 'effectiveQualityFloor' "$ROOT/src/FibonacciXAUUSD1.cs"
+          cp "$ROOT/src/FibonacciXAUUSD1.cs" package/FibonacciXAUUSD1.cs
+          cp "$ROOT/README.md" package/README.md
+          sha256sum "$ROOT/src/FibonacciXAUUSD1.cs" | tee package/source.sha256
+      - name: Pull official cTrader CLI
+        run: docker pull ghcr.io/spotware/ctrader-console:5.9.11
+      - name: Build v12 candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          ROOT='FibonacciHarmonicSniperUltimate/versions/xauusd_1'
+          docker run --rm --entrypoint sh -v "$PWD:/repo" -w /repo ghcr.io/spotware/ctrader-console:5.9.11 -c "dotnet restore $ROOT/FibonacciXAUUSD1.csproj && dotnet build $ROOT/FibonacciXAUUSD1.csproj --configuration Release --no-restore -p:AlgoPublish=False -p:IncludeSource=True"
+          ALGO="$(find "$ROOT" -type f -name '*.algo' -print -quit)"
+          test -n "$ALGO"
+          cp "$ALGO" package/xauusd_1-v12-candidate.algo
+          sha256sum package/xauusd_1-v12-candidate.algo | tee package/algo.sha256
+      - uses: actions/upload-artifact@v4
+        with:
+          name: xauusd_1-strongconfirm-v12-build
+          path: package/
+          retention-days: 30
+
+  backtest:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: standard
+            spread: '17.42'
+            commission: '35'
+          - label: harsh
+            spread: '30'
+            commission: '50'
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: xauusd_1-strongconfirm-v12-build
+          path: work
+      - name: Pull official cTrader CLI
+        run: docker pull ghcr.io/spotware/ctrader-console:5.9.11
+      - name: Create cTrader password file
+        env:
+          CTRADER_PASSWORD: ${{ secrets.CTRADER_PASSWORD }}
+        run: |
+          test -n "${CTRADER_PASSWORD:-}" || exit 1
+          printf '%s' "$CTRADER_PASSWORD" > work/ctrader.pwd
+          chmod 600 work/ctrader.pwd
+      - name: Run full 3M ${{ matrix.label }} v12 backtest
+        env:
+          CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+          CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p work/reports work/cache
+          docker run --rm -v "$PWD/work:/work" \
+            -e "CTID=$CTRADER_CTID" -e 'PWD-FILE=/work/ctrader.pwd' -e "ACCOUNT=$CTRADER_ACCOUNT" \
+            ghcr.io/spotware/ctrader-console:5.9.11 \
+            backtest /work/xauusd_1-v12-candidate.algo --environment-variables --exit-on-stop \
+            --symbol=XAUUSD --period=h1 --start='09/06/2026' --end='09/09/2026' \
+            --balance=10000 --data-mode=m1 --data-dir=/work/cache \
+            --commission='${{ matrix.commission }}' --spread='${{ matrix.spread }}' \
+            --RiskPercent=0.50 --MaxDailyLossPercent=3.0 \
+            --PivotLeft=3 --PivotRight=3 --EnableStandaloneABCD=true --RequireEmaAlignment=true \
+            --MinQualityScore=75 --StrongConfirmQualityFloor=72 --M30ConfirmRulesNeeded=2 \
+            --MinimumRiskReward=1.5 --TargetAdFib=0.786 \
+            --report='/work/reports/${{ matrix.label }}.html' --report-json='/work/reports/${{ matrix.label }}.json' \
+            2>&1 | tee 'work/reports/${{ matrix.label }}.log'
+          test -s 'work/reports/${{ matrix.label }}.json'
+      - name: Remove credentials
+        if: always()
+        run: rm -f work/ctrader.pwd
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: xauusd_1-strongconfirm-v12-report-${{ matrix.label }}
+          path: work/reports/
+          retention-days: 30
+
+  aggregate:
+    needs: backtest
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: xauusd_1-strongconfirm-v12-build
+          path: package
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: xauusd_1-strongconfirm-v12-report-*
+          path: reports
+          merge-multiple: true
+      - name: Aggregate v12 full-period reports
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import json
+          def v(d,s,k):
+              try:
+                  x=d[s][k]; return float(x.get('all',0) if isinstance(x,dict) else x or 0)
+              except: return 0.0
+          def dd(d):
+              peak=0.; worst=0.
+              for p in d.get('equity',{}).get('points',[]):
+                  peak=max(peak,float(p.get('maxEquity',p.get('balance',0)) or 0)); low=float(p.get('minEquity',p.get('balance',0)) or 0)
+                  if peak>0: worst=max(worst,(peak-low)/peak*100)
+              return worst
+          out=['# xauusd_1 Strong Confirm Quality v12','',
+               'Period: 2026-06-09 to 2026-09-09 UTC | XAUUSD H1 | M1 data | $10,000 | risk 0.5%','',
+               'Single-factor change from v11: signals with EMA alignment and perfect M30 3-of-3 confirmation may use quality floor 72; all others remain at 75. TargetAdFib stays 0.786 and MinimumRiskReward stays 1.5.','',
+               '| Cost | Trades | Wins | Losses | WR % | Net $ | ROI % | PF | Max Eq DD % |','|---|---:|---:|---:|---:|---:|---:|---:|---:|']
+          for label in ('standard','harsh'):
+              p=Path(f'reports/{label}.json')
+              if not p.exists(): out.append(f'| {label} | NO REPORT | | | | | | | |'); continue
+              d=json.loads(p.read_text()); t=int(v(d,'tradeStatistics','totalTrades')); w=int(v(d,'tradeStatistics','winningTrades')); l=int(v(d,'tradeStatistics','losingTrades')); net=float(d.get('main',{}).get('netProfit',0) or 0)
+              hist=d.get('history',{}).get('items',[]); gp=sum(max(0.,float(x.get('net',0) or 0)) for x in hist); gl=sum(abs(min(0.,float(x.get('net',0) or 0))) for x in hist); pf=gp/gl if gl else (999. if gp else 0.)
+              out.append(f'| {label} | {t} | {w} | {l} | {(100*w/t if t else 0):.2f} | {net:.2f} | {net/10000*100:.2f} | {pf:.2f} | {dd(d):.2f} |')
+          out += ['', 'v11 reference: Standard 1 trade / +$94.61 / +0.95%; Harsh 1 trade / +$94.08 / +0.94%.',
+                  'Promotion rule: v12 must increase unique trades while retaining positive Standard and Harsh expectancy and acceptable DD. Otherwise reject the conditional floor and keep v11 as the better candidate.']
+          text='\n'.join(out)+'\n'; Path('package/STRONGCONFIRM_V12_BACKTEST_SUMMARY.md').write_text(text); print(text)
+          with open(__import__('os').environ['GITHUB_STEP_SUMMARY'],'a') as f:f.write(text)
+          PY
+          cp -r reports package/reports
+      - uses: actions/upload-artifact@v4
+        with:
+          name: xauusd_1-strongconfirm-v12-complete
+          path: package/
+          retention-days: 30
