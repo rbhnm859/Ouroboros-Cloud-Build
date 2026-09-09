@@ -1,0 +1,91 @@
+name: BTC Harmonic Guard Store v1 Fast Fixed
+on:
+  workflow_dispatch:
+  push:
+    branches: [ btc-store-v1-hardening-monthly-growth ]
+    paths: [ '.github/workflows/btc-harmonic-guard-store-v1-fast-fixed.yml' ]
+permissions:
+  contents: read
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with: { dotnet-version: '6.0.x' }
+      - name: Build fixed Store
+        run: |
+          set -euo pipefail
+          mkdir -p work/r26 work/store work/build work/cache work/store-3y work/store-1y
+          python3 - <<'PY'
+          from pathlib import Path
+          import base64,gzip,hashlib
+          root=Path('FibonacciHarmonicSniperUltimate/versions/v0.17.0-btc-round18-diagnostics')
+          d=gzip.decompress(base64.b64decode(''.join(p.read_text().strip() for p in sorted(root.glob('source_payload.part*')))))
+          assert hashlib.sha256(d).hexdigest()=='5f2b7f31c4b8f0d60f52c4c15869aa75df4ff07d7224af971784137716bc8b93'
+          Path('work/R18.cs').write_bytes(d)
+          PY
+          python3 FibonacciHarmonicSniperUltimate/versions/v0.20.0-btc-round21-selective-bypass/round21_transform.py work/R18.cs work/R21.cs
+          python3 FibonacciHarmonicSniperUltimate/versions/v0.21.0-btc-round22-capital-efficiency/round22_transform.py work/R21.cs work/R22.cs
+          python3 FibonacciHarmonicSniperUltimate/versions/v0.23.0-btc-round26-core-refactor/round26_transform.py work/R22.cs work/r26/BTC-Harmonic-Guard-Control.cs
+          cp work/r26/*.cs work/store/
+          python3 FibonacciHarmonicSniperUltimate/store-v1/store_v1_transform.py work/store/BTC-Harmonic-Guard-Control.cs work/store/BTC-Harmonic-Guard.cs
+          python3 FibonacciHarmonicSniperUltimate/store-v1/store_v1_keyfix.py work/store
+          rm work/store/BTC-Harmonic-Guard-Control.cs
+          cat > work/store/Store.csproj <<'EOF'
+          <Project Sdk="Microsoft.NET.Sdk"><PropertyGroup><TargetFramework>net6.0</TargetFramework><ImplicitUsings>disable</ImplicitUsings><Nullable>disable</Nullable><RootNamespace>cAlgo.Robots</RootNamespace><AlgoName>BTC-Harmonic-Guard</AlgoName></PropertyGroup><ItemGroup><PackageReference Include="cTrader.Automate" Version="1.0.19" /></ItemGroup></Project>
+          EOF
+          dotnet restore work/store/Store.csproj
+          dotnet build work/store/Store.csproj -c Release --no-restore -p:AlgoPublish=False -p:IncludeSource=True
+          cp "$(find work/store/bin/Release -name '*.algo' | head -1)" work/build/BTC-Harmonic-Guard-Store-v1.algo
+          sha256sum work/build/*.algo > work/build/SHA256SUMS.txt
+      - name: Prepare cTrader
+        env:
+          CTRADER_PASSWORD: ${{ secrets.CTRADER_PASSWORD }}
+        run: |
+          printf '%s' "$CTRADER_PASSWORD" | tr -d '\r\n' > work/ctrader.pwd
+          chmod 600 work/ctrader.pwd
+          docker pull ghcr.io/spotware/ctrader-console:5.9.11
+      - name: Backtest fixed Store 3Y and 1Y
+        env:
+          CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+          CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+        run: |
+          set -euo pipefail
+          run_case(){ out=$1; start=$2; end=$3; docker run --rm -v "$PWD/work:/work" -e "CTID=$CTRADER_CTID" -e 'PWD-FILE=/work/ctrader.pwd' -e "ACCOUNT=$CTRADER_ACCOUNT" ghcr.io/spotware/ctrader-console:5.9.11 backtest /work/build/BTC-Harmonic-Guard-Store-v1.algo --environment-variables --exit-on-stop --symbol=BITCOIN --period=h1 --start="$start" --end="$end" --balance=10000 --data-mode=m1 --data-dir=/work/cache --commission=65 --spread=0 --report="/work/$out/report.html" --report-json="/work/$out/report.json" > "work/$out/report.log" 2>&1; }
+          run_case store-3y '08/09/2023 00:00' '08/09/2026 00:00'
+          run_case store-1y '08/09/2025 00:00' '08/09/2026 00:00'
+          ! grep -R '\[STORE EXCEPTION\]\|\[STORE PERSIST FAIL\]' work/store-3y/report.log work/store-1y/report.log
+      - name: Enforce locked Champion hashes
+        run: |
+          python3 - <<'PY'
+          import json,hashlib
+          from pathlib import Path
+          expected={'3y':('7a61f9f2d78dc434c051541a8dd59627c401312737b99a441c47d20e42e70e35',256,26.55,1.22),'1y':('36a85515258f9821d2b206be501951299b30b37fe8120b1208073fcd0af8cc56',95,39.93,1.95)}
+          out={}
+          for k in ('3y','1y'):
+            r=json.load(open(f'work/store-{k}/report.json'))
+            n=[{'direction':x['direction'],'entryTime':x['entryTime'],'closeTime':x['closeTime'],'entryPrice':round(float(x['entryPrice']),8),'closePrice':round(float(x['closePrice']),8),'volume':round(float(x['volume']),8),'net':round(float(x['net']),8),'pips':round(float(x['pips']),8),'comment':x.get('comment','')} for x in r['history']['items']]
+            h=hashlib.sha256(json.dumps(n,sort_keys=True,separators=(',',':')).encode()).hexdigest()
+            m={'trades':int(r['tradeStatistics']['totalTrades']['all']),'roi':float(r['main']['roi']),'net':float(r['main']['netProfit']),'pf':float(r['tradeStatistics']['profitFactor']['all']),'equity_dd':float(r['equity']['maxEquityDrawdownPercent']),'balance_dd':float(r['equity']['maxBalanceDrawdownPercent']),'trade_hash':h,'hash_match':h==expected[k][0]}
+            out[k]=m
+            if not m['hash_match']: raise SystemExit(f'{k} hash mismatch: {m}')
+          out['store_hardening_exact_parity']=True
+          Path('work/Store-v1-Fast-Summary.json').write_text(json.dumps(out,indent=2)); print(json.dumps(out,indent=2))
+          PY
+      - name: Cleanup
+        if: always()
+        run: rm -f work/ctrader.pwd
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: BTC-Harmonic-Guard-Store-v1-Fast-Fixed
+          retention-days: 30
+          path: |
+            work/build/*
+            work/store/*.cs
+            work/store/*.csproj
+            work/store-3y/report.*
+            work/store-1y/report.*
+            work/Store-v1-Fast-Summary.json
