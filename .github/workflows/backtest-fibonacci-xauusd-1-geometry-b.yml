@@ -1,0 +1,148 @@
+name: Fibonacci XAUUSD 1 - Geometry Round B
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - fibonacci-xauusd-round1
+    paths:
+      - '.github/workflows/backtest-fibonacci-xauusd-1-geometry-b.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fibonacci-xauusd-1-geometry-b
+  cancel-in-progress: true
+
+jobs:
+  sweep:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - profile: control_p3_t5
+            pivot: '3'
+            ratio: '5'
+          - profile: p3_t7
+            pivot: '3'
+            ratio: '7'
+          - profile: p3_t10
+            pivot: '3'
+            ratio: '10'
+          - profile: p4_t5
+            pivot: '4'
+            ratio: '5'
+          - profile: p4_t7
+            pivot: '4'
+            ratio: '7'
+          - profile: p5_t7
+            pivot: '5'
+            ratio: '7'
+          - profile: p6_t7
+            pivot: '6'
+            ratio: '7'
+          - profile: p5_t10
+            pivot: '5'
+            ratio: '10'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Reconstruct and build
+        shell: bash
+        run: |
+          set -euo pipefail
+          ROOT='FibonacciHarmonicSniperUltimate/versions/xauusd_1'
+          mkdir -p "$ROOT/src" sweep/cache sweep/reports sweep/package
+          base64 -d "$ROOT/source.gz.b64" | gzip -dc > "$ROOT/src/FibonacciXAUUSD1.cs"
+          docker pull ghcr.io/spotware/ctrader-console:5.9.11
+          docker run --rm --entrypoint sh -v "$PWD:/repo" -w /repo \
+            ghcr.io/spotware/ctrader-console:5.9.11 -c \
+            "dotnet restore $ROOT/FibonacciXAUUSD1.csproj && dotnet build $ROOT/FibonacciXAUUSD1.csproj --configuration Release --no-restore -p:AlgoPublish=False -p:IncludeSource=True"
+          ALGO="$(find "$ROOT" -type f -name '*.algo' -print -quit)"
+          test -n "$ALGO"
+          cp "$ALGO" sweep/xauusd_1.algo
+          sha256sum "$ALGO" > sweep/package/algo.sha256
+          sha256sum "$ROOT/src/FibonacciXAUUSD1.cs" > sweep/package/source.sha256
+
+      - name: Prepare credentials
+        env:
+          CTRADER_PASSWORD: ${{ secrets.CTRADER_PASSWORD }}
+        run: |
+          test -n "${CTRADER_PASSWORD:-}" || exit 1
+          printf '%s' "$CTRADER_PASSWORD" > sweep/ctrader.pwd
+          chmod 600 sweep/ctrader.pwd
+
+      - name: M1 geometry backtest - ${{ matrix.profile }}
+        env:
+          CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+          CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+          PROFILE: ${{ matrix.profile }}
+          PIVOT: ${{ matrix.pivot }}
+          RATIO: ${{ matrix.ratio }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker run --rm \
+            -v "$PWD/sweep:/work" \
+            -e "CTID=$CTRADER_CTID" -e 'PWD-FILE=/work/ctrader.pwd' -e "ACCOUNT=$CTRADER_ACCOUNT" \
+            ghcr.io/spotware/ctrader-console:5.9.11 \
+            backtest /work/xauusd_1.algo --environment-variables --exit-on-stop \
+            --symbol=XAUUSD --period=h1 \
+            --start='09/06/2026' --end='09/09/2026' \
+            --balance=10000 --data-mode=m1 --data-dir=/work/cache \
+            --commission=35 --spread=17.42 \
+            --RiskPercent=0.50 --MaxDailyLossPercent=3.0 --DebugLogging=false \
+            --MinQualityScore=84 --M30ConfirmRulesNeeded=2 --MaxPatternAgeBars=12 \
+            --RatioTolerancePercent="$RATIO" --PivotLeft="$PIVOT" --PivotRight="$PIVOT" \
+            --report="/work/reports/${PROFILE}.html" \
+            --report-json="/work/reports/${PROFILE}.json"
+          test -s "sweep/reports/${PROFILE}.json"
+
+      - name: Extract metrics
+        env:
+          PROFILE: ${{ matrix.profile }}
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          profile=os.environ['PROFILE']
+          d=json.loads(Path(f'sweep/reports/{profile}.json').read_text())
+          ts=d['tradeStatistics']; eq=d['equity']; m=d['main']
+          av=lambda x: x.get('all') if isinstance(x,dict) else x
+          trades=av(ts['totalTrades']); wins=av(ts['winningTrades']); losses=av(ts['losingTrades'])
+          net=av(ts['netProfit']); pf=av(ts['profitFactor']); roi=m['roi']; dd=eq['maxEquityDrawdownPercent']; end=m['endingBalance']
+          hist=d.get('history',{}).get('items',[])
+          patterns={}
+          for t in hist:
+              key=f"{t.get('comment','Unknown')}:{t.get('direction','?')}"
+              x=patterns.setdefault(key,{'trades':0,'net':0.0})
+              x['trades']+=1; x['net']+=float(t.get('net',0) or 0)
+          wr=100.0*wins/trades if trades else 0.0
+          text=(f'profile={profile}\ntrades={trades}\nwins={wins}\nlosses={losses}\nwr={wr:.2f}\n'
+                f'net={net}\nroi={roi}\npf={pf}\nmax_eq_dd_pct={dd}\nending_balance={end}\npatterns={patterns}\n')
+          Path(f'sweep/reports/{profile}.metrics.txt').write_text(text)
+          print(text)
+          with open(os.environ['GITHUB_STEP_SUMMARY'],'a') as h: h.write('```\n'+text+'```\n')
+          PY
+
+      - name: Package
+        if: always()
+        env:
+          PROFILE: ${{ matrix.profile }}
+        run: |
+          mkdir -p "sweep/package/${PROFILE}"
+          cp sweep/reports/${PROFILE}.* "sweep/package/${PROFILE}/" 2>/dev/null || true
+          rm -f sweep/ctrader.pwd
+
+      - name: Upload
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: xauusd_1-geometry-b-${{ matrix.profile }}
+          path: sweep/package/
+          retention-days: 30
