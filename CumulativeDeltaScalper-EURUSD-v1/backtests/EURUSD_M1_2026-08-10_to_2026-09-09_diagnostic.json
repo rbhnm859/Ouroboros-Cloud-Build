@@ -1,0 +1,77 @@
+{
+  "schema_version": 4,
+  "bot": "CumulativeDeltaScalper-EURUSD-v1",
+  "run_type": "diagnostic_relaxed_filters",
+  "symbol": "EURUSD",
+  "timeframe": "M1",
+  "period": {
+    "start": "2026-08-10",
+    "end": "2026-09-09",
+    "timezone": "UTC",
+    "end_inclusive": false
+  },
+  "execution": {
+    "environment": "GitHub Actions ubuntu-latest",
+    "engine": "ghcr.io/spotware/ctrader-console:5.9.11",
+    "starting_balance_usd": 100.0,
+    "artifact_path": "CumulativeDeltaScalper-EURUSD-v1/builds/CumulativeDeltaScalper_EURUSD_v1.algo",
+    "ctrader_date_format": "DD/MM/YYYY",
+    "cli_start": "10/08/2026",
+    "cli_end": "09/09/2026",
+    "data_mode": "m1"
+  },
+  "diagnostic_parameters": {
+    "DeltaThreshold": 30,
+    "MinConfirmations": 1,
+    "UseSessionFilter": false,
+    "OverlapOnly": false,
+    "UseHtfEmaFilter": false,
+    "EmaSlopeBars": 1,
+    "AdxThreshold": 0,
+    "MinAtr": 0,
+    "MaxAtr": 0,
+    "MaxSpreadPoints": 100,
+    "MaxDailyTrades": 50,
+    "MinSecondsBetweenTrades": 0,
+    "MaxTradeSeconds": 0,
+    "AdverseDeltaExit": false
+  },
+  "backtest": {
+    "status": "completed",
+    "data_source": "cTrader console report json",
+    "metrics": {
+      "initial_balance": 100.0,
+      "final_balance": 100.0,
+      "net_profit": 0.0,
+      "return_percent": 0.0,
+      "profit_factor": null,
+      "win_rate": null,
+      "max_drawdown": 0,
+      "total_trades": 0,
+      "average_trade": null,
+      "largest_win": null,
+      "largest_loss": null,
+      "gross_profit": null,
+      "gross_loss": null
+    },
+    "is_suitable_for_further_optimization": false,
+    "debug_classification": "diagnostic_zero_trades_possible_delta_source_issue",
+    "debug_summary": "Relaxed diagnostic parameters still produced zero trades. This points to tick-delta not accumulating under m1 data mode or another non-filter entry gate blocking signals."
+  },
+  "raw_report_top_level_keys": [
+    "entries",
+    "equity",
+    "history",
+    "main",
+    "orders",
+    "parameters",
+    "positions",
+    "profitsLosses",
+    "roi",
+    "tradeStatistics",
+    "usedSymbols"
+  ],
+  "errors": [],
+  "generated_by": "GitHub Actions workflow cdscalper-eurusd-v1-backtest-30d-diagnostic.yml",
+  "generated_at": "2026-09-09"
+}
