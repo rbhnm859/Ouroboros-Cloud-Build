@@ -1,33 +1,23 @@
 # EURUSD M1 30D Diagnostic 回測摘要
 
 - Bot: CumulativeDeltaScalper-EURUSD-v1
-- Run type: diagnostic_relaxed_filters
+- Run type: diagnostic_bar_delta_fallback
 - Symbol: EURUSD
 - Timeframe: M1
 - Period: 2026-08-10 ~ 2026-09-09 UTC
 - cTrader CLI date args: 10/08/2026 ~ 09/09/2026 (DD/MM/YYYY)
-- Backtest status: completed
-- Debug classification: diagnostic_zero_trades_possible_delta_source_issue
-
-## Diagnostic parameters
-- DeltaThreshold: 30
-- MinConfirmations: 1
-- UseSessionFilter: false
-- UseHtfEmaFilter: false
-- MinAtr: 0
-- MaxSpreadPoints: 100
-- MaxDailyTrades: 50
-- MinSecondsBetweenTrades: 0
+- Backtest status: failed_no_report_json
+- Debug classification: diagnostic_execution_failed
 
 ## Metrics
 - initial_balance: 100.0
-- final_balance: 100.0
-- net_profit: 0.0
-- return_percent: 0.0
+- final_balance: None
+- net_profit: None
+- return_percent: None
 - profit_factor: None
 - win_rate: None
-- max_drawdown: 0
-- total_trades: 0
+- max_drawdown: None
+- total_trades: None
 - average_trade: None
 - largest_win: None
 - largest_loss: None
@@ -35,4 +25,7 @@
 - gross_loss: None
 
 ## Debug conclusion
-Relaxed diagnostic parameters still produced zero trades. This points to tick-delta not accumulating under m1 data mode or another non-filter entry gate blocking signals.
+Diagnostic backtest did not complete with a usable JSON report. Inspect console markers before changing strategy logic again.
+
+## Errors / limitations
+- cTrader console did not produce backtest/reports/EURUSD-M1-30D-diagnostic.json
