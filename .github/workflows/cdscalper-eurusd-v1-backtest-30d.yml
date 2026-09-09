@@ -1,0 +1,201 @@
+name: Backtest CDScalper EURUSD v1 M1 30D
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - cds-eurusd-v1
+    paths:
+      - '.github/workflows/cdscalper-eurusd-v1-backtest-30d.yml'
+      - 'CumulativeDeltaScalper-EURUSD-v1/builds/CumulativeDeltaScalper_EURUSD_v1.algo'
+      - 'CumulativeDeltaScalper-EURUSD-v1/presets/**'
+
+permissions:
+  contents: write
+
+env:
+  START_DATE_ISO: '2026-08-10'
+  END_DATE_ISO: '2026-09-09'
+  START_DATE_CTRADER: '08/10/2026'
+  END_DATE_CTRADER: '09/09/2026'
+  STARTING_BALANCE: '100'
+  SYMBOL: 'EURUSD'
+  PERIOD: 'm1'
+  OUT_JSON: 'CumulativeDeltaScalper-EURUSD-v1/backtests/EURUSD_M1_2026-08-10_to_2026-09-09.json'
+  OUT_MD: 'CumulativeDeltaScalper-EURUSD-v1/reports/EURUSD_M1_30D_backtest_summary.md'
+
+jobs:
+  eurusd-m1-30d:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+      CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+      CTRADER_PASSWORD: ${{ secrets.CTRADER_PASSWORD }}
+    steps:
+      - name: Checkout cds-eurusd-v1
+        uses: actions/checkout@v4
+        with:
+          ref: cds-eurusd-v1
+
+      - name: Preflight
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p CumulativeDeltaScalper-EURUSD-v1/backtests CumulativeDeltaScalper-EURUSD-v1/reports backtest/reports backtest/cache/EURUSD
+          test -f CumulativeDeltaScalper-EURUSD-v1/builds/CumulativeDeltaScalper_EURUSD_v1.algo
+          if [ -z "${CTRADER_CTID:-}" ] || [ -z "${CTRADER_ACCOUNT:-}" ] || [ -z "${CTRADER_PASSWORD:-}" ]; then
+            echo 'missing_secrets=true' >> "$GITHUB_ENV"
+          else
+            echo 'missing_secrets=false' >> "$GITHUB_ENV"
+          fi
+
+      - name: Write missing secrets report
+        if: env.missing_secrets == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PYCODE'
+          import json
+          from pathlib import Path
+          out = {
+            "schema_version": 2,
+            "bot": "CumulativeDeltaScalper-EURUSD-v1",
+            "symbol": "EURUSD",
+            "timeframe": "M1",
+            "period": {"start": "2026-08-10", "end": "2026-09-09", "timezone": "UTC", "end_inclusive": False},
+            "execution": {"environment": "GitHub Actions ubuntu-latest", "engine": "ghcr.io/spotware/ctrader-console:5.9.11", "starting_balance_usd": 100.0},
+            "backtest": {"status": "missing_github_secrets", "data_source": "none", "metrics": {"initial_balance": 100.0, "final_balance": None, "net_profit": None, "return_percent": None, "profit_factor": None, "win_rate": None, "max_drawdown": None, "total_trades": None}},
+            "errors": ["Missing one or more GitHub Actions secrets: CTRADER_CTID, CTRADER_ACCOUNT, CTRADER_PASSWORD."],
+            "generated_by": "GitHub Actions workflow cdscalper-eurusd-v1-backtest-30d.yml",
+            "generated_at": "2026-09-09"
+          }
+          Path("CumulativeDeltaScalper-EURUSD-v1/backtests/EURUSD_M1_2026-08-10_to_2026-09-09.json").write_text(json.dumps(out, indent=2, ensure_ascii=False))
+          Path("CumulativeDeltaScalper-EURUSD-v1/reports/EURUSD_M1_30D_backtest_summary.md").write_text("# EURUSD M1 30D 回測摘要\n\nBacktest status: missing_github_secrets\n\n缺少 GitHub Actions secrets，未執行 cTrader console 回測。\n")
+          PYCODE
+
+      - name: Run cTrader console backtest EURUSD M1 30D
+        if: env.missing_secrets == 'false'
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp CumulativeDeltaScalper-EURUSD-v1/builds/CumulativeDeltaScalper_EURUSD_v1.algo backtest/CumulativeDeltaScalper_EURUSD_v1.algo
+          printf '%s' "$CTRADER_PASSWORD" | tr -d '\r\n' > backtest/ctrader.pwd
+          chmod 600 backtest/ctrader.pwd
+          docker run --rm -v "$PWD/backtest:/work" \
+            -e "CTID=$CTRADER_CTID" \
+            -e "ACCOUNT=$CTRADER_ACCOUNT" \
+            -e "PWD-FILE=/work/ctrader.pwd" \
+            ghcr.io/spotware/ctrader-console:5.9.11 \
+            backtest /work/CumulativeDeltaScalper_EURUSD_v1.algo --environment-variables \
+            --symbol="$SYMBOL" --period="$PERIOD" --start="$START_DATE_CTRADER" --end="$END_DATE_CTRADER" \
+            --balance="$STARTING_BALANCE" --data-mode=m1 --data-dir="/work/cache/EURUSD" \
+            --report="/work/reports/EURUSD-M1-30D.html" --report-json="/work/reports/EURUSD-M1-30D.json" \
+            --exit-on-stop 2>&1 | tee backtest/reports/console-30d.log
+          rm -f backtest/ctrader.pwd
+
+      - name: Publish backtest result files
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PYCODE'
+          import json, math
+          from pathlib import Path
+          out_json = Path("CumulativeDeltaScalper-EURUSD-v1/backtests/EURUSD_M1_2026-08-10_to_2026-09-09.json")
+          out_md = Path("CumulativeDeltaScalper-EURUSD-v1/reports/EURUSD_M1_30D_backtest_summary.md")
+          rep = Path("backtest/reports/EURUSD-M1-30D.json")
+          status = "completed" if rep.exists() else "failed_no_report_json"
+          metrics = {
+            "initial_balance": 100.0, "final_balance": None, "net_profit": None, "return_percent": None,
+            "profit_factor": None, "win_rate": None, "max_drawdown": None, "total_trades": None,
+            "average_trade": None, "largest_win": None, "largest_loss": None,
+            "gross_profit": None, "gross_loss": None
+          }
+          errors = []
+          if rep.exists():
+            try:
+              d = json.loads(rep.read_text())
+              m = d.get("main", {}) if isinstance(d, dict) else {}
+              hist = d.get("history", {}).get("items", []) if isinstance(d, dict) else []
+              nets = []
+              for t in hist:
+                val = t.get("net", t.get("netProfit", 0))
+                try: nets.append(float(val))
+                except Exception: pass
+              total = len(nets)
+              wins = sum(1 for n in nets if n > 0)
+              gp = sum(n for n in nets if n > 0)
+              gl = -sum(n for n in nets if n < 0)
+              net = m.get("netProfit", sum(nets) if nets else None)
+              final_balance = (100.0 + float(net)) if net is not None else None
+              metrics.update({
+                "final_balance": final_balance,
+                "net_profit": net,
+                "return_percent": ((final_balance - 100.0) / 100.0 * 100.0) if final_balance is not None else None,
+                "profit_factor": (gp / gl if gl > 0 else (math.inf if gp > 0 else 0.0)) if total else None,
+                "win_rate": (wins / total * 100.0) if total else None,
+                "max_drawdown": d.get("equity", {}).get("maxEquityDrawdownPercent") if isinstance(d, dict) else None,
+                "total_trades": total,
+                "average_trade": (sum(nets) / total) if total else None,
+                "largest_win": max(nets) if nets else None,
+                "largest_loss": min(nets) if nets else None,
+                "gross_profit": gp if total else None,
+                "gross_loss": gl if total else None
+              })
+            except Exception as e:
+              status = "failed_parse_report_json"
+              errors.append(str(e))
+          else:
+            errors.append("cTrader console did not produce backtest/reports/EURUSD-M1-30D.json")
+          out = {
+            "schema_version": 2,
+            "bot": "CumulativeDeltaScalper-EURUSD-v1",
+            "symbol": "EURUSD",
+            "timeframe": "M1",
+            "period": {"start": "2026-08-10", "end": "2026-09-09", "timezone": "UTC", "end_inclusive": False},
+            "parameter_source": "CumulativeDeltaScalper-EURUSD-v1/presets/eurusd_m1_conservative.json",
+            "execution": {"environment": "GitHub Actions ubuntu-latest", "engine": "ghcr.io/spotware/ctrader-console:5.9.11", "starting_balance_usd": 100.0, "artifact_path": "CumulativeDeltaScalper-EURUSD-v1/builds/CumulativeDeltaScalper_EURUSD_v1.algo"},
+            "backtest": {"status": status, "data_source": "cTrader console report json" if status == "completed" else "none", "metrics": metrics, "is_suitable_for_further_optimization": status == "completed"},
+            "errors": errors,
+            "generated_by": "GitHub Actions workflow cdscalper-eurusd-v1-backtest-30d.yml",
+            "generated_at": "2026-09-09"
+          }
+          out_json.write_text(json.dumps(out, indent=2, ensure_ascii=False))
+          lines = [
+            "# EURUSD M1 30D 回測摘要", "",
+            f"- Bot: CumulativeDeltaScalper-EURUSD-v1",
+            f"- Symbol: EURUSD",
+            f"- Timeframe: M1",
+            f"- Period: 2026-08-10 ~ 2026-09-09 UTC",
+            f"- Backtest status: {status}", "", "## Metrics"
+          ]
+          for k, v in metrics.items():
+            lines.append(f"- {k}: {v}")
+          if errors:
+            lines += ["", "## Errors / limitations"] + [f"- {e}" for e in errors]
+          lines += ["", "若 status 不是 completed，不能用來判斷策略盈利能力。"]
+          out_md.write_text("\n".join(lines) + "\n")
+          PYCODE
+
+      - name: Commit backtest result
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add "$OUT_JSON" "$OUT_MD" || true
+          git commit -m 'Run CDScalper EURUSD M1 30D backtest' || echo 'No changes to commit'
+          git push origin HEAD:cds-eurusd-v1 || true
+
+      - name: Upload backtest reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: CDScalper_EURUSD_M1_30D_backtest_reports
+          path: |
+            CumulativeDeltaScalper-EURUSD-v1/backtests/EURUSD_M1_2026-08-10_to_2026-09-09.json
+            CumulativeDeltaScalper-EURUSD-v1/reports/EURUSD_M1_30D_backtest_summary.md
+            backtest/reports/**
+          retention-days: 14
