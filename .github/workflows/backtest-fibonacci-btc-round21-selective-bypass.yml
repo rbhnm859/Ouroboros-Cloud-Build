@@ -1,0 +1,213 @@
+name: BTC Round21 Selective Bypass build and 1Y validation
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ btc-round21-selective-bypass ]
+    paths:
+      - 'FibonacciHarmonicSniperUltimate/versions/v0.20.0-btc-round21-selective-bypass/**'
+      - '.github/workflows/backtest-fibonacci-btc-round21-selective-bypass.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fibonacci-btc-round21-selective-bypass
+  cancel-in-progress: true
+
+jobs:
+  build-backtest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '6.0.x'
+
+      - name: Generate Round21 source from frozen Round18 anchor
+        run: |
+          set -euo pipefail
+          mkdir -p backtest/src
+          python3 - <<'PYCODE'
+          from pathlib import Path
+          import base64, gzip, hashlib
+          root=Path('FibonacciHarmonicSniperUltimate/versions/v0.17.0-btc-round18-diagnostics')
+          parts=sorted(root.glob('source_payload.part*'))
+          if not parts: raise SystemExit('Round18 payload missing')
+          data=gzip.decompress(base64.b64decode(''.join(p.read_text().strip() for p in parts)))
+          expected='5f2b7f31c4b8f0d60f52c4c15869aa75df4ff07d7224af971784137716bc8b93'
+          actual=hashlib.sha256(data).hexdigest()
+          if actual != expected: raise SystemExit(f'Round18 SHA mismatch {actual}')
+          Path('backtest/src/Round18.cs').write_bytes(data)
+          print('Round18 anchor verified',actual)
+          PYCODE
+          python3 FibonacciHarmonicSniperUltimate/versions/v0.20.0-btc-round21-selective-bypass/round21_transform.py \
+            backtest/src/Round18.cs backtest/src/FibonacciHarmonicSniperUltimate-BTC-Round21-SelectiveBypass.cs
+          rm -f backtest/src/Round18.cs
+          cat > backtest/src/FibonacciHarmonicSniperUltimate-BTC-Round21-SelectiveBypass.csproj <<'EOF'
+          <Project Sdk="Microsoft.NET.Sdk">
+            <PropertyGroup>
+              <TargetFramework>net6.0</TargetFramework>
+              <ImplicitUsings>disable</ImplicitUsings>
+              <Nullable>disable</Nullable>
+              <RootNamespace>cAlgo.Robots</RootNamespace>
+              <AlgoName>FibonacciHarmonicSniperUltimate-BTC-Round21-SelectiveBypass</AlgoName>
+            </PropertyGroup>
+            <ItemGroup>
+              <PackageReference Include="cTrader.Automate" Version="1.*-*" />
+            </ItemGroup>
+          </Project>
+          EOF
+
+      - name: Build Round21 .algo
+        run: |
+          set -euo pipefail
+          PROJ=backtest/src/FibonacciHarmonicSniperUltimate-BTC-Round21-SelectiveBypass.csproj
+          dotnet restore "$PROJ"
+          dotnet build "$PROJ" -c Release --no-restore -p:AlgoPublish=False -p:IncludeSource=True
+          mkdir -p backtest/build backtest/cache backtest/p96a2 backtest/p93a2 backtest/p96a4 backtest/harsh
+          ALGO=$(find backtest/src/bin/Release -type f -name '*.algo' | head -n1)
+          test -n "$ALGO"
+          cp "$ALGO" backtest/build/FibonacciHarmonicSniperUltimate-BTC-Round21-SelectiveBypass.algo
+          sha256sum backtest/build/FibonacciHarmonicSniperUltimate-BTC-Round21-SelectiveBypass.algo | tee backtest/build/SHA256SUMS.txt
+
+      - name: Prepare cTrader
+        env:
+          CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+          CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+          CTRADER_PASSWORD: ${{ secrets.CTRADER_PASSWORD }}
+        run: |
+          set -euo pipefail
+          test -n "${CTRADER_CTID:-}"; test -n "${CTRADER_ACCOUNT:-}"; test -n "${CTRADER_PASSWORD:-}"
+          printf '%s' "$CTRADER_PASSWORD" | tr -d '\r\n' > backtest/ctrader.pwd
+          chmod 600 backtest/ctrader.pwd
+
+      - name: Pull cTrader CLI
+        run: docker pull ghcr.io/spotware/ctrader-console:5.9.11
+
+      - name: Standard selective-bypass screens
+        env:
+          CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+          CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+        run: |
+          set -euo pipefail
+          for PROFILE in 'p96a2 96 2 0.25' 'p93a2 93 2 0.25' 'p96a4 96 4 0.25'; do
+            set -- $PROFILE; OUT=$1; SCORE=$2; AGE=$3; RISK=$4
+            docker run --rm \
+              -v "$PWD/backtest:/work" \
+              -e "CTID=$CTRADER_CTID" -e 'PWD-FILE=/work/ctrader.pwd' -e "ACCOUNT=$CTRADER_ACCOUNT" \
+              ghcr.io/spotware/ctrader-console:5.9.11 \
+              backtest /work/build/FibonacciHarmonicSniperUltimate-BTC-Round21-SelectiveBypass.algo \
+              --environment-variables --exit-on-stop --symbol=BITCOIN --period=h1 \
+              --start='08/09/2025 00:00' --end='08/09/2026 00:00' --balance=10000 --data-mode=m1 --data-dir=/work/cache \
+              --commission=65 --spread=0 \
+              --RiskPercent=1.0 --Round17M30RiskPercent=0.50 --Round18CandidateDiagnostics=false \
+              --Round21SelectiveHealthBypass=true --Round21BypassMinScore="$SCORE" --Round21SameDirH1MaxAgeHours="$AGE" \
+              --Round21BypassRiskPercent="$RISK" --Round21ReserveH1AtHour=true \
+              --MaxOpenPositions=1 --MaxTradesPerDay=6 --MaxDailyLossPercent=5 \
+              --EnabledPatterns='Reciprocal ABCD' --PivotLeft=2 --PivotRight=2 --RatioTolerancePercent=6 --MinPatternScore=84 \
+              --MaxPatternAgeBars=16 --MaxEntryDistanceAtr=1.80 --ConfirmationMoveAtr=0.05 --UseCandleConfirmation=true \
+              --CooldownBars=2 --FallbackRiskReward=1.80 --MinimumRiskReward=1.50 --StopAnchorMode=LegacyD --TargetRiskRewardPolicy=LegacyFallback \
+              --Round5Mode=ObserveOnly --MtfMode=Off --Round6RequireM30SellConfirm=false --Round7VetoM30SellAlignment=false \
+              --Round8LogExcursions=false --Round9ShadowTpContinuation=false --Round10LogFunnel=false \
+              --Round15EnableM30Engine=true --Round16H1HealthGate=true --DebugLogging=false \
+              --report="/work/$OUT/report.html" --report-json="/work/$OUT/report.json" 2>&1 | tee "backtest/$OUT/report.log"
+          done
+
+      - name: Select best Round21 Standard profile
+        run: |
+          set -euo pipefail
+          python3 - <<'PYCODE'
+          import json, os, re
+          from pathlib import Path
+          defs=[('p96a2',96,2,0.25),('p93a2',93,2,0.25),('p96a4',96,4,0.25)]
+          rows=[]
+          for name,score,age,risk in defs:
+            r=json.loads(Path(f'backtest/{name}/report.json').read_text())
+            log=Path(f'backtest/{name}/report.log').read_text(errors='replace')
+            x={'profile':name,'min_score':score,'h1_age_hours':age,'bypass_risk':risk,
+               'trades':int(r['tradeStatistics']['totalTrades']['all']),'roi':float(r['main']['roi']),
+               'net':float(r['main']['netProfit']),'pf':float(r['tradeStatistics']['profitFactor']['all']),
+               'dd':float(r['equity']['maxEquityDrawdownPercent']),
+               'bypass_count':len(re.findall(r'\[R21 BYPASS\]',log)),
+               'reservation_count':len(re.findall(r'\[R21 H1 RESERVATION\]',log))}
+            x['gates']={'trades':x['trades']>94,'roi':x['roi']>38.48,'pf':x['pf']>1.85,'dd':x['dd']<5.92}
+            x['gate_count']=sum(x['gates'].values()); x['pass_all']=all(x['gates'].values())
+            rows.append(x)
+          passing=[x for x in rows if x['pass_all']]
+          best=max(passing,key=lambda x:(x['roi'],x['trades'],x['pf'],-x['dd'])) if passing else max(rows,key=lambda x:(x['gate_count'],x['roi'],x['trades'],x['pf'],-x['dd']))
+          out={'round17_target':{'trades':94,'roi':38.48,'pf':1.85,'dd':5.92},'profiles':rows,'selected':best}
+          Path('backtest/Round21-Standard-Screen.json').write_text(json.dumps(out,indent=2))
+          print(json.dumps(out,indent=2))
+          with open(os.environ['GITHUB_ENV'],'a') as f:
+            f.write(f"R21_PROFILE={best['profile']}\nR21_SCORE={best['min_score']}\nR21_AGE={best['h1_age_hours']}\nR21_RISK={best['bypass_risk']}\n")
+          PYCODE
+
+      - name: Harsh selected Round21
+        env:
+          CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+          CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+        run: |
+          set -euo pipefail
+          docker run --rm \
+            -v "$PWD/backtest:/work" -e "CTID=$CTRADER_CTID" -e 'PWD-FILE=/work/ctrader.pwd' -e "ACCOUNT=$CTRADER_ACCOUNT" \
+            ghcr.io/spotware/ctrader-console:5.9.11 \
+            backtest /work/build/FibonacciHarmonicSniperUltimate-BTC-Round21-SelectiveBypass.algo \
+            --environment-variables --exit-on-stop --symbol=BITCOIN --period=h1 \
+            --start='08/09/2025 00:00' --end='08/09/2026 00:00' --balance=10000 --data-mode=m1 --data-dir=/work/cache \
+            --commission=100 --spread=1500 \
+            --RiskPercent=1.0 --Round17M30RiskPercent=0.50 --Round18CandidateDiagnostics=false \
+            --Round21SelectiveHealthBypass=true --Round21BypassMinScore="$R21_SCORE" --Round21SameDirH1MaxAgeHours="$R21_AGE" \
+            --Round21BypassRiskPercent="$R21_RISK" --Round21ReserveH1AtHour=true \
+            --MaxOpenPositions=1 --MaxTradesPerDay=6 --MaxDailyLossPercent=5 \
+            --EnabledPatterns='Reciprocal ABCD' --PivotLeft=2 --PivotRight=2 --RatioTolerancePercent=6 --MinPatternScore=84 \
+            --MaxPatternAgeBars=16 --MaxEntryDistanceAtr=1.80 --ConfirmationMoveAtr=0.05 --UseCandleConfirmation=true \
+            --CooldownBars=2 --FallbackRiskReward=1.80 --MinimumRiskReward=1.50 --StopAnchorMode=LegacyD --TargetRiskRewardPolicy=LegacyFallback \
+            --Round5Mode=ObserveOnly --MtfMode=Off --Round6RequireM30SellConfirm=false --Round7VetoM30SellAlignment=false \
+            --Round8LogExcursions=false --Round9ShadowTpContinuation=false --Round10LogFunnel=false \
+            --Round15EnableM30Engine=true --Round16H1HealthGate=true --DebugLogging=false \
+            --report=/work/harsh/report.html --report-json=/work/harsh/report.json 2>&1 | tee backtest/harsh/report.log
+
+      - name: Final Round21 summary
+        run: |
+          set -euo pipefail
+          python3 - <<'PYCODE'
+          import json,re
+          from pathlib import Path
+          screen=json.loads(Path('backtest/Round21-Standard-Screen.json').read_text())
+          r=json.loads(Path('backtest/harsh/report.json').read_text())
+          log=Path('backtest/harsh/report.log').read_text(errors='replace')
+          harsh={'trades':int(r['tradeStatistics']['totalTrades']['all']),'roi':float(r['main']['roi']),
+                 'net':float(r['main']['netProfit']),'pf':float(r['tradeStatistics']['profitFactor']['all']),
+                 'dd':float(r['equity']['maxEquityDrawdownPercent']),
+                 'bypass_count':len(re.findall(r'\[R21 BYPASS\]',log)),
+                 'reservation_count':len(re.findall(r'\[R21 H1 RESERVATION\]',log))}
+          out={'version':'v0.20.0-btc-round21-selective-bypass','source_sha256':'4ed08a5efd3f3ba4b6c438686396a63e6747b07747cd3e318d946868ce424153',
+               'round17':{'trades':94,'roi':38.48,'pf':1.85,'dd':5.92},'standard':screen['selected'],'harsh':harsh}
+          Path('backtest/Round21-Final-Summary.json').write_text(json.dumps(out,indent=2)); print(json.dumps(out,indent=2))
+          PYCODE
+
+      - name: Remove credentials
+        if: always()
+        run: rm -f backtest/ctrader.pwd
+
+      - name: Upload Round21 artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Fibonacci-BTC-Round21-SelectiveBypass
+          path: |
+            backtest/build/FibonacciHarmonicSniperUltimate-BTC-Round21-SelectiveBypass.algo
+            backtest/build/SHA256SUMS.txt
+            backtest/src/FibonacciHarmonicSniperUltimate-BTC-Round21-SelectiveBypass.cs
+            backtest/src/FibonacciHarmonicSniperUltimate-BTC-Round21-SelectiveBypass.csproj
+            backtest/p96a2/report.*
+            backtest/p93a2/report.*
+            backtest/p96a4/report.*
+            backtest/harsh/report.*
+            backtest/Round21-Standard-Screen.json
+            backtest/Round21-Final-Summary.json
+          if-no-files-found: warn
+          retention-days: 30
