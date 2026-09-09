@@ -78,11 +78,8 @@ jobs:
           grep -qi "$SYMBOL" work/reports/symbols.txt
 
       - name: Read metadata and map video parameters
-        env:
-          CTID: ${{ secrets.CTRADER_CTID }}
         run: |
-          CTID="$(printf '%s' "$CTID" | tr -d '[:space:]')"
-          docker run --rm -v "$PWD/work:/work" "$CLI_IMAGE" metadata /work/VSB.algo --ctid="$CTID" --pwd-file=/work/ctrader.pwd | tee work/reports/metadata.txt
+          docker run --rm -v "$PWD/work:/work" "$CLI_IMAGE" metadata /work/VSB.algo | tee work/reports/metadata.txt
           python3 .github/scripts/build-vsb-video-cbotset.py
           cat work/VSB-video.cbotset
 
