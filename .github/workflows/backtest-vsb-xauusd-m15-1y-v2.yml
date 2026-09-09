@@ -1,0 +1,149 @@
+name: Backtest VSB XAUUSD M15 - 1Y FxPro v2
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/backtest-vsb-xauusd-m15-1y-v2.yml"
+      - ".github/scripts/download-vsb-store.mjs"
+      - ".github/scripts/build-vsb-video-cbotset.py"
+
+concurrency:
+  group: vsb-xauusd-m15-1y-v2
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  backtest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 330
+    env:
+      PRODUCT_URL: https://ctrader.com/products/1847
+      SYMBOL: XAUUSD
+      PERIOD: m15
+      START_DATE: 09/09/2025
+      END_DATE: 09/09/2026
+      START_BALANCE: "30"
+      BROKER: FxPro
+      CLI_IMAGE: ghcr.io/spotware/ctrader-console:5.9.11
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Prepare credentials and folders
+        env:
+          CTID: ${{ secrets.CTRADER_CTID }}
+          CTPASS: ${{ secrets.CTRADER_PASSWORD }}
+          ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+        run: |
+          set -euo pipefail
+          test -n "$CTID" && test -n "$CTPASS" && test -n "$ACCOUNT"
+          mkdir -p work/downloads work/reports work/cache work/browser
+          printf '%s' "$CTPASS" | tr -d '\r\n' > work/ctrader.pwd
+          chmod 600 work/ctrader.pwd
+
+      - name: Install Playwright Chromium
+        run: |
+          npm init -y >/dev/null 2>&1
+          npm install playwright@1.55.0 >/dev/null
+          npx playwright install --with-deps chromium >/dev/null
+
+      - name: Download installed Store algo
+        env:
+          CTID: ${{ secrets.CTRADER_CTID }}
+          CTPASS: ${{ secrets.CTRADER_PASSWORD }}
+        run: node .github/scripts/download-vsb-store.mjs
+
+      - name: Locate algo
+        run: |
+          ALGO="$(find work/downloads -type f -iname '*.algo' -print -quit)"
+          test -n "$ALGO"
+          cp "$ALGO" work/VSB.algo
+          ls -lh work/VSB.algo
+
+      - name: Verify FxPro account and symbol
+        env:
+          CTID: ${{ secrets.CTRADER_CTID }}
+          ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+        run: |
+          set -euo pipefail
+          CTID="$(printf '%s' "$CTID" | tr -d '[:space:]')"
+          ACCOUNT="$(printf '%s' "$ACCOUNT" | tr -d '[:space:]')"
+          docker run --rm -v "$PWD/work:/work" "$CLI_IMAGE" accounts --ctid="$CTID" --pwd-file=/work/ctrader.pwd --broker="$BROKER" | tee work/reports/accounts.txt
+          grep -Fq "$ACCOUNT" work/reports/accounts.txt
+          docker run --rm -v "$PWD/work:/work" "$CLI_IMAGE" symbols --ctid="$CTID" --pwd-file=/work/ctrader.pwd --account="$ACCOUNT" --broker="$BROKER" | tee work/reports/symbols.txt
+          grep -qi "$SYMBOL" work/reports/symbols.txt
+
+      - name: Read metadata and map video parameters
+        env:
+          CTID: ${{ secrets.CTRADER_CTID }}
+        run: |
+          CTID="$(printf '%s' "$CTID" | tr -d '[:space:]')"
+          docker run --rm -v "$PWD/work:/work" "$CLI_IMAGE" metadata /work/VSB.algo --ctid="$CTID" --pwd-file=/work/ctrader.pwd | tee work/reports/metadata.txt
+          python3 .github/scripts/build-vsb-video-cbotset.py
+          cat work/VSB-video.cbotset
+
+      - name: Backtest one year using server ticks
+        env:
+          CTID: ${{ secrets.CTRADER_CTID }}
+          ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+        run: |
+          set -euo pipefail
+          CTID="$(printf '%s' "$CTID" | tr -d '[:space:]')"
+          ACCOUNT="$(printf '%s' "$ACCOUNT" | tr -d '[:space:]')"
+          docker run --rm -v "$PWD/work:/work" "$CLI_IMAGE" backtest /work/VSB.algo /work/VSB-video.cbotset \
+            --ctid="$CTID" --pwd-file=/work/ctrader.pwd --account="$ACCOUNT" --broker="$BROKER" \
+            --symbol="$SYMBOL" --period="$PERIOD" --start="$START_DATE" --end="$END_DATE" \
+            --balance="$START_BALANCE" --data-mode=ticks --data-dir=/work/cache \
+            --report=/work/reports/VSB-XAUUSD-M15-1Y.html \
+            --report-json=/work/reports/VSB-XAUUSD-M15-1Y.json \
+            --full-access --exit-on-stop 2>&1 | tee work/reports/backtest-console.log
+
+      - name: Build result summary
+        if: success()
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import json, math
+          d=json.loads(Path('work/reports/VSB-XAUUSD-M15-1Y.json').read_text())
+          main=d.get('main',{}); eq=d.get('equity',{}); rows=d.get('history',{}).get('items',[]) or []
+          def n(o,*ks,default=0.0):
+              for k in ks:
+                  if isinstance(o,dict) and k in o:
+                      try:return float(o[k])
+                      except:pass
+              return default
+          nets=[n(x,'net','netProfit','profit') for x in rows]
+          trades=len(nets); wins=sum(x>0 for x in nets); losses=sum(x<0 for x in nets)
+          net=n(main,'netProfit',default=sum(nets)); gp=sum(x for x in nets if x>0); gl=-sum(x for x in nets if x<0)
+          pf=gp/gl if gl else (math.inf if gp else 0.0); wr=wins/trades*100 if trades else 0.0
+          roi=net/30*100; dd=n(eq,'maxEquityDrawdownPercent','maxEquityDrawdownPercentages','maxDrawdownPercent')
+          ending=n(main,'endingBalance','balance',default=30+net)
+          text=(f'# VSB XAUUSD M15 — FxPro 1Y\n\n'
+                f'Period: 2025-09-09 to 2026-09-09 UTC\n'
+                f'Initial balance: $30\nTrades: {trades}\nWins: {wins}\nLosses: {losses}\n'
+                f'Win rate: {wr:.2f}%\nNet profit: ${net:.2f}\nROI: {roi:.2f}%\n'
+                f'Ending balance: ${ending:.2f}\nProfit factor: {pf:.2f}\nMax equity drawdown: {dd:.2f}%\n'
+                'Data: cTrader server tick history\nCost overrides: none\n')
+          Path('work/reports/SUMMARY.md').write_text(text)
+          print(text)
+          PY
+
+      - name: Remove credentials
+        if: always()
+        run: rm -f work/ctrader.pwd
+
+      - name: Upload reports and diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: VSB-XAUUSD-M15-FxPro-1Y-v2
+          path: |
+            work/reports/
+            work/browser/
+            work/VSB-video.cbotset
+          if-no-files-found: warn
+          retention-days: 14
