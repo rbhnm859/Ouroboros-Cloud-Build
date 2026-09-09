@@ -79,6 +79,11 @@ try {
   const href = await financeLink.getAttribute('href');
   await page.goto(new URL(href, page.url()).href, { waitUntil: 'domcontentloaded', timeout: 60000 });
   await page.waitForTimeout(2500);
+
+  for (const rx of [/Accept necessary/i, /Accept all/i, /接受必要/i, /全部接受/i]) {
+    const cookieButton = page.getByRole('button', { name: rx }).first();
+    if (await isVisible(cookieButton)) { await cookieButton.click(); break; }
+  }
   await snap('03-finances');
 
   const purchaseLabels = [/Purchases/i, /购买记录/i, /購買記錄/i, /^购买$/i, /^購買$/i, /購入/i];
@@ -95,12 +100,19 @@ try {
     }
     if (switched) break;
   }
-  if (switched) await page.waitForTimeout(2200);
-  await snap('04-purchases');
+  if (switched) await page.waitForTimeout(1200);
+
+  const search = page.getByPlaceholder(/Search|搜索|搜尋/i).first();
+  if (await isVisible(search)) {
+    await search.fill('Volatility Sniper Breakout BETA');
+    await page.waitForTimeout(1600);
+  }
+  await snap('04-purchases-filtered');
 
   const title = page.getByText(/Volatility Sniper Breakout BETA/i).first();
-  if (!await isVisible(title)) throw new Error('VSB not visible in Purchases');
-  let scope = title.locator('xpath=ancestor::*[self::tr or self::li or self::div][.//button or .//a][1]');
+  if (!await isVisible(title)) throw new Error('VSB not visible after Purchases search');
+  let scope = title.locator('xpath=ancestor::tr[1]');
+  if (!await scope.count()) scope = title.locator('xpath=ancestor::*[self::li or self::div][.//button][1]');
   if (!await scope.count()) scope = page;
 
   let ok = await downloadFrom(scope);
