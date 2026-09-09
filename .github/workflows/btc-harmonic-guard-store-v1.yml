@@ -46,6 +46,7 @@ jobs:
           rm -f work/r26-src/Round22.cs
           cp work/r26-src/*.cs work/store-src/
           python3 FibonacciHarmonicSniperUltimate/store-v1/store_v1_transform.py work/store-src/BTC-Harmonic-Guard-Control.cs work/store-src/BTC-Harmonic-Guard.cs
+          python3 FibonacciHarmonicSniperUltimate/store-v1/store_v1_keyfix.py work/store-src
           rm -f work/store-src/BTC-Harmonic-Guard-Control.cs work/Round18.cs work/Round21.cs work/Round22.cs
 
           cat > work/r26-src/Control.csproj <<'EOF'
@@ -77,6 +78,8 @@ jobs:
           grep -q 'RiskPercentEquity only' "$SAFE"
           grep -q 'StoreEmergencyClose' "$SAFE"
           grep -q 'StoreDailyLossReached' "$MAIN"
+          grep -q 'BTCHarmonicGuard ' "$SAFE"
+          if grep -q 'BTC-Harmonic-Guard|' "$SAFE"; then echo 'Illegal LocalStorage key remains'; exit 1; fi
           echo 'Store hardening static audit passed.'
 
       - name: Build Control and Store algos
@@ -132,6 +135,9 @@ jobs:
           run_store store-3y '08/09/2023 00:00' '08/09/2026 00:00'
           run_control r26-1y '08/09/2025 00:00' '08/09/2026 00:00'
           run_store store-1y '08/09/2025 00:00' '08/09/2026 00:00'
+          if grep -R '\[STORE EXCEPTION\]' work/store-3y/report.log work/store-1y/report.log; then
+            echo 'Store runtime exception detected'; exit 1
+          fi
 
       - name: Enforce Store exact economic parity
         run: |
@@ -142,13 +148,17 @@ jobs:
           def load(p): return json.loads(Path(p).read_text())
           def norm(r):
               return [{'direction':x['direction'],'entryTime':x['entryTime'],'closeTime':x['closeTime'],'entryPrice':round(float(x['entryPrice']),8),'closePrice':round(float(x['closePrice']),8),'volume':round(float(x['volume']),8),'net':round(float(x['net']),8),'pips':round(float(x['pips']),8),'comment':x.get('comment','')} for x in r['history']['items']]
-          def m(r): return {'trades':int(r['tradeStatistics']['totalTrades']['all']),'roi':float(r['main']['roi']),'net':float(r['main']['netProfit']),'pf':float(r['tradeStatistics']['profitFactor']['all']),'dd_equity':float(r['equity']['maxEquityDrawdownPercent']),'dd_balance':float(r['balance']['maxBalanceDrawdownPercent'])}
+          def m(r): return {'trades':int(r['tradeStatistics']['totalTrades']['all']),'roi':float(r['main']['roi']),'net':float(r['main']['netProfit']),'pf':float(r['tradeStatistics']['profitFactor']['all']),'dd_equity':float(r['equity']['maxEquityDrawdownPercent']),'dd_balance':float(r['equity']['maxBalanceDrawdownPercent'])}
           summary={'version':'BTC Harmonic Guard Store v1','periods':{},'store_hardening_passed':False}
           for label in ('3y','1y'):
               a=load(f'work/r26-{label}/report.json'); b=load(f'work/store-{label}/report.json')
               na,nb=norm(a),norm(b)
               summary['periods'][label]={'control':m(a),'store':m(b),'control_hash':hashlib.sha256(json.dumps(na,sort_keys=True).encode()).hexdigest(),'store_hash':hashlib.sha256(json.dumps(nb,sort_keys=True).encode()).hexdigest(),'exact_trade_parity':na==nb}
               if na!=nb:
+                  for i in range(max(len(na),len(nb))):
+                      aa=na[i] if i<len(na) else None; bb=nb[i] if i<len(nb) else None
+                      if aa!=bb:
+                          summary['periods'][label]['first_difference']={'index':i,'control':aa,'store':bb}; break
                   Path('work/Store-v1-Summary.json').write_text(json.dumps(summary,indent=2)); raise SystemExit(f'Store parity failed {label}')
           summary['store_hardening_passed']=True
           Path('work/Store-v1-Summary.json').write_text(json.dumps(summary,indent=2))
