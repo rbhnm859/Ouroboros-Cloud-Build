@@ -1,0 +1,124 @@
+name: Backtest CDScalper EURUSD v1 Candidate O Dual Engine 30
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [cds-eurusd-v1]
+    paths:
+      - '.github/workflows/cdscalper-eurusd-v1-candidate-o-dual-engine-30.yml'
+      - 'CumulativeDeltaScalper-EURUSD-v1/src/**'
+      - 'CumulativeDeltaScalper-EURUSD-v1/CumulativeDeltaScalper_EURUSD_v1.csproj'
+      - 'CumulativeDeltaScalper-EURUSD-v1/presets/eurusd_m1_candidate_o_dual_engine_30.json'
+
+permissions:
+  contents: read
+
+env:
+  START_2Y: '09/09/2024'
+  START_1Y: '09/09/2025'
+  END_DATE: '09/09/2026'
+  STARTING_BALANCE: '30'
+  SYMBOL: 'EURUSD'
+  PERIOD: 'm1'
+
+jobs:
+  build-algo:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: cds-eurusd-v1
+
+      - name: Setup .NET SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '7.0.x'
+
+      - name: Build Candidate O .algo
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $root = 'CumulativeDeltaScalper-EURUSD-v1'
+          $project = Join-Path $root 'CumulativeDeltaScalper_EURUSD_v1.csproj'
+          $out = Join-Path $root 'candidate-o-out'
+          New-Item -ItemType Directory -Force -Path $out | Out-Null
+          dotnet restore $project
+          dotnet build $project -c Release -p:AlgoName=CumulativeDeltaScalper_EURUSD_v1 -p:AlgoBuild=true -p:AlgoPublish=false -p:IncludeSource=true
+          $algos = Get-ChildItem -Path $root -Recurse -Filter '*.algo' -ErrorAction SilentlyContinue
+          if (-not $algos -or $algos.Count -eq 0) {
+            Write-Host 'No .algo file generated.'
+            exit 1
+          }
+          $selected = $algos | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+          Copy-Item $selected.FullName (Join-Path $out 'CumulativeDeltaScalper_EURUSD_v1_candidate_o.algo') -Force
+          Get-FileHash -Algorithm SHA256 (Join-Path $out 'CumulativeDeltaScalper_EURUSD_v1_candidate_o.algo') | Format-List
+
+      - name: Upload Candidate O .algo
+        uses: actions/upload-artifact@v4
+        with:
+          name: CDScalper_EURUSD_candidate_o_algo
+          path: CumulativeDeltaScalper-EURUSD-v1/candidate-o-out/CumulativeDeltaScalper_EURUSD_v1_candidate_o.algo
+          retention-days: 14
+
+  backtest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    needs: build-algo
+    env:
+      CTID: ${{ secrets.CTRADER_CTID }}
+      ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+      CT_PASS: ${{ secrets.CTRADER_PASSWORD }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: cds-eurusd-v1
+
+      - name: Download Candidate O .algo
+        uses: actions/download-artifact@v4
+        with:
+          name: CDScalper_EURUSD_candidate_o_algo
+          path: backtest
+
+      - name: Run Candidate O dual-engine matrix
+        run: |
+          set -euo pipefail
+          mkdir -p backtest/reports backtest/cache/EURUSD
+          printf '%s' "$CT_PASS" | tr -d '\r\n' > backtest/ctrader.pwd
+          chmod 600 backtest/ctrader.pwd
+
+          run_bt () {
+            local profile="$1"
+            local start="$2"
+            local tag="$3"
+            shift 3
+            echo "==== Running $profile $tag from $start to $END_DATE ===="
+            docker run --rm -v "$PWD/backtest:/work" -e "CTID=$CTID" -e "ACCOUNT=$ACCOUNT" -e "PWD-FILE=/work/ctrader.pwd" ghcr.io/spotware/ctrader-console:5.9.11 backtest /work/CumulativeDeltaScalper_EURUSD_v1_candidate_o.algo --environment-variables --symbol="$SYMBOL" --period="$PERIOD" --start="$start" --end="$END_DATE" --balance="$STARTING_BALANCE" --data-mode=m1 --data-dir="/work/cache/EURUSD" "$@" --report="/work/reports/EURUSD-M1-${tag}-${profile}.html" --report-json="/work/reports/EURUSD-M1-${tag}-${profile}.json" --exit-on-stop 2>&1 | tee "backtest/reports/console-${tag}-${profile}.log"
+          }
+
+          COMMON=(--UseBarDeltaFallback=true --FallbackBelowTickDelta=2 --BarDeltaPointMultiplier=1.6 --UseWeekdayFilter=true --TradeThursday=false --UseHtfEmaFilter=true --HtfTimeFrameName=Minute15 --EmaSlopeBars=3 --MaxSpreadPoints=18 --SpreadAvgMultiplier=1.8 --AutoScaleFixedRisk=true --RiskReferenceBalance=100 --MinFixedMoneyRisk=0.05 --UseHardActualLossCap=true --MaxActualTradeLossMoney=1.0 --SkipIfMinVolumeRiskTooHigh=true --MaxFloatingLossMoney=1.0 --MaxEquityDrawdownPercent=15 --CloseOnEquityGuard=true --UseBreakeven=true --BreakevenPips=0.8 --SummaryLogging=true)
+
+          O1=(--BotLabel=CDS_O1_CORE --DeltaThreshold=125 --MinConfirmations=3 --UseSessionFilter=true --SessionStartHour=14 --SessionStartMinute=0 --SessionEndHour=14 --SessionEndMinute=54 --UseSessionQualityFilter=false --TradeMonday=false --TradeTuesday=true --TradeWednesday=true --TradeFriday=true --AdxThreshold=16 --MinAtr=0.00005 --MaxAtr=0.00105 --FixedMoneyRisk=0.90 --MaxLotSize=0.01 --SlAtrMultiplier=0.8 --TpAtrMultiplier=0.4 --UseRunnerExit=false --DailyProfitTargetMoney=0 --UseDailyProfitLock=true --DailyProfitLockStartMoney=0.75 --DailyProfitGivebackPercent=45 --DailyProfitLockFloorMoney=0.25 --CloseOnDailyProfitLock=true --MaxDailyTrades=3 --MaxDailyLossPercent=3.5 --MaxDailyLossMoney=0.75 --MaxConsecutiveLosses=2 --MinSecondsBetweenTrades=900 --LossCooldownMinutes=60 --MaxDailyEquityDrawdownMoney=0.80 --MaxTradeSeconds=1800 --AdverseDeltaExit=true --UseStrictShortFilter=true --ShortDeltaBonus=15 --ShortAdxBonus=2 --ShortRequireSpreadBelowAverage=true)
+
+          O2=(--BotLabel=CDS_O2_RUNNER --DeltaThreshold=150 --MinConfirmations=4 --UseSessionFilter=false --UseSessionQualityFilter=true --ExtendedStartHour=7 --ExtendedStartMinute=0 --ExtendedEndHour=16 --ExtendedEndMinute=30 --AllDayDeltaBonus=60 --AllDayAdxBonus=4 --AllDayExtraConfirmations=1 --SessionStartHour=14 --SessionStartMinute=0 --SessionEndHour=14 --SessionEndMinute=54 --TradeMonday=false --TradeTuesday=true --TradeWednesday=true --TradeFriday=true --AdxThreshold=18 --MinAtr=0.00007 --MaxAtr=0.00120 --MaxSpreadPoints=16 --SpreadAvgMultiplier=1.5 --FixedMoneyRisk=0.80 --MaxLotSize=0.01 --SlAtrMultiplier=0.8 --TpAtrMultiplier=0.4 --UseRunnerExit=true --EmergencyTpR=4 --RunnerBreakevenAtR=0.7 --RunnerProfitLockStartR=1.0 --RunnerProfitLockR=0.35 --RunnerTrailStartR=1.25 --RunnerTrailAtrMultiplier=0.9 --DailyProfitTargetMoney=0 --UseDailyProfitLock=true --DailyProfitLockStartMoney=1.0 --DailyProfitGivebackPercent=50 --DailyProfitLockFloorMoney=0.30 --CloseOnDailyProfitLock=false --MaxDailyTrades=6 --MaxDailyLossPercent=5.0 --MaxDailyLossMoney=1.00 --MaxConsecutiveLosses=2 --MinSecondsBetweenTrades=600 --LossCooldownMinutes=45 --MaxDailyEquityDrawdownMoney=1.00 --MaxTradeSeconds=3600 --AdverseDeltaExit=false --UseStrictShortFilter=true --ShortDeltaBonus=40 --ShortAdxBonus=4 --ShortRequireSpreadBelowAverage=true)
+
+          O3=(--BotLabel=CDS_O3_HYBRID --DeltaThreshold=125 --MinConfirmations=3 --UseSessionFilter=true --SessionStartHour=14 --SessionStartMinute=0 --SessionEndHour=14 --SessionEndMinute=54 --UseSessionQualityFilter=false --TradeMonday=true --TradeTuesday=true --TradeWednesday=true --TradeFriday=true --AdxThreshold=16 --MinAtr=0.00005 --MaxAtr=0.00105 --FixedMoneyRisk=0.95 --MaxLotSize=0.02 --SlAtrMultiplier=0.8 --TpAtrMultiplier=0.45 --UseRunnerExit=false --DailyProfitTargetMoney=0 --UseDailyProfitLock=true --DailyProfitLockStartMoney=0.90 --DailyProfitGivebackPercent=45 --DailyProfitLockFloorMoney=0.30 --CloseOnDailyProfitLock=true --MaxDailyTrades=5 --MaxDailyLossPercent=4.0 --MaxDailyLossMoney=1.00 --MaxConsecutiveLosses=2 --MinSecondsBetweenTrades=600 --LossCooldownMinutes=45 --MaxDailyEquityDrawdownMoney=1.00 --MaxTradeSeconds=1800 --AdverseDeltaExit=true --UseStrictShortFilter=true --ShortDeltaBonus=20 --ShortAdxBonus=2 --ShortRequireSpreadBelowAverage=true)
+
+          run_bt O1_CORE_COMPOUND "$START_2Y" "2Y" "${COMMON[@]}" "${O1[@]}"
+          run_bt O1_CORE_COMPOUND "$START_1Y" "1Y" "${COMMON[@]}" "${O1[@]}"
+          run_bt O2_AGGRESSIVE_RUNNER "$START_2Y" "2Y" "${COMMON[@]}" "${O2[@]}"
+          run_bt O2_AGGRESSIVE_RUNNER "$START_1Y" "1Y" "${COMMON[@]}" "${O2[@]}"
+          run_bt O3_HYBRID_GUARDED "$START_2Y" "2Y" "${COMMON[@]}" "${O3[@]}"
+          run_bt O3_HYBRID_GUARDED "$START_1Y" "1Y" "${COMMON[@]}" "${O3[@]}"
+
+          rm -f backtest/ctrader.pwd
+
+      - name: Upload Candidate O raw reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: CDScalper_EURUSD_M1_candidate_o_dual_engine_30_reports
+          path: backtest/reports/*
+          retention-days: 14
