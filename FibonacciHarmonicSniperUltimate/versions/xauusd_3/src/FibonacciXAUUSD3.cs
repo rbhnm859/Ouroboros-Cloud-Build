@@ -83,6 +83,18 @@ namespace cAlgo.Robots
         [Parameter("Max Entry Distance ATR", DefaultValue = 0.55, MinValue = 0.10, MaxValue = 1.50, Group = "M5 Confirmation")]
         public double MaxEntryDistanceAtr { get; set; }
 
+        [Parameter("Min Stop ATR", DefaultValue = 0.20, MinValue = 0.05, MaxValue = 1.50, Group = "Execution")]
+        public double MinStopAtr { get; set; }
+
+        [Parameter("Max Allowed RR", DefaultValue = 8.0, MinValue = 2.0, MaxValue = 20.0, Group = "Execution")]
+        public double MaxAllowedRR { get; set; }
+
+        [Parameter("Buy H1 Min Score", DefaultValue = 18.0, MinValue = 0, MaxValue = 20, Group = "Regime")]
+        public double BuyH1MinScore { get; set; }
+
+        [Parameter("Block London Entries", DefaultValue = true, Group = "Session")]
+        public bool BlockLondonEntries { get; set; }
+
         private Bars _m15;
         private Bars _h1;
         private DateTime _lastM15ProcessedOpenTime = DateTime.MinValue;
@@ -104,7 +116,7 @@ namespace cAlgo.Robots
             _h1 = MarketData.GetBars(TimeFrame.Hour, SymbolName);
             Positions.Closed += OnPositionClosed;
             ResetDay();
-            Print("VERSION xauusd_3 v3.0.0-harmonic-hybrid");
+            Print("VERSION xauusd_3 v3.3.0-london-filter");
             Print("[ARCH] H1 regime + M15 Fibonacci/structure + optional harmonic confluence + M5 execution scoring");
             Print("[SAFETY] account-wide symbol exposure lock + pending-order lock + entry mutex; no hedge/no duplicate");
             Print("[SCORE] H1 20 + M15 Fib 20 + M15 Structure 15 + Harmonic 25 + M5 20");
@@ -214,6 +226,11 @@ namespace cAlgo.Robots
                 return;
 
             double h1Score = H1RegimeScore(direction);
+            if (direction == TradeType.Buy && h1Score < BuyH1MinScore)
+            {
+                if (DebugLogging) Print("[REGIME REJECT] Buy H1={0:F1} min={1:F1}", h1Score, BuyH1MinScore);
+                return;
+            }
             double fibScore = FibonacciScore(_m15.ClosePrices[index], zoneLow, zoneHigh);
             double structureScore = StructureScore(impulse, atr, direction, index);
             HarmonicInfo harmonic = HarmonicConfluence(pivots, zoneLow, zoneHigh, atr);
@@ -291,6 +308,11 @@ namespace cAlgo.Robots
 
         private bool TryExecute(ArmedSetup a, double finalScore, int m5Index, int confirmRules)
         {
+            if (BlockLondonEntries && Server.Time.Hour >= 7 && Server.Time.Hour < 13)
+            {
+                if (DebugLogging) Print("[SESSION REJECT] London UTC hour={0}", Server.Time.Hour);
+                return false;
+            }
             if (_entryInProgress || HasAnySymbolExposure())
                 return false;
             _entryInProgress = true;
@@ -308,8 +330,12 @@ namespace cAlgo.Robots
                 double slPips = slDistance / Symbol.PipSize;
                 double tpPips = tpDistance / Symbol.PipSize;
                 double rr = tpPips / slPips;
-                if (rr < MinimumRiskReward)
-                    return false;
+                double brokerMinSlPips = BrokerMinDistancePips(entry, Symbol.MinStopLossDistance);
+                double brokerMinTpPips = BrokerMinDistancePips(entry, Symbol.MinTakeProfitDistance);
+                double requiredSlPips = Math.Max(brokerMinSlPips * 1.10, MinStopAtr * a.M15Atr / Symbol.PipSize);
+                double requiredTpPips = brokerMinTpPips * 1.10;
+                if (slPips < requiredSlPips || tpPips < requiredTpPips) return false;
+                if (rr < MinimumRiskReward || rr > MaxAllowedRR) return false;
 
                 double budget = Account.Equity * RiskPercent / 100.0;
                 double volume = Symbol.VolumeForFixedRisk(budget, slPips, RoundingMode.Down);
@@ -330,8 +356,12 @@ namespace cAlgo.Robots
                 string session = SessionName(Server.Time.Hour);
                 string comment = a.Tag + "|" + finalScore.ToString("F1") + "|M5R" + confirmRules;
                 TradeResult result = ExecuteMarketOrder(a.Direction, SymbolName, volume, BotLabel, slPips, tpPips, comment);
-                if (!result.IsSuccessful || result.Position == null)
+                if (!result.IsSuccessful || result.Position == null) return false;
+                if (result.Position.StopLoss == null || result.Position.TakeProfit == null)
+                {
+                    ClosePosition(result.Position);
                     return false;
+                }
 
                 _tradesToday++;
                 _lastTradeM5Index = m5Index;
@@ -471,6 +501,13 @@ namespace cAlgo.Robots
             foreach (Position p in Positions) if (p.SymbolName == SymbolName) return true;
             foreach (PendingOrder order in PendingOrders) if (order.SymbolName == SymbolName) return true;
             return false;
+        }
+
+        private double BrokerMinDistancePips(double price, double distance)
+        {
+            if (distance <= 0) return 0.0;
+            if (Symbol.MinDistanceType == SymbolMinDistanceType.Pips) return distance;
+            return (price * distance / 100.0) / Symbol.PipSize;
         }
 
         private double Atr(Bars bars, int end, int period)
