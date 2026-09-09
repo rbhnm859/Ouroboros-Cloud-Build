@@ -1,0 +1,55 @@
+{
+  "name": "eurusd_m1_candidate_f_session_trim_guard",
+  "bot": "CumulativeDeltaScalper-EURUSD-v1",
+  "symbol": "EURUSD",
+  "timeframe": "M1",
+  "intent": "Candidate F returns to Candidate D risk structure and removes the losing 15:00-15:30 UTC segment observed in the Candidate D full-year trade breakdown. It avoids Candidate E's aggressive RR change.",
+  "professional_basis": {
+    "candidate_d_1y_issue": "D reduced overtrading and drawdown versus C but remained below PF and drawdown gates.",
+    "candidate_e_failure": "E changed SL/TP too aggressively; win rate collapsed and the full-year test lost money.",
+    "trade_breakdown_observation": "Candidate D's 15 UTC hour was negative while 13-14 UTC remained positive; therefore Candidate F trims session end instead of changing RR."
+  },
+  "parameters": {
+    "DeltaThreshold": 125,
+    "MinConfirmations": 3,
+    "UseBarDeltaFallback": true,
+    "FallbackBelowTickDelta": 2,
+    "BarDeltaPointMultiplier": 1.6,
+    "UseSessionFilter": true,
+    "OverlapOnly": true,
+    "SessionStartHour": 13,
+    "SessionStartMinute": 0,
+    "SessionEndHour": 15,
+    "SessionEndMinute": 0,
+    "UseHtfEmaFilter": true,
+    "EmaSlopeBars": 3,
+    "AdxThreshold": 16.0,
+    "MinAtr": 0.00005,
+    "MaxAtr": 0.00105,
+    "MaxSpreadPoints": 18,
+    "SpreadAvgMultiplier": 1.8,
+    "MaxDailyTrades": 4,
+    "MaxDailyLossPercent": 6,
+    "MaxDailyLossMoney": 1.8,
+    "DailyProfitTargetMoney": 3.5,
+    "MaxConsecutiveLosses": 2,
+    "MinSecondsBetweenTrades": 900,
+    "LossCooldownMinutes": 45,
+    "MaxTradeSeconds": 1800,
+    "UseBreakeven": true,
+    "BreakevenPips": 1.0,
+    "AdverseDeltaExit": true
+  },
+  "acceptance_gate": {
+    "total_trades_min": 120,
+    "profit_factor_min": 1.15,
+    "win_rate_min_percent": 55,
+    "max_drawdown_max_percent": 20,
+    "return_percent_min": 5
+  },
+  "notes": [
+    "Do not use Candidate E RR settings.",
+    "Candidate F is a session-quality trim built from Candidate D diagnostics.",
+    "If F passes 1Y, run at least two additional OOS monthly windows before treating it as the preferred mobile/cloud candidate."
+  ]
+}
