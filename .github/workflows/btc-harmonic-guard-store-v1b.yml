@@ -1,0 +1,49 @@
+name: BTC Harmonic Guard Store v1b Safety Validation
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ btc-store-hardening-monthly-compound ]
+    paths:
+      - '.ci/store_v1_unified_risk_patch.py'
+      - '.ci/store_v1b_validation.sh'
+      - '.github/workflows/btc-harmonic-guard-store-v1b.yml'
+
+permissions:
+  contents: read
+concurrency:
+  group: btc-harmonic-guard-store-v1b
+  cancel-in-progress: true
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '6.0.x'
+      - name: Run Store v1b validation
+        env:
+          CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+          CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+          CTRADER_PASSWORD: ${{ secrets.CTRADER_PASSWORD }}
+        run: bash .ci/store_v1b_validation.sh
+      - name: Remove credentials
+        if: always()
+        run: rm -f work/ctrader.pwd
+      - name: Upload Store v1b artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: BTC-Harmonic-Guard-Store-v1b
+          retention-days: 30
+          path: |
+            work/build/*
+            work/store-src/*.cs
+            work/store-src/*.csproj
+            work/r26-3y/report.*
+            work/store-3y/report.*
+            work/r26-1y/report.*
+            work/store-1y/report.*
+            work/Store-v1b-Summary.json
