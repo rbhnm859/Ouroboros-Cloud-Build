@@ -24,7 +24,7 @@ jobs:
 
       - uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: '8.0.x'
+          dotnet-version: '6.0.x'
 
       - name: Reconstruct exact Round18 source
         run: |
@@ -47,7 +47,7 @@ jobs:
           source = src / 'FibonacciHarmonicSniperUltimate-BTC-Round18-Diagnostics.cs'
           source.write_bytes(data)
           csproj = src / 'FibonacciHarmonicSniperUltimate-BTC-Round18-Diagnostics.csproj'
-          csproj.write_text('''<Project Sdk="Microsoft.NET.Sdk">\n  <PropertyGroup>\n    <TargetFramework>net8.0</TargetFramework>\n    <ImplicitUsings>disable</ImplicitUsings>\n    <Nullable>disable</Nullable>\n    <RootNamespace>cAlgo.Robots</RootNamespace>\n    <AlgoName>FibonacciHarmonicSniperUltimate-BTC-Round18-Diagnostics</AlgoName>\n  </PropertyGroup>\n  <ItemGroup>\n    <PackageReference Include="cTrader.Automate" Version="1.*-*" />\n  </ItemGroup>\n</Project>\n''')
+          csproj.write_text('''<Project Sdk="Microsoft.NET.Sdk">\n  <PropertyGroup>\n    <TargetFramework>net6.0</TargetFramework>\n    <ImplicitUsings>disable</ImplicitUsings>\n    <Nullable>disable</Nullable>\n    <RootNamespace>cAlgo.Robots</RootNamespace>\n    <AlgoName>FibonacciHarmonicSniperUltimate-BTC-Round18-Diagnostics</AlgoName>\n  </PropertyGroup>\n  <ItemGroup>\n    <PackageReference Include="cTrader.Automate" Version="1.*-*" />\n  </ItemGroup>\n</Project>\n''')
           print(f'Reconstructed {source} SHA256={actual}')
           PYCODE
 
