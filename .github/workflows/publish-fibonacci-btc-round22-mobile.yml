@@ -40,6 +40,7 @@ jobs:
           PYCODE
           python3 FibonacciHarmonicSniperUltimate/versions/v0.20.0-btc-round21-selective-bypass/round21_transform.py mobile-src/Round18.cs mobile-src/Round21.cs
           python3 FibonacciHarmonicSniperUltimate/versions/v0.21.0-btc-round22-capital-efficiency/round22_transform.py mobile-src/Round21.cs mobile-src/FibonacciHarmonicSniperUltimate-BTC-Round22-Mobile.cs
+          rm -f mobile-src/Round18.cs mobile-src/Round21.cs
           cat > mobile-src/FibonacciHarmonicSniperUltimate-BTC-Round22-Mobile.csproj <<'EOF'
           <Project Sdk="Microsoft.NET.Sdk">
             <PropertyGroup>
