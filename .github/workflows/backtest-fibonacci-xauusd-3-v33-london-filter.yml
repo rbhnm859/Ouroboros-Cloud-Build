@@ -1,0 +1,167 @@
+name: Fibonacci XAUUSD 3 - v3.3 London Filter
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [fibonacci-xauusd-v3-hybrid]
+    paths:
+      - '.github/workflows/backtest-fibonacci-xauusd-3-v33-london-filter.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Patch protected v3.3 candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('FibonacciHarmonicSniperUltimate/versions/xauusd_3/src/FibonacciXAUUSD3.cs')
+          s=p.read_text()
+          s=s.replace('Print("VERSION xauusd_3 v3.0.0-harmonic-hybrid");','Print("VERSION xauusd_3 v3.3.0-london-filter");',1)
+
+          old='''        [Parameter("Max Entry Distance ATR", DefaultValue = 0.55, MinValue = 0.10, MaxValue = 1.50, Group = "M5 Confirmation")]\n        public double MaxEntryDistanceAtr { get; set; }\n'''
+          new='''        [Parameter("Max Entry Distance ATR", DefaultValue = 0.55, MinValue = 0.10, MaxValue = 1.50, Group = "M5 Confirmation")]\n        public double MaxEntryDistanceAtr { get; set; }\n\n        [Parameter("Min Stop ATR", DefaultValue = 0.20, MinValue = 0.05, MaxValue = 1.50, Group = "Execution")]\n        public double MinStopAtr { get; set; }\n\n        [Parameter("Max Allowed RR", DefaultValue = 8.0, MinValue = 2.0, MaxValue = 20.0, Group = "Execution")]\n        public double MaxAllowedRR { get; set; }\n\n        [Parameter("Buy H1 Min Score", DefaultValue = 18.0, MinValue = 0, MaxValue = 20, Group = "Regime")]\n        public double BuyH1MinScore { get; set; }\n\n        [Parameter("Block London Entries", DefaultValue = true, Group = "Session")]\n        public bool BlockLondonEntries { get; set; }\n'''
+          assert s.count(old)==1
+          s=s.replace(old,new,1)
+
+          old='''            double h1Score = H1RegimeScore(direction);\n            double fibScore = FibonacciScore(_m15.ClosePrices[index], zoneLow, zoneHigh);\n'''
+          new='''            double h1Score = H1RegimeScore(direction);\n            if (direction == TradeType.Buy && h1Score < BuyH1MinScore)\n            {\n                if (DebugLogging) Print("[REGIME REJECT] Buy H1={0:F1} min={1:F1}", h1Score, BuyH1MinScore);\n                return;\n            }\n            double fibScore = FibonacciScore(_m15.ClosePrices[index], zoneLow, zoneHigh);\n'''
+          assert s.count(old)==1
+          s=s.replace(old,new,1)
+
+          old='''        private bool TryExecute(ArmedSetup a, double finalScore, int m5Index, int confirmRules)\n        {\n            if (_entryInProgress || HasAnySymbolExposure())\n                return false;\n'''
+          new='''        private bool TryExecute(ArmedSetup a, double finalScore, int m5Index, int confirmRules)\n        {\n            if (BlockLondonEntries && Server.Time.Hour >= 7 && Server.Time.Hour < 13)\n            {\n                if (DebugLogging) Print("[SESSION REJECT] London UTC hour={0}", Server.Time.Hour);\n                return false;\n            }\n            if (_entryInProgress || HasAnySymbolExposure())\n                return false;\n'''
+          assert s.count(old)==1
+          s=s.replace(old,new,1)
+
+          old='''                double slPips = slDistance / Symbol.PipSize;\n                double tpPips = tpDistance / Symbol.PipSize;\n                double rr = tpPips / slPips;\n                if (rr < MinimumRiskReward)\n                    return false;\n'''
+          new='''                double slPips = slDistance / Symbol.PipSize;\n                double tpPips = tpDistance / Symbol.PipSize;\n                double rr = tpPips / slPips;\n                double brokerMinSlPips = BrokerMinDistancePips(entry, Symbol.MinStopLossDistance);\n                double brokerMinTpPips = BrokerMinDistancePips(entry, Symbol.MinTakeProfitDistance);\n                double requiredSlPips = Math.Max(brokerMinSlPips * 1.10, MinStopAtr * a.M15Atr / Symbol.PipSize);\n                double requiredTpPips = brokerMinTpPips * 1.10;\n                if (slPips < requiredSlPips || tpPips < requiredTpPips) return false;\n                if (rr < MinimumRiskReward || rr > MaxAllowedRR) return false;\n'''
+          assert s.count(old)==1
+          s=s.replace(old,new,1)
+
+          old='''                TradeResult result = ExecuteMarketOrder(a.Direction, SymbolName, volume, BotLabel, slPips, tpPips, comment);\n                if (!result.IsSuccessful || result.Position == null)\n                    return false;\n\n                _tradesToday++;\n'''
+          new='''                TradeResult result = ExecuteMarketOrder(a.Direction, SymbolName, volume, BotLabel, slPips, tpPips, comment);\n                if (!result.IsSuccessful || result.Position == null) return false;\n                if (result.Position.StopLoss == null || result.Position.TakeProfit == null)\n                {\n                    ClosePosition(result.Position);\n                    return false;\n                }\n\n                _tradesToday++;\n'''
+          assert s.count(old)==1
+          s=s.replace(old,new,1)
+
+          marker='''        private double Atr(Bars bars, int end, int period)\n'''
+          helper='''        private double BrokerMinDistancePips(double price, double distance)\n        {\n            if (distance <= 0) return 0.0;\n            if (Symbol.MinDistanceType == SymbolMinDistanceType.Pips) return distance;\n            return (price * distance / 100.0) / Symbol.PipSize;\n        }\n\n        private double Atr(Bars bars, int end, int period)\n'''
+          assert s.count(marker)==1
+          s=s.replace(marker,helper,1)
+          p.write_text(s)
+          PY
+          grep -q 'v3.3.0-london-filter' FibonacciHarmonicSniperUltimate/versions/xauusd_3/src/FibonacciXAUUSD3.cs
+          grep -q 'SESSION REJECT' FibonacciHarmonicSniperUltimate/versions/xauusd_3/src/FibonacciXAUUSD3.cs
+          grep -q 'BuyH1MinScore' FibonacciHarmonicSniperUltimate/versions/xauusd_3/src/FibonacciXAUUSD3.cs
+          grep -q 'BrokerMinDistancePips' FibonacciHarmonicSniperUltimate/versions/xauusd_3/src/FibonacciXAUUSD3.cs
+      - run: docker pull ghcr.io/spotware/ctrader-console:5.9.11
+      - name: Build candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          ROOT='FibonacciHarmonicSniperUltimate/versions/xauusd_3'
+          docker run --rm --entrypoint sh -v "$PWD:/repo" -w /repo ghcr.io/spotware/ctrader-console:5.9.11 -c "dotnet restore $ROOT/FibonacciXAUUSD3.csproj && dotnet build $ROOT/FibonacciXAUUSD3.csproj -c Release --no-restore -p:AlgoPublish=False -p:IncludeSource=True"
+          mkdir -p package
+          cp "$(find "$ROOT" -type f -name '*.algo' -print -quit)" package/FibonacciXAUUSD3-v3.3-LondonFilter.algo
+          sha256sum package/FibonacciXAUUSD3-v3.3-LondonFilter.algo > package/algo.sha256
+          cp "$ROOT/src/FibonacciXAUUSD3.cs" package/FibonacciXAUUSD3-v3.3.cs
+      - uses: actions/upload-artifact@v4
+        with:
+          name: xauusd_3-v33-build
+          path: package/
+          retention-days: 30
+
+  backtest:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { label: standard, spread: '17.42', commission: '35' }
+          - { label: harsh, spread: '30', commission: '50' }
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: xauusd_3-v33-build
+          path: work
+      - run: docker pull ghcr.io/spotware/ctrader-console:5.9.11
+      - name: Credentials
+        env:
+          CTRADER_PASSWORD: ${{ secrets.CTRADER_PASSWORD }}
+        run: |
+          test -n "${CTRADER_PASSWORD:-}"
+          printf '%s' "$CTRADER_PASSWORD" > work/ctrader.pwd
+      - name: Backtest ${{ matrix.label }}
+        env:
+          CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+          CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p work/reports work/cache
+          docker run --rm -v "$PWD/work:/work" -e "CTID=$CTRADER_CTID" -e 'PWD-FILE=/work/ctrader.pwd' -e "ACCOUNT=$CTRADER_ACCOUNT" ghcr.io/spotware/ctrader-console:5.9.11 backtest /work/FibonacciXAUUSD3-v3.3-LondonFilter.algo --environment-variables --exit-on-stop --symbol=XAUUSD --period=m5 --start='09/06/2026' --end='09/09/2026' --balance=10000 --data-mode=m1 --data-dir=/work/cache --commission='${{ matrix.commission }}' --spread='${{ matrix.spread }}' --RiskPercent=0.50 --MaxDailyLossPercent=3 --MinimumRiskReward=1.5 --PreScoreMin=42 --FinalScoreMin=60 --MinImpulseAtr=1.2 --MinStopAtr=0.20 --MaxAllowedRR=8 --BuyH1MinScore=18 --BlockLondonEntries=true --report='/work/reports/${{ matrix.label }}.html' --report-json='/work/reports/${{ matrix.label }}.json' 2>&1 | tee 'work/reports/${{ matrix.label }}.log'
+          test -s 'work/reports/${{ matrix.label }}.json'
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: xauusd_3-v33-report-${{ matrix.label }}
+          path: work/reports/
+          retention-days: 30
+
+  aggregate:
+    needs: backtest
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: xauusd_3-v33-build
+          path: package
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: xauusd_3-v33-report-*
+          path: reports
+          merge-multiple: true
+      - name: Aggregate and safety audit
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          out=['# xauusd_3 v3.3 London Filter','', '| Cost | Trades | W | L | Net | ROI % | PF | DD % | Overlap | Hedge | London Entries |','|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|']
+          for label in ('standard','harsh'):
+              d=json.loads(Path(f'reports/{label}.json').read_text())
+              ts=d['tradeStatistics']; main=d['main']; eq=d['equity']; hist=d['history']['items']
+              t=int(ts['totalTrades']['all']); w=int(ts['winningTrades']['all']); l=int(ts['losingTrades']['all'])
+              spans=sorted((int(x['entryTime']),int(x['closeTime']),x['direction']) for x in hist)
+              ov=hg=0
+              for i,a in enumerate(spans):
+                  for b in spans[i+1:]:
+                      if b[0]>=a[1]: break
+                      ov+=1; hg+=b[2]!=a[2]
+              london=0
+              for x in hist:
+                  import datetime
+                  h=datetime.datetime.fromtimestamp(int(x['entryTime'])/1000, datetime.timezone.utc).hour
+                  if 7 <= h < 13: london += 1
+              out.append(f"| {label} | {t} | {w} | {l} | {float(main['netProfit']):.2f} | {float(main['roi']):.2f} | {float(ts['profitFactor']['all']):.2f} | {float(eq['maxEquityDrawdownPercent']):.2f} | {ov} | {hg} | {london} |")
+              assert ov==0 and hg==0 and london==0
+          Path('V33_SUMMARY.md').write_text('\n'.join(out)+'\n')
+          print('\n'.join(out))
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: xauusd_3-v33-complete
+          path: |
+            package/
+            reports/
+            V33_SUMMARY.md
+          retention-days: 30
