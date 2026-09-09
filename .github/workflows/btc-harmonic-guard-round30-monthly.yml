@@ -1,0 +1,69 @@
+name: BTC Harmonic Guard Round30 Monthly Compound
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ btc-store-v1-round30-monthly-compound ]
+    paths:
+      - 'FibonacciHarmonicSniperUltimate/versions/v1.1.0-btc-store-round30-monthly-compound/**'
+      - '.github/workflows/btc-harmonic-guard-round30-monthly.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: btc-harmonic-guard-round30-monthly
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '6.0.x'
+      - name: Run Round30 monthly compound validation
+        env:
+          CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+          CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+          CTRADER_PASSWORD: ${{ secrets.CTRADER_PASSWORD }}
+        run: bash FibonacciHarmonicSniperUltimate/versions/v1.1.0-btc-store-round30-monthly-compound/round30_validation.sh
+      - name: Remove credentials
+        if: always()
+        run: rm -f work/ctrader.pwd
+      - name: Upload Round30 artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: BTC-Harmonic-Guard-Round30-Monthly-Compound
+          retention-days: 30
+          path: |
+            work/build/*
+            work/r30-src/*.cs
+            work/r30-src/*.csproj
+            work/control-3y/report.*
+            work/control-3y/monthly.json
+            work/balanced-3y/report.*
+            work/balanced-3y/monthly.json
+            work/conservative-3y/report.*
+            work/conservative-3y/monthly.json
+            work/control-1y/report.*
+            work/control-1y/monthly.json
+            work/balanced-1y/report.*
+            work/balanced-1y/monthly.json
+            work/conservative-1y/report.*
+            work/conservative-1y/monthly.json
+            work/y1/report.*
+            work/y1/monthly.json
+            work/y2/report.*
+            work/y2/monthly.json
+            work/y3/report.*
+            work/y3/monthly.json
+            work/harsh-3y/report.*
+            work/harsh-3y/monthly.json
+            work/harsh-1y/report.*
+            work/harsh-1y/monthly.json
+            work/Round30-Screen.json
+            work/Round30-Final-Summary.json
