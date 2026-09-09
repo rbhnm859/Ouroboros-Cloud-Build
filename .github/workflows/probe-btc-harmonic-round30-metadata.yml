@@ -1,0 +1,47 @@
+name: Probe BTC Harmonic Round30 Metadata
+on:
+  workflow_dispatch:
+  push:
+    branches: [ btc-store-v1-round30-monthly-compound ]
+    paths: [ '.github/workflows/probe-btc-harmonic-round30-metadata.yml' ]
+permissions:
+  contents: read
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with: { dotnet-version: '6.0.x' }
+      - name: Build Round30 and print metadata
+        run: |
+          set -euo pipefail
+          mkdir -p work/r26-src work/store-src work/r30-src work/build
+          python3 - <<'PY'
+          from pathlib import Path
+          import base64,gzip
+          root=Path('FibonacciHarmonicSniperUltimate/versions/v0.17.0-btc-round18-diagnostics')
+          Path('work/Round18.cs').write_bytes(gzip.decompress(base64.b64decode(''.join(p.read_text().strip() for p in sorted(root.glob('source_payload.part*'))))))
+          PY
+          python3 FibonacciHarmonicSniperUltimate/versions/v0.20.0-btc-round21-selective-bypass/round21_transform.py work/Round18.cs work/Round21.cs
+          python3 FibonacciHarmonicSniperUltimate/versions/v0.21.0-btc-round22-capital-efficiency/round22_transform.py work/Round21.cs work/Round22.cs
+          cp work/Round22.cs work/r26-src/Round22.cs
+          python3 FibonacciHarmonicSniperUltimate/versions/v0.23.0-btc-round26-core-refactor/round26_transform.py work/Round22.cs work/r26-src/BTC-Harmonic-Guard-Control.cs
+          rm work/r26-src/Round22.cs
+          cp work/r26-src/*.cs work/store-src/
+          python3 FibonacciHarmonicSniperUltimate/store-v1/store_v1_transform.py work/store-src/BTC-Harmonic-Guard-Control.cs work/store-src/BTC-Harmonic-Guard.cs
+          rm work/store-src/BTC-Harmonic-Guard-Control.cs
+          python3 FibonacciHarmonicSniperUltimate/versions/v1.1.0-btc-store-round30-monthly-compound/round30_compound_transform.py work/store-src work/r30-src
+          cat > work/r30-src/Round30.csproj <<'EOF'
+          <Project Sdk="Microsoft.NET.Sdk"><PropertyGroup><TargetFramework>net6.0</TargetFramework><ImplicitUsings>disable</ImplicitUsings><Nullable>disable</Nullable><RootNamespace>cAlgo.Robots</RootNamespace><AlgoName>BTC-Harmonic-Guard-Compound</AlgoName></PropertyGroup><ItemGroup><PackageReference Include="cTrader.Automate" Version="1.0.19" /></ItemGroup></Project>
+          EOF
+          dotnet restore work/r30-src/Round30.csproj >/dev/null
+          dotnet build work/r30-src/Round30.csproj -c Release --no-restore -p:AlgoPublish=False -p:IncludeSource=True >/dev/null
+          cp "$(find work/r30-src/bin/Release -name '*.algo' | head -n1)" work/build/Round30.algo
+          docker pull ghcr.io/spotware/ctrader-console:5.9.11 >/dev/null
+          docker run --rm -v "$PWD/work:/work" ghcr.io/spotware/ctrader-console:5.9.11 metadata /work/build/Round30.algo | tee work/metadata.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Round30-Metadata-Probe
+          path: work/metadata.txt
