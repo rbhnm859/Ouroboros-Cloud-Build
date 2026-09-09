@@ -1,25 +1,32 @@
 # xauusd_2 — Predictive Harmonic PRZ Engine
 
-Independent Gold/XAUUSD cTrader cBot architecture. It does not replace or overwrite xauusd_1.
+Independent Gold/XAUUSD cTrader cBot architecture. It does not replace xauusd_1 or the frozen BTC branches.
 
-## Objective
+## v2.2 architecture
 
-Fix the low-frequency / late-entry problem observed in xauusd_1 by projecting harmonic completion zones from X-A-B-C before D becomes a fully confirmed pivot.
+- Host / execution timeframe: M5.
+- Pattern timeframe: M15.
+- Context timeframe: H1.
+- M15 builds confirmed X-A-B-C pivots and projects D / PRZ before D becomes a confirmed pivot.
+- Families: AB=CD, Gartley, Bat, Butterfly, Crab.
+- A completed M15 bar touching the PRZ arms one candidate.
+- M5 then evaluates four execution rules: engulfing, rejection wick, micro-structure break, and momentum body.
+- Default entry requires 2 of 4 M5 rules, while price remains within 0.45 M15 ATR of the PRZ.
+- H1 EMA alignment remains a soft score rather than a hard rejection gate.
+- Hard execution controls remain: spread/M15-ATR gate, minimum RR, one open position, fixed-risk volume sizing, broker volume normalization, margin check, max trades/day, and max daily realized loss.
+- No Grid, Martingale, DCA, Recovery, Loss Averaging, or Hedging logic.
 
-## Architecture
+## Default validation settings
 
-- Primary execution timeframe: M15.
-- H1 is context only; EMA alignment contributes to confidence instead of acting as a hard reject gate.
-- X-A-B-C uses fast confirmed pivots (default 2-left / 1-right).
-- D and PRZ are projected before a D pivot exists.
-- Families in v2.0 baseline: AB=CD, Gartley, Bat, Butterfly, Crab.
-- Entry requires price interaction with PRZ plus an M15 reversal score.
-- Confidence combines pattern shape, PRZ convergence, M15 reversal and H1 trend context.
-- Hard execution gates remain: minimum RR, spread/ATR, one open position, risk sizing, margin check and daily loss cap.
-- No Grid, Martingale, DCA, Recovery, Loss Averaging or Hedging logic.
+- Symbol: XAUUSD
+- Host period: M5
+- Backtest data: M1
+- Test window: 2026-06-09 to 2026-09-09
+- Initial balance: $10,000
+- Risk: 0.50% per trade
+- Standard cost: spread 17.42, commission 35
+- Harsh cost: spread 30, commission 50
 
-## Baseline test target
+## Promotion rule
 
-First validation uses XAUUSD M15 with M1 backtest data for 2026-06-09 to 2026-09-09, $10,000 balance and 0.5% risk per trade.
-
-Promotion target for the new architecture is not a specific win rate. The first goal is to materially improve unique trade count over xauusd_1 while preserving positive expectancy under both Standard and Harsh cost assumptions.
+v2.2 is only worth preserving if the M5 execution layer raises trade quality versus predictive v1 and armed-M15 v2.1 without collapsing back to the 1–2 trade regime. Compare Standard and Harsh results using trades, net profit, ROI, profit factor, max equity drawdown, pattern x direction attribution, and session attribution.
