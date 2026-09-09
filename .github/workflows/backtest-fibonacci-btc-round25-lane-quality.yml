@@ -1,0 +1,251 @@
+name: BTC Round25 Causal Lane Quality 3Y + 1Y Validation
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ btc-round25-lane-quality ]
+    paths:
+      - 'FibonacciHarmonicSniperUltimate/versions/v0.22.0-btc-round25-lane-quality/**'
+      - '.github/workflows/backtest-fibonacci-btc-round25-lane-quality.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fibonacci-btc-round25-lane-quality
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '6.0.x'
+
+      - name: Generate frozen Round25 source
+        run: |
+          set -euo pipefail
+          mkdir -p work/src work/build work/cache work/control work/stable work/balanced work/responsive work/recent-standard work/recent-harsh
+          python3 - <<'PYCODE'
+          from pathlib import Path
+          import base64,gzip,hashlib
+          root=Path('FibonacciHarmonicSniperUltimate/versions/v0.17.0-btc-round18-diagnostics')
+          parts=sorted(root.glob('source_payload.part*'))
+          data=gzip.decompress(base64.b64decode(''.join(p.read_text().strip() for p in parts)))
+          expected='5f2b7f31c4b8f0d60f52c4c15869aa75df4ff07d7224af971784137716bc8b93'
+          actual=hashlib.sha256(data).hexdigest()
+          if actual != expected: raise SystemExit(f'Round18 anchor SHA mismatch: {actual}')
+          Path('work/src/Round18.cs').write_bytes(data)
+          PYCODE
+          python3 FibonacciHarmonicSniperUltimate/versions/v0.20.0-btc-round21-selective-bypass/round21_transform.py work/src/Round18.cs work/src/Round21.cs
+          python3 FibonacciHarmonicSniperUltimate/versions/v0.21.0-btc-round22-capital-efficiency/round22_transform.py work/src/Round21.cs work/src/Round22.cs
+          python3 FibonacciHarmonicSniperUltimate/versions/v0.22.0-btc-round25-lane-quality/round25_transform.py work/src/Round22.cs work/src/FibonacciHarmonicSniperUltimate-BTC-Round25-LaneQuality.cs
+          rm -f work/src/Round18.cs work/src/Round21.cs work/src/Round22.cs
+          cat > work/src/FibonacciHarmonicSniperUltimate-BTC-Round25-LaneQuality.csproj <<'EOF'
+          <Project Sdk="Microsoft.NET.Sdk">
+            <PropertyGroup>
+              <TargetFramework>net6.0</TargetFramework>
+              <ImplicitUsings>disable</ImplicitUsings>
+              <Nullable>disable</Nullable>
+              <RootNamespace>cAlgo.Robots</RootNamespace>
+              <AlgoName>FibonacciHarmonicSniperUltimate-BTC-Round25-LaneQuality</AlgoName>
+            </PropertyGroup>
+            <ItemGroup>
+              <PackageReference Include="cTrader.Automate" Version="1.0.19" />
+            </ItemGroup>
+          </Project>
+          EOF
+          sha256sum work/src/FibonacciHarmonicSniperUltimate-BTC-Round25-LaneQuality.cs
+
+      - name: Build Round25 algo
+        run: |
+          set -euo pipefail
+          PROJ=work/src/FibonacciHarmonicSniperUltimate-BTC-Round25-LaneQuality.csproj
+          dotnet restore "$PROJ"
+          dotnet build "$PROJ" -c Release --no-restore -p:AlgoPublish=False -p:IncludeSource=True
+          ALGO=$(find work/src/bin/Release -type f -name '*.algo' | head -n1)
+          test -n "$ALGO"
+          cp "$ALGO" work/build/FibonacciHarmonicSniperUltimate-BTC-Round25-LaneQuality.algo
+          sha256sum work/build/FibonacciHarmonicSniperUltimate-BTC-Round25-LaneQuality.algo > work/build/SHA256SUMS.txt
+
+      - name: Prepare cTrader
+        env:
+          CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+          CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+          CTRADER_PASSWORD: ${{ secrets.CTRADER_PASSWORD }}
+        run: |
+          set -euo pipefail
+          test -n "${CTRADER_CTID:-}"; test -n "${CTRADER_ACCOUNT:-}"; test -n "${CTRADER_PASSWORD:-}"
+          printf '%s' "$CTRADER_PASSWORD" | tr -d '\r\n' > work/ctrader.pwd
+          chmod 600 work/ctrader.pwd
+
+      - name: Pull cTrader CLI
+        run: docker pull ghcr.io/spotware/ctrader-console:5.9.11
+
+      - name: Run 3Y control and three causal profiles
+        env:
+          CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+          CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+        run: |
+          set -euo pipefail
+          run_case() {
+            name="$1"; enabled="$2"; window="$3"; minsamp="$4"; weak="$5"; strong="$6"; weakmult="$7"; strongmult="$8"
+            docker run --rm -v "$PWD/work:/work" -e "CTID=$CTRADER_CTID" -e 'PWD-FILE=/work/ctrader.pwd' -e "ACCOUNT=$CTRADER_ACCOUNT" \
+              ghcr.io/spotware/ctrader-console:5.9.11 backtest /work/build/FibonacciHarmonicSniperUltimate-BTC-Round25-LaneQuality.algo \
+              --environment-variables --exit-on-stop --symbol=BITCOIN --period=h1 --start='08/09/2023 00:00' --end='08/09/2026 00:00' --balance=10000 --data-mode=m1 --data-dir=/work/cache \
+              --commission=65 --spread=0 --RiskPercent=1.0 --Round17M30RiskPercent=0.50 --Round18CandidateDiagnostics=false \
+              --Round21SelectiveHealthBypass=true --Round21BypassMinScore=93 --Round21SameDirH1MaxAgeHours=2 --Round21BypassRiskPercent=0.10 --Round21ReserveH1AtHour=true \
+              --Round22H1BuyRiskPercent=1.15 --Round22H1SellRiskPercent=0.80 --Round22M30BuyRiskPercent=0.40 --Round22M30SellRiskPercent=0.50 \
+              --Round25LaneQuality="$enabled" --Round25WindowTrades="$window" --Round25MinSamples="$minsamp" --Round25WeakMeanR="$weak" --Round25StrongMeanR="$strong" --Round25WeakRiskMultiplier="$weakmult" --Round25StrongRiskMultiplier="$strongmult" \
+              --MaxOpenPositions=1 --MaxTradesPerDay=6 --MaxDailyLossPercent=5 --EnabledPatterns='Reciprocal ABCD' --PivotLeft=2 --PivotRight=2 --RatioTolerancePercent=6 --MinPatternScore=84 \
+              --MaxPatternAgeBars=16 --MaxEntryDistanceAtr=1.80 --ConfirmationMoveAtr=0.05 --UseCandleConfirmation=true --CooldownBars=2 --FallbackRiskReward=1.80 --MinimumRiskReward=1.50 \
+              --StopAnchorMode=LegacyD --TargetRiskRewardPolicy=LegacyFallback --Round5Mode=ObserveOnly --MtfMode=Off --Round6RequireM30SellConfirm=false --Round7VetoM30SellAlignment=false \
+              --Round8LogExcursions=false --Round9ShadowTpContinuation=false --Round10LogFunnel=false --Round15EnableM30Engine=true --Round16H1HealthGate=true --DebugLogging=false \
+              --report="/work/$name/report.html" --report-json="/work/$name/report.json" 2>&1 | tee "work/$name/report.log"
+          }
+          run_case control false 6 4 -0.05 0.25 0.60 1.08
+          run_case stable true 6 4 -0.10 0.30 0.70 1.05
+          run_case balanced true 6 4 -0.05 0.25 0.60 1.08
+          run_case responsive true 4 3 -0.05 0.20 0.60 1.10
+
+      - name: Select best 3Y Round25 profile
+        run: |
+          set -euo pipefail
+          python3 - <<'PYCODE'
+          import json
+          from pathlib import Path
+          def metric(path):
+            r=json.loads(Path(path).read_text())
+            return {
+              'trades':int(r['tradeStatistics']['totalTrades']['all']),
+              'roi':float(r['main']['roi']),
+              'net':float(r['main']['netProfit']),
+              'pf':float(r['tradeStatistics']['profitFactor']['all']),
+              'dd':float(r['equity']['maxEquityDrawdownPercent'])
+            }
+          control=metric('work/control/report.json')
+          if control['trades'] != 256 or abs(control['roi']-26.55)>0.05 or abs(control['pf']-1.22)>0.03 or abs(control['dd']-21.893009225762995)>0.10:
+            raise SystemExit(f'Round25 disabled control does not reproduce frozen Round22 3Y baseline: {control}')
+          params={
+            'stable':{'window':6,'minsamp':4,'weak':-0.10,'strong':0.30,'weakmult':0.70,'strongmult':1.05},
+            'balanced':{'window':6,'minsamp':4,'weak':-0.05,'strong':0.25,'weakmult':0.60,'strongmult':1.08},
+            'responsive':{'window':4,'minsamp':3,'weak':-0.05,'strong':0.20,'weakmult':0.60,'strongmult':1.10}
+          }
+          rows=[]
+          for name,p in params.items():
+            m=metric(f'work/{name}/report.json')
+            gates={
+              'trades_ge_250':m['trades']>=250,
+              'roi_gt_26_55':m['roi']>26.55,
+              'pf_gt_1_22':m['pf']>1.22,
+              'dd_lt_21_89':m['dd']<21.893009225762995
+            }
+            rows.append({'profile':name,'params':p,'metrics':m,'gates':gates,'gate_count':sum(gates.values()),'pass_all':all(gates.values())})
+          rows.sort(key=lambda x:(x['pass_all'],x['gate_count'],x['metrics']['roi'],x['metrics']['pf'],-x['metrics']['dd'],x['metrics']['trades']), reverse=True)
+          selected=rows[0]
+          out={'version':'Round25 Causal Lane Quality','control_3y':control,'profiles':rows,'selected':selected}
+          Path('work/Round25-3Y-Screen.json').write_text(json.dumps(out,indent=2))
+          Path('work/selected-profile.txt').write_text(selected['profile'])
+          print(json.dumps(out,indent=2))
+          PYCODE
+
+      - name: Run selected profile recent 1Y Standard and Harsh
+        env:
+          CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+          CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+        run: |
+          set -euo pipefail
+          selected=$(cat work/selected-profile.txt)
+          case "$selected" in
+            stable) window=6; minsamp=4; weak=-0.10; strong=0.30; weakmult=0.70; strongmult=1.05 ;;
+            balanced) window=6; minsamp=4; weak=-0.05; strong=0.25; weakmult=0.60; strongmult=1.08 ;;
+            responsive) window=4; minsamp=3; weak=-0.05; strong=0.20; weakmult=0.60; strongmult=1.10 ;;
+            *) echo "Unknown selected profile: $selected"; exit 1 ;;
+          esac
+          run_recent() {
+            name="$1"; commission="$2"; spread="$3"
+            docker run --rm -v "$PWD/work:/work" -e "CTID=$CTRADER_CTID" -e 'PWD-FILE=/work/ctrader.pwd' -e "ACCOUNT=$CTRADER_ACCOUNT" \
+              ghcr.io/spotware/ctrader-console:5.9.11 backtest /work/build/FibonacciHarmonicSniperUltimate-BTC-Round25-LaneQuality.algo \
+              --environment-variables --exit-on-stop --symbol=BITCOIN --period=h1 --start='08/09/2025 00:00' --end='08/09/2026 00:00' --balance=10000 --data-mode=m1 --data-dir=/work/cache \
+              --commission="$commission" --spread="$spread" --RiskPercent=1.0 --Round17M30RiskPercent=0.50 --Round18CandidateDiagnostics=false \
+              --Round21SelectiveHealthBypass=true --Round21BypassMinScore=93 --Round21SameDirH1MaxAgeHours=2 --Round21BypassRiskPercent=0.10 --Round21ReserveH1AtHour=true \
+              --Round22H1BuyRiskPercent=1.15 --Round22H1SellRiskPercent=0.80 --Round22M30BuyRiskPercent=0.40 --Round22M30SellRiskPercent=0.50 \
+              --Round25LaneQuality=true --Round25WindowTrades="$window" --Round25MinSamples="$minsamp" --Round25WeakMeanR="$weak" --Round25StrongMeanR="$strong" --Round25WeakRiskMultiplier="$weakmult" --Round25StrongRiskMultiplier="$strongmult" \
+              --MaxOpenPositions=1 --MaxTradesPerDay=6 --MaxDailyLossPercent=5 --EnabledPatterns='Reciprocal ABCD' --PivotLeft=2 --PivotRight=2 --RatioTolerancePercent=6 --MinPatternScore=84 \
+              --MaxPatternAgeBars=16 --MaxEntryDistanceAtr=1.80 --ConfirmationMoveAtr=0.05 --UseCandleConfirmation=true --CooldownBars=2 --FallbackRiskReward=1.80 --MinimumRiskReward=1.50 \
+              --StopAnchorMode=LegacyD --TargetRiskRewardPolicy=LegacyFallback --Round5Mode=ObserveOnly --MtfMode=Off --Round6RequireM30SellConfirm=false --Round7VetoM30SellAlignment=false \
+              --Round8LogExcursions=false --Round9ShadowTpContinuation=false --Round10LogFunnel=false --Round15EnableM30Engine=true --Round16H1HealthGate=true --DebugLogging=false \
+              --report="/work/$name/report.html" --report-json="/work/$name/report.json" 2>&1 | tee "work/$name/report.log"
+          }
+          run_recent recent-standard 65 0
+          run_recent recent-harsh 100 1500
+
+      - name: Final Round25 promotion decision
+        run: |
+          set -euo pipefail
+          python3 - <<'PYCODE'
+          import json
+          from pathlib import Path
+          screen=json.loads(Path('work/Round25-3Y-Screen.json').read_text())
+          def metric(path):
+            r=json.loads(Path(path).read_text())
+            return {
+              'trades':int(r['tradeStatistics']['totalTrades']['all']),
+              'roi':float(r['main']['roi']),
+              'net':float(r['main']['netProfit']),
+              'pf':float(r['tradeStatistics']['profitFactor']['all']),
+              'dd':float(r['equity']['maxEquityDrawdownPercent'])
+            }
+          std=metric('work/recent-standard/report.json')
+          harsh=metric('work/recent-harsh/report.json')
+          recent_gates={
+            'trades_ge_95':std['trades']>=95,
+            'roi_ge_39_93':std['roi']>=39.93,
+            'pf_ge_1_90':std['pf']>=1.90,
+            'dd_le_5_65':std['dd']<=5.65
+          }
+          harsh_gates={
+            'trades_ge_95':harsh['trades']>=95,
+            'roi_ge_17_50':harsh['roi']>=17.50,
+            'pf_ge_1_35':harsh['pf']>=1.35,
+            'dd_le_6_80':harsh['dd']<=6.80
+          }
+          out={
+            'version':'Round25 Causal Lane Quality',
+            'selected_3y':screen['selected'],
+            'recent_standard':std,
+            'recent_standard_gates':recent_gates,
+            'recent_harsh':harsh,
+            'recent_harsh_gates':harsh_gates,
+            'promotion_eligible':screen['selected']['pass_all'] and all(recent_gates.values()) and all(harsh_gates.values()),
+            'champion_before':'Round22 Standard Champion'
+          }
+          Path('work/Round25-Final-Summary.json').write_text(json.dumps(out,indent=2))
+          print(json.dumps(out,indent=2))
+          PYCODE
+
+      - name: Remove credentials
+        if: always()
+        run: rm -f work/ctrader.pwd
+
+      - name: Upload Round25 artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Fibonacci-BTC-Round25-Causal-Lane-Quality
+          path: |
+            work/build/*
+            work/src/FibonacciHarmonicSniperUltimate-BTC-Round25-LaneQuality.cs
+            work/src/FibonacciHarmonicSniperUltimate-BTC-Round25-LaneQuality.csproj
+            work/control/report.*
+            work/stable/report.*
+            work/balanced/report.*
+            work/responsive/report.*
+            work/recent-standard/report.*
+            work/recent-harsh/report.*
+            work/Round25-3Y-Screen.json
+            work/Round25-Final-Summary.json
+          retention-days: 30
