@@ -1,0 +1,121 @@
+name: Fibonacci XAUUSD 3 - v3.1 Protected Candidate
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [fibonacci-xauusd-v3-hybrid]
+    paths:
+      - '.github/workflows/backtest-fibonacci-xauusd-3-v31-candidate.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Patch candidate source
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('FibonacciHarmonicSniperUltimate/versions/xauusd_3/src/FibonacciXAUUSD3.cs')
+          s=p.read_text()
+          s=s.replace('Print("VERSION xauusd_3 v3.0.0-harmonic-hybrid");','Print("VERSION xauusd_3 v3.1.0-hybrid-protected");',1)
+          s=s.replace('''        [Parameter("Max Entry Distance ATR", DefaultValue = 0.55, MinValue = 0.10, MaxValue = 1.50, Group = "M5 Confirmation")]\n        public double MaxEntryDistanceAtr { get; set; }\n''','''        [Parameter("Max Entry Distance ATR", DefaultValue = 0.55, MinValue = 0.10, MaxValue = 1.50, Group = "M5 Confirmation")]\n        public double MaxEntryDistanceAtr { get; set; }\n\n        [Parameter("Min Stop ATR", DefaultValue = 0.20, MinValue = 0.05, MaxValue = 1.50, Group = "Execution")]\n        public double MinStopAtr { get; set; }\n\n        [Parameter("Max Allowed RR", DefaultValue = 8.0, MinValue = 2.0, MaxValue = 20.0, Group = "Execution")]\n        public double MaxAllowedRR { get; set; }\n''',1)
+          s=s.replace('''                double slPips = slDistance / Symbol.PipSize;\n                double tpPips = tpDistance / Symbol.PipSize;\n                double rr = tpPips / slPips;\n                if (rr < MinimumRiskReward)\n                    return false;\n''','''                double slPips = slDistance / Symbol.PipSize;\n                double tpPips = tpDistance / Symbol.PipSize;\n                double rr = tpPips / slPips;\n                double brokerMinSlPips = BrokerMinDistancePips(entry, Symbol.MinStopLossDistance);\n                double brokerMinTpPips = BrokerMinDistancePips(entry, Symbol.MinTakeProfitDistance);\n                double atrMinStopPips = MinStopAtr * a.M15Atr / Symbol.PipSize;\n                double requiredSlPips = Math.Max(brokerMinSlPips * 1.10, atrMinStopPips);\n                double requiredTpPips = brokerMinTpPips * 1.10;\n                if (slPips < requiredSlPips || tpPips < requiredTpPips) return false;\n                if (rr < MinimumRiskReward || rr > MaxAllowedRR) return false;\n''',1)
+          s=s.replace('''                TradeResult result = ExecuteMarketOrder(a.Direction, SymbolName, volume, BotLabel, slPips, tpPips, comment);\n                if (!result.IsSuccessful || result.Position == null)\n                    return false;\n\n                _tradesToday++;\n''','''                TradeResult result = ExecuteMarketOrder(a.Direction, SymbolName, volume, BotLabel, slPips, tpPips, comment);\n                if (!result.IsSuccessful || result.Position == null) return false;\n                if (result.Position.StopLoss == null || result.Position.TakeProfit == null)\n                {\n                    ClosePosition(result.Position);\n                    return false;\n                }\n\n                _tradesToday++;\n''',1)
+          s=s.replace('''        private double Atr(Bars bars, int end, int period)\n''','''        private double BrokerMinDistancePips(double price, double distance)\n        {\n            if (distance <= 0) return 0.0;\n            if (Symbol.MinDistanceType == SymbolMinDistanceType.Pips) return distance;\n            return (price * distance / 100.0) / Symbol.PipSize;\n        }\n\n        private double Atr(Bars bars, int end, int period)\n''',1)
+          p.write_text(s)
+          PY
+          grep -q 'v3.1.0-hybrid-protected' FibonacciHarmonicSniperUltimate/versions/xauusd_3/src/FibonacciXAUUSD3.cs
+      - run: docker pull ghcr.io/spotware/ctrader-console:5.9.11
+      - name: Build
+        shell: bash
+        run: |
+          ROOT='FibonacciHarmonicSniperUltimate/versions/xauusd_3'
+          docker run --rm --entrypoint sh -v "$PWD:/repo" -w /repo ghcr.io/spotware/ctrader-console:5.9.11 -c "dotnet restore $ROOT/FibonacciXAUUSD3.csproj && dotnet build $ROOT/FibonacciXAUUSD3.csproj -c Release --no-restore -p:AlgoPublish=False -p:IncludeSource=True"
+          mkdir -p package
+          cp "$(find "$ROOT" -type f -name '*.algo' -print -quit)" package/FibonacciXAUUSD3-v3.1-Protected.algo
+          sha256sum package/FibonacciXAUUSD3-v3.1-Protected.algo > package/algo.sha256
+      - uses: actions/upload-artifact@v4
+        with:
+          name: xauusd_3-v31-build
+          path: package/
+
+  backtest:
+    needs: build
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { label: standard, spread: '17.42', commission: '35' }
+          - { label: harsh, spread: '30', commission: '50' }
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: xauusd_3-v31-build
+          path: work
+      - run: docker pull ghcr.io/spotware/ctrader-console:5.9.11
+      - name: Credentials
+        env:
+          CTRADER_PASSWORD: ${{ secrets.CTRADER_PASSWORD }}
+        run: printf '%s' "$CTRADER_PASSWORD" > work/ctrader.pwd
+      - name: Backtest
+        env:
+          CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+          CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+        shell: bash
+        run: |
+          mkdir -p work/reports work/cache
+          docker run --rm -v "$PWD/work:/work" -e "CTID=$CTRADER_CTID" -e 'PWD-FILE=/work/ctrader.pwd' -e "ACCOUNT=$CTRADER_ACCOUNT" ghcr.io/spotware/ctrader-console:5.9.11 backtest /work/FibonacciXAUUSD3-v3.1-Protected.algo --environment-variables --exit-on-stop --symbol=XAUUSD --period=m5 --start='09/06/2026' --end='09/09/2026' --balance=10000 --data-mode=m1 --data-dir=/work/cache --commission='${{ matrix.commission }}' --spread='${{ matrix.spread }}' --RiskPercent=0.50 --MaxDailyLossPercent=3 --MinimumRiskReward=1.5 --PreScoreMin=42 --FinalScoreMin=60 --MinImpulseAtr=1.2 --MinStopAtr=0.20 --MaxAllowedRR=8 --report='/work/reports/${{ matrix.label }}.html' --report-json='/work/reports/${{ matrix.label }}.json' 2>&1 | tee 'work/reports/${{ matrix.label }}.log'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: xauusd_3-v31-report-${{ matrix.label }}
+          path: work/reports/
+
+  aggregate:
+    needs: backtest
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: xauusd_3-v31-build
+          path: package
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: xauusd_3-v31-report-*
+          path: reports
+          merge-multiple: true
+      - shell: bash
+        run: |
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          rows=[]
+          for label in ('standard','harsh'):
+              d=json.loads(Path(f'reports/{label}.json').read_text())
+              ts=d['tradeStatistics']; eq=d['equity']; main=d['main']; hist=d['history']['items']
+              t=int(ts['totalTrades']['all']); w=int(ts['winningTrades']['all']); l=int(ts['losingTrades']['all'])
+              spans=sorted((int(x['entryTime']),int(x['closeTime']),x['direction']) for x in hist)
+              ov=hg=0
+              for i,a in enumerate(spans):
+                  for b in spans[i+1:]:
+                      if b[0]>=a[1]: break
+                      ov+=1; hg+=b[2]!=a[2]
+              rows.append((label,t,w,l,main['netProfit'],main['roi'],ts['profitFactor']['all'],eq['maxEquityDrawdownPercent'],ov,hg))
+              assert ov==0 and hg==0
+          out=['# xauusd_3 v3.1 Protected','', '| Cost | Trades | W | L | Net | ROI % | PF | DD % | Overlap | Hedge |','|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|']
+          for r in rows: out.append(f'| {r[0]} | {r[1]} | {r[2]} | {r[3]} | {r[4]:.2f} | {r[5]:.2f} | {r[6]:.2f} | {r[7]:.2f} | {r[8]} | {r[9]} |')
+          Path('V31_SUMMARY.md').write_text('\n'.join(out)+'\n')
+          print('\n'.join(out))
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: xauusd_3-v31-complete
+          path: |
+            package/
+            reports/
+            V31_SUMMARY.md
