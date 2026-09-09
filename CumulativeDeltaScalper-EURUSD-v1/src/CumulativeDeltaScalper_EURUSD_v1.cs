@@ -16,9 +16,11 @@
 //  - Broker min/max/step volume checks
 //  - Daily loss/profit guards, cooldown, consecutive-loss stop
 //  - Bar-delta fallback for cTrader CLI M1 backtests when tick delta is not populated
+//  - Candidate I controls: weekday filters, equity kill-switches, selectable HTF, risk auto-scale, skip stats
 // ===================================================================
 
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using cAlgo.API;
 using cAlgo.API.Indicators;
@@ -47,6 +49,9 @@ namespace cAlgo.Robots
 
         [Parameter("Debug Logging", DefaultValue = true, Group = "General")]
         public bool DebugLogging { get; set; }
+
+        [Parameter("Summary Logging", DefaultValue = true, Group = "General")]
+        public bool SummaryLogging { get; set; }
 
         [Parameter("Allowed Symbol Prefix", DefaultValue = "EURUSD", Group = "General")]
         public string AllowedSymbolPrefix { get; set; }
@@ -99,8 +104,29 @@ namespace cAlgo.Robots
         [Parameter("Session End M", DefaultValue = 0, MinValue = 0, MaxValue = 59, Group = "Sessions")]
         public int SessionEndMinute { get; set; }
 
+        [Parameter("Use Weekday Filter", DefaultValue = false, Group = "Weekday Filter")]
+        public bool UseWeekdayFilter { get; set; }
+
+        [Parameter("Trade Monday", DefaultValue = true, Group = "Weekday Filter")]
+        public bool TradeMonday { get; set; }
+
+        [Parameter("Trade Tuesday", DefaultValue = true, Group = "Weekday Filter")]
+        public bool TradeTuesday { get; set; }
+
+        [Parameter("Trade Wednesday", DefaultValue = true, Group = "Weekday Filter")]
+        public bool TradeWednesday { get; set; }
+
+        [Parameter("Trade Thursday", DefaultValue = true, Group = "Weekday Filter")]
+        public bool TradeThursday { get; set; }
+
+        [Parameter("Trade Friday", DefaultValue = true, Group = "Weekday Filter")]
+        public bool TradeFriday { get; set; }
+
         [Parameter("Use HTF EMA Filter", DefaultValue = true, Group = "Filters")]
         public bool UseHtfEmaFilter { get; set; }
+
+        [Parameter("HTF Timeframe", DefaultValue = "Minute15", Group = "Filters")]
+        public string HtfTimeFrameName { get; set; }
 
         [Parameter("EMA Slope Bars", DefaultValue = 3, MinValue = 1, Group = "Filters")]
         public int EmaSlopeBars { get; set; }
@@ -128,6 +154,15 @@ namespace cAlgo.Robots
 
         [Parameter("Fixed Money Risk", DefaultValue = 1.00, MinValue = 0.01, Step = 0.01, Group = "Risk")]
         public double FixedMoneyRisk { get; set; }
+
+        [Parameter("Auto Scale Fixed Risk", DefaultValue = true, Group = "Risk")]
+        public bool AutoScaleFixedRisk { get; set; }
+
+        [Parameter("Risk Reference Balance", DefaultValue = 100.0, MinValue = 1.0, Step = 1.0, Group = "Risk")]
+        public double RiskReferenceBalance { get; set; }
+
+        [Parameter("Min Fixed Money Risk", DefaultValue = 0.05, MinValue = 0.0, Step = 0.01, Group = "Risk")]
+        public double MinFixedMoneyRisk { get; set; }
 
         [Parameter("Risk % per Trade", DefaultValue = 1.0, MinValue = 0.1, Step = 0.1, Group = "Risk")]
         public double RiskPercentPerTrade { get; set; }
@@ -164,6 +199,18 @@ namespace cAlgo.Robots
 
         [Parameter("Loss Cooldown Min", DefaultValue = 15, MinValue = 0, Group = "Protection")]
         public int LossCooldownMinutes { get; set; }
+
+        [Parameter("Max Daily Equity DD Money", DefaultValue = 0.0, MinValue = 0.0, Step = 0.01, Group = "Equity Protection")]
+        public double MaxDailyEquityDrawdownMoney { get; set; }
+
+        [Parameter("Max Floating Loss Money", DefaultValue = 0.0, MinValue = 0.0, Step = 0.01, Group = "Equity Protection")]
+        public double MaxFloatingLossMoney { get; set; }
+
+        [Parameter("Max Equity DD %", DefaultValue = 0.0, MinValue = 0.0, Step = 0.1, Group = "Equity Protection")]
+        public double MaxEquityDrawdownPercent { get; set; }
+
+        [Parameter("Close On Equity Guard", DefaultValue = true, Group = "Equity Protection")]
+        public bool CloseOnEquityGuard { get; set; }
 
         [Parameter("Max Trade Seconds", DefaultValue = 90, MinValue = 0, Group = "Exit")]
         public int MaxTradeSeconds { get; set; }
@@ -205,9 +252,14 @@ namespace cAlgo.Robots
 
         private DateTime _currentDay = DateTime.MinValue;
         private double _dayStartBalance;
+        private double _dayHighEquity;
+        private double _accountPeakEquity;
         private double _dailyClosedPnl;
         private int _dailyTradeCount;
         private int _consecutiveLosses;
+
+        private readonly Dictionary<string, int> _skipReasons = new Dictionary<string, int>();
+        private readonly Dictionary<string, int> _entryReasons = new Dictionary<string, int>();
 
         protected override void OnStart()
         {
@@ -233,7 +285,8 @@ namespace cAlgo.Robots
             }
 
             _atr = Indicators.AverageTrueRange(AtrPeriod, MovingAverageType.Simple);
-            _htfBars = MarketData.GetBars(TimeFrame.Minute15);
+            TimeFrame htf = ResolveHtfTimeFrame();
+            _htfBars = MarketData.GetBars(htf);
             _htfEma = Indicators.ExponentialMovingAverage(_htfBars.ClosePrices, EmaPeriod);
             _htfDms = Indicators.DirectionalMovementSystem(_htfBars, AdxPeriod);
 
@@ -242,15 +295,18 @@ namespace cAlgo.Robots
             _prevBid = Symbol.Bid;
             _currentDay = Server.Time.Date;
             _dayStartBalance = Account.Balance;
+            _dayHighEquity = Account.Equity;
+            _accountPeakEquity = Account.Equity;
 
             Positions.Closed += OnPositionClosed;
 
-            Debug("started on " + SymbolName + " " + TimeFrame + " label=" + TradeLabel + " barDeltaFallback=" + UseBarDeltaFallback);
+            Debug("started on " + SymbolName + " " + TimeFrame + " label=" + TradeLabel + " htf=" + htf + " barDeltaFallback=" + UseBarDeltaFallback);
         }
 
         protected override void OnStop()
         {
             Positions.Closed -= OnPositionClosed;
+            PrintSummary("final");
             Debug("stopped");
         }
 
@@ -258,6 +314,7 @@ namespace cAlgo.Robots
         {
             ResetDailyIfNeeded();
             SyncDailyStatsFromHistory();
+            UpdateEquityPeaks();
             ProcessTickDelta();
 
             if (HasOpenPosition())
@@ -270,6 +327,7 @@ namespace cAlgo.Robots
         {
             ResetDailyIfNeeded();
             SyncDailyStatsFromHistory();
+            UpdateEquityPeaks();
             FinalizeClosedBarDelta();
 
             DateTime barTime = Bars.OpenTimes.LastValue;
@@ -279,21 +337,21 @@ namespace cAlgo.Robots
 
             if (HasOpenPosition())
             {
-                Debug("already has open position");
+                Skip("already_has_open_position");
                 return;
             }
 
             string reason;
             if (!CheckGuards(out reason))
             {
-                Debug("trade skipped: " + reason);
+                Skip(reason);
                 return;
             }
 
             int signal = CheckSignal();
             if (signal == 0)
             {
-                Debug("trade skipped: delta threshold not crossed or confirmations failed");
+                Skip("delta_or_confirmations_failed");
                 return;
             }
 
@@ -314,6 +372,21 @@ namespace cAlgo.Robots
             if (AllowM15 && TimeFrame == TimeFrame.Minute15) return true;
             if (AllowM30 && TimeFrame == TimeFrame.Minute30) return true;
             return false;
+        }
+
+        private TimeFrame ResolveHtfTimeFrame()
+        {
+            string value = string.IsNullOrWhiteSpace(HtfTimeFrameName) ? "Minute15" : HtfTimeFrameName.Trim().ToUpperInvariant();
+
+            if (value == "M1" || value == "MINUTE" || value == "MINUTE1" || value == "1") return TimeFrame.Minute;
+            if (value == "M5" || value == "MINUTE5" || value == "5") return TimeFrame.Minute5;
+            if (value == "M15" || value == "MINUTE15" || value == "15") return TimeFrame.Minute15;
+            if (value == "M30" || value == "MINUTE30" || value == "30") return TimeFrame.Minute30;
+            if (value == "H1" || value == "HOUR" || value == "HOUR1" || value == "60") return TimeFrame.Hour;
+            if (value == "H4" || value == "HOUR4" || value == "240") return TimeFrame.Hour4;
+
+            Print(Prefix + "unknown HTF Timeframe '" + HtfTimeFrameName + "', fallback to Minute15");
+            return TimeFrame.Minute15;
         }
 
         private void ProcessTickDelta()
@@ -467,27 +540,43 @@ namespace cAlgo.Robots
         {
             reason = string.Empty;
 
-            if (!ValidateSymbol()) { reason = "invalid symbol"; return false; }
-            if (!ValidateTimeFrame()) { reason = "invalid timeframe"; return false; }
-            if (UseSessionFilter && !IsInSession()) { reason = "out of session"; return false; }
-            if (HasOpenPosition()) { reason = "already has open position"; return false; }
-            if (SpreadInPoints() > MaxSpreadPoints) { reason = "spread too high"; return false; }
-            if (_dailyTradeCount >= MaxDailyTrades) { reason = "daily trade limit hit"; return false; }
-            if (_consecutiveLosses >= MaxConsecutiveLosses) { reason = "consecutive loss limit hit"; return false; }
+            if (!ValidateSymbol()) { reason = "invalid_symbol"; return false; }
+            if (!ValidateTimeFrame()) { reason = "invalid_timeframe"; return false; }
+            if (UseWeekdayFilter && !IsTradingDayAllowed()) { reason = "weekday_blocked"; return false; }
+            if (UseSessionFilter && !IsInSession()) { reason = "out_of_session"; return false; }
+            if (HasOpenPosition()) { reason = "already_has_open_position"; return false; }
+            if (SpreadInPoints() > MaxSpreadPoints) { reason = "spread_too_high"; return false; }
+            if (_dailyTradeCount >= MaxDailyTrades) { reason = "daily_trade_limit_hit"; return false; }
+            if (_consecutiveLosses >= MaxConsecutiveLosses) { reason = "consecutive_loss_limit_hit"; return false; }
 
             double dailyLimitByPercent = _dayStartBalance * MaxDailyLossPercent / 100.0;
             double dailyLossLimit = MaxDailyLossMoney > 0 ? Math.Min(dailyLimitByPercent, MaxDailyLossMoney) : dailyLimitByPercent;
-            if (dailyLossLimit > 0 && _dailyClosedPnl <= -dailyLossLimit) { reason = "daily loss limit hit"; return false; }
-            if (DailyProfitTargetMoney > 0 && _dailyClosedPnl >= DailyProfitTargetMoney) { reason = "daily profit target hit"; return false; }
+            if (dailyLossLimit > 0 && _dailyClosedPnl <= -dailyLossLimit) { reason = "daily_loss_limit_hit"; return false; }
+            if (DailyProfitTargetMoney > 0 && _dailyClosedPnl >= DailyProfitTargetMoney) { reason = "daily_profit_target_hit"; return false; }
 
-            if (_lastTradeTime != DateTime.MinValue && Server.Time < _lastTradeTime.AddSeconds(MinSecondsBetweenTrades)) { reason = "cooldown active"; return false; }
-            if (_lastLossTime != DateTime.MinValue && Server.Time < _lastLossTime.AddMinutes(LossCooldownMinutes)) { reason = "loss cooldown active"; return false; }
+            if (IsDailyEquityDrawdownHit()) { reason = "daily_equity_drawdown_hit"; return false; }
+            if (IsAccountEquityDrawdownHit()) { reason = "account_equity_drawdown_hit"; return false; }
+            if (IsFloatingLossHit()) { reason = "floating_loss_hit"; return false; }
+
+            if (_lastTradeTime != DateTime.MinValue && Server.Time < _lastTradeTime.AddSeconds(MinSecondsBetweenTrades)) { reason = "cooldown_active"; return false; }
+            if (_lastLossTime != DateTime.MinValue && Server.Time < _lastLossTime.AddMinutes(LossCooldownMinutes)) { reason = "loss_cooldown_active"; return false; }
 
             double atr = _atr.Result.LastValue;
-            if (atr < MinAtr) { reason = "ATR too low"; return false; }
-            if (MaxAtr > 0 && atr > MaxAtr) { reason = "ATR too high"; return false; }
+            if (atr < MinAtr) { reason = "atr_too_low"; return false; }
+            if (MaxAtr > 0 && atr > MaxAtr) { reason = "atr_too_high"; return false; }
 
             return true;
+        }
+
+        private bool IsTradingDayAllowed()
+        {
+            DayOfWeek day = Server.Time.ToUniversalTime().DayOfWeek;
+            if (day == DayOfWeek.Monday) return TradeMonday;
+            if (day == DayOfWeek.Tuesday) return TradeTuesday;
+            if (day == DayOfWeek.Wednesday) return TradeWednesday;
+            if (day == DayOfWeek.Thursday) return TradeThursday;
+            if (day == DayOfWeek.Friday) return TradeFriday;
+            return false;
         }
 
         private bool IsInSession()
@@ -508,14 +597,15 @@ namespace cAlgo.Robots
             string distanceReason;
             if (!ValidateStopDistances(slPips, tpPips, out distanceReason))
             {
-                Debug("trade skipped: " + distanceReason);
+                Skip(distanceReason);
                 return;
             }
 
-            double volume = CalculateVolumeInUnits(slPips);
+            double riskMoney = CalculateRiskMoney();
+            double volume = CalculateVolumeInUnits(slPips, riskMoney);
             if (volume < Symbol.VolumeInUnitsMin)
             {
-                Debug("volume below broker minimum, trade skipped. volume=" + volume + " min=" + Symbol.VolumeInUnitsMin);
+                Skip("volume_below_broker_minimum_riskMoney=" + riskMoney.ToString("F2"));
                 return;
             }
 
@@ -525,7 +615,7 @@ namespace cAlgo.Robots
             volume = Symbol.NormalizeVolumeInUnits(volume, RoundingMode.Down);
             if (volume < Symbol.VolumeInUnitsMin)
             {
-                Debug("normalized volume below broker minimum, trade skipped");
+                Skip("normalized_volume_below_broker_minimum");
                 return;
             }
 
@@ -534,7 +624,7 @@ namespace cAlgo.Robots
 
             if (!result.IsSuccessful)
             {
-                Debug("order rejected by broker: " + result.Error);
+                Skip("order_rejected_" + result.Error);
                 return;
             }
 
@@ -543,18 +633,33 @@ namespace cAlgo.Robots
             _openTradeDirection = signal;
             _breakevenApplied = false;
             _dailyTradeCount++;
+            Entry(signal > 0 ? "buy_signal" : "sell_signal");
 
-            Debug((signal > 0 ? "BUY" : "SELL") + " opened volume=" + volume + " slPips=" + slPips.ToString("F2") + " tpPips=" + tpPips.ToString("F2"));
+            Debug((signal > 0 ? "BUY" : "SELL") + " opened volume=" + volume + " riskMoney=" + riskMoney.ToString("F2") + " slPips=" + slPips.ToString("F2") + " tpPips=" + tpPips.ToString("F2"));
         }
 
-        private double CalculateVolumeInUnits(double stopLossPips)
+        private double CalculateRiskMoney()
+        {
+            if (RiskMode == CdsRiskMode.FixedLots)
+                return 0;
+
+            if (RiskMode == CdsRiskMode.RiskPercent)
+                return Account.Balance * RiskPercentPerTrade / 100.0;
+
+            double riskMoney = FixedMoneyRisk;
+            if (AutoScaleFixedRisk && RiskReferenceBalance > 0)
+                riskMoney = FixedMoneyRisk * Account.Balance / RiskReferenceBalance;
+
+            if (MinFixedMoneyRisk > 0)
+                riskMoney = Math.Max(MinFixedMoneyRisk, riskMoney);
+
+            return Math.Max(0, riskMoney);
+        }
+
+        private double CalculateVolumeInUnits(double stopLossPips, double riskMoney)
         {
             if (RiskMode == CdsRiskMode.FixedLots)
                 return Symbol.QuantityToVolumeInUnits(Math.Min(FixedLotSize, MaxLotSize));
-
-            double riskMoney = RiskMode == CdsRiskMode.FixedMoneyRisk
-                ? FixedMoneyRisk
-                : Account.Balance * RiskPercentPerTrade / 100.0;
 
             if (riskMoney <= 0 || stopLossPips <= 0)
                 return 0;
@@ -568,20 +673,20 @@ namespace cAlgo.Robots
         private bool ValidateStopDistances(double slPips, double tpPips, out string reason)
         {
             reason = string.Empty;
-            if (slPips <= 0 || tpPips <= 0) { reason = "invalid SL / TP distance"; return false; }
+            if (slPips <= 0 || tpPips <= 0) { reason = "invalid_sl_tp_distance"; return false; }
 
             double slPriceDistance = slPips * Symbol.PipSize;
             double tpPriceDistance = tpPips * Symbol.PipSize;
 
             if (Symbol.MinStopLossDistance > 0 && slPriceDistance < Symbol.MinStopLossDistance)
             {
-                reason = "SL below broker minimum distance";
+                reason = "sl_below_broker_minimum_distance";
                 return false;
             }
 
             if (Symbol.MinTakeProfitDistance > 0 && tpPriceDistance < Symbol.MinTakeProfitDistance)
             {
-                reason = "TP below broker minimum distance";
+                reason = "tp_below_broker_minimum_distance";
                 return false;
             }
 
@@ -595,6 +700,13 @@ namespace cAlgo.Robots
             {
                 _openTradeDirection = 0;
                 _openTradeTime = DateTime.MinValue;
+                return;
+            }
+
+            string equityReason;
+            if (CloseOnEquityGuard && CheckCriticalEquityExit(out equityReason))
+            {
+                ClosePositionWithLog(position, equityReason);
                 return;
             }
 
@@ -617,6 +729,42 @@ namespace cAlgo.Robots
 
             if (UseBreakeven && !_breakevenApplied)
                 TryBreakeven(position);
+        }
+
+        private bool CheckCriticalEquityExit(out string reason)
+        {
+            reason = string.Empty;
+            if (IsFloatingLossHit()) { reason = "FLOATING_LOSS_GUARD"; return true; }
+            if (IsDailyEquityDrawdownHit()) { reason = "DAILY_EQUITY_DD_GUARD"; return true; }
+            if (IsAccountEquityDrawdownHit()) { reason = "ACCOUNT_EQUITY_DD_GUARD"; return true; }
+            return false;
+        }
+
+        private bool IsFloatingLossHit()
+        {
+            if (MaxFloatingLossMoney <= 0) return false;
+            double floatingPnl = Positions.Where(p => p.SymbolName == SymbolName && p.Label == TradeLabel).Sum(p => p.NetProfit);
+            return floatingPnl <= -MaxFloatingLossMoney;
+        }
+
+        private bool IsDailyEquityDrawdownHit()
+        {
+            if (MaxDailyEquityDrawdownMoney <= 0) return false;
+            double drawdown = _dayHighEquity - Account.Equity;
+            return drawdown >= MaxDailyEquityDrawdownMoney;
+        }
+
+        private bool IsAccountEquityDrawdownHit()
+        {
+            if (MaxEquityDrawdownPercent <= 0 || _accountPeakEquity <= 0) return false;
+            double drawdownPct = (_accountPeakEquity - Account.Equity) / _accountPeakEquity * 100.0;
+            return drawdownPct >= MaxEquityDrawdownPercent;
+        }
+
+        private void UpdateEquityPeaks()
+        {
+            if (Account.Equity > _dayHighEquity) _dayHighEquity = Account.Equity;
+            if (Account.Equity > _accountPeakEquity) _accountPeakEquity = Account.Equity;
         }
 
         private void ClosePositionWithLog(Position position, string reason)
@@ -687,12 +835,14 @@ namespace cAlgo.Robots
             DateTime today = Server.Time.Date;
             if (today == _currentDay) return;
 
+            PrintSummary("day_end_" + _currentDay.ToString("yyyy-MM-dd"));
             _currentDay = today;
             _dayStartBalance = Account.Balance;
+            _dayHighEquity = Account.Equity;
             _dailyClosedPnl = 0;
             _dailyTradeCount = 0;
             _consecutiveLosses = 0;
-            Debug("new trading day balance=" + _dayStartBalance);
+            Debug("new trading day balance=" + _dayStartBalance + " equity=" + Account.Equity);
         }
 
         private void SyncDailyStatsFromHistory()
@@ -737,6 +887,40 @@ namespace cAlgo.Robots
             _openTradeDirection = 0;
             _openTradeTime = DateTime.MinValue;
             Debug("position closed pnl=" + p.NetProfit + " consecutiveLosses=" + _consecutiveLosses);
+        }
+
+        private void Skip(string reason)
+        {
+            if (string.IsNullOrWhiteSpace(reason)) reason = "unknown_skip";
+            Count(_skipReasons, reason);
+            Debug("trade skipped: " + reason);
+        }
+
+        private void Entry(string reason)
+        {
+            if (string.IsNullOrWhiteSpace(reason)) reason = "unknown_entry";
+            Count(_entryReasons, reason);
+        }
+
+        private void Count(Dictionary<string, int> map, string key)
+        {
+            int value;
+            if (map.TryGetValue(key, out value)) map[key] = value + 1;
+            else map[key] = 1;
+        }
+
+        private void PrintSummary(string tag)
+        {
+            if (!SummaryLogging) return;
+            if (_skipReasons.Count == 0 && _entryReasons.Count == 0) return;
+
+            Print(Prefix + "summary " + tag + " skip=" + FormatTopCounts(_skipReasons, 8) + " entries=" + FormatTopCounts(_entryReasons, 4));
+        }
+
+        private string FormatTopCounts(Dictionary<string, int> map, int maxItems)
+        {
+            if (map.Count == 0) return "none";
+            return string.Join(",", map.OrderByDescending(kv => kv.Value).Take(Math.Max(1, maxItems)).Select(kv => kv.Key + ":" + kv.Value));
         }
 
         private void Debug(string message)
