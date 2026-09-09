@@ -15,6 +15,7 @@
 //  - Fixed money risk / risk percent / fixed lots modes
 //  - Broker min/max/step volume checks
 //  - Daily loss/profit guards, cooldown, consecutive-loss stop
+//  - Bar-delta fallback for cTrader CLI M1 backtests when tick delta is not populated
 // ===================================================================
 
 using System;
@@ -70,6 +71,15 @@ namespace cAlgo.Robots
 
         [Parameter("Min Confirmations", DefaultValue = 5, MinValue = 0, MaxValue = 5, Group = "Delta")]
         public int MinConfirmations { get; set; }
+
+        [Parameter("Use Bar Delta Fallback", DefaultValue = true, Group = "Delta")]
+        public bool UseBarDeltaFallback { get; set; }
+
+        [Parameter("Fallback Below Tick Delta", DefaultValue = 2, MinValue = 0, Group = "Delta")]
+        public int FallbackBelowTickDelta { get; set; }
+
+        [Parameter("Bar Delta Point Mult", DefaultValue = 1.0, MinValue = 0.1, Step = 0.1, Group = "Delta")]
+        public double BarDeltaPointMultiplier { get; set; }
 
         [Parameter("Use Session Filter", DefaultValue = true, Group = "Sessions")]
         public bool UseSessionFilter { get; set; }
@@ -215,7 +225,7 @@ namespace cAlgo.Robots
                 return;
             }
 
-            if (WindowSize < 2 || DeltaThreshold <= 0 || SlAtrMultiplier <= 0 || TpAtrMultiplier <= 0)
+            if (WindowSize < 2 || DeltaThreshold <= 0 || SlAtrMultiplier <= 0 || TpAtrMultiplier <= 0 || BarDeltaPointMultiplier <= 0)
             {
                 Print(Prefix + "invalid core parameters");
                 Stop();
@@ -235,7 +245,7 @@ namespace cAlgo.Robots
 
             Positions.Closed += OnPositionClosed;
 
-            Debug("started on " + SymbolName + " " + TimeFrame + " label=" + TradeLabel);
+            Debug("started on " + SymbolName + " " + TimeFrame + " label=" + TradeLabel + " barDeltaFallback=" + UseBarDeltaFallback);
         }
 
         protected override void OnStop()
@@ -316,7 +326,20 @@ namespace cAlgo.Robots
 
         private void FinalizeClosedBarDelta()
         {
-            int candleDelta = _uptickCount - _downtickCount;
+            int tickDelta = _uptickCount - _downtickCount;
+            int candleDelta = tickDelta;
+            bool fallbackUsed = false;
+
+            if (UseBarDeltaFallback && Math.Abs(tickDelta) <= FallbackBelowTickDelta)
+            {
+                int estimated = EstimateClosedBarDelta();
+                if (estimated != 0)
+                {
+                    candleDelta = estimated;
+                    fallbackUsed = true;
+                }
+            }
+
             _deltaBuffer[_bufferIndex] = candleDelta;
             _bufferIndex = (_bufferIndex + 1) % WindowSize;
             if (_bufferFilled < WindowSize) _bufferFilled++;
@@ -329,7 +352,34 @@ namespace cAlgo.Robots
             _uptickCount = 0;
             _downtickCount = 0;
 
-            Debug("bar closed delta=" + candleDelta + " spreadPoints=" + spread);
+            Debug("bar closed delta=" + candleDelta + " tickDelta=" + tickDelta + " fallback=" + fallbackUsed + " spreadPoints=" + spread);
+        }
+
+        private int EstimateClosedBarDelta()
+        {
+            int index = Bars.ClosePrices.Count - 2;
+            if (index < 0)
+                return 0;
+
+            double open = Bars.OpenPrices[index];
+            double close = Bars.ClosePrices[index];
+            double high = Bars.HighPrices[index];
+            double low = Bars.LowPrices[index];
+            double body = close - open;
+
+            if (Math.Abs(body) < Symbol.TickSize)
+                return 0;
+
+            double range = Math.Max(Symbol.TickSize, high - low);
+            double bodyPoints = body / Symbol.TickSize;
+            double dominance = Math.Min(1.0, Math.Abs(body) / range);
+            double weighted = bodyPoints * Math.Max(0.1, BarDeltaPointMultiplier) * Math.Max(0.25, dominance);
+            int estimated = (int)Math.Round(weighted);
+
+            if (estimated == 0)
+                estimated = body > 0 ? 1 : -1;
+
+            return estimated;
         }
 
         private int CheckSignal()
@@ -387,6 +437,8 @@ namespace cAlgo.Robots
 
         private bool CheckEmaSlope(int signal)
         {
+            if (!UseHtfEmaFilter) return true;
+
             int last = _htfEma.Result.Count - 1;
             int bars = Math.Max(1, EmaSlopeBars);
             if (last < bars) return false;
