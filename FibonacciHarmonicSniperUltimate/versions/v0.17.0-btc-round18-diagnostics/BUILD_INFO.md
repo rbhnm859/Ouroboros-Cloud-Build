@@ -11,10 +11,10 @@ The published Mobile binary and exact backtested M30HalfRisk binary are not byte
 
 ## Round18 Diagnostics
 - Version: `v0.17.0-btc-round18-diagnostics`
-- Source SHA-256 after reconstruction: `80390542f4eff2cc1f8a0f804090c3c5598441057ade12f3c8bb4b62f38dfeb0`
-- Source payload SHA-256 (concatenated gzip+base64 parts): `1e4061f28dc3024df9a678377af9fe472212976f7716f0222eba6d7668613ab5`
+- Source SHA-256 after reconstruction: `5f2b7f31c4b8f0d60f52c4c15869aa75df4ff07d7224af971784137716bc8b93`
+- Source payload SHA-256 (concatenated gzip+base64 parts): `00705a04fa65bba2b1725b812d3b6523a27a99ecc2bb9a7b2fc1026abf2fb60e`
 - Target framework: `net8.0`
 - cTrader Automate package: `1.*-*`
 
 ## Economics policy
-R18-Diagnostics must remain logic-neutral. H1/M30 entry thresholds, risk split, shared position limit, daily trade cap and Round16 H1-health execution gate are unchanged. CI runs the exact Round17 standard and harsh one-year parameter sets and fails the neutrality gate on material divergence.
+R18-Diagnostics must remain logic-neutral. H1/M30 entry thresholds, order comments, risk split, shared position limit, daily trade cap and Round16 H1-health execution gate are unchanged. CI runs the exact Round17 standard and harsh one-year parameter sets and fails the neutrality gate if trade count changes or ROI/PF/DD diverge beyond the tight validation tolerance.
