@@ -1,0 +1,243 @@
+name: Fibonacci XAUUSD 2 - v2.3 Safety + ABCD Sell Prune
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [fibonacci-xauusd-v22-m5-execution]
+    paths:
+      - '.github/workflows/backtest-fibonacci-xauusd-2-v23-safety.yml'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: fibonacci-xauusd-2-v23-safety
+  cancel-in-progress: true
+
+jobs:
+  patch-build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fibonacci-xauusd-v22-m5-execution
+          fetch-depth: 0
+
+      - name: Patch real source with v2.3 safety guards
+        shell: bash
+        run: |
+          set -euo pipefail
+          ROOT='FibonacciHarmonicSniperUltimate/versions/xauusd_2'
+          SRC="$ROOT/src/FibonacciXAUUSD2.cs"
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('FibonacciHarmonicSniperUltimate/versions/xauusd_2/src/FibonacciXAUUSD2.cs')
+          s=p.read_text()
+
+          old='''        private int _tradesToday;\n        private int _lastTradeM5Index = -100000;\n\n        private ArmedSignal _armed;\n'''
+          new='''        private int _tradesToday;\n        private int _lastTradeM5Index = -100000;\n        private bool _entryInProgress;\n\n        private ArmedSignal _armed;\n'''
+          assert s.count(old)==1
+          s=s.replace(old,new,1)
+
+          s=s.replace('Print("VERSION xauusd_2 v2.2.0-m15-harmonic-m5-execution");',
+                      'Print("VERSION xauusd_2 v2.3.0-safety-abcd-sell-pruned");',1)
+          s=s.replace('Print("[ARCH] M5 host -> M15 predictive XABC/PRZ -> ARM on completed M15 touch -> M5 2-of-4 reversal confirmation -> fixed-risk execution | H1 context remains soft score");',
+                      'Print("[ARCH] M5 host -> M15 predictive XABC/PRZ -> M5 confirmation -> fixed-risk execution | hard no-duplicate/no-hedge exposure guard | ABCD Sell pruned");',1)
+
+          old='''            if (OwnPositionCount() > 0)\n                return;\n'''
+          new='''            if (HasAnySymbolExposure())\n            {\n                if (DebugLogging)\n                    Print("[EXPOSURE BLOCK] Existing {0} position or pending order detected; no new signal may open.", SymbolName);\n                return;\n            }\n'''
+          assert s.count(old)==1
+          s=s.replace(old,new,1)
+
+          old='''            foreach (var candidate in candidates)\n            {\n                if (_consumed.Contains(candidate.Key))\n                    continue;\n                if (!BarTouchesPrz(candidate, index))\n                    continue;\n'''
+          new='''            foreach (var candidate in candidates)\n            {\n                if (_consumed.Contains(candidate.Key))\n                    continue;\n\n                if (candidate.Name == "ABCD" && candidate.Direction == TradeType.Sell)\n                {\n                    if (DebugLogging)\n                        Print("[PRUNE] ABCD Sell rejected by v2.3 expectancy filter key={0}", candidate.Key);\n                    _consumed.Add(candidate.Key);\n                    continue;\n                }\n\n                if (!BarTouchesPrz(candidate, index))\n                    continue;\n'''
+          assert s.count(old)==1
+          s=s.replace(old,new,1)
+
+          old='''        private bool TryExecute(HarmonicCandidate c, double confidence, double atr, int m5Index, int confirmRules)\n        {\n            double entry = c.Direction == TradeType.Buy ? Symbol.Ask : Symbol.Bid;\n'''
+          new='''        private bool TryExecute(HarmonicCandidate c, double confidence, double atr, int m5Index, int confirmRules)\n        {\n            if (c.Name == "ABCD" && c.Direction == TradeType.Sell)\n            {\n                Print("[PRUNE BLOCK] ABCD Sell reached execution guard unexpectedly; order blocked.");\n                return false;\n            }\n\n            if (_entryInProgress)\n            {\n                Print("[DUPLICATE BLOCK] Entry transaction already in progress; second order blocked.");\n                return false;\n            }\n\n            if (HasAnySymbolExposure())\n            {\n                Print("[EXPOSURE BLOCK] Existing {0} exposure detected immediately before execution; order blocked.", SymbolName);\n                return false;\n            }\n\n            _entryInProgress = true;\n            try\n            {\n                return TryExecuteCore(c, confidence, atr, m5Index, confirmRules);\n            }\n            finally\n            {\n                _entryInProgress = false;\n            }\n        }\n\n        private bool TryExecuteCore(HarmonicCandidate c, double confidence, double atr, int m5Index, int confirmRules)\n        {\n            double entry = c.Direction == TradeType.Buy ? Symbol.Ask : Symbol.Bid;\n'''
+          assert s.count(old)==1
+          s=s.replace(old,new,1)
+
+          old='''            string session = SessionName(Server.Time.Hour);\n            string comment = c.Name + "|" + confidence.ToString("F1") + "|M5R" + confirmRules;\n\n            TradeResult result = ExecuteMarketOrder(c.Direction, SymbolName, volume, BotLabel, slPips, tpPips, comment);\n'''
+          new='''            string session = SessionName(Server.Time.Hour);\n            string comment = c.Name + "|" + confidence.ToString("F1") + "|M5R" + confirmRules;\n\n            // Final broker-send guard. This is deliberately repeated inside the locked section.\n            if (HasAnySymbolExposure())\n            {\n                Print("[EXPOSURE BLOCK] Exposure appeared during order preparation; broker order not sent.");\n                return false;\n            }\n\n            TradeResult result = ExecuteMarketOrder(c.Direction, SymbolName, volume, BotLabel, slPips, tpPips, comment);\n'''
+          assert s.count(old)==1
+          s=s.replace(old,new,1)
+
+          old='''        private int OwnPositionCount()\n        {\n            int count = 0;\n            foreach (var p in Positions)\n                if (p.SymbolName == SymbolName && p.Label == BotLabel)\n                    count++;\n            return count;\n        }\n'''
+          new='''        private bool HasAnySymbolExposure()\n        {\n            // Account-wide symbol guard: prevents this cBot from duplicating or hedging\n            // against an existing manual trade, another cBot, or its own position.\n            foreach (var p in Positions)\n                if (p.SymbolName == SymbolName)\n                    return true;\n\n            // Future-proofing: this version uses market orders only, but any existing\n            // pending order on XAUUSD also blocks a new market entry.\n            foreach (var order in PendingOrders)\n                if (order.SymbolName == SymbolName)\n                    return true;\n\n            return false;\n        }\n'''
+          assert s.count(old)==1
+          s=s.replace(old,new,1)
+
+          p.write_text(s)
+          PY
+
+          grep -q 'v2.3.0-safety-abcd-sell-pruned' "$SRC"
+          grep -q 'DUPLICATE BLOCK' "$SRC"
+          grep -q 'HasAnySymbolExposure' "$SRC"
+          grep -q 'ABCD Sell rejected' "$SRC"
+
+      - name: Commit real source safety patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add FibonacciHarmonicSniperUltimate/versions/xauusd_2/src/FibonacciXAUUSD2.cs
+          if ! git diff --cached --quiet; then
+            git commit -m 'fix(xauusd_2): enforce no duplicate no hedge and prune ABCD Sell v2.3'
+            git push origin HEAD:fibonacci-xauusd-v22-m5-execution
+          fi
+
+      - name: Pull official cTrader CLI
+        run: docker pull ghcr.io/spotware/ctrader-console:5.9.11
+
+      - name: Build xauusd_2 v2.3
+        shell: bash
+        run: |
+          set -euo pipefail
+          ROOT='FibonacciHarmonicSniperUltimate/versions/xauusd_2'
+          mkdir -p package
+          docker run --rm --entrypoint sh -v "$PWD:/repo" -w /repo ghcr.io/spotware/ctrader-console:5.9.11 -c "dotnet restore $ROOT/FibonacciXAUUSD2.csproj && dotnet build $ROOT/FibonacciXAUUSD2.csproj --configuration Release --no-restore -p:AlgoPublish=False -p:IncludeSource=True"
+          ALGO="$(find "$ROOT" -type f -name '*.algo' -print -quit)"
+          test -n "$ALGO"
+          cp "$ALGO" package/FibonacciXAUUSD2-v2.3-Safe.algo
+          cp "$ROOT/src/FibonacciXAUUSD2.cs" package/FibonacciXAUUSD2.cs
+          cp "$ROOT/README.md" package/README.md
+          sha256sum package/FibonacciXAUUSD2-v2.3-Safe.algo | tee package/algo.sha256
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: xauusd_2-v23-safe-build
+          path: package/
+          retention-days: 30
+
+  backtest:
+    needs: patch-build
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { label: standard, spread: '17.42', commission: '35' }
+          - { label: harsh, spread: '30', commission: '50' }
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: xauusd_2-v23-safe-build
+          path: work
+      - run: docker pull ghcr.io/spotware/ctrader-console:5.9.11
+      - name: Create cTrader password file
+        env:
+          CTRADER_PASSWORD: ${{ secrets.CTRADER_PASSWORD }}
+        run: |
+          test -n "${CTRADER_PASSWORD:-}" || exit 1
+          printf '%s' "$CTRADER_PASSWORD" > work/ctrader.pwd
+          chmod 600 work/ctrader.pwd
+      - name: Run full 3M ${{ matrix.label }} v2.3 safety backtest
+        env:
+          CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+          CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p work/reports work/cache
+          docker run --rm -v "$PWD/work:/work" \
+            -e "CTID=$CTRADER_CTID" -e 'PWD-FILE=/work/ctrader.pwd' -e "ACCOUNT=$CTRADER_ACCOUNT" \
+            ghcr.io/spotware/ctrader-console:5.9.11 \
+            backtest /work/FibonacciXAUUSD2-v2.3-Safe.algo --environment-variables --exit-on-stop \
+            --symbol=XAUUSD --period=m5 --start='09/06/2026' --end='09/09/2026' \
+            --balance=10000 --data-mode=m1 --data-dir=/work/cache \
+            --commission='${{ matrix.commission }}' --spread='${{ matrix.spread }}' \
+            --RiskPercent=0.50 --MaxDailyLossPercent=3.0 --MinimumRiskReward=1.50 \
+            --PivotLeft=2 --PivotRight=1 --PivotLookback=320 --MinLegAtr=0.45 \
+            --MinConfidence=62 --PrzAtrWidth=0.18 --SlAtrBuffer=0.25 --MaxSpreadAtrRatio=0.05 \
+            --CooldownM5Bars=12 --ConfirmWindowM5Bars=9 --M5RulesNeeded=2 --M5BreakLookback=3 \
+            --M5WickMinRatio=0.25 --M5BodyMinRatio=0.45 --MaxEntryDistanceAtr=0.45 \
+            --report='/work/reports/${{ matrix.label }}.html' --report-json='/work/reports/${{ matrix.label }}.json' \
+            2>&1 | tee 'work/reports/${{ matrix.label }}.log'
+          grep -E '\[(OPEN|CLOSE|STATS|SESSION|PRUNE|DUPLICATE BLOCK|EXPOSURE BLOCK)\]' 'work/reports/${{ matrix.label }}.log' > 'work/reports/${{ matrix.label }}-signals.txt' || true
+          test -s 'work/reports/${{ matrix.label }}.json'
+      - if: always()
+        run: rm -f work/ctrader.pwd
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: xauusd_2-v23-safe-report-${{ matrix.label }}
+          path: work/reports/
+          retention-days: 30
+
+  aggregate:
+    needs: backtest
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: xauusd_2-v23-safe-build
+          path: package
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: xauusd_2-v23-safe-report-*
+          path: reports
+          merge-multiple: true
+      - name: Aggregate metrics and assert no overlap / no ABCD Sell
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import json
+
+          def metric(d, key):
+              x=d.get('tradeStatistics',{}).get(key,0)
+              if isinstance(x,dict): x=x.get('all',0)
+              return float(x or 0)
+
+          def max_dd(d):
+              peak=worst=0.0
+              for p in d.get('equity',{}).get('points',[]):
+                  hi=float(p.get('maxEquity',p.get('balance',0)) or 0)
+                  lo=float(p.get('minEquity',p.get('balance',0)) or 0)
+                  peak=max(peak,hi)
+                  if peak>0: worst=max(worst,(peak-lo)/peak*100)
+              return worst
+
+          rows=[]
+          for label in ('standard','harsh'):
+              d=json.loads(Path(f'reports/{label}.json').read_text())
+              items=sorted(d.get('history',{}).get('items',[]), key=lambda x: x.get('entryTime',0))
+              overlaps=[]
+              for prev,cur in zip(items,items[1:]):
+                  if int(cur.get('entryTime',0)) < int(prev.get('closeTime',0)):
+                      overlaps.append((prev.get('id'),cur.get('id')))
+              bad_abcd_sell=[x for x in items if str(x.get('direction','')).lower()=='sell' and str(x.get('comment','')).startswith('ABCD|')]
+              if overlaps:
+                  raise SystemExit(f'{label}: overlapping trades detected: {overlaps}')
+              if bad_abcd_sell:
+                  raise SystemExit(f'{label}: ABCD Sell trades detected despite prune: {[x.get("id") for x in bad_abcd_sell]}')
+
+              t=int(metric(d,'totalTrades')); w=int(metric(d,'winningTrades')); l=int(metric(d,'losingTrades'))
+              wr=(100*w/t) if t else 0
+              net=metric(d,'netProfit'); pf=metric(d,'profitFactor')
+              roi=float(d.get('roi',{}).get('roi', net/100 if d.get('roi') else net/100) or 0)
+              rows.append((label,t,w,l,wr,net,pf,max_dd(d)))
+
+          out=['# xauusd_2 v2.3 Safety + ABCD Sell Prune','',
+               'Hard safety: account-wide XAUUSD exposure guard + pending-order guard + entry transaction lock + final pre-send recheck.','',
+               'Strategy delta: ABCD Sell disabled; all other v2.2 parameters unchanged.','',
+               '| Cost | Trades | Wins | Losses | WR % | Net $ | PF | Max Eq DD % |','|---|---:|---:|---:|---:|---:|---:|---:|']
+          for r in rows:
+              out.append(f'| {r[0]} | {r[1]} | {r[2]} | {r[3]} | {r[4]:.2f} | {r[5]:.2f} | {r[6]:.2f} | {r[7]:.2f} |')
+          out += ['', 'Safety audit: PASS — no overlapping positions in history and no ABCD Sell execution found.']
+          Path('V23_SAFETY_BACKTEST_SUMMARY.md').write_text('\n'.join(out)+'\n')
+          print('\n'.join(out))
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: xauusd_2-v23-safe-complete
+          path: |
+            package/
+            reports/
+            V23_SAFETY_BACKTEST_SUMMARY.md
+          retention-days: 30
