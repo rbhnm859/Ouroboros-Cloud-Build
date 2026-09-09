@@ -1,0 +1,146 @@
+name: Fibonacci XAUUSD 1 - Fast 3M Screen
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - fibonacci-xauusd-round1
+    paths:
+      - '.github/workflows/backtest-fibonacci-xauusd-1-fast-screen.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fibonacci-xauusd-1-fast-screen
+  cancel-in-progress: true
+
+jobs:
+  screen:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - cost: standard
+            commission: '35'
+            spread: '17.42'
+          - cost: harsh
+            commission: '50'
+            spread: '30'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Reconstruct and build
+        shell: bash
+        run: |
+          set -euo pipefail
+          ROOT='FibonacciHarmonicSniperUltimate/versions/xauusd_1'
+          mkdir -p "$ROOT/src" fast/reports fast/package
+          base64 -d "$ROOT/source.gz.b64" | gzip -dc > "$ROOT/src/FibonacciXAUUSD1.cs"
+          docker pull ghcr.io/spotware/ctrader-console:5.9.11
+          docker run --rm --entrypoint sh -v "$PWD:/repo" -w /repo \
+            ghcr.io/spotware/ctrader-console:5.9.11 -c \
+            "dotnet restore $ROOT/FibonacciXAUUSD1.csproj && dotnet build $ROOT/FibonacciXAUUSD1.csproj --configuration Release --no-restore -p:AlgoPublish=False -p:IncludeSource=True"
+          ALGO="$(find "$ROOT" -type f -name '*.algo' -print -quit)"
+          test -n "$ALGO"
+          cp "$ALGO" fast/xauusd_1.algo
+          cp "$ALGO" fast/package/xauusd_1.algo
+          sha256sum "$ALGO" > fast/package/algo.sha256
+          sha256sum "$ROOT/src/FibonacciXAUUSD1.cs" > fast/package/source.sha256
+
+      - name: Prepare credentials
+        env:
+          CTRADER_PASSWORD: ${{ secrets.CTRADER_PASSWORD }}
+        run: |
+          test -n "${CTRADER_PASSWORD:-}" || exit 1
+          printf '%s' "$CTRADER_PASSWORD" > fast/ctrader.pwd
+          chmod 600 fast/ctrader.pwd
+
+      - name: Fast 3M screen - ${{ matrix.cost }}
+        env:
+          CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+          CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+          COST: ${{ matrix.cost }}
+          COMMISSION: ${{ matrix.commission }}
+          SPREAD: ${{ matrix.spread }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker run --rm \
+            -v "$PWD/fast:/work" \
+            -e "CTID=$CTRADER_CTID" -e 'PWD-FILE=/work/ctrader.pwd' -e "ACCOUNT=$CTRADER_ACCOUNT" \
+            ghcr.io/spotware/ctrader-console:5.9.11 \
+            backtest /work/xauusd_1.algo --environment-variables --exit-on-stop \
+            --symbol=XAUUSD --period=h1 \
+            --start='09/06/2026' --end='09/09/2026' \
+            --balance=10000 --data-mode=open \
+            --commission="$COMMISSION" --spread="$SPREAD" \
+            --RiskPercent=0.50 --MaxDailyLossPercent=3.0 --DebugLogging=false \
+            --report="/work/reports/xauusd_1-fast-${COST}.html" \
+            --report-json="/work/reports/xauusd_1-fast-${COST}.json"
+          test -s "fast/reports/xauusd_1-fast-${COST}.json"
+
+      - name: Extract headline metrics
+        env:
+          COST: ${{ matrix.cost }}
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          cost=os.environ['COST']
+          p=Path(f'fast/reports/xauusd_1-fast-{cost}.json')
+          d=json.loads(p.read_text())
+          def walk(x):
+              if isinstance(x,dict):
+                  for k,v in x.items():
+                      yield k,v
+                      yield from walk(v)
+              elif isinstance(x,list):
+                  for v in x: yield from walk(v)
+          pairs=list(walk(d))
+          def get(*names):
+              wanted={n.lower() for n in names}
+              for k,v in pairs:
+                  if k.lower() in wanted and not isinstance(v,(dict,list)):
+                      return v
+              return None
+          vals={
+            'TotalTrades':get('totalTrades','trades'),
+            'WinningTrades':get('winningTrades'),
+            'LosingTrades':get('losingTrades'),
+            'NetProfit':get('netProfit'),
+            'ProfitFactor':get('profitFactor'),
+            'MaxEquityDrawdownPercentages':get('maxEquityDrawdownPercentages'),
+            'Equity':get('equity'),
+          }
+          net=vals['NetProfit']
+          try: roi=float(net)/10000*100
+          except: roi=None
+          lines=[f'# Fast screen {cost}','', '| Metric | Value |','|---|---:|']+[f'| {k} | {v} |' for k,v in vals.items()]
+          lines.append(f'| ROI % | {roi} |')
+          text='\n'.join(lines)+'\n'
+          Path(f'fast/reports/SUMMARY-{cost}.md').write_text(text)
+          print(text)
+          with open(os.environ['GITHUB_STEP_SUMMARY'],'a') as h: h.write(text)
+          PY
+
+      - name: Package
+        if: always()
+        env:
+          COST: ${{ matrix.cost }}
+        run: |
+          mkdir -p "fast/package/reports-${COST}"
+          cp fast/reports/* "fast/package/reports-${COST}/" 2>/dev/null || true
+          rm -f fast/ctrader.pwd
+
+      - name: Upload
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: xauusd_1-fast-screen-${{ matrix.cost }}
+          path: fast/package/
+          retention-days: 30
