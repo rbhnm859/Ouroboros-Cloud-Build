@@ -31,17 +31,26 @@ replacements=[
 ]
 for old,new,label in replacements: rep(old,new,label)
 
+# Store safety initialization after base market/indicator setup and day reset.
 rep('''            ResetDay();\n            Positions.Closed += OnPositionClosed;\n''','''            ResetDay();\n            StoreRestoreRuntimeState();\n            StoreValidateStartup();\n            Positions.Closed += OnPositionClosed;\n''','onstart safety')
 
+# Daily reset becomes restart-safe and history reconstructable.
 rep('''        private void ResetDay()\n        {\n            _day = Server.Time.Date;\n            _dayStartEquity = Account.Equity;\n            _tradesToday = 0;\n        }\n''','''        private void ResetDay()\n        {\n            _day = Server.Time.Date;\n            StoreRestoreOrCreateDailyState();\n        }\n''','reset day')
 
+# A restored daily lock must stay locked even if equity later recovers.
 rep('if (dd >= MaxDailyLossPercent)','if (StoreDailyLossReached(dd))','daily lock comparisons',count=s.count('if (dd >= MaxDailyLossPercent)'))
+
+# Persist trade counters/runtime state after successful entries.
 rep('_tradesToday++;','_tradesToday++;\n            StorePersistAll();','trade persist',count=s.count('_tradesToday++;'))
 
+# Checked emergency close for unprotected fills.
 rep('''                if (result.Position != null)\n                    ClosePosition(result.Position);\n''','''                if (result.Position != null)\n                    StoreEmergencyClose(result.Position, "H1_PROTECTION_FAIL");\n''','h1 protection close')
 rep('''                Print("[R15 M30 PROTECTION FAIL] closing unprotected position");\n                ClosePosition(result.Position);\n                return;\n''','''                Print("[R15 M30 PROTECTION FAIL] closing unprotected position");\n                StoreEmergencyClose(result.Position, "M30_PROTECTION_FAIL");\n                return;\n''','m30 protection close')
+
+# Checked close for optional M30 lane reservation.
 rep('''                Print("[R21 H1 RESERVATION] close optional M30 pos={0} dir={1} heldMin={2:F1}", p.Id, p.TradeType, heldMinutes);\n                ClosePosition(p);\n''','''                Print("[R21 H1 RESERVATION] close optional M30 pos={0} dir={1} heldMin={2:F1}", p.Id, p.TradeType, heldMinutes);\n                StoreCheckedClose(p, "H1_RESERVATION");\n''','reservation close')
 
+# Persist state on stop and after position close bookkeeping begins.
 rep('''        protected override void OnStop()\n        {\n            Positions.Closed -= OnPositionClosed;\n''','''        protected override void OnStop()\n        {\n            StorePersistAll();\n            Positions.Closed -= OnPositionClosed;\n''','onstop persist')
 rep('''            if (p.Label != BotLabel || p.SymbolName != SymbolName)\n                return;\n\n            string name;\n''','''            if (p.Label != BotLabel || p.SymbolName != SymbolName)\n                return;\n\n            StorePersistAll();\n            string name;\n''','close persist')
 
@@ -60,6 +69,7 @@ namespace cAlgo.Robots
     {
         private bool _storeDailyLocked;
         private bool _storeStartupValid = true;
+        private bool _storeInitialized;
         private string StoreKeyPrefix => "BTC-Harmonic-Guard|" + BotLabel + "|" + SymbolName + "|";
 
         private void StoreValidateStartup()
@@ -104,6 +114,17 @@ namespace cAlgo.Robots
 
         private void StoreRestoreOrCreateDailyState()
         {
+            // First call is startup/restart recovery. Later calls are ordinary day rollovers
+            // and preserve the Champion's original Account.Equity-at-midnight semantics.
+            if (_storeInitialized)
+            {
+                _dayStartEquity = Account.Equity;
+                _tradesToday = 0;
+                _storeDailyLocked = false;
+                StorePersistDailyState();
+                return;
+            }
+
             string today = _day.ToString("yyyyMMdd", CultureInfo.InvariantCulture);
             string raw = LocalStorage.GetString(StoreKeyPrefix + "daily", LocalStorageScope.Type);
             bool restored = false;
@@ -132,11 +153,14 @@ namespace cAlgo.Robots
                 double closedNet = todayTrades.Sum(h => h.NetProfit);
                 int openToday = Positions.Count(p => p.Label == BotLabel && p.SymbolName == SymbolName && p.EntryTime.Date == _day);
                 _tradesToday = todayTrades.Length + openToday;
-                _dayStartEquity = Math.Max(0.01, Account.Balance - closedNet);
+                _dayStartEquity = todayTrades.Length == 0 && openToday == 0
+                    ? Account.Equity
+                    : Math.Max(0.01, Account.Balance - closedNet);
                 _storeDailyLocked = false;
             }
 
             StoreRebuildH1Health();
+            _storeInitialized = true;
             StorePersistDailyState();
         }
 
@@ -249,6 +273,7 @@ namespace cAlgo.Robots
 }
 ''')
 
+# Execution wrappers enforce startup and persistent daily lock before either alpha lane can submit orders.
 exe=out.parent/'Round26.Execution.cs'
 if exe.exists():
     x=exe.read_text()
