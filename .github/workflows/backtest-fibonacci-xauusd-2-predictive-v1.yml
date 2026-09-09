@@ -1,0 +1,163 @@
+name: Fibonacci XAUUSD 2 - Predictive PRZ v1
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [fibonacci-xauusd-v2-predictive]
+    paths:
+      - 'FibonacciHarmonicSniperUltimate/versions/xauusd_2/**'
+      - '.github/workflows/backtest-fibonacci-xauusd-2-predictive-v1.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fibonacci-xauusd-2-predictive-v1
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Pull official cTrader CLI
+        run: docker pull ghcr.io/spotware/ctrader-console:5.9.11
+      - name: Build xauusd_2.algo
+        shell: bash
+        run: |
+          set -euo pipefail
+          ROOT='FibonacciHarmonicSniperUltimate/versions/xauusd_2'
+          mkdir -p package
+          docker run --rm --entrypoint sh -v "$PWD:/repo" -w /repo ghcr.io/spotware/ctrader-console:5.9.11 -c "dotnet restore $ROOT/FibonacciXAUUSD2.csproj && dotnet build $ROOT/FibonacciXAUUSD2.csproj --configuration Release --no-restore -p:AlgoPublish=False -p:IncludeSource=True"
+          ALGO="$(find "$ROOT" -type f -name '*.algo' -print -quit)"
+          test -n "$ALGO"
+          cp "$ALGO" package/xauusd_2-predictive-v1.algo
+          cp "$ROOT/src/FibonacciXAUUSD2.cs" package/FibonacciXAUUSD2.cs
+          cp "$ROOT/README.md" package/README.md
+          sha256sum package/xauusd_2-predictive-v1.algo | tee package/algo.sha256
+      - uses: actions/upload-artifact@v4
+        with:
+          name: xauusd_2-predictive-v1-build
+          path: package/
+          retention-days: 30
+
+  backtest:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { label: standard, spread: '17.42', commission: '35' }
+          - { label: harsh, spread: '30', commission: '50' }
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: xauusd_2-predictive-v1-build
+          path: work
+      - name: Pull official cTrader CLI
+        run: docker pull ghcr.io/spotware/ctrader-console:5.9.11
+      - name: Create cTrader password file
+        env:
+          CTRADER_PASSWORD: ${{ secrets.CTRADER_PASSWORD }}
+        run: |
+          test -n "${CTRADER_PASSWORD:-}" || exit 1
+          printf '%s' "$CTRADER_PASSWORD" > work/ctrader.pwd
+          chmod 600 work/ctrader.pwd
+      - name: Run full 3M ${{ matrix.label }} predictive backtest
+        env:
+          CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+          CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p work/reports work/cache
+          docker run --rm -v "$PWD/work:/work" \
+            -e "CTID=$CTRADER_CTID" -e 'PWD-FILE=/work/ctrader.pwd' -e "ACCOUNT=$CTRADER_ACCOUNT" \
+            ghcr.io/spotware/ctrader-console:5.9.11 \
+            backtest /work/xauusd_2-predictive-v1.algo --environment-variables --exit-on-stop \
+            --symbol=XAUUSD --period=m15 --start='09/06/2026' --end='09/09/2026' \
+            --balance=10000 --data-mode=m1 --data-dir=/work/cache \
+            --commission='${{ matrix.commission }}' --spread='${{ matrix.spread }}' \
+            --RiskPercent=0.50 --MaxDailyLossPercent=3.0 --MinimumRiskReward=1.50 \
+            --PivotLeft=2 --PivotRight=1 --PivotLookback=320 --MinLegAtr=0.45 \
+            --MinConfidence=62 --PrzAtrWidth=0.18 --SlAtrBuffer=0.25 --MaxSpreadAtrRatio=0.05 \
+            --report='/work/reports/${{ matrix.label }}.html' --report-json='/work/reports/${{ matrix.label }}.json' \
+            2>&1 | tee 'work/reports/${{ matrix.label }}.log'
+          grep -E '\[(CANDIDATE|OPEN|CLOSE|STATS)\]' 'work/reports/${{ matrix.label }}.log' > 'work/reports/${{ matrix.label }}-signals.txt' || true
+          test -s 'work/reports/${{ matrix.label }}.json'
+      - name: Remove credentials
+        if: always()
+        run: rm -f work/ctrader.pwd
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: xauusd_2-predictive-v1-report-${{ matrix.label }}
+          path: work/reports/
+          retention-days: 30
+
+  aggregate:
+    needs: backtest
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: xauusd_2-predictive-v1-build
+          path: package
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: xauusd_2-predictive-v1-report-*
+          path: reports
+          merge-multiple: true
+      - name: Aggregate predictive v1 reports
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import json
+          def v(d,s,k):
+              try:
+                  x=d[s][k]
+                  return float(x.get('all',0) if isinstance(x,dict) else x or 0)
+              except Exception:
+                  return 0.0
+          def dd(d):
+              peak=worst=0.0
+              for p in d.get('equity',{}).get('points',[]):
+                  peak=max(peak,float(p.get('maxEquity',p.get('balance',0)) or 0))
+                  low=float(p.get('minEquity',p.get('balance',0)) or 0)
+                  if peak>0: worst=max(worst,(peak-low)/peak*100)
+              return worst
+          out=['# xauusd_2 Predictive Harmonic PRZ v1','',
+               'Period: 2026-06-09 to 2026-09-09 UTC | XAUUSD M15 | M1 data | $10,000 | risk 0.5%','',
+               'Architecture: M15 XABC projection -> predictive D/PRZ -> reversal + confidence score; H1 trend is soft context.','',
+               '| Cost | Trades | Wins | Losses | WR % | Net $ | ROI % | PF | Max Eq DD % |',
+               '|---|---:|---:|---:|---:|---:|---:|---:|---:|']
+          for label in ('standard','harsh'):
+              p=Path(f'reports/{label}.json')
+              if not p.exists():
+                  out.append(f'| {label} | NO REPORT | | | | | | | |')
+                  continue
+              d=json.loads(p.read_text())
+              t=int(v(d,'tradeStatistics','totalTrades')); w=int(v(d,'tradeStatistics','winningTrades')); l=int(v(d,'tradeStatistics','losingTrades'))
+              net=float(d.get('main',{}).get('netProfit',0) or 0)
+              hist=d.get('history',{}).get('items',[])
+              gp=sum(max(0.0,float(x.get('net',0) or 0)) for x in hist)
+              gl=sum(abs(min(0.0,float(x.get('net',0) or 0))) for x in hist)
+              pf=gp/gl if gl else (999.0 if gp else 0.0)
+              out.append(f'| {label} | {t} | {w} | {l} | {(100*w/t if t else 0):.2f} | {net:.2f} | {net/10000*100:.2f} | {pf:.2f} | {dd(d):.2f} |')
+          out += ['', 'Reference: xauusd_1 v11 produced only 1 trade over the same 3M period, about +0.95% Standard / +0.94% Harsh.',
+                  'v1 goal: materially increase unique trade count first; promotion still requires positive Standard + Harsh expectancy and controlled DD.']
+          text='\n'.join(out)+'\n'
+          Path('package/PREDICTIVE_V1_BACKTEST_SUMMARY.md').write_text(text)
+          print(text)
+          with open(__import__('os').environ['GITHUB_STEP_SUMMARY'],'a') as f: f.write(text)
+          PY
+          cp -r reports package/reports
+      - uses: actions/upload-artifact@v4
+        with:
+          name: xauusd_2-predictive-v1-complete
+          path: package/
+          retention-days: 30
