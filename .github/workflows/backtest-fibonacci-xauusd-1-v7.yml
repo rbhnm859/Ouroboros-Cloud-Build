@@ -1,0 +1,166 @@
+name: Fibonacci XAUUSD 1 - Named Harmonic Core v7
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [fibonacci-xauusd-round1]
+    paths:
+      - 'FibonacciHarmonicSniperUltimate/versions/xauusd_1/**'
+      - '.github/workflows/backtest-fibonacci-xauusd-1-v7.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fibonacci-xauusd-1-named-harmonic-v7
+  cancel-in-progress: true
+
+jobs:
+  build-backtest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Reconstruct source
+        shell: bash
+        run: |
+          set -euo pipefail
+          ROOT='FibonacciHarmonicSniperUltimate/versions/xauusd_1'
+          mkdir -p "$ROOT/src" backtest/cache backtest/reports backtest/package
+          base64 -d "$ROOT/source.gz.b64" | gzip -dc > "$ROOT/src/FibonacciXAUUSD1.cs"
+          sha256sum "$ROOT/src/FibonacciXAUUSD1.cs" | tee backtest/package/source.sha256
+          grep -q 'v1.1.0-gold-v7' "$ROOT/src/FibonacciXAUUSD1.cs"
+          cp "$ROOT/src/FibonacciXAUUSD1.cs" backtest/package/FibonacciXAUUSD1.cs
+          cp "$ROOT/README.md" backtest/package/README.md
+
+      - name: Pull official cTrader CLI
+        run: docker pull ghcr.io/spotware/ctrader-console:5.9.11
+
+      - name: Build xauusd_1.algo
+        shell: bash
+        run: |
+          set -euo pipefail
+          ROOT='FibonacciHarmonicSniperUltimate/versions/xauusd_1'
+          docker run --rm --entrypoint sh -v "$PWD:/repo" -w /repo ghcr.io/spotware/ctrader-console:5.9.11 -c "dotnet restore $ROOT/FibonacciXAUUSD1.csproj && dotnet build $ROOT/FibonacciXAUUSD1.csproj --configuration Release --no-restore -p:AlgoPublish=False -p:IncludeSource=True"
+          ALGO="$(find "$ROOT" -type f -name '*.algo' -print -quit)"
+          test -n "$ALGO"
+          cp "$ALGO" backtest/xauusd_1.algo
+          cp "$ALGO" backtest/package/xauusd_1.algo
+          sha256sum backtest/xauusd_1.algo | tee backtest/package/algo.sha256
+
+      - name: Create cTrader password file
+        env:
+          CTRADER_PASSWORD: ${{ secrets.CTRADER_PASSWORD }}
+        run: |
+          test -n "${CTRADER_PASSWORD:-}" || exit 1
+          printf '%s' "$CTRADER_PASSWORD" > backtest/ctrader.pwd
+          chmod 600 backtest/ctrader.pwd
+
+      - name: Run v7 segmented Standard and Harsh backtests
+        env:
+          CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+          CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          run_bt() {
+            label="$1"; start="$2"; end="$3"; spread="$4"; commission="$5"
+            docker run --rm \
+              -v "$PWD/backtest:/work" \
+              -e "CTID=$CTRADER_CTID" -e 'PWD-FILE=/work/ctrader.pwd' -e "ACCOUNT=$CTRADER_ACCOUNT" \
+              ghcr.io/spotware/ctrader-console:5.9.11 \
+              backtest /work/xauusd_1.algo --environment-variables --exit-on-stop \
+              --symbol=XAUUSD --period=h1 --start="$start" --end="$end" \
+              --balance=10000 --data-mode=m1 --data-dir=/work/cache \
+              --commission="$commission" --spread="$spread" \
+              --RiskPercent=0.50 --MaxDailyLossPercent=3.0 \
+              --MinQualityScore=75 --M30ConfirmRulesNeeded=2 --EnableStandaloneABCD=false \
+              --report="/work/reports/${label}.html" --report-json="/work/reports/${label}.json" \
+              2>&1 | tee "backtest/reports/${label}.log"
+            test -s "backtest/reports/${label}.json"
+          }
+          for spec in \
+            "m1 09/06/2026 09/07/2026" \
+            "m2 09/07/2026 09/08/2026" \
+            "m3 09/08/2026 09/09/2026"; do
+            set -- $spec
+            run_bt "standard-$1" "$2" "$3" 17.42 35
+          done
+          for spec in \
+            "m1 09/06/2026 09/07/2026" \
+            "m2 09/07/2026 09/08/2026" \
+            "m3 09/08/2026 09/09/2026"; do
+            set -- $spec
+            run_bt "harsh-$1" "$2" "$3" 30 50
+          done
+
+      - name: Aggregate v7 reports
+        if: always()
+        shell: bash
+        run: |
+          python3 - <<'PY2'
+          from pathlib import Path
+          import json
+
+          def allv(d, section, key):
+              try:
+                  v=d[section][key]
+                  return float(v.get('all',0) if isinstance(v,dict) else v or 0)
+              except Exception:
+                  return 0.0
+
+          def dd_pct(d):
+              peak=0.0; worst=0.0
+              for p in d.get('equity',{}).get('points',[]):
+                  peak=max(peak,float(p.get('maxEquity',p.get('balance',0)) or 0))
+                  low=float(p.get('minEquity',p.get('balance',0)) or 0)
+                  if peak>0: worst=max(worst,(peak-low)/peak*100.0)
+              return worst
+
+          out=['# xauusd_1 Named Harmonic Core v7','',
+               'Period: 2026-06-09 to 2026-09-09 UTC | XAUUSD H1 | M1 data | $10,000 | risk 0.5%','',
+               'Single structural change from v6: standalone ABCD entries disabled. AB=CD symmetry and reciprocal relations remain quality features for named XABCD patterns. Other gates unchanged: Q75, M30 2-of-3, same SL/TP/risk/costs.','',
+               '| Cost | Reports | Trades | Wins | Losses | WR % | Net $ | ROI % | PF* | Worst monthly Eq DD % |',
+               '|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|']
+          for cost in ('standard','harsh'):
+              reports=[]
+              for i in range(1,4):
+                  p=Path(f'backtest/reports/{cost}-m{i}.json')
+                  if p.exists(): reports.append(json.loads(p.read_text()))
+              hist=[x for d in reports for x in d.get('history',{}).get('items',[])]
+              trades=sum(int(allv(d,'tradeStatistics','totalTrades')) for d in reports)
+              wins=sum(int(allv(d,'tradeStatistics','winningTrades')) for d in reports)
+              losses=sum(int(allv(d,'tradeStatistics','losingTrades')) for d in reports)
+              net=sum(float(d.get('main',{}).get('netProfit',0) or 0) for d in reports)
+              pos=sum(max(0.0,float(x.get('net',0) or 0)) for x in hist)
+              neg=sum(abs(min(0.0,float(x.get('net',0) or 0))) for x in hist)
+              pf=pos/neg if neg else (999.0 if pos else 0.0)
+              wr=wins/trades*100.0 if trades else 0.0
+              dd=max([dd_pct(d) for d in reports] or [0.0])
+              out.append(f'| {cost} | {len(reports)}/3 | {trades} | {wins} | {losses} | {wr:.2f} | {net:.2f} | {net/10000*100:.2f} | {pf:.2f} | {dd:.2f} |')
+          out += ['', '*PF recomputed from closed-trade net P/L across the three independent monthly segments.',
+                  'v6 reference: Standard 4 trades, 0 wins, -$182.84 (-1.83%); Harsh 4 trades, 0 wins, -$185.40 (-1.85%).',
+                  'Decision rule: do not checkpoint v7 unless it improves expectancy/ROI without an unacceptable DD tradeoff.']
+          text='\n'.join(out)+'\n'
+          Path('backtest/reports/SUMMARY.md').write_text(text)
+          print(text)
+          with open(__import__('os').environ['GITHUB_STEP_SUMMARY'],'a') as f: f.write(text)
+          PY2
+
+      - name: Package reports and build
+        if: always()
+        run: cp -r backtest/reports backtest/package/reports || true
+
+      - name: Remove credentials
+        if: always()
+        run: rm -f backtest/ctrader.pwd
+
+      - name: Upload xauusd_1 v7 package
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: xauusd_1-named-harmonic-v7
+          path: backtest/package/
+          if-no-files-found: error
+          retention-days: 30
