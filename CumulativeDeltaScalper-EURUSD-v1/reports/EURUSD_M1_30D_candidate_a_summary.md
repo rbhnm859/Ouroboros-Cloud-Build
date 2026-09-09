@@ -5,41 +5,24 @@
 - Symbol: EURUSD
 - Timeframe: M1
 - Period: 2026-08-10 ~ 2026-09-09 UTC
-- cTrader CLI date args: 10/08/2026 ~ 09/09/2026 (DD/MM/YYYY)
-- Backtest status: failed_no_report_json
-- Debug classification: candidate_a_execution_failed
+- Backtest status: completed
+- Debug classification: candidate_a_trades_triggered
 - Acceptance gate passed: False
-
-## Candidate A Parameters
-- DeltaThreshold: 85
-- MinConfirmations: 2
-- UseBarDeltaFallback: true
-- FallbackBelowTickDelta: 3
-- BarDeltaPointMultiplier: 2.0
-- UseSessionFilter / OverlapOnly: true / true
-- HTF EMA filter: true
-- ADX Threshold: 12.0
-- Min ATR / Max ATR: 0.00005 / 0.00150
-- MaxSpreadPoints: 25
-- MaxDailyTrades: 12
 
 ## Metrics
 - initial_balance: 100.0
-- final_balance: None
-- net_profit: None
-- return_percent: None
-- profit_factor: None
-- win_rate: None
-- max_drawdown: None
-- total_trades: None
-- average_trade: None
-- largest_win: None
-- largest_loss: None
-- gross_profit: None
-- gross_loss: None
+- final_balance: 113.45
+- net_profit: 13.45
+- return_percent: 13.450000000000003
+- profit_factor: 1.3278888347147733
+- win_rate: 66.66666666666666
+- max_drawdown: 13.864720740948622
+- total_trades: 111
+- average_trade: 0.12117117117117117
+- largest_win: 2.0
+- largest_loss: -2.2
+- gross_profit: 54.47
+- gross_loss: 41.02
 
 ## Debug conclusion
-Candidate A backtest did not complete with a usable JSON report. Inspect console markers before changing strategy logic again.
-
-## Errors / limitations
-- cTrader console did not produce backtest/reports/EURUSD-M1-30D-candidate-a.json
+Candidate A produced trades with guarded fallback. Compare trade count, profit factor, win rate and drawdown against the loose fallback diagnostic.

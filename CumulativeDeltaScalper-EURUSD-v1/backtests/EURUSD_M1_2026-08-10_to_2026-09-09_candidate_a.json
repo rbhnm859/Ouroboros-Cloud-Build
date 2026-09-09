@@ -61,31 +61,41 @@
     "passed": false
   },
   "backtest": {
-    "status": "failed_no_report_json",
-    "data_source": "none",
+    "status": "completed",
+    "data_source": "cTrader console report json",
     "metrics": {
       "initial_balance": 100.0,
-      "final_balance": null,
-      "net_profit": null,
-      "return_percent": null,
-      "profit_factor": null,
-      "win_rate": null,
-      "max_drawdown": null,
-      "total_trades": null,
-      "average_trade": null,
-      "largest_win": null,
-      "largest_loss": null,
-      "gross_profit": null,
-      "gross_loss": null
+      "final_balance": 113.45,
+      "net_profit": 13.45,
+      "return_percent": 13.450000000000003,
+      "profit_factor": 1.3278888347147733,
+      "win_rate": 66.66666666666666,
+      "max_drawdown": 13.864720740948622,
+      "total_trades": 111,
+      "average_trade": 0.12117117117117117,
+      "largest_win": 2.0,
+      "largest_loss": -2.2,
+      "gross_profit": 54.47,
+      "gross_loss": 41.02
     },
     "is_suitable_for_further_optimization": false,
-    "debug_classification": "candidate_a_execution_failed",
-    "debug_summary": "Candidate A backtest did not complete with a usable JSON report. Inspect console markers before changing strategy logic again."
+    "debug_classification": "candidate_a_trades_triggered",
+    "debug_summary": "Candidate A produced trades with guarded fallback. Compare trade count, profit factor, win rate and drawdown against the loose fallback diagnostic."
   },
-  "raw_report_top_level_keys": [],
-  "errors": [
-    "cTrader console did not produce backtest/reports/EURUSD-M1-30D-candidate-a.json"
+  "raw_report_top_level_keys": [
+    "entries",
+    "equity",
+    "history",
+    "main",
+    "orders",
+    "parameters",
+    "positions",
+    "profitsLosses",
+    "roi",
+    "tradeStatistics",
+    "usedSymbols"
   ],
+  "errors": [],
   "generated_by": "GitHub Actions workflow cdscalper-eurusd-v1-backtest-30d-diagnostic.yml",
   "generated_at": "2026-09-09"
 }
