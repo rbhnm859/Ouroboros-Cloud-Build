@@ -1,0 +1,64 @@
+{
+  "schema_version": 1,
+  "bot": "CumulativeDeltaScalper-EURUSD-v1",
+  "preset_name": "EURUSD_M1_Candidate_B_drawdown_guard",
+  "based_on": "EURUSD_M1_Candidate_A_guarded_fallback",
+  "purpose": "Second optimization candidate after Candidate A produced acceptable profit factor, win rate, and return but failed the max drawdown gate. Candidate B keeps the guarded fallback entry model and tightens trade frequency and daily loss controls to reduce drawdown.",
+  "symbol": "EURUSD",
+  "timeframe": "M1",
+  "risk_profile": "drawdown reduction candidate; not final live preset",
+  "candidate_a_reference": {
+    "return_percent": 13.45,
+    "profit_factor": 1.3278888347147733,
+    "win_rate_percent": 66.66666666666666,
+    "max_drawdown_percent": 13.864720740948622,
+    "total_trades": 111,
+    "gate_result": "failed only because max drawdown exceeded 12 percent"
+  },
+  "parameters": {
+    "DeltaThreshold": 100,
+    "MinConfirmations": 2,
+    "UseBarDeltaFallback": true,
+    "FallbackBelowTickDelta": 3,
+    "BarDeltaPointMultiplier": 2.0,
+    "UseSessionFilter": true,
+    "OverlapOnly": true,
+    "SessionStartHour": 12,
+    "SessionStartMinute": 30,
+    "SessionEndHour": 16,
+    "SessionEndMinute": 0,
+    "UseHtfEmaFilter": true,
+    "EmaSlopeBars": 2,
+    "AdxThreshold": 14.0,
+    "MinAtr": 0.00005,
+    "MaxAtr": 0.00120,
+    "MaxSpreadPoints": 22,
+    "SpreadAvgMultiplier": 2.2,
+    "MaxDailyTrades": 8,
+    "MaxDailyLossPercent": 12,
+    "MaxDailyLossMoney": 3,
+    "DailyProfitTargetMoney": 6,
+    "MaxConsecutiveLosses": 3,
+    "MinSecondsBetweenTrades": 300,
+    "LossCooldownMinutes": 30,
+    "MaxTradeSeconds": 2700,
+    "UseBreakeven": true,
+    "AdverseDeltaExit": true
+  },
+  "expected_effect": {
+    "trade_count": "lower than Candidate A 111 trades",
+    "quality_goal": "keep profit factor above 1.20 while reducing max drawdown below 12 percent",
+    "acceptance_gate": {
+      "total_trades_min": 30,
+      "profit_factor_min": 1.20,
+      "win_rate_min_percent": 55,
+      "max_drawdown_max_percent": 12,
+      "return_percent_min": 5
+    }
+  },
+  "notes": [
+    "Candidate A already proved the guarded fallback can trade profitably, so Candidate B focuses on risk compression rather than increasing signal count.",
+    "The strongest drawdown controls changed from Candidate A are MaxDailyTrades 12 to 8, MaxDailyLossMoney 5 to 3, MaxConsecutiveLosses 4 to 3, and cooldown 20 to 30 minutes.",
+    "If Candidate B under-trades or return drops too much, the next version should lower DeltaThreshold from 100 to 90 before loosening daily loss controls."
+  ]
+}
