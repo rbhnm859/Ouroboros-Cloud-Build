@@ -7,6 +7,6 @@
     <AlgoName>FibonacciHarmonicSniperUltimate-BTC-Round18-Diagnostics</AlgoName>
   </PropertyGroup>
   <ItemGroup>
-    <PackageReference Include="cTrader.Automate" Version="1.0.19" />
+    <PackageReference Include="cTrader.Automate" Version="1.*-*" />
   </ItemGroup>
 </Project>
