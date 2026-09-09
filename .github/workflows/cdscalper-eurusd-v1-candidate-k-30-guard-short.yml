@@ -1,0 +1,46 @@
+name: Backtest CDScalper EURUSD v1 M1 Candidate K 30 Guard Short
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [cds-eurusd-v1]
+    paths:
+      - '.github/workflows/cdscalper-eurusd-v1-candidate-k-30-guard-short.yml'
+      - 'CumulativeDeltaScalper-EURUSD-v1/presets/eurusd_m1_candidate_k_30_capital_profit_guard.json'
+
+permissions:
+  contents: read
+
+env:
+  START_DATE_CTRADER: '09/09/2024'
+  END_DATE_CTRADER: '09/09/2026'
+  STARTING_BALANCE: '30'
+  SYMBOL: 'EURUSD'
+  PERIOD: 'm1'
+
+jobs:
+  build-and-backtest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      CTID: ${{ secrets.CTRADER_CTID }}
+      ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+      CT_PASS: ${{ secrets.CTRADER_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Use existing Candidate J algo
+        run: |
+          set -euo pipefail
+          mkdir -p backtest/reports backtest/cache/EURUSD
+          cp CumulativeDeltaScalper-EURUSD-v1/builds/CumulativeDeltaScalper_EURUSD_v1.algo backtest/CumulativeDeltaScalper_EURUSD_v1.algo
+      - name: Run Candidate K 30 USD 2Y backtest
+        run: |
+          set -euo pipefail
+          docker run --rm -v "$PWD/backtest:/work" -e "CTID=$CTID" -e "ACCOUNT=$ACCOUNT" -e "PASSWORD=$CT_PASS" ghcr.io/spotware/ctrader-console:5.9.11 backtest /work/CumulativeDeltaScalper_EURUSD_v1.algo --environment-variables --symbol="$SYMBOL" --period="$PERIOD" --start="$START_DATE_CTRADER" --end="$END_DATE_CTRADER" --balance="$STARTING_BALANCE" --data-mode=m1 --data-dir="/work/cache/EURUSD" --DeltaThreshold=125 --MinConfirmations=3 --UseBarDeltaFallback=true --FallbackBelowTickDelta=2 --BarDeltaPointMultiplier=1.6 --UseSessionFilter=true --OverlapOnly=true --SessionStartHour=14 --SessionStartMinute=0 --SessionEndHour=14 --SessionEndMinute=54 --UseWeekdayFilter=true --TradeMonday=true --TradeTuesday=true --TradeWednesday=true --TradeThursday=false --TradeFriday=true --UseHtfEmaFilter=true --HtfTimeFrameName=Minute15 --EmaSlopeBars=3 --AdxThreshold=16 --MinAtr=0.00005 --MaxAtr=0.00105 --MaxSpreadPoints=18 --SpreadAvgMultiplier=1.8 --FixedMoneyRisk=1.0 --AutoScaleFixedRisk=true --RiskReferenceBalance=100 --MinFixedMoneyRisk=0.05 --MaxLotSize=0.05 --SlAtrMultiplier=0.8 --TpAtrMultiplier=0.4 --MaxDailyTrades=3 --MaxDailyLossPercent=4 --MaxDailyLossMoney=0.55 --DailyProfitTargetMoney=1.10 --MaxConsecutiveLosses=2 --MinSecondsBetweenTrades=900 --LossCooldownMinutes=45 --MaxDailyEquityDrawdownMoney=0.75 --MaxFloatingLossMoney=0.90 --MaxEquityDrawdownPercent=12 --CloseOnEquityGuard=true --MaxTradeSeconds=1800 --UseBreakeven=true --BreakevenPips=1.0 --AdverseDeltaExit=true --report="/work/reports/EURUSD-M1-2Y-candidate-k-30.html" --report-json="/work/reports/EURUSD-M1-2Y-candidate-k-30.json" --exit-on-stop 2>&1 | tee backtest/reports/console-2y-candidate-k-30.log
+      - name: Upload Candidate K raw reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: CDScalper_EURUSD_M1_2Y_candidate_k_30_raw_reports
+          path: backtest/reports/*candidate-k-30*
+          retention-days: 14
