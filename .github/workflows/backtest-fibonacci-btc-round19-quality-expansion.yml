@@ -29,6 +29,7 @@ jobs:
       - name: Reconstruct Round18 anchor and generate exact Round19 source
         run: |
           set -euo pipefail
+          mkdir -p backtest/src
           python3 - <<'PYCODE'
           from pathlib import Path
           import base64, gzip, hashlib
@@ -36,20 +37,18 @@ jobs:
           parts = sorted(root.glob('source_payload.part*'))
           if not parts:
               raise SystemExit('Round18 source payload parts missing')
-          payload = ''.join(p.read_text().strip() for p in parts)
-          data = gzip.decompress(base64.b64decode(payload))
+          data = gzip.decompress(base64.b64decode(''.join(p.read_text().strip() for p in parts)))
           expected = '5f2b7f31c4b8f0d60f52c4c15869aa75df4ff07d7224af971784137716bc8b93'
           actual = hashlib.sha256(data).hexdigest()
           if actual != expected:
               raise SystemExit(f'Round18 anchor SHA mismatch: {actual} != {expected}')
-          out = Path('backtest/src/Round18.cs')
-          out.parent.mkdir(parents=True, exist_ok=True)
-          out.write_bytes(data)
+          Path('backtest/src/Round18.cs').write_bytes(data)
           print(f'Round18 anchor verified: {actual}')
           PYCODE
           python3 FibonacciHarmonicSniperUltimate/versions/v0.18.0-btc-round19-quality-expansion/round19_transform.py \
             backtest/src/Round18.cs \
             backtest/src/FibonacciHarmonicSniperUltimate-BTC-Round19-QualityExpansion.cs
+          rm -f backtest/src/Round18.cs
           cat > backtest/src/FibonacciHarmonicSniperUltimate-BTC-Round19-QualityExpansion.csproj <<'EOF'
           <Project Sdk="Microsoft.NET.Sdk">
             <PropertyGroup>
@@ -84,9 +83,9 @@ jobs:
           CTRADER_PASSWORD: ${{ secrets.CTRADER_PASSWORD }}
         run: |
           set -euo pipefail
-          test -n "${CTRADER_CTID:-}" || { echo 'Missing CTRADER_CTID'; exit 1; }
-          test -n "${CTRADER_ACCOUNT:-}" || { echo 'Missing CTRADER_ACCOUNT'; exit 1; }
-          test -n "${CTRADER_PASSWORD:-}" || { echo 'Missing CTRADER_PASSWORD'; exit 1; }
+          test -n "${CTRADER_CTID:-}"
+          test -n "${CTRADER_ACCOUNT:-}"
+          test -n "${CTRADER_PASSWORD:-}"
           printf '%s' "$CTRADER_PASSWORD" | tr -d '\r\n' > backtest/ctrader.pwd
           chmod 600 backtest/ctrader.pwd
 
@@ -101,7 +100,6 @@ jobs:
           set -euo pipefail
           for AGE in 4 6 12; do
             OUT="screen-age${AGE}"
-            echo "=== Round19 Standard screening: H1 align age ${AGE}h ==="
             docker run --rm \
               -v "$PWD/backtest:/work" \
               -e "CTID=$CTRADER_CTID" \
@@ -137,33 +135,26 @@ jobs:
           python3 - <<'PYCODE'
           import json, os
           from pathlib import Path
-          baseline={'trades':94,'roi':38.48,'pf':1.85,'dd':5.924155484890702}
+          baseline={'trades':94,'roi':38.48,'pf':1.85,'dd':5.92}
           results=[]
           for age in (4,6,12):
               r=json.loads(Path(f'backtest/screen-age{age}/report.json').read_text())
-              m={
-                  'age':age,
-                  'trades':int(r['tradeStatistics']['totalTrades']['all']),
-                  'roi':float(r['main']['roi']),
-                  'net_profit':float(r['main']['netProfit']),
-                  'pf':float(r['tradeStatistics']['profitFactor']['all']),
-                  'dd':float(r['equity']['maxEquityDrawdownPercent']),
-              }
-              m['gates']={
-                  'trades':m['trades']>baseline['trades'],
-                  'roi':m['roi']>baseline['roi'],
-                  'pf':m['pf']>baseline['pf'],
-                  'dd':m['dd']<baseline['dd'],
-              }
+              m={'age':age,
+                 'trades':int(r['tradeStatistics']['totalTrades']['all']),
+                 'roi':float(r['main']['roi']),
+                 'net_profit':float(r['main']['netProfit']),
+                 'pf':float(r['tradeStatistics']['profitFactor']['all']),
+                 'dd':float(r['equity']['maxEquityDrawdownPercent'])}
+              m['gates']={'trades':m['trades']>94,
+                          'roi':m['roi']>38.48,
+                          'pf':m['pf']>1.85,
+                          'dd':m['dd']<5.92}
               m['pass_all']=all(m['gates'].values())
               m['gate_count']=sum(m['gates'].values())
               results.append(m)
           passing=[x for x in results if x['pass_all']]
-          if passing:
-              best=max(passing,key=lambda x:(x['roi'],x['trades'],x['pf'],-x['dd']))
-          else:
-              best=max(results,key=lambda x:(x['gate_count'],x['roi'],x['trades'],x['pf'],-x['dd']))
-          summary={'round17_standard_baseline':baseline,'screen':results,'selected_age':best['age'],'selected_pass_all':best['pass_all']}
+          best=max(passing,key=lambda x:(x['roi'],x['trades'],x['pf'],-x['dd'])) if passing else max(results,key=lambda x:(x['gate_count'],x['roi'],x['trades'],x['pf'],-x['dd']))
+          summary={'round17_standard_target':baseline,'screen':results,'selected_age':best['age'],'selected_pass_all':best['pass_all']}
           Path('backtest/Round19-Standard-Screen.json').write_text(json.dumps(summary,indent=2))
           print(json.dumps(summary,indent=2))
           with open(os.environ['GITHUB_ENV'],'a') as f:
@@ -177,7 +168,6 @@ jobs:
           CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
         run: |
           set -euo pipefail
-          echo "Selected H1 alignment age: ${ROUND19_SELECTED_AGE}h | Standard hard-gate pass=${ROUND19_STANDARD_PASS}"
           docker run --rm \
             -v "$PWD/backtest:/work" \
             -e "CTID=$CTRADER_CTID" \
@@ -210,34 +200,30 @@ jobs:
         run: |
           set -euo pipefail
           python3 - <<'PYCODE'
-          import json, os, re
+          import json, re
           from pathlib import Path
           screen=json.loads(Path('backtest/Round19-Standard-Screen.json').read_text())
           age=int(screen['selected_age'])
           standard=next(x for x in screen['screen'] if x['age']==age)
           r=json.loads(Path('backtest/harsh/report.json').read_text())
-          harsh={
-              'trades':int(r['tradeStatistics']['totalTrades']['all']),
-              'roi':float(r['main']['roi']),
-              'net_profit':float(r['main']['netProfit']),
-              'pf':float(r['tradeStatistics']['profitFactor']['all']),
-              'dd':float(r['equity']['maxEquityDrawdownPercent']),
-          }
+          harsh={'trades':int(r['tradeStatistics']['totalTrades']['all']),
+                 'roi':float(r['main']['roi']),
+                 'net_profit':float(r['main']['netProfit']),
+                 'pf':float(r['tradeStatistics']['profitFactor']['all']),
+                 'dd':float(r['equity']['maxEquityDrawdownPercent'])}
           log=Path(f'backtest/screen-age{age}/report.log').read_text(errors='replace')
           harshlog=Path('backtest/harsh/report.log').read_text(errors='replace')
-          final={
-              'version':'v0.18.0-btc-round19-quality-expansion',
-              'source_sha256':'c408a95259b791937a52490fe4472a1f1799edca53e87a4b4fedd08115484b98',
-              'selected_h1_alignment_age_hours':age,
-              'risk':{'H1':1.0,'M30_buy_base':0.35,'M30_buy_h1_aligned':0.50,'M30_sell':0.50},
-              'round17_standard_target':{'trades':94,'roi':38.48,'pf':1.85,'dd':5.924155484890702},
-              'standard':standard,
-              'standard_beats_all_round17_targets':bool(standard['pass_all']),
-              'harsh_round17_baseline':{'trades':92,'roi':19.25,'pf':1.40,'dd':7.668971079402352},
-              'harsh':harsh,
-              'standard_health_bypass_count':len(re.findall(r'\[R19 HEALTH BYPASS\]',log)),
-              'harsh_health_bypass_count':len(re.findall(r'\[R19 HEALTH BYPASS\]',harshlog)),
-          }
+          final={'version':'v0.18.0-btc-round19-quality-expansion',
+                 'source_sha256':'c408a95259b791937a52490fe4472a1f1799edca53e87a4b4fedd08115484b98',
+                 'selected_h1_alignment_age_hours':age,
+                 'risk':{'H1':1.0,'M30_buy_base':0.35,'M30_buy_h1_aligned':0.50,'M30_sell':0.50},
+                 'round17_standard_target':{'trades':94,'roi':38.48,'pf':1.85,'dd':5.92},
+                 'standard':standard,
+                 'standard_beats_all_round17_targets':bool(standard['pass_all']),
+                 'harsh_round17_baseline':{'trades':92,'roi':19.25,'pf':1.40,'dd':7.668971079402352},
+                 'harsh':harsh,
+                 'standard_health_bypass_count':len(re.findall(r'\[R19 HEALTH BYPASS\]',log)),
+                 'harsh_health_bypass_count':len(re.findall(r'\[R19 HEALTH BYPASS\]',harshlog))}
           Path('backtest/Round19-Final-Summary.json').write_text(json.dumps(final,indent=2))
           print(json.dumps(final,indent=2))
           PYCODE
