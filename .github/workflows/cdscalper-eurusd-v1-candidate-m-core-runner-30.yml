@@ -1,0 +1,106 @@
+name: Backtest CDScalper EURUSD v1 Candidate M Core Runner 30
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [cds-eurusd-v1]
+    paths:
+      - '.github/workflows/cdscalper-eurusd-v1-candidate-m-core-runner-30.yml'
+      - 'CumulativeDeltaScalper-EURUSD-v1/src/**'
+      - 'CumulativeDeltaScalper-EURUSD-v1/CumulativeDeltaScalper_EURUSD_v1.csproj'
+      - 'CumulativeDeltaScalper-EURUSD-v1/presets/eurusd_m1_candidate_m_core_limited_runner_30.json'
+
+permissions:
+  contents: read
+
+env:
+  START_DATE_2Y: '09/09/2024'
+  START_DATE_1Y: '09/09/2025'
+  END_DATE: '09/09/2026'
+  STARTING_BALANCE: '30'
+  SYMBOL: 'EURUSD'
+  PERIOD: 'm1'
+
+jobs:
+  build-algo:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: cds-eurusd-v1
+
+      - name: Setup .NET SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '7.0.x'
+
+      - name: Build Candidate M .algo
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $root = 'CumulativeDeltaScalper-EURUSD-v1'
+          $project = Join-Path $root 'CumulativeDeltaScalper_EURUSD_v1.csproj'
+          $out = Join-Path $root 'candidate-m-out'
+          New-Item -ItemType Directory -Force -Path $out | Out-Null
+          dotnet restore $project
+          dotnet build $project -c Release -p:AlgoName=CumulativeDeltaScalper_EURUSD_v1 -p:AlgoBuild=true -p:AlgoPublish=false -p:IncludeSource=true
+          $algos = Get-ChildItem -Path $root -Recurse -Filter '*.algo' -ErrorAction SilentlyContinue
+          if (-not $algos -or $algos.Count -eq 0) {
+            Write-Host 'No .algo file generated.'
+            exit 1
+          }
+          $selected = $algos | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+          Copy-Item $selected.FullName (Join-Path $out 'CumulativeDeltaScalper_EURUSD_v1_candidate_m.algo') -Force
+          Get-FileHash -Algorithm SHA256 (Join-Path $out 'CumulativeDeltaScalper_EURUSD_v1_candidate_m.algo') | Format-List
+
+      - name: Upload Candidate M .algo
+        uses: actions/upload-artifact@v4
+        with:
+          name: CDScalper_EURUSD_candidate_m_algo
+          path: CumulativeDeltaScalper-EURUSD-v1/candidate-m-out/CumulativeDeltaScalper_EURUSD_v1_candidate_m.algo
+          retention-days: 14
+
+  backtest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    needs: build-algo
+    env:
+      CTID: ${{ secrets.CTRADER_CTID }}
+      ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+      CT_PASS: ${{ secrets.CTRADER_PASSWORD }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: cds-eurusd-v1
+
+      - name: Download Candidate M .algo
+        uses: actions/download-artifact@v4
+        with:
+          name: CDScalper_EURUSD_candidate_m_algo
+          path: backtest
+
+      - name: Run Candidate M 30 USD 2Y and recent 1Y backtests
+        run: |
+          set -euo pipefail
+          mkdir -p backtest/reports backtest/cache/EURUSD
+          printf '%s' "$CT_PASS" | tr -d '\r\n' > backtest/ctrader.pwd
+          chmod 600 backtest/ctrader.pwd
+
+          PARAMS="--environment-variables --symbol=$SYMBOL --period=$PERIOD --balance=$STARTING_BALANCE --data-mode=m1 --data-dir=/work/cache/EURUSD --DeltaThreshold=125 --MinConfirmations=3 --UseBarDeltaFallback=true --FallbackBelowTickDelta=2 --BarDeltaPointMultiplier=1.6 --UseSessionFilter=true --OverlapOnly=true --SessionStartHour=14 --SessionStartMinute=0 --SessionEndHour=14 --SessionEndMinute=54 --UseSessionQualityFilter=false --UseWeekdayFilter=true --TradeMonday=true --TradeTuesday=true --TradeWednesday=true --TradeThursday=false --TradeFriday=true --UseHtfEmaFilter=true --HtfTimeFrameName=Minute15 --EmaSlopeBars=3 --AdxThreshold=16 --MinAtr=0.00005 --MaxAtr=0.00105 --UseStrictShortFilter=true --ShortDeltaBonus=30 --ShortAdxBonus=3 --ShortRequireSpreadBelowAverage=true --MaxSpreadPoints=18 --SpreadAvgMultiplier=1.8 --FixedMoneyRisk=1.0 --AutoScaleFixedRisk=true --RiskReferenceBalance=100 --MinFixedMoneyRisk=0.05 --MaxLotSize=0.05 --SlAtrMultiplier=0.8 --TpAtrMultiplier=0.4 --UseHardActualLossCap=true --MaxActualTradeLossMoney=1.0 --SkipIfMinVolumeRiskTooHigh=true --MaxDailyTrades=5 --MaxDailyLossPercent=5 --MaxDailyLossMoney=0.9 --DailyProfitTargetMoney=0 --UseDailyProfitLock=true --DailyProfitLockStartMoney=1.2 --DailyProfitGivebackPercent=50 --DailyProfitLockFloorMoney=0.35 --CloseOnDailyProfitLock=false --MaxConsecutiveLosses=3 --MinSecondsBetweenTrades=300 --LossCooldownMinutes=30 --MaxDailyEquityDrawdownMoney=1.0 --MaxFloatingLossMoney=1.0 --MaxEquityDrawdownPercent=15 --CloseOnEquityGuard=true --MaxTradeSeconds=2700 --UseBreakeven=true --BreakevenPips=0.8 --UseRunnerExit=true --EmergencyTpR=3.0 --RunnerBreakevenAtR=0.7 --RunnerProfitLockStartR=1.0 --RunnerProfitLockR=0.35 --RunnerTrailStartR=1.2 --RunnerTrailAtrMultiplier=0.7 --AdverseDeltaExit=false --AdverseDeltaCooldownSeconds=5"
+
+          docker run --rm -v "$PWD/backtest:/work" -e "CTID=$CTID" -e "ACCOUNT=$ACCOUNT" -e "PWD-FILE=/work/ctrader.pwd" ghcr.io/spotware/ctrader-console:5.9.11 backtest /work/CumulativeDeltaScalper_EURUSD_v1_candidate_m.algo $PARAMS --start="$START_DATE_2Y" --end="$END_DATE" --report="/work/reports/EURUSD-M1-2Y-candidate-m-core-runner-30.html" --report-json="/work/reports/EURUSD-M1-2Y-candidate-m-core-runner-30.json" --exit-on-stop 2>&1 | tee backtest/reports/console-2y-candidate-m-core-runner-30.log
+
+          docker run --rm -v "$PWD/backtest:/work" -e "CTID=$CTID" -e "ACCOUNT=$ACCOUNT" -e "PWD-FILE=/work/ctrader.pwd" ghcr.io/spotware/ctrader-console:5.9.11 backtest /work/CumulativeDeltaScalper_EURUSD_v1_candidate_m.algo $PARAMS --start="$START_DATE_1Y" --end="$END_DATE" --report="/work/reports/EURUSD-M1-1Y-candidate-m-core-runner-30.html" --report-json="/work/reports/EURUSD-M1-1Y-candidate-m-core-runner-30.json" --exit-on-stop 2>&1 | tee backtest/reports/console-1y-candidate-m-core-runner-30.log
+
+          rm -f backtest/ctrader.pwd
+
+      - name: Upload Candidate M raw reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: CDScalper_EURUSD_M1_candidate_m_core_runner_30_reports
+          path: backtest/reports/*candidate-m-core-runner-30*
+          retention-days: 14
