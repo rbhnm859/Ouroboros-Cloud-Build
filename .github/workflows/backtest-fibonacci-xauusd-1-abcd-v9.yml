@@ -107,7 +107,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p work/reports
+          mkdir -p work/reports work/cache
           docker run --rm -v "$PWD/work:/work" \
             -e "CTID=$CTRADER_CTID" -e 'PWD-FILE=/work/ctrader.pwd' -e "ACCOUNT=$CTRADER_ACCOUNT" \
             ghcr.io/spotware/ctrader-console:5.9.11 \
