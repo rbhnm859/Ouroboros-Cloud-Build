@@ -1,0 +1,219 @@
+name: BTC Round24 3Y H1 Buy Distance Validation
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ btc-round24-distance-validation ]
+    paths:
+      - 'FibonacciHarmonicSniperUltimate/versions/v0.23.0-btc-round24-distance-validation/**'
+      - '.github/workflows/backtest-fibonacci-btc-round24-distance-validation.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fibonacci-btc-round24-distance-validation
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '6.0.x'
+
+      - name: Generate frozen Round23 diagnostics source
+        run: |
+          set -euo pipefail
+          mkdir -p work/src work/build work/control work/diagnostic work/cache
+          python3 - <<'PYCODE'
+          from pathlib import Path
+          import base64,gzip,hashlib
+          root=Path('FibonacciHarmonicSniperUltimate/versions/v0.17.0-btc-round18-diagnostics')
+          parts=sorted(root.glob('source_payload.part*'))
+          data=gzip.decompress(base64.b64decode(''.join(p.read_text().strip() for p in parts)))
+          expected='5f2b7f31c4b8f0d60f52c4c15869aa75df4ff07d7224af971784137716bc8b93'
+          actual=hashlib.sha256(data).hexdigest()
+          if actual != expected: raise SystemExit(f'Round18 anchor SHA mismatch: {actual}')
+          Path('work/src/Round18.cs').write_bytes(data)
+          PYCODE
+          python3 FibonacciHarmonicSniperUltimate/versions/v0.20.0-btc-round21-selective-bypass/round21_transform.py work/src/Round18.cs work/src/Round21.cs
+          python3 FibonacciHarmonicSniperUltimate/versions/v0.21.0-btc-round22-capital-efficiency/round22_transform.py work/src/Round21.cs work/src/Round22.cs
+          python3 FibonacciHarmonicSniperUltimate/versions/v0.22.0-btc-round23-h1-buy-nearmiss-research/round23_transform.py work/src/Round22.cs work/src/FibonacciHarmonicSniperUltimate-BTC-Round24-DistanceValidation.cs
+          rm -f work/src/Round18.cs work/src/Round21.cs work/src/Round22.cs
+          cat > work/src/FibonacciHarmonicSniperUltimate-BTC-Round24-DistanceValidation.csproj <<'EOF'
+          <Project Sdk="Microsoft.NET.Sdk">
+            <PropertyGroup>
+              <TargetFramework>net6.0</TargetFramework>
+              <ImplicitUsings>disable</ImplicitUsings>
+              <Nullable>disable</Nullable>
+              <RootNamespace>cAlgo.Robots</RootNamespace>
+              <AlgoName>FibonacciHarmonicSniperUltimate-BTC-Round24-DistanceValidation</AlgoName>
+            </PropertyGroup>
+            <ItemGroup>
+              <PackageReference Include="cTrader.Automate" Version="1.0.19" />
+            </ItemGroup>
+          </Project>
+          EOF
+          sha256sum work/src/FibonacciHarmonicSniperUltimate-BTC-Round24-DistanceValidation.cs
+
+      - name: Build diagnostics algo
+        run: |
+          set -euo pipefail
+          PROJ=work/src/FibonacciHarmonicSniperUltimate-BTC-Round24-DistanceValidation.csproj
+          dotnet restore "$PROJ"
+          dotnet build "$PROJ" -c Release --no-restore -p:AlgoPublish=False -p:IncludeSource=True
+          ALGO=$(find work/src/bin/Release -type f -name '*.algo' | head -n1)
+          test -n "$ALGO"
+          cp "$ALGO" work/build/Round24-DistanceValidation.algo
+          sha256sum work/build/Round24-DistanceValidation.algo > work/build/SHA256SUMS.txt
+
+      - name: Prepare cTrader
+        env:
+          CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+          CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+          CTRADER_PASSWORD: ${{ secrets.CTRADER_PASSWORD }}
+        run: |
+          set -euo pipefail
+          test -n "${CTRADER_CTID:-}"; test -n "${CTRADER_ACCOUNT:-}"; test -n "${CTRADER_PASSWORD:-}"
+          printf '%s' "$CTRADER_PASSWORD" | tr -d '\r\n' > work/ctrader.pwd
+          chmod 600 work/ctrader.pwd
+
+      - name: Pull cTrader CLI
+        run: docker pull ghcr.io/spotware/ctrader-console:5.9.11
+
+      - name: Run 3Y control with diagnostics off
+        env:
+          CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+          CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+        run: |
+          set -euo pipefail
+          docker run --rm -v "$PWD/work:/work" -e "CTID=$CTRADER_CTID" -e 'PWD-FILE=/work/ctrader.pwd' -e "ACCOUNT=$CTRADER_ACCOUNT" \
+            ghcr.io/spotware/ctrader-console:5.9.11 backtest /work/build/Round24-DistanceValidation.algo \
+            --environment-variables --exit-on-stop --symbol=BITCOIN --period=h1 --start='08/09/2023 00:00' --end='08/09/2026 00:00' --balance=10000 --data-mode=m1 --data-dir=/work/cache \
+            --commission=65 --spread=0 --RiskPercent=1.0 --Round17M30RiskPercent=0.50 --Round18CandidateDiagnostics=false \
+            --Round21SelectiveHealthBypass=true --Round21BypassMinScore=93 --Round21SameDirH1MaxAgeHours=2 --Round21BypassRiskPercent=0.10 --Round21ReserveH1AtHour=true \
+            --Round22H1BuyRiskPercent=1.15 --Round22H1SellRiskPercent=0.80 --Round22M30BuyRiskPercent=0.40 --Round22M30SellRiskPercent=0.50 \
+            --Round23NearMissDiagnostics=false --Round23ScoreFloor=82 --Round23MaxExtendedAgeBars=18 --Round23MaxExtendedDistanceAtr=2.0 --Round23ShadowHorizonBars=48 \
+            --MaxOpenPositions=1 --MaxTradesPerDay=6 --MaxDailyLossPercent=5 --EnabledPatterns='Reciprocal ABCD' --PivotLeft=2 --PivotRight=2 --RatioTolerancePercent=6 --MinPatternScore=84 \
+            --MaxPatternAgeBars=16 --MaxEntryDistanceAtr=1.80 --ConfirmationMoveAtr=0.05 --UseCandleConfirmation=true --CooldownBars=2 --FallbackRiskReward=1.80 --MinimumRiskReward=1.50 \
+            --StopAnchorMode=LegacyD --TargetRiskRewardPolicy=LegacyFallback --Round5Mode=ObserveOnly --MtfMode=Off --Round6RequireM30SellConfirm=false --Round7VetoM30SellAlignment=false \
+            --Round8LogExcursions=false --Round9ShadowTpContinuation=false --Round10LogFunnel=false --Round15EnableM30Engine=true --Round16H1HealthGate=true --DebugLogging=false \
+            --report=/work/control/report.html --report-json=/work/control/report.json 2>&1 | tee work/control/report.log
+
+      - name: Run 3Y diagnostic with shadow on
+        env:
+          CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+          CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+        run: |
+          set -euo pipefail
+          docker run --rm -v "$PWD/work:/work" -e "CTID=$CTRADER_CTID" -e 'PWD-FILE=/work/ctrader.pwd' -e "ACCOUNT=$CTRADER_ACCOUNT" \
+            ghcr.io/spotware/ctrader-console:5.9.11 backtest /work/build/Round24-DistanceValidation.algo \
+            --environment-variables --exit-on-stop --symbol=BITCOIN --period=h1 --start='08/09/2023 00:00' --end='08/09/2026 00:00' --balance=10000 --data-mode=m1 --data-dir=/work/cache \
+            --commission=65 --spread=0 --RiskPercent=1.0 --Round17M30RiskPercent=0.50 --Round18CandidateDiagnostics=false \
+            --Round21SelectiveHealthBypass=true --Round21BypassMinScore=93 --Round21SameDirH1MaxAgeHours=2 --Round21BypassRiskPercent=0.10 --Round21ReserveH1AtHour=true \
+            --Round22H1BuyRiskPercent=1.15 --Round22H1SellRiskPercent=0.80 --Round22M30BuyRiskPercent=0.40 --Round22M30SellRiskPercent=0.50 \
+            --Round23NearMissDiagnostics=true --Round23ScoreFloor=82 --Round23MaxExtendedAgeBars=18 --Round23MaxExtendedDistanceAtr=2.0 --Round23ShadowHorizonBars=48 \
+            --MaxOpenPositions=1 --MaxTradesPerDay=6 --MaxDailyLossPercent=5 --EnabledPatterns='Reciprocal ABCD' --PivotLeft=2 --PivotRight=2 --RatioTolerancePercent=6 --MinPatternScore=84 \
+            --MaxPatternAgeBars=16 --MaxEntryDistanceAtr=1.80 --ConfirmationMoveAtr=0.05 --UseCandleConfirmation=true --CooldownBars=2 --FallbackRiskReward=1.80 --MinimumRiskReward=1.50 \
+            --StopAnchorMode=LegacyD --TargetRiskRewardPolicy=LegacyFallback --Round5Mode=ObserveOnly --MtfMode=Off --Round6RequireM30SellConfirm=false --Round7VetoM30SellAlignment=false \
+            --Round8LogExcursions=false --Round9ShadowTpContinuation=false --Round10LogFunnel=false --Round15EnableM30Engine=true --Round16H1HealthGate=true --DebugLogging=false \
+            --report=/work/diagnostic/report.html --report-json=/work/diagnostic/report.json 2>&1 | tee work/diagnostic/report.log
+
+      - name: Parse and gate 3Y DIST research
+        run: |
+          set -euo pipefail
+          python3 - <<'PYCODE'
+          import json,re,statistics
+          from pathlib import Path
+
+          def metrics(path):
+            r=json.loads(Path(path).read_text())
+            return {
+              'trades':int(r['tradeStatistics']['totalTrades']['all']),
+              'roi':float(r['main']['roi']),
+              'net':float(r['main']['netProfit']),
+              'pf':float(r['tradeStatistics']['profitFactor']['all']),
+              'dd':float(r['equity']['maxEquityDrawdownPercent'])
+            }
+          control=metrics('work/control/report.json')
+          diag=metrics('work/diagnostic/report.json')
+          if control['trades'] != diag['trades'] or abs(control['roi']-diag['roi'])>0.01 or abs(control['net']-diag['net'])>0.5 or abs(control['pf']-diag['pf'])>0.01 or abs(control['dd']-diag['dd'])>0.01:
+            raise SystemExit(f'Diagnostics changed trading economics: control={control} diag={diag}')
+
+          log=Path('work/diagnostic/report.log').read_text(errors='replace')
+          pat=re.compile(r'\[R23 SHADOW CLOSE\] cat=(\S+) pattern=(\S+) d=(\d+) start=(\S+) end=(\S+) score=([\d.]+) age=(\d+) distAtr=([\d.]+) feasible=(True|False) baselineLater=(True|False) result=(\S+) r=([-\d.]+) mfeR=([-\d.]+) maeR=([-\d.]+) rr=([-\d.]+)')
+          rows=[]
+          for m in pat.finditer(log):
+            rows.append({
+              'category':m.group(1),'pattern':m.group(2),'d_index':int(m.group(3)),'start':m.group(4),'end':m.group(5),
+              'score':float(m.group(6)),'age':int(m.group(7)),'distance_atr':float(m.group(8)),
+              'feasible':m.group(9)=='True','baseline_later':m.group(10)=='True','result':m.group(11),
+              'r':float(m.group(12)),'mfe_r':float(m.group(13)),'mae_r':float(m.group(14)),'target_r':float(m.group(15))
+            })
+
+          def summarize(xs):
+            if not xs: return {'count':0,'sum_r':0.0,'avg_r':0.0,'pf_r':None,'positive_r':0,'negative_r':0}
+            wins=[x for x in xs if x['r']>0]; losses=[x for x in xs if x['r']<0]
+            gw=sum(x['r'] for x in wins); gl=-sum(x['r'] for x in losses)
+            pf=(gw/gl if gl>0 else (999.0 if gw>0 else None))
+            return {
+              'count':len(xs),'sum_r':sum(x['r'] for x in xs),'avg_r':statistics.mean(x['r'] for x in xs),'median_r':statistics.median(x['r'] for x in xs),
+              'pf_r':pf,'positive_r':len(wins),'negative_r':len(losses),'target_hits':sum(x['result']=='TARGET' for x in xs),
+              'avg_mfe_r':statistics.mean(x['mfe_r'] for x in xs),'avg_mae_r':statistics.mean(x['mae_r'] for x in xs)
+            }
+
+          dist=[x for x in rows if x['category']=='DIST' and x['feasible'] and not x['baseline_later']]
+          segments=[
+            ('2023-09-08_to_2024-09-08','2023-09-08','2024-09-08'),
+            ('2024-09-08_to_2025-09-08','2024-09-08','2025-09-08'),
+            ('2025-09-08_to_2026-09-08','2025-09-08','2026-09-08')
+          ]
+          by_segment={}
+          for name,a,b in segments:
+            by_segment[name]=summarize([x for x in dist if a <= x['start'][:10] < b])
+          s=summarize(dist)
+          positive_segments=sum(1 for v in by_segment.values() if v['sum_r']>0)
+          gate={
+            'count_ge_5':s['count']>=5,
+            'sum_r_gt_2':s['sum_r']>2.0,
+            'avg_r_gt_0_20':s['avg_r']>0.20,
+            'pf_r_ge_1_30':s['pf_r'] is not None and s['pf_r']>=1.30,
+            'positive_segments_ge_2':positive_segments>=2
+          }
+          out={
+            'version':'Round24 3Y H1 Buy Distance Validation',
+            'period':'2023-09-08 to 2026-09-08',
+            'control_metrics':control,
+            'diagnostic_metrics':diag,
+            'instrumentation_invariant':True,
+            'all_shadow_count':len(rows),
+            'dist_feasible_new':s,
+            'dist_by_segment':by_segment,
+            'positive_segments':positive_segments,
+            'research_gate':gate,
+            'pass_all':all(gate.values()),
+            'dist_rows':dist
+          }
+          Path('work/Round24-Distance-Validation-Summary.json').write_text(json.dumps(out,indent=2))
+          print(json.dumps({k:v for k,v in out.items() if k!='dist_rows'},indent=2))
+          PYCODE
+
+      - name: Remove credentials
+        if: always()
+        run: rm -f work/ctrader.pwd
+
+      - name: Upload Round24 validation artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Fibonacci-BTC-Round24-3Y-Distance-Validation
+          path: |
+            work/build/*
+            work/control/report.*
+            work/diagnostic/report.*
+            work/Round24-Distance-Validation-Summary.json
+          retention-days: 30
