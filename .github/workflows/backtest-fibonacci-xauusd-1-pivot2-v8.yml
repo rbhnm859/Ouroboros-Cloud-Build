@@ -1,0 +1,231 @@
+name: Fibonacci XAUUSD 1 - Pivot 2x2 v8
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [fibonacci-xauusd-round1]
+    paths:
+      - '.github/workflows/backtest-fibonacci-xauusd-1-pivot2-v8.yml'
+
+permissions:
+  contents: read
+
+# Deliberately isolated from the active v7 baseline run.
+concurrency:
+  group: fibonacci-xauusd-1-pivot2-v8
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Reconstruct source
+        shell: bash
+        run: |
+          set -euo pipefail
+          ROOT='FibonacciHarmonicSniperUltimate/versions/xauusd_1'
+          mkdir -p "$ROOT/src" build-package
+          base64 -d "$ROOT/source.gz.b64" | gzip -dc > "$ROOT/src/FibonacciXAUUSD1.cs"
+          cp "$ROOT/src/FibonacciXAUUSD1.cs" build-package/FibonacciXAUUSD1.cs
+          cp "$ROOT/README.md" build-package/README.md
+          sha256sum "$ROOT/src/FibonacciXAUUSD1.cs" | tee build-package/source.sha256
+
+      - name: Pull official cTrader CLI
+        run: docker pull ghcr.io/spotware/ctrader-console:5.9.11
+
+      - name: Build xauusd_1.algo
+        shell: bash
+        run: |
+          set -euo pipefail
+          ROOT='FibonacciHarmonicSniperUltimate/versions/xauusd_1'
+          docker run --rm --entrypoint sh -v "$PWD:/repo" -w /repo ghcr.io/spotware/ctrader-console:5.9.11 -c "dotnet restore $ROOT/FibonacciXAUUSD1.csproj && dotnet build $ROOT/FibonacciXAUUSD1.csproj --configuration Release --no-restore -p:AlgoPublish=False -p:IncludeSource=True"
+          ALGO="$(find "$ROOT" -type f -name '*.algo' -print -quit)"
+          test -n "$ALGO"
+          cp "$ALGO" build-package/xauusd_1.algo
+          sha256sum build-package/xauusd_1.algo | tee build-package/algo.sha256
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: xauusd_1-pivot2-build-v8
+          path: build-package/
+          if-no-files-found: error
+          retention-days: 30
+
+  backtest:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: standard-m1
+            start: '09/06/2026'
+            end: '09/07/2026'
+            spread: '17.42'
+            commission: '35'
+          - label: standard-m2
+            start: '09/07/2026'
+            end: '09/08/2026'
+            spread: '17.42'
+            commission: '35'
+          - label: standard-m3
+            start: '09/08/2026'
+            end: '09/09/2026'
+            spread: '17.42'
+            commission: '35'
+          - label: harsh-m1
+            start: '09/06/2026'
+            end: '09/07/2026'
+            spread: '30'
+            commission: '50'
+          - label: harsh-m2
+            start: '09/07/2026'
+            end: '09/08/2026'
+            spread: '30'
+            commission: '50'
+          - label: harsh-m3
+            start: '09/08/2026'
+            end: '09/09/2026'
+            spread: '30'
+            commission: '50'
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: xauusd_1-pivot2-build-v8
+          path: /tmp/build
+
+      - name: Pull official cTrader CLI
+        run: docker pull ghcr.io/spotware/ctrader-console:5.9.11
+
+      - name: Create cTrader password file
+        env:
+          CTRADER_PASSWORD: ${{ secrets.CTRADER_PASSWORD }}
+        run: |
+          set -euo pipefail
+          mkdir -p work/cache work/reports
+          test -n "${CTRADER_PASSWORD:-}" || exit 1
+          printf '%s' "$CTRADER_PASSWORD" > work/ctrader.pwd
+          chmod 600 work/ctrader.pwd
+          cp /tmp/build/xauusd_1.algo work/xauusd_1.algo
+
+      - name: Run ${{ matrix.label }} Pivot 2x2 backtest
+        env:
+          CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+          CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker run --rm \
+            -v "$PWD/work:/work" \
+            -e "CTID=$CTRADER_CTID" -e 'PWD-FILE=/work/ctrader.pwd' -e "ACCOUNT=$CTRADER_ACCOUNT" \
+            ghcr.io/spotware/ctrader-console:5.9.11 \
+            backtest /work/xauusd_1.algo --environment-variables --exit-on-stop \
+            --symbol=XAUUSD --period=h1 --start='${{ matrix.start }}' --end='${{ matrix.end }}' \
+            --balance=10000 --data-mode=m1 --data-dir=/work/cache \
+            --commission='${{ matrix.commission }}' --spread='${{ matrix.spread }}' \
+            --RiskPercent=0.50 --MaxDailyLossPercent=3.0 \
+            --MinQualityScore=75 --M30ConfirmRulesNeeded=2 \
+            --PivotLeft=2 --PivotRight=2 \
+            --report='/work/reports/${{ matrix.label }}.html' \
+            --report-json='/work/reports/${{ matrix.label }}.json' \
+            2>&1 | tee 'work/reports/${{ matrix.label }}.log'
+          test -s 'work/reports/${{ matrix.label }}.json'
+
+      - name: Remove credentials
+        if: always()
+        run: rm -f work/ctrader.pwd
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: xauusd_1-pivot2-report-${{ matrix.label }}
+          path: work/reports/
+          if-no-files-found: warn
+          retention-days: 30
+
+  aggregate:
+    needs: [build, backtest]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: xauusd_1-pivot2-build-v8
+          path: package
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: xauusd_1-pivot2-report-*
+          path: reports
+          merge-multiple: true
+
+      - name: Aggregate Pivot 2x2 reports
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import json
+
+          def allv(d, section, key):
+              try:
+                  v=d[section][key]
+                  return float(v.get('all',0) if isinstance(v,dict) else v or 0)
+              except Exception:
+                  return 0.0
+
+          def dd_pct(d):
+              peak=0.0; worst=0.0
+              for p in d.get('equity',{}).get('points',[]):
+                  peak=max(peak,float(p.get('maxEquity',p.get('balance',0)) or 0))
+                  low=float(p.get('minEquity',p.get('balance',0)) or 0)
+                  if peak>0: worst=max(worst,(peak-low)/peak*100.0)
+              return worst
+
+          out=[
+              '# xauusd_1 Pivot 2x2 v8', '',
+              'Period: 2026-06-09 to 2026-09-09 UTC | XAUUSD H1 | M1 data | $10,000 | risk 0.5%',
+              'Single strategy-factor change: PivotLeft/PivotRight 3/3 -> 2/2. Geometry quality threshold 75, M30 2-of-3, risk, SL/TP and costs unchanged.', '',
+              '| Cost | Reports | Trades | Wins | Losses | WR % | Net $ | ROI % | PF* | Worst monthly Eq DD % |',
+              '|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|'
+          ]
+          for cost in ('standard','harsh'):
+              reports=[]
+              for i in range(1,4):
+                  p=Path(f'reports/{cost}-m{i}.json')
+                  if p.exists(): reports.append(json.loads(p.read_text()))
+              hist=[x for d in reports for x in d.get('history',{}).get('items',[])]
+              trades=sum(int(allv(d,'tradeStatistics','totalTrades')) for d in reports)
+              wins=sum(int(allv(d,'tradeStatistics','winningTrades')) for d in reports)
+              losses=sum(int(allv(d,'tradeStatistics','losingTrades')) for d in reports)
+              net=sum(float(d.get('main',{}).get('netProfit',0) or 0) for d in reports)
+              pos=sum(max(0.0,float(x.get('net',0) or 0)) for x in hist)
+              neg=sum(abs(min(0.0,float(x.get('net',0) or 0))) for x in hist)
+              pf=pos/neg if neg else (999.0 if pos else 0.0)
+              wr=wins/trades*100.0 if trades else 0.0
+              dd=max([dd_pct(d) for d in reports] or [0.0])
+              out.append(f'| {cost} | {len(reports)}/3 | {trades} | {wins} | {losses} | {wr:.2f} | {net:.2f} | {net/10000*100:.2f} | {pf:.2f} | {dd:.2f} |')
+
+          out += [
+              '',
+              '*PF recomputed from closed-trade net P/L across independent monthly segments.',
+              'Decision rule: keep Pivot 2x2 only if it materially increases trades without degrading ROI/PF/DD versus the current Gold geometry baseline; otherwise reject and restore 3x3.',
+              'Previously rejected: Q80 increased losses; M30 1-of-3 did not improve frequency.'
+          ]
+          text='\n'.join(out)+'\n'
+          Path('package/PIVOT2_BACKTEST_SUMMARY.md').write_text(text)
+          print(text)
+          with open(__import__('os').environ['GITHUB_STEP_SUMMARY'],'a') as f:
+              f.write(text)
+          PY
+          cp -r reports package/reports
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: xauusd_1-pivot2-v8-complete
+          path: package/
+          if-no-files-found: error
+          retention-days: 30
