@@ -1,0 +1,52 @@
+name: BTC Round29 Macro-Asymmetric Sell Validation
+on:
+  workflow_dispatch:
+  push:
+    branches: [ btc-round29-macro-asymmetric-sell ]
+    paths:
+      - 'FibonacciHarmonicSniperUltimate/versions/v0.26.0-btc-round29-macro-asymmetric-sell/**'
+      - '.github/workflows/backtest-fibonacci-btc-round29-macro-asymmetric-sell.yml'
+permissions:
+  contents: read
+concurrency:
+  group: fibonacci-btc-round29-macro-asymmetric-sell
+  cancel-in-progress: true
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '6.0.x'
+      - name: Run Round29 objective validation
+        env:
+          CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+          CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+          CTRADER_PASSWORD: ${{ secrets.CTRADER_PASSWORD }}
+        run: bash FibonacciHarmonicSniperUltimate/versions/v0.26.0-btc-round29-macro-asymmetric-sell/round29_validation.sh
+      - name: Remove credentials
+        if: always()
+        run: rm -f work/ctrader.pwd
+      - name: Upload Round29 validation artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Fibonacci-BTC-Round29-Macro-Asymmetric-Sell
+          retention-days: 30
+          path: |
+            work/build/*
+            work/r29-src/*.cs
+            work/r29-src/*.csproj
+            work/control/report.*
+            work/mild/report.*
+            work/balanced/report.*
+            work/defensive/report.*
+            work/y1/report.*
+            work/y2/report.*
+            work/y3/report.*
+            work/harsh-3y/report.*
+            work/harsh-y3/report.*
+            work/Round29-3Y-Screen.json
+            work/Round29-Final-Summary.json
