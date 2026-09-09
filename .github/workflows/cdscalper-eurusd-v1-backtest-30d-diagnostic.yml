@@ -7,6 +7,8 @@ on:
       - cds-eurusd-v1
     paths:
       - '.github/workflows/cdscalper-eurusd-v1-backtest-30d-diagnostic.yml'
+      - 'CumulativeDeltaScalper-EURUSD-v1/src/**'
+      - 'CumulativeDeltaScalper-EURUSD-v1/CumulativeDeltaScalper_EURUSD_v1.csproj'
       - 'CumulativeDeltaScalper-EURUSD-v1/builds/CumulativeDeltaScalper_EURUSD_v1.algo'
 
 permissions:
@@ -22,11 +24,12 @@ env:
   PERIOD: 'm1'
   OUT_JSON: 'CumulativeDeltaScalper-EURUSD-v1/backtests/EURUSD_M1_2026-08-10_to_2026-09-09_diagnostic.json'
   OUT_MD: 'CumulativeDeltaScalper-EURUSD-v1/reports/EURUSD_M1_30D_diagnostic_summary.md'
+  BUILD_MD: 'CumulativeDeltaScalper-EURUSD-v1/reports/build_result.md'
 
 jobs:
-  eurusd-m1-30d-diagnostic:
+  build-and-diagnostic-backtest:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 60
     env:
       CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
       CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
@@ -36,6 +39,41 @@ jobs:
         uses: actions/checkout@v4
         with:
           ref: cds-eurusd-v1
+
+      - name: Setup .NET SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '7.0.x'
+
+      - name: Build patched .algo
+        shell: bash
+        run: |
+          set -euo pipefail
+          ROOT='CumulativeDeltaScalper-EURUSD-v1'
+          PROJECT="$ROOT/CumulativeDeltaScalper_EURUSD_v1.csproj"
+          mkdir -p "$ROOT/builds" "$ROOT/reports"
+          dotnet --info
+          dotnet restore "$PROJECT"
+          dotnet build "$PROJECT" -c Release -p:AlgoName=CumulativeDeltaScalper_EURUSD_v1 -p:AlgoBuild=true -p:AlgoPublish=false -p:IncludeSource=true
+          ALGOS=$(find "$ROOT" -type f -name '*.algo' | sort)
+          if [ -z "$ALGOS" ]; then
+            echo 'No .algo file generated.'
+            exit 1
+          fi
+          SELECTED=$(echo "$ALGOS" | tail -n 1)
+          cp "$SELECTED" "$ROOT/builds/CumulativeDeltaScalper_EURUSD_v1.algo"
+          sha256sum "$ROOT/builds/CumulativeDeltaScalper_EURUSD_v1.algo" > "$ROOT/builds/CumulativeDeltaScalper_EURUSD_v1.algo.sha256"
+          cat > "$BUILD_MD" <<EOF
+          # Build Result
+
+          - Workflow: cdscalper-eurusd-v1-backtest-30d-diagnostic.yml
+          - Runner: ubuntu-latest
+          - Build method: dotnet build + cTrader.Automate NuGet
+          - Status: success
+          - Patch: bar delta fallback enabled in source
+          - Artifact: CumulativeDeltaScalper-EURUSD-v1/builds/CumulativeDeltaScalper_EURUSD_v1.algo
+          - Generated at: $(date -u +%Y-%m-%dT%H:%M:%SZ)
+          EOF
 
       - name: Preflight
         shell: bash
@@ -58,9 +96,9 @@ jobs:
           import json
           from pathlib import Path
           out = {
-            "schema_version": 4,
+            "schema_version": 5,
             "bot": "CumulativeDeltaScalper-EURUSD-v1",
-            "run_type": "diagnostic_relaxed_filters",
+            "run_type": "diagnostic_bar_delta_fallback",
             "symbol": "EURUSD",
             "timeframe": "M1",
             "period": {"start": "2026-08-10", "end": "2026-09-09", "timezone": "UTC", "end_inclusive": False},
@@ -89,7 +127,8 @@ jobs:
             backtest /work/CumulativeDeltaScalper_EURUSD_v1.algo --environment-variables \
             --symbol="$SYMBOL" --period="$PERIOD" --start="$START_DATE_CTRADER" --end="$END_DATE_CTRADER" \
             --balance="$STARTING_BALANCE" --data-mode=m1 --data-dir="/work/cache/EURUSD" \
-            --DeltaThreshold=30 --MinConfirmations=1 --UseSessionFilter=false --OverlapOnly=false \
+            --DeltaThreshold=30 --MinConfirmations=1 --UseBarDeltaFallback=true --FallbackBelowTickDelta=999 --BarDeltaPointMultiplier=3 \
+            --UseSessionFilter=false --OverlapOnly=false \
             --UseHtfEmaFilter=false --EmaSlopeBars=1 --AdxThreshold=0 --MinAtr=0 --MaxAtr=0 \
             --MaxSpreadPoints=100 --SpreadAvgMultiplier=5 --MaxDailyTrades=50 \
             --MaxDailyLossPercent=100 --MaxDailyLossMoney=0 --DailyProfitTargetMoney=0 \
@@ -105,19 +144,14 @@ jobs:
         run: |
           set -euo pipefail
           python3 - <<'PYCODE'
-          import json, math, re
+          import json, math
           from pathlib import Path
           out_json = Path("CumulativeDeltaScalper-EURUSD-v1/backtests/EURUSD_M1_2026-08-10_to_2026-09-09_diagnostic.json")
           out_md = Path("CumulativeDeltaScalper-EURUSD-v1/reports/EURUSD_M1_30D_diagnostic_summary.md")
           rep = Path("backtest/reports/EURUSD-M1-30D-diagnostic.json")
           log = Path("backtest/reports/console-30d-diagnostic.log")
           status = "completed" if rep.exists() else "failed_no_report_json"
-          metrics = {
-            "initial_balance": 100.0, "final_balance": None, "net_profit": None, "return_percent": None,
-            "profit_factor": None, "win_rate": None, "max_drawdown": None, "total_trades": None,
-            "average_trade": None, "largest_win": None, "largest_loss": None,
-            "gross_profit": None, "gross_loss": None
-          }
+          metrics = {"initial_balance": 100.0, "final_balance": None, "net_profit": None, "return_percent": None, "profit_factor": None, "win_rate": None, "max_drawdown": None, "total_trades": None, "average_trade": None, "largest_win": None, "largest_loss": None, "gross_profit": None, "gross_loss": None}
           errors = []
           raw_report_keys = []
           if rep.exists():
@@ -139,20 +173,7 @@ jobs:
               try: net = float(net)
               except Exception: net = sum(nets) if total else 0
               final_balance = 100.0 + net
-              metrics.update({
-                "final_balance": final_balance,
-                "net_profit": net,
-                "return_percent": ((final_balance - 100.0) / 100.0 * 100.0),
-                "profit_factor": (gp / gl if gl > 0 else (math.inf if gp > 0 else 0.0)) if total else None,
-                "win_rate": (wins / total * 100.0) if total else None,
-                "max_drawdown": d.get("equity", {}).get("maxEquityDrawdownPercent") if isinstance(d, dict) else None,
-                "total_trades": total,
-                "average_trade": (sum(nets) / total) if total else None,
-                "largest_win": max(nets) if nets else None,
-                "largest_loss": min(nets) if nets else None,
-                "gross_profit": gp if total else None,
-                "gross_loss": gl if total else None
-              })
+              metrics.update({"final_balance": final_balance, "net_profit": net, "return_percent": ((final_balance - 100.0) / 100.0 * 100.0), "profit_factor": (gp / gl if gl > 0 else (math.inf if gp > 0 else 0.0)) if total else None, "win_rate": (wins / total * 100.0) if total else None, "max_drawdown": d.get("equity", {}).get("maxEquityDrawdownPercent") if isinstance(d, dict) else None, "total_trades": total, "average_trade": (sum(nets) / total) if total else None, "largest_win": max(nets) if nets else None, "largest_loss": min(nets) if nets else None, "gross_profit": gp if total else None, "gross_loss": gl if total else None})
             except Exception as e:
               status = "failed_parse_report_json"
               errors.append(str(e))
@@ -160,104 +181,52 @@ jobs:
             errors.append("cTrader console did not produce backtest/reports/EURUSD-M1-30D-diagnostic.json")
             if log.exists():
               text = log.read_text(errors="replace")
-              for marker in ["Invalid settings", "Unknown symbol name", "Unknown period", "Account cannot be found", "No historical data", "Stop out during a backtest", "parameter", "Parameter"]:
+              for marker in ["Invalid settings", "Unknown symbol name", "Unknown period", "Account cannot be found", "No historical data", "Stop out during a backtest", "Parameter", "error", "failed"]:
                 if marker in text:
                   errors.append("console marker: " + marker)
-              tail = "\n".join(text.splitlines()[-60:])
-            else:
-              tail = ""
           total_trades = metrics.get("total_trades")
           if status == "completed" and total_trades and total_trades > 0:
-            classification = "diagnostic_trades_triggered_filters_too_strict"
+            classification = "bar_delta_fallback_trades_triggered"
             suitable = True
-            diagnosis = "Relaxed diagnostic parameters produced trades. The zero-trade conservative run was caused by overly strict entry/guard filters, not by GitHub/cTrader execution."
+            diagnosis = "Bar-delta fallback produced trades. The previous zero-trade result was caused by tick-delta not accumulating enough under cTrader CLI m1 data mode and/or too-strict filters."
           elif status == "completed" and total_trades == 0:
-            classification = "diagnostic_zero_trades_possible_delta_source_issue"
+            classification = "bar_delta_fallback_still_zero_trades"
             suitable = False
-            diagnosis = "Relaxed diagnostic parameters still produced zero trades. This points to tick-delta not accumulating under m1 data mode or another non-filter entry gate blocking signals."
+            diagnosis = "Bar-delta fallback diagnostic still produced zero trades. The next suspect is another non-filter entry gate, stop-distance/volume guard, or CLI parameter binding not applying."
           else:
             classification = "diagnostic_execution_failed"
             suitable = False
-            diagnosis = "Diagnostic backtest did not complete with a usable JSON report. Inspect the console log markers before changing strategy logic."
-          out = {
-            "schema_version": 4,
-            "bot": "CumulativeDeltaScalper-EURUSD-v1",
-            "run_type": "diagnostic_relaxed_filters",
-            "symbol": "EURUSD",
-            "timeframe": "M1",
-            "period": {"start": "2026-08-10", "end": "2026-09-09", "timezone": "UTC", "end_inclusive": False},
-            "execution": {"environment": "GitHub Actions ubuntu-latest", "engine": "ghcr.io/spotware/ctrader-console:5.9.11", "starting_balance_usd": 100.0, "artifact_path": "CumulativeDeltaScalper-EURUSD-v1/builds/CumulativeDeltaScalper_EURUSD_v1.algo", "ctrader_date_format": "DD/MM/YYYY", "cli_start": "10/08/2026", "cli_end": "09/09/2026", "data_mode": "m1"},
-            "diagnostic_parameters": {
-              "DeltaThreshold": 30,
-              "MinConfirmations": 1,
-              "UseSessionFilter": False,
-              "OverlapOnly": False,
-              "UseHtfEmaFilter": False,
-              "EmaSlopeBars": 1,
-              "AdxThreshold": 0,
-              "MinAtr": 0,
-              "MaxAtr": 0,
-              "MaxSpreadPoints": 100,
-              "MaxDailyTrades": 50,
-              "MinSecondsBetweenTrades": 0,
-              "MaxTradeSeconds": 0,
-              "AdverseDeltaExit": False
-            },
-            "backtest": {"status": status, "data_source": "cTrader console report json" if status == "completed" else "none", "metrics": metrics, "is_suitable_for_further_optimization": suitable, "debug_classification": classification, "debug_summary": diagnosis},
-            "raw_report_top_level_keys": raw_report_keys,
-            "errors": errors,
-            "generated_by": "GitHub Actions workflow cdscalper-eurusd-v1-backtest-30d-diagnostic.yml",
-            "generated_at": "2026-09-09"
-          }
-          if status != "completed" and 'tail' in locals() and tail:
-            out["console_log_tail"] = tail[-4000:]
+            diagnosis = "Diagnostic backtest did not complete with a usable JSON report. Inspect console markers before changing strategy logic again."
+          out = {"schema_version": 5, "bot": "CumulativeDeltaScalper-EURUSD-v1", "run_type": "diagnostic_bar_delta_fallback", "symbol": "EURUSD", "timeframe": "M1", "period": {"start": "2026-08-10", "end": "2026-09-09", "timezone": "UTC", "end_inclusive": False}, "execution": {"environment": "GitHub Actions ubuntu-latest", "engine": "ghcr.io/spotware/ctrader-console:5.9.11", "starting_balance_usd": 100.0, "artifact_path": "CumulativeDeltaScalper-EURUSD-v1/builds/CumulativeDeltaScalper_EURUSD_v1.algo", "ctrader_date_format": "DD/MM/YYYY", "cli_start": "10/08/2026", "cli_end": "09/09/2026", "data_mode": "m1", "source_patch": "bar_delta_fallback"}, "diagnostic_parameters": {"DeltaThreshold": 30, "MinConfirmations": 1, "UseBarDeltaFallback": True, "FallbackBelowTickDelta": 999, "BarDeltaPointMultiplier": 3, "UseSessionFilter": False, "OverlapOnly": False, "UseHtfEmaFilter": False, "AdxThreshold": 0, "MinAtr": 0, "MaxAtr": 0, "MaxSpreadPoints": 100, "MaxDailyTrades": 50, "MinSecondsBetweenTrades": 0, "MaxTradeSeconds": 0, "AdverseDeltaExit": False}, "backtest": {"status": status, "data_source": "cTrader console report json" if status == "completed" else "none", "metrics": metrics, "is_suitable_for_further_optimization": suitable, "debug_classification": classification, "debug_summary": diagnosis}, "raw_report_top_level_keys": raw_report_keys, "errors": errors, "generated_by": "GitHub Actions workflow cdscalper-eurusd-v1-backtest-30d-diagnostic.yml", "generated_at": "2026-09-09"}
           out_json.write_text(json.dumps(out, indent=2, ensure_ascii=False))
-          lines = [
-            "# EURUSD M1 30D Diagnostic 回測摘要", "",
-            "- Bot: CumulativeDeltaScalper-EURUSD-v1",
-            "- Run type: diagnostic_relaxed_filters",
-            "- Symbol: EURUSD",
-            "- Timeframe: M1",
-            "- Period: 2026-08-10 ~ 2026-09-09 UTC",
-            "- cTrader CLI date args: 10/08/2026 ~ 09/09/2026 (DD/MM/YYYY)",
-            f"- Backtest status: {status}",
-            f"- Debug classification: {classification}", "", "## Diagnostic parameters",
-            "- DeltaThreshold: 30",
-            "- MinConfirmations: 1",
-            "- UseSessionFilter: false",
-            "- UseHtfEmaFilter: false",
-            "- MinAtr: 0",
-            "- MaxSpreadPoints: 100",
-            "- MaxDailyTrades: 50",
-            "- MinSecondsBetweenTrades: 0",
-            "", "## Metrics"
-          ]
-          for k, v in metrics.items():
-            lines.append(f"- {k}: {v}")
+          lines = ["# EURUSD M1 30D Diagnostic 回測摘要", "", "- Bot: CumulativeDeltaScalper-EURUSD-v1", "- Run type: diagnostic_bar_delta_fallback", "- Symbol: EURUSD", "- Timeframe: M1", "- Period: 2026-08-10 ~ 2026-09-09 UTC", "- cTrader CLI date args: 10/08/2026 ~ 09/09/2026 (DD/MM/YYYY)", f"- Backtest status: {status}", f"- Debug classification: {classification}", "", "## Metrics"]
+          for k, v in metrics.items(): lines.append(f"- {k}: {v}")
           lines += ["", "## Debug conclusion", diagnosis]
-          if errors:
-            lines += ["", "## Errors / limitations"] + [f"- {e}" for e in errors]
+          if errors: lines += ["", "## Errors / limitations"] + [f"- {e}" for e in errors]
           out_md.write_text("\n".join(lines) + "\n")
           PYCODE
 
-      - name: Commit diagnostic result
+      - name: Commit patched .algo and diagnostic result
         if: always()
         shell: bash
         run: |
           set -euo pipefail
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add "$OUT_JSON" "$OUT_MD" || true
-          git commit -m 'Run CDScalper EURUSD M1 30D diagnostic backtest' || echo 'No changes to commit'
+          git add CumulativeDeltaScalper-EURUSD-v1/builds/CumulativeDeltaScalper_EURUSD_v1.algo CumulativeDeltaScalper-EURUSD-v1/builds/CumulativeDeltaScalper_EURUSD_v1.algo.sha256 "$BUILD_MD" "$OUT_JSON" "$OUT_MD" || true
+          git commit -m 'Build patched algo and run fallback diagnostic backtest' || echo 'No changes to commit'
           git push origin HEAD:cds-eurusd-v1 || true
 
       - name: Upload diagnostic reports
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: CDScalper_EURUSD_M1_30D_diagnostic_reports
+          name: CDScalper_EURUSD_M1_30D_fallback_diagnostic_reports
           path: |
+            CumulativeDeltaScalper-EURUSD-v1/builds/CumulativeDeltaScalper_EURUSD_v1.algo
+            CumulativeDeltaScalper-EURUSD-v1/builds/CumulativeDeltaScalper_EURUSD_v1.algo.sha256
             CumulativeDeltaScalper-EURUSD-v1/backtests/EURUSD_M1_2026-08-10_to_2026-09-09_diagnostic.json
             CumulativeDeltaScalper-EURUSD-v1/reports/EURUSD_M1_30D_diagnostic_summary.md
+            CumulativeDeltaScalper-EURUSD-v1/reports/build_result.md
             backtest/reports/**
           retention-days: 14
