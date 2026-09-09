@@ -1,0 +1,168 @@
+name: Fibonacci XAUUSD 3 - v3.5 M5 First Valid
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [fibonacci-xauusd-v3-hybrid]
+    paths:
+      - '.github/workflows/backtest-fibonacci-xauusd-3-v35-m5-first-valid.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Patch v3.5 candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('FibonacciHarmonicSniperUltimate/versions/xauusd_3/src/FibonacciXAUUSD3.cs')
+          s=p.read_text()
+          s=s.replace('Print("VERSION xauusd_3 v3.3.0-london-filter");','Print("VERSION xauusd_3 v3.5.0-m5-first-valid");',1)
+          old='''        [Parameter("Final Score Min", DefaultValue = 60.0, MinValue = 40, MaxValue = 90, Group = "Scoring")]\n        public double FinalScoreMin { get; set; }\n'''
+          new=old+'''\n        [Parameter("M5 PreScore Floor", DefaultValue = 50.0, MinValue = 40, MaxValue = 80, Group = "Scoring")]\n        public double M5PreScoreFloor { get; set; }\n'''
+          assert s.count(old)==1
+          s=s.replace(old,new,1)
+          old='''        [Parameter("Block London Entries", DefaultValue = true, Group = "Session")]\n        public bool BlockLondonEntries { get; set; }\n'''
+          new='''        [Parameter("Block London Entries", DefaultValue = true, Group = "Session")]\n        public bool BlockLondonEntries { get; set; }\n\n        [Parameter("Require H1 ATR Expansion", DefaultValue = true, Group = "Regime")]\n        public bool RequireH1AtrExpansion { get; set; }\n\n        [Parameter("H1 ATR14/ATR50 Min", DefaultValue = 1.15, MinValue = 1.00, MaxValue = 2.00, Group = "Regime")]\n        public double H1AtrExpansionMin { get; set; }\n'''
+          assert s.count(old)==1
+          s=s.replace(old,new,1)
+          old='''            double h1Score = H1RegimeScore(direction);\n            if (direction == TradeType.Buy && h1Score < BuyH1MinScore)\n'''
+          new='''            double h1AtrRatio = H1AtrExpansionRatio();\n            if (RequireH1AtrExpansion && h1AtrRatio <= H1AtrExpansionMin)\n            {\n                if (DebugLogging) Print("[VOL REGIME REJECT] H1 ATR14/ATR50={0:F3} min>{1:F3}", h1AtrRatio, H1AtrExpansionMin);\n                return;\n            }\n            double h1Score = H1RegimeScore(direction);\n            if (direction == TradeType.Buy && h1Score < BuyH1MinScore)\n'''
+          assert s.count(old)==1
+          s=s.replace(old,new,1)
+          old='''            if (preScore < PreScoreMin)\n                return;\n'''
+          new='''            if (preScore < Math.Max(PreScoreMin, M5PreScoreFloor))\n                return;\n'''
+          assert s.count(old)==1
+          s=s.replace(old,new,1)
+          old='''            double m5Score = rules * 5.0;\n            double finalScore = a.PreScore + m5Score;\n'''
+          new='''            double m5Score = M5RulesNeeded * 5.0;\n            double finalScore = a.PreScore + m5Score;\n'''
+          assert s.count(old)==1
+          s=s.replace(old,new,1)
+          marker='''        private double H1RegimeScore(TradeType direction)\n        {\n'''
+          helper='''        private double H1AtrExpansionRatio()\n        {\n            int h = _h1.Count - 2;\n            if (h < 55) return 0.0;\n            double atr14 = Atr(_h1, h, 14);\n            double atr50 = Atr(_h1, h, 50);\n            if (atr50 <= Symbol.PipSize) return 0.0;\n            return atr14 / atr50;\n        }\n\n        private double H1RegimeScore(TradeType direction)\n        {\n'''
+          assert s.count(marker)==1
+          s=s.replace(marker,helper,1)
+          p.write_text(s)
+          PY
+          SRC='FibonacciHarmonicSniperUltimate/versions/xauusd_3/src/FibonacciXAUUSD3.cs'
+          grep -q 'v3.5.0-m5-first-valid' "$SRC"
+          grep -q 'M5 PreScore Floor' "$SRC"
+          grep -q 'Require H1 ATR Expansion' "$SRC"
+          grep -q 'Math.Max(PreScoreMin, M5PreScoreFloor)' "$SRC"
+          grep -q 'M5RulesNeeded \* 5.0' "$SRC"
+          grep -q 'HasAnySymbolExposure' "$SRC"
+      - run: docker pull ghcr.io/spotware/ctrader-console:5.9.11
+      - name: Build v3.5 candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          ROOT='FibonacciHarmonicSniperUltimate/versions/xauusd_3'
+          docker run --rm --entrypoint sh -v "$PWD:/repo" -w /repo ghcr.io/spotware/ctrader-console:5.9.11 -c "dotnet restore $ROOT/FibonacciXAUUSD3.csproj && dotnet build $ROOT/FibonacciXAUUSD3.csproj -c Release --no-restore -p:AlgoPublish=False -p:IncludeSource=True"
+          mkdir -p package
+          cp "$(find "$ROOT" -type f -name '*.algo' -print -quit)" package/FibonacciXAUUSD3-v3.5-M5FirstValid.algo
+          cp "$ROOT/src/FibonacciXAUUSD3.cs" package/FibonacciXAUUSD3-v3.5.cs
+          sha256sum package/FibonacciXAUUSD3-v3.5-M5FirstValid.algo > package/algo.sha256
+      - uses: actions/upload-artifact@v4
+        with:
+          name: xauusd_3-v35-build
+          path: package/
+          retention-days: 30
+
+  backtest:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { period: '3m', cost: 'standard', start: '09/06/2026', spread: '17.42', commission: '35' }
+          - { period: '3m', cost: 'harsh', start: '09/06/2026', spread: '30', commission: '50' }
+          - { period: '1y', cost: 'standard', start: '09/09/2025', spread: '17.42', commission: '35' }
+          - { period: '1y', cost: 'harsh', start: '09/09/2025', spread: '30', commission: '50' }
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: xauusd_3-v35-build
+          path: work
+      - run: docker pull ghcr.io/spotware/ctrader-console:5.9.11
+      - name: Credentials
+        env:
+          CTRADER_PASSWORD: ${{ secrets.CTRADER_PASSWORD }}
+        run: |
+          test -n "${CTRADER_PASSWORD:-}"
+          printf '%s' "$CTRADER_PASSWORD" > work/ctrader.pwd
+      - name: Backtest ${{ matrix.period }} ${{ matrix.cost }}
+        env:
+          CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+          CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p work/reports work/cache
+          LABEL='${{ matrix.period }}-${{ matrix.cost }}'
+          docker run --rm -v "$PWD/work:/work" -e "CTID=$CTRADER_CTID" -e 'PWD-FILE=/work/ctrader.pwd' -e "ACCOUNT=$CTRADER_ACCOUNT" ghcr.io/spotware/ctrader-console:5.9.11 backtest /work/FibonacciXAUUSD3-v3.5-M5FirstValid.algo --environment-variables --exit-on-stop --symbol=XAUUSD --period=m5 --start='${{ matrix.start }}' --end='09/09/2026' --balance=10000 --data-mode=m1 --data-dir=/work/cache --commission='${{ matrix.commission }}' --spread='${{ matrix.spread }}' --RiskPercent=0.50 --MaxDailyLossPercent=3 --MinimumRiskReward=1.5 --PreScoreMin=42 --FinalScoreMin=60 --M5PreScoreFloor=50 --M5RulesNeeded=2 --MinImpulseAtr=1.2 --MinStopAtr=0.20 --MaxAllowedRR=8 --BuyH1MinScore=18 --BlockLondonEntries=true --RequireH1AtrExpansion=true --H1AtrExpansionMin=1.15 --report="/work/reports/${LABEL}.html" --report-json="/work/reports/${LABEL}.json" 2>&1 | tee "work/reports/${LABEL}.log"
+          test -s "work/reports/${LABEL}.json"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: xauusd_3-v35-report-${{ matrix.period }}-${{ matrix.cost }}
+          path: work/reports/
+          retention-days: 30
+
+  aggregate:
+    needs: backtest
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: xauusd_3-v35-build
+          path: package
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: xauusd_3-v35-report-*
+          path: reports
+          merge-multiple: true
+      - name: Aggregate and safety audit
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json, datetime
+          from pathlib import Path
+          out=['# xauusd_3 v3.5 M5 First Valid','', '| Period | Cost | Trades | W | L | Net | ROI % | PF | DD % | Overlap | Hedge | London |','|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|']
+          for period in ('3m','1y'):
+            for cost in ('standard','harsh'):
+              d=json.loads(Path(f'reports/{period}-{cost}.json').read_text())
+              ts=d['tradeStatistics']; main=d['main']; eq=d['equity']; hist=d['history']['items']
+              t=int(ts['totalTrades']['all']); w=int(ts['winningTrades']['all']); l=int(ts['losingTrades']['all'])
+              spans=sorted((int(x['entryTime']),int(x['closeTime']),x['direction']) for x in hist)
+              ov=hg=0
+              for i,a in enumerate(spans):
+                for b in spans[i+1:]:
+                  if b[0]>=a[1]: break
+                  ov+=1; hg+=b[2]!=a[2]
+              london=0
+              for x in hist:
+                h=datetime.datetime.fromtimestamp(int(x['entryTime'])/1000, datetime.timezone.utc).hour
+                if 7 <= h < 13: london+=1
+              out.append(f"| {period} | {cost} | {t} | {w} | {l} | {float(main['netProfit']):.2f} | {float(main['roi']):.2f} | {float(ts['profitFactor']['all']):.2f} | {float(eq['maxEquityDrawdownPercent']):.2f} | {ov} | {hg} | {london} |")
+              assert ov==0 and hg==0 and london==0
+          Path('V35_SUMMARY.md').write_text('\n'.join(out)+'\n')
+          print('\n'.join(out))
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: xauusd_3-v35-complete
+          path: |
+            package/
+            reports/
+            V35_SUMMARY.md
+          retention-days: 30
