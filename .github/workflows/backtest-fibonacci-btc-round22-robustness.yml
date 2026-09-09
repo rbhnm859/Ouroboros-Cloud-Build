@@ -21,10 +21,10 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { id: h1-standard, start: '08/09/2025 00:00', end: '03/08/2026 00:00', commission: 65, spread: 0 }
-          - { id: h2-standard, start: '03/08/2026 00:00', end: '08/09/2026 00:00', commission: 65, spread: 0 }
-          - { id: h1-harsh, start: '08/09/2025 00:00', end: '03/08/2026 00:00', commission: 100, spread: 1500 }
-          - { id: h2-harsh, start: '03/08/2026 00:00', end: '08/09/2026 00:00', commission: 100, spread: 1500 }
+          - { id: h1-standard, start: '08/09/2025 00:00', end: '09/03/2026 00:00', commission: 65, spread: 0 }
+          - { id: h2-standard, start: '09/03/2026 00:00', end: '08/09/2026 00:00', commission: 65, spread: 0 }
+          - { id: h1-harsh, start: '08/09/2025 00:00', end: '09/03/2026 00:00', commission: 100, spread: 1500 }
+          - { id: h2-harsh, start: '09/03/2026 00:00', end: '08/09/2026 00:00', commission: 100, spread: 1500 }
     runs-on: ubuntu-latest
     timeout-minutes: 120
     steps:
