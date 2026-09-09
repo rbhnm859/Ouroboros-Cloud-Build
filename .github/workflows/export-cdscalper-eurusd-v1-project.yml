@@ -1,0 +1,82 @@
+name: Export CDScalper EURUSD v1 Project
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - cds-eurusd-v1
+    paths:
+      - '.github/workflows/export-cdscalper-eurusd-v1-project.yml'
+
+permissions:
+  contents: read
+
+env:
+  EXPORT_NAME: CumulativeDeltaScalper-EURUSD-v1-project-export
+
+jobs:
+  export-project:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout cds-eurusd-v1
+        uses: actions/checkout@v4
+        with:
+          ref: cds-eurusd-v1
+
+      - name: Prepare export folder
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf "$EXPORT_NAME"
+          mkdir -p "$EXPORT_NAME"
+
+          # Core cBot project
+          cp -R CumulativeDeltaScalper-EURUSD-v1 "$EXPORT_NAME/"
+
+          # Relevant workflows for build/backtest/debug/export
+          mkdir -p "$EXPORT_NAME/.github/workflows"
+          cp .github/workflows/cdscalper-eurusd-v1-build-algo.yml "$EXPORT_NAME/.github/workflows/" 2>/dev/null || true
+          cp .github/workflows/cdscalper-eurusd-v1-backtest-30d.yml "$EXPORT_NAME/.github/workflows/" 2>/dev/null || true
+          cp .github/workflows/cdscalper-eurusd-v1-backtest-30d-diagnostic.yml "$EXPORT_NAME/.github/workflows/" 2>/dev/null || true
+          cp .github/workflows/cdscalper-eurusd-v1-backtest-1y.yml "$EXPORT_NAME/.github/workflows/" 2>/dev/null || true
+          cp .github/workflows/export-cdscalper-eurusd-v1-project.yml "$EXPORT_NAME/.github/workflows/" 2>/dev/null || true
+
+          cat > "$EXPORT_NAME/EXPORT_README.md" <<'EOF'
+# CumulativeDeltaScalper-EURUSD-v1 Project Export
+
+This export was generated from branch `cds-eurusd-v1` in `rbhnm859/Ouroboros-Cloud-Build`.
+
+Included:
+- Full `CumulativeDeltaScalper-EURUSD-v1` project folder
+- Source code
+- Build output folder if present
+- Presets
+- Backtest JSON files
+- Reports
+- Relevant GitHub Actions workflows
+
+Important current status:
+- The `.algo` build pipeline previously succeeded.
+- EURUSD M1 30D backtest completed but produced 0 trades.
+- Relaxed diagnostic backtest also completed but produced 0 trades.
+- Current debug direction: add/fix a bar-delta fallback or change delta source because tick-delta does not appear to accumulate under cTrader CLI `--data-mode=m1`.
+EOF
+
+      - name: Create ZIP
+        shell: bash
+        run: |
+          set -euo pipefail
+          zip -r "$EXPORT_NAME.zip" "$EXPORT_NAME"
+          sha256sum "$EXPORT_NAME.zip" > "$EXPORT_NAME.zip.sha256"
+          ls -lh "$EXPORT_NAME.zip" "$EXPORT_NAME.zip.sha256"
+
+      - name: Upload export artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: CumulativeDeltaScalper-EURUSD-v1-project-export
+          path: |
+            CumulativeDeltaScalper-EURUSD-v1-project-export.zip
+            CumulativeDeltaScalper-EURUSD-v1-project-export.zip.sha256
+          retention-days: 14
