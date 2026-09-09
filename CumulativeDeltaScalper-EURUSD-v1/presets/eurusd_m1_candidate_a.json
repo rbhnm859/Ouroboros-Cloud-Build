@@ -1,0 +1,55 @@
+{
+  "schema_version": 1,
+  "bot": "CumulativeDeltaScalper-EURUSD-v1",
+  "preset_name": "EURUSD_M1_Candidate_A_guarded_fallback",
+  "purpose": "First optimization candidate after the bar-delta fallback diagnostic produced trades. This preset keeps the fallback but tightens filters to reduce overtrading and make results more suitable for controlled optimization.",
+  "symbol": "EURUSD",
+  "timeframe": "M1",
+  "risk_profile": "diagnostic-to-candidate; not final live preset",
+  "parameters": {
+    "DeltaThreshold": 85,
+    "MinConfirmations": 2,
+    "UseBarDeltaFallback": true,
+    "FallbackBelowTickDelta": 3,
+    "BarDeltaPointMultiplier": 2.0,
+    "UseSessionFilter": true,
+    "OverlapOnly": true,
+    "SessionStartHour": 12,
+    "SessionStartMinute": 30,
+    "SessionEndHour": 16,
+    "SessionEndMinute": 0,
+    "UseHtfEmaFilter": true,
+    "EmaSlopeBars": 2,
+    "AdxThreshold": 12.0,
+    "MinAtr": 0.00005,
+    "MaxAtr": 0.00150,
+    "MaxSpreadPoints": 25,
+    "SpreadAvgMultiplier": 2.5,
+    "MaxDailyTrades": 12,
+    "MaxDailyLossPercent": 20,
+    "MaxDailyLossMoney": 5,
+    "DailyProfitTargetMoney": 8,
+    "MaxConsecutiveLosses": 4,
+    "MinSecondsBetweenTrades": 180,
+    "LossCooldownMinutes": 20,
+    "MaxTradeSeconds": 3600,
+    "UseBreakeven": true,
+    "AdverseDeltaExit": true
+  },
+  "expected_effect": {
+    "trade_count": "lower than the 1121-trade fallback diagnostic",
+    "quality_goal": "keep positive return while improving risk discipline and reducing noise trades",
+    "acceptance_gate": {
+      "total_trades_min": 30,
+      "profit_factor_min": 1.15,
+      "win_rate_min_percent": 55,
+      "max_drawdown_max_percent": 12,
+      "return_percent_min": 5
+    }
+  },
+  "notes": [
+    "The previous diagnostic forced fallback with FallbackBelowTickDelta=999; this candidate only falls back when tick delta is near zero.",
+    "This is not a final live-money preset. It is the first guarded candidate to see whether the newly fixed entry engine can remain profitable after stricter filters.",
+    "If trades drop to zero again, increase FallbackBelowTickDelta to 10 or disable one filter at a time instead of reverting to the fully loose diagnostic."
+  ]
+}
