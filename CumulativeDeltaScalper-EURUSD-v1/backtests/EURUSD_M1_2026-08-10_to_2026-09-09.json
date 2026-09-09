@@ -1,0 +1,44 @@
+{
+  "schema_version": 2,
+  "bot": "CumulativeDeltaScalper-EURUSD-v1",
+  "symbol": "EURUSD",
+  "timeframe": "M1",
+  "period": {
+    "start": "2026-08-10",
+    "end": "2026-09-09",
+    "timezone": "UTC",
+    "end_inclusive": false
+  },
+  "parameter_source": "CumulativeDeltaScalper-EURUSD-v1/presets/eurusd_m1_conservative.json",
+  "execution": {
+    "environment": "GitHub Actions ubuntu-latest",
+    "engine": "ghcr.io/spotware/ctrader-console:5.9.11",
+    "starting_balance_usd": 100.0,
+    "artifact_path": "CumulativeDeltaScalper-EURUSD-v1/builds/CumulativeDeltaScalper_EURUSD_v1.algo"
+  },
+  "backtest": {
+    "status": "failed_no_report_json",
+    "data_source": "none",
+    "metrics": {
+      "initial_balance": 100.0,
+      "final_balance": null,
+      "net_profit": null,
+      "return_percent": null,
+      "profit_factor": null,
+      "win_rate": null,
+      "max_drawdown": null,
+      "total_trades": null,
+      "average_trade": null,
+      "largest_win": null,
+      "largest_loss": null,
+      "gross_profit": null,
+      "gross_loss": null
+    },
+    "is_suitable_for_further_optimization": false
+  },
+  "errors": [
+    "cTrader console did not produce backtest/reports/EURUSD-M1-30D.json"
+  ],
+  "generated_by": "GitHub Actions workflow cdscalper-eurusd-v1-backtest-30d.yml",
+  "generated_at": "2026-09-09"
+}
