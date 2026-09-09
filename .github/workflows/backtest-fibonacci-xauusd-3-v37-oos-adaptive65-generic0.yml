@@ -1,0 +1,171 @@
+name: Fibonacci XAUUSD 3 - v3.7 OOS Adaptive65 Generic0
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [fibonacci-xauusd-v3-hybrid]
+    paths:
+      - '.github/workflows/backtest-fibonacci-xauusd-3-v37-oos-adaptive65-generic0.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker pull ghcr.io/spotware/ctrader-console:5.9.11
+      - name: Patch candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          ROOT='FibonacciHarmonicSniperUltimate/versions/xauusd_3'
+          python3 "$ROOT/tools/patch_v36_candidate.py"
+          python3 "$ROOT/tools/patch_v37_quality_retest_candidate.py"
+          grep -q 'v3.7.0-quality-retest-candidate' "$ROOT/src/FibonacciXAUUSD3.cs"
+      - name: Build
+        shell: bash
+        run: |
+          set -euo pipefail
+          ROOT='FibonacciHarmonicSniperUltimate/versions/xauusd_3'
+          docker run --rm --entrypoint sh -v "$PWD:/repo" -w /repo ghcr.io/spotware/ctrader-console:5.9.11 -c "dotnet restore $ROOT/FibonacciXAUUSD3.csproj && dotnet build $ROOT/FibonacciXAUUSD3.csproj -c Release --no-restore -p:AlgoPublish=False -p:IncludeSource=True"
+          mkdir -p package
+          cp "$(find "$ROOT" -type f -name '*.algo' -print -quit)" package/FibonacciXAUUSD3-v3.7-OOS-Candidate.algo
+          cp "$ROOT/src/FibonacciXAUUSD3.cs" package/FibonacciXAUUSD3-v3.7-OOS-Candidate.cs
+          sha256sum package/FibonacciXAUUSD3-v3.7-OOS-Candidate.algo > package/algo.sha256
+      - uses: actions/upload-artifact@v4
+        with:
+          name: xauusd_3-v37-oos-build
+          path: package/
+          retention-days: 30
+
+  backtest:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        variant: [base, adaptive65-generic0]
+        cost: [standard, harsh]
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: xauusd_3-v37-oos-build
+          path: work
+      - run: docker pull ghcr.io/spotware/ctrader-console:5.9.11
+      - name: Credentials
+        env:
+          CTRADER_PASSWORD: ${{ secrets.CTRADER_PASSWORD }}
+        run: |
+          test -n "${CTRADER_PASSWORD:-}"
+          printf '%s' "$CTRADER_PASSWORD" > work/ctrader.pwd
+      - name: Backtest untouched OOS
+        env:
+          CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+          CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          case '${{ matrix.variant }}' in
+            base) ACTUAL=false; FINAL=60; GEN=false ;;
+            adaptive65-generic0) ACTUAL=true; FINAL=65; GEN=true ;;
+            *) exit 2 ;;
+          esac
+          case '${{ matrix.cost }}' in
+            standard) SPREAD='17.42'; COMMISSION='35' ;;
+            harsh) SPREAD='30'; COMMISSION='50' ;;
+            *) exit 2 ;;
+          esac
+          mkdir -p work/reports work/cache
+          LABEL='${{ matrix.variant }}-${{ matrix.cost }}'
+          docker run --rm -v "$PWD/work:/work" \
+            -e "CTID=$CTRADER_CTID" -e 'PWD-FILE=/work/ctrader.pwd' -e "ACCOUNT=$CTRADER_ACCOUNT" \
+            ghcr.io/spotware/ctrader-console:5.9.11 \
+            backtest /work/FibonacciXAUUSD3-v3.7-OOS-Candidate.algo \
+            --environment-variables --exit-on-stop \
+            --symbol=XAUUSD --period=m5 \
+            --start='09/03/2026' --end='09/09/2026' --balance=10000 \
+            --data-mode=m1 --data-dir=/work/cache \
+            --commission="$COMMISSION" --spread="$SPREAD" \
+            --RiskPercent=0.50 --MaxDailyLossPercent=3 --MinimumRiskReward=1.5 \
+            --PreScoreMin=42 --FinalScoreMin="$FINAL" --M5PreScoreFloor=50 --M5RulesNeeded=2 \
+            --MinImpulseAtr=1.2 --MinStopAtr=0.20 --MaxAllowedRR=8 \
+            --BuyH1MinScore=18 --BlockLondonEntries=true \
+            --RequireH1AtrExpansion=true --H1AtrExpansionMin=1.15 \
+            --TakeProfitMultiplier=1.00 --EnableBreakeven=false \
+            --NeutralizeGenericHarmonic="$GEN" --RecheckSpreadAtEntry=false \
+            --MaxArmsPerStructure=1 --UseActualM5RuleScore="$ACTUAL" \
+            --report="/work/reports/${LABEL}.html" \
+            --report-json="/work/reports/${LABEL}.json" \
+            2>&1 | tee "work/reports/${LABEL}.log"
+          test -s "work/reports/${LABEL}.json"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: xauusd_3-v37-oos-${{ matrix.variant }}-${{ matrix.cost }}
+          path: work/reports/
+          retention-days: 30
+
+  aggregate:
+    needs: backtest
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: xauusd_3-v37-oos-build
+          path: package
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: xauusd_3-v37-oos-*
+          path: reports
+          merge-multiple: true
+      - name: Aggregate OOS
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import datetime, json
+          from pathlib import Path
+          rows=[]
+          out=['# xauusd_3 v3.7 Untouched OOS Validation','',
+               'OOS: 2026-03-09 to 2026-09-09. Candidate was selected using only the earlier IS half.','',
+               '| Variant | Cost | Trades | W | L | Net | ROI % | PF | DD % | Overlap | Hedge | London |',
+               '|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|']
+          for v in ['base','adaptive65-generic0']:
+              for c in ['standard','harsh']:
+                  d=json.loads(Path(f'reports/{v}-{c}.json').read_text())
+                  ts=d['tradeStatistics']; main=d['main']; eq=d['equity']; hist=d['history']['items']
+                  spans=sorted((int(x['entryTime']),int(x['closeTime']),x['direction']) for x in hist)
+                  overlap=hedge=0
+                  for i,a in enumerate(spans):
+                      for b in spans[i+1:]:
+                          if b[0]>=a[1]: break
+                          overlap+=1; hedge+=int(a[2]!=b[2])
+                  london=sum(1 for x in hist if 7 <= datetime.datetime.fromtimestamp(int(x['entryTime'])/1000,datetime.timezone.utc).hour < 13)
+                  r=dict(v=v,c=c,trades=int(ts['totalTrades']['all']),wins=int(ts['winningTrades']['all']),losses=int(ts['losingTrades']['all']),net=float(main['netProfit']),roi=float(main['roi']),pf=float(ts['profitFactor']['all']),dd=float(eq['maxEquityDrawdownPercent']),overlap=overlap,hedge=hedge,london=london)
+                  rows.append(r)
+                  out.append(f"| {v} | {c} | {r['trades']} | {r['wins']} | {r['losses']} | {r['net']:.2f} | {r['roi']:.2f} | {r['pf']:.2f} | {r['dd']:.2f} | {overlap} | {hedge} | {london} |")
+          out += ['', '## Candidate deltas vs baseline', '', '| Cost | ΔTrades | ΔNet | ΔROI | ΔPF | ΔDD |', '|---|---:|---:|---:|---:|---:|']
+          for c in ['standard','harsh']:
+              a=next(r for r in rows if r['v']=='base' and r['c']==c)
+              b=next(r for r in rows if r['v']=='adaptive65-generic0' and r['c']==c)
+              out.append(f"| {c} | {b['trades']-a['trades']} | {b['net']-a['net']:.2f} | {b['roi']-a['roi']:.2f} | {b['pf']-a['pf']:.2f} | {b['dd']-a['dd']:.2f} |")
+          base_s=next(r for r in rows if r['v']=='base' and r['c']=='standard'); base_h=next(r for r in rows if r['v']=='base' and r['c']=='harsh')
+          cand_s=next(r for r in rows if r['v']=='adaptive65-generic0' and r['c']=='standard'); cand_h=next(r for r in rows if r['v']=='adaptive65-generic0' and r['c']=='harsh')
+          safety=all(r['overlap']==0 and r['hedge']==0 and r['london']==0 for r in rows)
+          pass_gate=(safety and cand_s['net']>0 and cand_h['net']>0 and cand_s['pf']>1 and cand_h['pf']>1 and cand_h['roi']>=base_h['roi']*0.90 and cand_h['pf']>=base_h['pf']*0.90 and cand_h['dd']<=base_h['dd']*1.10 and cand_h['trades']>=max(10,int(base_h['trades']*0.55)))
+          out += ['', '## OOS promotion gate', '', f'- Safety invariants: {safety}', f'- Candidate passes conservative OOS gate: {pass_gate}', '- Passing this gate is necessary, not sufficient; full-year confirmation is still required.']
+          Path('V37_OOS_SUMMARY.md').write_text('\n'.join(out)+'\n')
+          print('\n'.join(out))
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: xauusd_3-v37-oos-complete
+          path: |
+            package/
+            reports/
+            V37_OOS_SUMMARY.md
+          retention-days: 30
