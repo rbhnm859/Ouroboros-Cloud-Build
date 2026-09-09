@@ -1,0 +1,466 @@
+name: Backtest VSB XAUUSD M15 - 1Y FxPro
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/backtest-vsb-xauusd-m15-1y.yml"
+
+concurrency:
+  group: vsb-xauusd-m15-1y
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  backtest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 330
+    env:
+      PRODUCT_URL: "https://ctrader.com/products/1847"
+      TEST_SYMBOL: "XAUUSD"
+      TEST_PERIOD: "m15"
+      START_DATE: "09/09/2025"
+      END_DATE: "09/09/2026"
+      STARTING_BALANCE: "30"
+      BROKER_NAME: "FxPro"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate cTrader secrets
+        env:
+          CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+          CTRADER_PASSWORD: ${{ secrets.CTRADER_PASSWORD }}
+          CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+        run: |
+          set -euo pipefail
+          for v in CTRADER_CTID CTRADER_PASSWORD CTRADER_ACCOUNT; do
+            if [ -z "${!v:-}" ]; then
+              echo "Missing GitHub Secret: $v"
+              exit 1
+            fi
+          done
+          mkdir -p work/downloads work/reports work/cache work/browser
+          printf '%s' "$CTRADER_PASSWORD" | tr -d '\r\n' > work/ctrader.pwd
+          chmod 600 work/ctrader.pwd
+
+      - name: Install Playwright Chromium
+        run: |
+          npm init -y >/dev/null 2>&1
+          npm install playwright@1.55.0 >/dev/null
+          npx playwright install --with-deps chromium
+
+      - name: Obtain Volatility Sniper Breakout BETA algo from cTrader Store
+        env:
+          CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+          CTRADER_PASSWORD: ${{ secrets.CTRADER_PASSWORD }}
+        run: |
+          cat > work/download-store.mjs <<'NODE'
+          import { chromium } from 'playwright';
+          import fs from 'fs';
+          import path from 'path';
+
+          const out = path.resolve('work/downloads');
+          const diag = path.resolve('work/browser');
+          fs.mkdirSync(out, {recursive:true});
+          fs.mkdirSync(diag, {recursive:true});
+
+          const browser = await chromium.launch({headless:true});
+          const context = await browser.newContext({acceptDownloads:true, locale:'en-US'});
+          const page = await context.newPage();
+
+          async function snap(name) {
+            try { await page.screenshot({path:path.join(diag, `${name}.png`), fullPage:true}); } catch {}
+            try { fs.writeFileSync(path.join(diag, `${name}.html`), await page.content()); } catch {}
+          }
+
+          async function clickText(regex, timeout=5000) {
+            const loc = page.getByText(regex).first();
+            if (await loc.isVisible({timeout}).catch(()=>false)) {
+              await loc.click();
+              return true;
+            }
+            return false;
+          }
+
+          try {
+            await page.goto('https://id.ctrader.com/login?locale=en', {waitUntil:'domcontentloaded', timeout:60000});
+            await snap('01-login');
+            const email = page.getByPlaceholder(/Email or cTrader ID/i).first();
+            const pass = page.getByPlaceholder(/Password/i).first();
+            await email.fill(process.env.CTRADER_CTID);
+            await pass.fill(process.env.CTRADER_PASSWORD);
+            const login = page.getByRole('button', {name:/Log in/i}).last();
+            await login.click();
+            await page.waitForTimeout(4000);
+            await snap('02-after-login');
+
+            await page.goto(process.env.PRODUCT_URL || 'https://ctrader.com/products/1847', {waitUntil:'domcontentloaded', timeout:60000});
+            await page.waitForTimeout(3000);
+            await snap('03-product');
+
+            // If the product has not yet been obtained, the free product exposes Install/Get.
+            for (const rx of [/^Install$/i, /^Get$/i, /Get for free/i, /Free install/i]) {
+              const b = page.getByRole('button', {name:rx}).first();
+              if (await b.isVisible({timeout:1500}).catch(()=>false)) {
+                await b.click();
+                await page.waitForTimeout(4000);
+                break;
+              }
+            }
+            await snap('04-product-after-install');
+
+            // Prefer navigation through the account menu because Store URLs may change.
+            let purchasePageFound = false;
+            const accountCandidates = [
+              page.getByRole('button', {name:/Account|Profile|User/i}).first(),
+              page.locator('header button').last(),
+              page.locator('header [role="button"]').last()
+            ];
+            for (const c of accountCandidates) {
+              if (await c.isVisible({timeout:1200}).catch(()=>false)) {
+                try {
+                  await c.click();
+                  await page.waitForTimeout(500);
+                  if (await clickText(/Finances/i, 1200)) {
+                    await page.waitForTimeout(800);
+                    if (await clickText(/Purchases/i, 2000)) purchasePageFound = true;
+                  } else if (await clickText(/Purchases/i, 1500)) {
+                    purchasePageFound = true;
+                  }
+                  if (purchasePageFound) break;
+                } catch {}
+              }
+            }
+
+            if (!purchasePageFound) {
+              const candidates = [
+                'https://ctrader.com/account/finances/purchases',
+                'https://ctrader.com/finances/purchases',
+                'https://ctrader.com/account/purchases',
+                'https://ctrader.com/purchases'
+              ];
+              for (const u of candidates) {
+                try {
+                  await page.goto(u, {waitUntil:'domcontentloaded', timeout:30000});
+                  await page.waitForTimeout(1500);
+                  const body = await page.locator('body').innerText();
+                  if (/Purchases/i.test(body) && !/404|not found/i.test(body)) {
+                    purchasePageFound = true;
+                    break;
+                  }
+                } catch {}
+              }
+            }
+
+            await page.waitForTimeout(2000);
+            await snap('05-purchases');
+            const bodyText = await page.locator('body').innerText().catch(()=> '');
+            if (!/Volatility Sniper Breakout BETA/i.test(bodyText)) {
+              throw new Error('VSB product was not visible in Purchases after login/install attempt.');
+            }
+
+            const productText = page.getByText(/Volatility Sniper Breakout BETA/i).first();
+            const card = productText.locator('xpath=ancestor::*[self::div or self::li or self::tr][.//button][1]');
+            let downloaded = false;
+
+            async function attemptDownloadFrom(scope) {
+              // Direct Download link/button first.
+              const direct = scope.getByText(/^Download$/i).first();
+              if (await direct.isVisible({timeout:1200}).catch(()=>false)) {
+                const d = await Promise.race([
+                  page.waitForEvent('download', {timeout:15000}),
+                  direct.click().then(()=>null)
+                ]).catch(()=>null);
+                if (d) {
+                  await d.saveAs(path.join(out, d.suggestedFilename()));
+                  return true;
+                }
+              }
+
+              const buttons = scope.locator('button');
+              const n = await buttons.count();
+              for (let i=Math.max(0,n-4); i<n; i++) {
+                const b = buttons.nth(i);
+                if (!await b.isVisible().catch(()=>false)) continue;
+                try {
+                  await b.click();
+                  await page.waitForTimeout(500);
+                  const dl = page.getByText(/^Download$/i).last();
+                  if (await dl.isVisible({timeout:1000}).catch(()=>false)) {
+                    const p = page.waitForEvent('download', {timeout:20000});
+                    await dl.click();
+                    const d = await p;
+                    await d.saveAs(path.join(out, d.suggestedFilename()));
+                    return true;
+                  }
+                  await page.keyboard.press('Escape').catch(()=>{});
+                } catch {}
+              }
+              return false;
+            }
+
+            if (await card.count()) downloaded = await attemptDownloadFrom(card);
+            if (!downloaded) downloaded = await attemptDownloadFrom(page);
+
+            await page.waitForTimeout(1000);
+            await snap('06-after-download');
+            const algos = fs.readdirSync(out).filter(x=>x.toLowerCase().endsWith('.algo'));
+            if (!downloaded && algos.length === 0) throw new Error('Could not trigger algo download from Purchases.');
+            if (algos.length === 0) throw new Error('Download completed but no .algo file was found.');
+            console.log('Downloaded:', algos.join(', '));
+          } catch (e) {
+            console.error(e?.stack || e);
+            await snap('99-failure');
+            process.exitCode = 1;
+          } finally {
+            await browser.close();
+          }
+          NODE
+          node work/download-store.mjs
+
+      - name: Locate protected algo
+        run: |
+          set -euo pipefail
+          ALGO="$(find work/downloads -maxdepth 2 -type f -iname '*.algo' -print -quit)"
+          if [ -z "$ALGO" ]; then
+            echo "No .algo found"
+            exit 1
+          fi
+          cp "$ALGO" work/VSB.algo
+          ls -lh work/VSB.algo
+
+      - name: Verify FxPro account and XAUUSD symbol
+        env:
+          CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+          CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+        run: |
+          set -euo pipefail
+          CTID="$(printf '%s' "$CTRADER_CTID" | tr -d '[:space:]')"
+          ACCOUNT="$(printf '%s' "$CTRADER_ACCOUNT" | tr -d '[:space:]')"
+          docker run --rm \
+            -v "$PWD/work:/work" \
+            ghcr.io/spotware/ctrader-console:latest \
+            accounts --ctid="$CTID" --pwd-file=/work/ctrader.pwd --broker="$BROKER_NAME" \
+            | tee work/reports/accounts.json
+          docker run --rm \
+            -v "$PWD/work:/work" \
+            ghcr.io/spotware/ctrader-console:latest \
+            symbols --ctid="$CTID" --pwd-file=/work/ctrader.pwd --account="$ACCOUNT" --broker="$BROKER_NAME" \
+            | tee work/reports/symbols.json
+          grep -qi 'XAUUSD' work/reports/symbols.json
+
+      - name: Read VSB metadata
+        run: |
+          docker run --rm -v "$PWD/work:/work" ghcr.io/spotware/ctrader-console:latest \
+            metadata /work/VSB.algo | tee work/reports/metadata.json
+
+      - name: Build parameter set from uploaded-video settings
+        run: |
+          python3 - <<'PY'
+          import json, re, pathlib, sys
+          meta_path = pathlib.Path('work/reports/metadata.json')
+          text = meta_path.read_text(errors='replace')
+          start = text.find('{')
+          end = text.rfind('}')
+          if start < 0 or end < start:
+              raise SystemExit('metadata output did not contain JSON')
+          meta = json.loads(text[start:end+1])
+          params = meta.get('Parameters', [])
+
+          def norm(s):
+              return re.sub(r'[^a-z0-9]+','', str(s).lower())
+
+          by_friendly = {norm(p.get('FriendlyName','')): p for p in params}
+          by_prop = {norm(p.get('PropertyName','')): p for p in params}
+
+          desired = [
+            (['Bot Label','BotLabel'], 'VSB_xauusd'),
+            (['Debug Logging','DebugLogging'], True),
+            (['Trading Enabled','TradingEnabled'], True),
+            (['Use UTC Offset (hours)','Use UTC Offset','UtcOffsetHours','UseUtcOffsetHours'], 0),
+            (['Preset Mode','PresetMode'], 'GoldNY'),
+            (['Export Trades to CSV','ExportTradesToCSV','ExportTradesToCsv'], False),
+            (['CSV Log Path','CSVLogPath','CsvLogPath'], 'VolatilitySniperLog.csv'),
+            (['Show Range Box','ShowRangeBox'], False),
+            (['Show Pending Order Lines','ShowPendingOrderLines'], False),
+            (['Show EMA Filter Line','ShowEMAFilterLine'], False),
+            (['Show ATR Label','ShowATRLabel'], False),
+            (['Show News Blackout Zones','ShowNewsBlackoutZones'], False),
+            (['Build Range Start (HH:mm)','Build Range Start','BuildRangeStart'], '00:00'),
+            (['Build Range End (HH:mm)','Build Range End','BuildRangeEnd'], '07:59'),
+            (['Trade Window Start (HH:mm)','Trade Window Start','TradeWindowStart'], '08:00'),
+            (['Trade Window End (HH:mm)','Trade Window End','TradeWindowEnd'], '21:00'),
+            (['Invalidate Range On New Day','InvalidateRangeOnNewDay'], True),
+            (['Pending Offset (pips)','Pending Offset','PendingOffset','PendingOffsetPips'], 15),
+            (['Refresh Drift Factor','RefreshDriftFactor'], 0.8),
+            (['Cancel Opposite After Fill','CancelOppositeAfterFill'], True),
+            (['Range Min Size (pips)','Range Min Size','RangeMinSize','RangeMinSizePips'], 3000),
+            (['Range Max Size (pips, 0=off)','Range Max Size','RangeMaxSize','RangeMaxSizePips'], 15000),
+            (['Use ATR Filter','UseATRFilter'], True),
+            (['ATR Period','ATRPeriod'], 14),
+            (['ATR Timeframe','ATRTimeframe'], 'h1'),
+            (['Min ATR (pips, 0=off)','Min ATR','MinATR','MinATRPips'], 30),
+            (['Use EMA Trend Filter','UseEMATrendFilter'], True),
+            (['EMA Period','EMAPeriod'], 50),
+            (['EMA Timeframe','EMATimeframe'], 'h1'),
+            (['EMA Slope Required','EMASlopeRequired'], True),
+            (['Use Consolidation Filter','UseConsolidationFilter'], False),
+            (['Consolidation Lookback (bars)','Consolidation Lookback','ConsolidationLookback'], 20),
+            (['Consolidation Max BB Width','ConsolidationMaxBBWidth'], 15),
+            (['Risk % (Balance/Equity)','Risk %','RiskPercent'], 1),
+            (['Risk Source','RiskSource'], 'Equity'),
+            (['Use ATR Stop','UseATRStop'], True),
+            (['ATR SL Multiplier','ATRSLMultiplier'], 1.8),
+            (['Fixed SL (pips, used if ATR off)','Fixed SL','FixedSL','FixedSLPips'], 150),
+            (['Use ATR TP','UseATRTP'], True),
+            (['ATR TP Multiplier','ATRTPMultiplier'], 5.4),
+            (['Fixed TP (pips, used if ATR off)','Fixed TP','FixedTP','FixedTPPips'], 450),
+            (['Enable Breakeven','EnableBreakeven'], True),
+            (['Breakeven Trigger (R multiple)','Breakeven Trigger','BreakevenTrigger'], 2.5),
+            (['Breakeven Lock (pips beyond entry)','Breakeven Lock','BreakevenLock'], 10),
+            (['Enable ATR Trailing','EnableATRTrailing'], False),
+            (['ATR Trail Multiplier','ATRTrailMultiplier'], 3.5),
+            (['Enable News Blackout','EnableNewsBlackout'], True),
+            (['No Trade Before News (min)','NoTradeBeforeNews'], 30),
+            (['No Trade After News (min)','NoTradeAfterNews'], 30),
+            (['News Source','NewsSource'], 'CsvFile'),
+            (['News CSV Path (UTC, ISO...)','News CSV Path','NewsCSVPath'], ''),
+            (['News HTTP JSON URL (UTC...)','News HTTP JSON URL','NewsHTTPJSONURL'], ''),
+            (['Filter By Symbol Currency','FilterBySymbolCurrency'], True),
+            (['Min Impact To Filter (Low/Medium/High)','Min Impact To Filter','MinImpactToFilter'], 'High'),
+            (['Max Trades Per Day (0=unlimited)','Max Trades Per Day','MaxTradesPerDay'], 3),
+            (['Max Daily Loss % (0=off)','Max Daily Loss %','MaxDailyLossPercent'], 5),
+            (['Cooldown After Fill (min)','Cooldown After Fill','CooldownAfterFill'], 30),
+          ]
+
+          values = {}
+          mapping = []
+          missing = []
+          for aliases, value in desired:
+              found = None
+              for a in aliases:
+                  found = by_friendly.get(norm(a)) or by_prop.get(norm(a))
+                  if found: break
+              if not found:
+                  # Conservative fuzzy fallback: exact containment after normalisation.
+                  na = [norm(a) for a in aliases]
+                  candidates = []
+                  for p in params:
+                      keys = [norm(p.get('FriendlyName','')), norm(p.get('PropertyName',''))]
+                      if any(x and (x in k or k in x) for x in na for k in keys):
+                          candidates.append(p)
+                  if len(candidates) == 1:
+                      found = candidates[0]
+              if found:
+                  values[found['PropertyName']] = value
+                  mapping.append((aliases[0], found['PropertyName'], found.get('Type'), value))
+              else:
+                  missing.append(aliases[0])
+
+          out = {'Chart': {'Symbol': 'XAUUSD', 'Period': 'm15'}, 'Parameters': values}
+          pathlib.Path('work/VSB-XAUUSD-M15-video.cbotset').write_text(json.dumps(out, indent=2, ensure_ascii=False))
+          with pathlib.Path('work/reports/parameter-mapping.txt').open('w') as f:
+              for row in mapping: f.write(f'{row[0]} -> {row[1]} [{row[2]}] = {row[3]}\n')
+              if missing:
+                  f.write('\nMISSING:\n' + '\n'.join(missing) + '\n')
+          print(pathlib.Path('work/reports/parameter-mapping.txt').read_text())
+          print(pathlib.Path('work/VSB-XAUUSD-M15-video.cbotset').read_text())
+          # Do not silently run a materially different configuration.
+          critical = [x for x in missing if x not in ('News CSV Path (UTC, ISO...)','News HTTP JSON URL (UTC...)')]
+          if critical:
+              raise SystemExit('Could not map all video parameters: ' + ', '.join(critical))
+          PY
+
+      - name: Backtest 2025-09-09 to 2026-09-09 on FxPro XAUUSD M15
+        env:
+          CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+          CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+        run: |
+          set -euo pipefail
+          CTID="$(printf '%s' "$CTRADER_CTID" | tr -d '[:space:]')"
+          ACCOUNT="$(printf '%s' "$CTRADER_ACCOUNT" | tr -d '[:space:]')"
+          # Tick mode uses broker/server tick history and is the most accurate CLI data mode.
+          # Commission/spread are deliberately not hard-coded because FxPro account pricing differs by account type.
+          docker run --rm \
+            -v "$PWD/work:/work" \
+            ghcr.io/spotware/ctrader-console:latest \
+            backtest /work/VSB.algo /work/VSB-XAUUSD-M15-video.cbotset \
+            --ctid="$CTID" --pwd-file=/work/ctrader.pwd --account="$ACCOUNT" --broker="$BROKER_NAME" \
+            --symbol="$TEST_SYMBOL" --period="$TEST_PERIOD" \
+            --start="$START_DATE" --end="$END_DATE" \
+            --balance="$STARTING_BALANCE" \
+            --data-mode=ticks --data-dir=/work/cache \
+            --report=/work/reports/VSB-XAUUSD-M15-1Y.html \
+            --report-json=/work/reports/VSB-XAUUSD-M15-1Y.json \
+            --full-access --exit-on-stop 2>&1 | tee work/reports/backtest-console.log
+
+      - name: Build concise performance summary
+        if: success()
+        run: |
+          python3 - <<'PY'
+          import json, pathlib, math
+          p=pathlib.Path('work/reports/VSB-XAUUSD-M15-1Y.json')
+          d=json.loads(p.read_text())
+          main=d.get('main',{})
+          equity=d.get('equity',{})
+          items=d.get('history',{}).get('items',[]) or []
+          def num(obj,*keys,default=0.0):
+              for k in keys:
+                  if isinstance(obj,dict) and k in obj:
+                      try:return float(obj[k])
+                      except:pass
+              return default
+          nets=[]
+          for x in items:
+              nets.append(num(x,'net','netProfit','profit'))
+          trades=len(items)
+          wins=sum(x>0 for x in nets)
+          losses=sum(x<0 for x in nets)
+          net=num(main,'netProfit',default=sum(nets))
+          gp=sum(x for x in nets if x>0); gl=-sum(x for x in nets if x<0)
+          pf=gp/gl if gl else (float('inf') if gp else 0.0)
+          wr=wins/trades*100 if trades else 0
+          roi=net/30*100
+          dd=num(equity,'maxEquityDrawdownPercent','maxEquityDrawdownPercentages','maxDrawdownPercent')
+          bal=num(main,'endingBalance','balance',default=30+net)
+          lines=[
+            '# VSB XAUUSD M15 — FxPro 1Y Backtest',
+            '',
+            'Period: 2025-09-09 to 2026-09-09 UTC',
+            'Initial balance: USD 30',
+            'Symbol / timeframe: XAUUSD / M15',
+            'Data mode: broker/server ticks',
+            f'Trades: {trades}',
+            f'Wins: {wins}',
+            f'Losses: {losses}',
+            f'Win rate: {wr:.2f}%',
+            f'Net profit: ${net:.2f}',
+            f'ROI: {roi:.2f}%',
+            f'Ending balance: ${bal:.2f}',
+            f'Profit factor: {pf:.2f}' if math.isfinite(pf) else 'Profit factor: inf',
+            f'Max equity drawdown: {dd:.2f}%',
+          ]
+          pathlib.Path('work/reports/SUMMARY.md').write_text('\n'.join(lines)+'\n')
+          print('\n'.join(lines))
+          PY
+
+      - name: Remove credentials
+        if: always()
+        run: rm -f work/ctrader.pwd
+
+      - name: Upload reports and diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: VSB-XAUUSD-M15-FxPro-1Y
+          path: |
+            work/reports/
+            work/browser/
+            work/VSB-XAUUSD-M15-video.cbotset
+          if-no-files-found: warn
+          retention-days: 14
