@@ -27,13 +27,9 @@ env:
   BUILD_MD: 'CumulativeDeltaScalper-EURUSD-v1/reports/build_result.md'
 
 jobs:
-  build-and-diagnostic-backtest:
-    runs-on: ubuntu-latest
-    timeout-minutes: 60
-    env:
-      CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
-      CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
-      CTRADER_PASSWORD: ${{ secrets.CTRADER_PASSWORD }}
+  build-patched-algo:
+    runs-on: windows-latest
+    timeout-minutes: 30
     steps:
       - name: Checkout cds-eurusd-v1
         uses: actions/checkout@v4
@@ -45,42 +41,78 @@ jobs:
         with:
           dotnet-version: '7.0.x'
 
-      - name: Build patched .algo
+      - name: Build patched .algo on Windows
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $root = 'CumulativeDeltaScalper-EURUSD-v1'
+          $project = Join-Path $root 'CumulativeDeltaScalper_EURUSD_v1.csproj'
+          $builds = Join-Path $root 'builds'
+          New-Item -ItemType Directory -Force -Path $builds | Out-Null
+          dotnet --info
+          dotnet restore $project
+          dotnet build $project -c Release -p:AlgoName=CumulativeDeltaScalper_EURUSD_v1 -p:AlgoBuild=true -p:AlgoPublish=false -p:IncludeSource=true
+          $algos = Get-ChildItem -Path $root -Recurse -Filter '*.algo' -ErrorAction SilentlyContinue
+          if (-not $algos -or $algos.Count -eq 0) {
+            Write-Host 'No .algo file generated.'
+            exit 1
+          }
+          $selected = $algos | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+          $target = Join-Path $builds 'CumulativeDeltaScalper_EURUSD_v1.algo'
+          Copy-Item $selected.FullName $target -Force
+          $hash = Get-FileHash -Algorithm SHA256 $target
+          Set-Content -Path (Join-Path $builds 'CumulativeDeltaScalper_EURUSD_v1.algo.sha256') -Value "$($hash.Hash.ToLower())  CumulativeDeltaScalper_EURUSD_v1.algo" -Encoding UTF8
+          Write-Host "Generated .algo: $target"
+          Write-Host "SHA256: $($hash.Hash.ToLower())"
+
+      - name: Upload patched .algo build
+        uses: actions/upload-artifact@v4
+        with:
+          name: patched-algo-build
+          path: |
+            CumulativeDeltaScalper-EURUSD-v1/builds/CumulativeDeltaScalper_EURUSD_v1.algo
+            CumulativeDeltaScalper-EURUSD-v1/builds/CumulativeDeltaScalper_EURUSD_v1.algo.sha256
+          retention-days: 14
+
+  fallback-diagnostic-backtest:
+    runs-on: ubuntu-latest
+    needs: build-patched-algo
+    timeout-minutes: 60
+    env:
+      CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+      CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+      CTRADER_PASSWORD: ${{ secrets.CTRADER_PASSWORD }}
+    steps:
+      - name: Checkout cds-eurusd-v1
+        uses: actions/checkout@v4
+        with:
+          ref: cds-eurusd-v1
+
+      - name: Download patched .algo build
+        uses: actions/download-artifact@v4
+        with:
+          name: patched-algo-build
+          path: patched-algo-build
+
+      - name: Prepare build artifact and preflight
         shell: bash
         run: |
           set -euo pipefail
-          ROOT='CumulativeDeltaScalper-EURUSD-v1'
-          PROJECT="$ROOT/CumulativeDeltaScalper_EURUSD_v1.csproj"
-          mkdir -p "$ROOT/builds" "$ROOT/reports"
-          dotnet --info
-          dotnet restore "$PROJECT"
-          dotnet build "$PROJECT" -c Release -p:AlgoName=CumulativeDeltaScalper_EURUSD_v1 -p:AlgoBuild=true -p:AlgoPublish=false -p:IncludeSource=true
-          ALGOS=$(find "$ROOT" -type f -name '*.algo' | sort)
-          if [ -z "$ALGOS" ]; then
-            echo 'No .algo file generated.'
-            exit 1
-          fi
-          SELECTED=$(echo "$ALGOS" | tail -n 1)
-          cp "$SELECTED" "$ROOT/builds/CumulativeDeltaScalper_EURUSD_v1.algo"
-          sha256sum "$ROOT/builds/CumulativeDeltaScalper_EURUSD_v1.algo" > "$ROOT/builds/CumulativeDeltaScalper_EURUSD_v1.algo.sha256"
+          mkdir -p CumulativeDeltaScalper-EURUSD-v1/builds CumulativeDeltaScalper-EURUSD-v1/backtests CumulativeDeltaScalper-EURUSD-v1/reports backtest/reports backtest/cache/EURUSD
+          cp patched-algo-build/CumulativeDeltaScalper-EURUSD-v1/builds/CumulativeDeltaScalper_EURUSD_v1.algo CumulativeDeltaScalper-EURUSD-v1/builds/CumulativeDeltaScalper_EURUSD_v1.algo
+          cp patched-algo-build/CumulativeDeltaScalper-EURUSD-v1/builds/CumulativeDeltaScalper_EURUSD_v1.algo.sha256 CumulativeDeltaScalper-EURUSD-v1/builds/CumulativeDeltaScalper_EURUSD_v1.algo.sha256
           cat > "$BUILD_MD" <<EOF
           # Build Result
 
           - Workflow: cdscalper-eurusd-v1-backtest-30d-diagnostic.yml
-          - Runner: ubuntu-latest
+          - Build runner: windows-latest
+          - Backtest runner: ubuntu-latest
           - Build method: dotnet build + cTrader.Automate NuGet
           - Status: success
-          - Patch: bar delta fallback enabled in source
+          - Source patch: bar delta fallback for M1 diagnostic backtests
           - Artifact: CumulativeDeltaScalper-EURUSD-v1/builds/CumulativeDeltaScalper_EURUSD_v1.algo
           - Generated at: $(date -u +%Y-%m-%dT%H:%M:%SZ)
           EOF
-
-      - name: Preflight
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p CumulativeDeltaScalper-EURUSD-v1/backtests CumulativeDeltaScalper-EURUSD-v1/reports backtest/reports backtest/cache/EURUSD
-          test -f CumulativeDeltaScalper-EURUSD-v1/builds/CumulativeDeltaScalper_EURUSD_v1.algo
           if [ -z "${CTRADER_CTID:-}" ] || [ -z "${CTRADER_ACCOUNT:-}" ] || [ -z "${CTRADER_PASSWORD:-}" ]; then
             echo 'missing_secrets=true' >> "$GITHUB_ENV"
           else
@@ -197,7 +229,7 @@ jobs:
             classification = "diagnostic_execution_failed"
             suitable = False
             diagnosis = "Diagnostic backtest did not complete with a usable JSON report. Inspect console markers before changing strategy logic again."
-          out = {"schema_version": 5, "bot": "CumulativeDeltaScalper-EURUSD-v1", "run_type": "diagnostic_bar_delta_fallback", "symbol": "EURUSD", "timeframe": "M1", "period": {"start": "2026-08-10", "end": "2026-09-09", "timezone": "UTC", "end_inclusive": False}, "execution": {"environment": "GitHub Actions ubuntu-latest", "engine": "ghcr.io/spotware/ctrader-console:5.9.11", "starting_balance_usd": 100.0, "artifact_path": "CumulativeDeltaScalper-EURUSD-v1/builds/CumulativeDeltaScalper_EURUSD_v1.algo", "ctrader_date_format": "DD/MM/YYYY", "cli_start": "10/08/2026", "cli_end": "09/09/2026", "data_mode": "m1", "source_patch": "bar_delta_fallback"}, "diagnostic_parameters": {"DeltaThreshold": 30, "MinConfirmations": 1, "UseBarDeltaFallback": True, "FallbackBelowTickDelta": 999, "BarDeltaPointMultiplier": 3, "UseSessionFilter": False, "OverlapOnly": False, "UseHtfEmaFilter": False, "AdxThreshold": 0, "MinAtr": 0, "MaxAtr": 0, "MaxSpreadPoints": 100, "MaxDailyTrades": 50, "MinSecondsBetweenTrades": 0, "MaxTradeSeconds": 0, "AdverseDeltaExit": False}, "backtest": {"status": status, "data_source": "cTrader console report json" if status == "completed" else "none", "metrics": metrics, "is_suitable_for_further_optimization": suitable, "debug_classification": classification, "debug_summary": diagnosis}, "raw_report_top_level_keys": raw_report_keys, "errors": errors, "generated_by": "GitHub Actions workflow cdscalper-eurusd-v1-backtest-30d-diagnostic.yml", "generated_at": "2026-09-09"}
+          out = {"schema_version": 5, "bot": "CumulativeDeltaScalper-EURUSD-v1", "run_type": "diagnostic_bar_delta_fallback", "symbol": "EURUSD", "timeframe": "M1", "period": {"start": "2026-08-10", "end": "2026-09-09", "timezone": "UTC", "end_inclusive": False}, "execution": {"environment": "GitHub Actions windows build + ubuntu backtest", "engine": "ghcr.io/spotware/ctrader-console:5.9.11", "starting_balance_usd": 100.0, "artifact_path": "CumulativeDeltaScalper-EURUSD-v1/builds/CumulativeDeltaScalper_EURUSD_v1.algo", "ctrader_date_format": "DD/MM/YYYY", "cli_start": "10/08/2026", "cli_end": "09/09/2026", "data_mode": "m1", "source_patch": "bar_delta_fallback"}, "diagnostic_parameters": {"DeltaThreshold": 30, "MinConfirmations": 1, "UseBarDeltaFallback": True, "FallbackBelowTickDelta": 999, "BarDeltaPointMultiplier": 3, "UseSessionFilter": False, "OverlapOnly": False, "UseHtfEmaFilter": False, "AdxThreshold": 0, "MinAtr": 0, "MaxAtr": 0, "MaxSpreadPoints": 100, "MaxDailyTrades": 50, "MinSecondsBetweenTrades": 0, "MaxTradeSeconds": 0, "AdverseDeltaExit": False}, "backtest": {"status": status, "data_source": "cTrader console report json" if status == "completed" else "none", "metrics": metrics, "is_suitable_for_further_optimization": suitable, "debug_classification": classification, "debug_summary": diagnosis}, "raw_report_top_level_keys": raw_report_keys, "errors": errors, "generated_by": "GitHub Actions workflow cdscalper-eurusd-v1-backtest-30d-diagnostic.yml", "generated_at": "2026-09-09"}
           out_json.write_text(json.dumps(out, indent=2, ensure_ascii=False))
           lines = ["# EURUSD M1 30D Diagnostic 回測摘要", "", "- Bot: CumulativeDeltaScalper-EURUSD-v1", "- Run type: diagnostic_bar_delta_fallback", "- Symbol: EURUSD", "- Timeframe: M1", "- Period: 2026-08-10 ~ 2026-09-09 UTC", "- cTrader CLI date args: 10/08/2026 ~ 09/09/2026 (DD/MM/YYYY)", f"- Backtest status: {status}", f"- Debug classification: {classification}", "", "## Metrics"]
           for k, v in metrics.items(): lines.append(f"- {k}: {v}")
@@ -213,6 +245,7 @@ jobs:
           set -euo pipefail
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git pull --rebase origin cds-eurusd-v1 || true
           git add CumulativeDeltaScalper-EURUSD-v1/builds/CumulativeDeltaScalper_EURUSD_v1.algo CumulativeDeltaScalper-EURUSD-v1/builds/CumulativeDeltaScalper_EURUSD_v1.algo.sha256 "$BUILD_MD" "$OUT_JSON" "$OUT_MD" || true
           git commit -m 'Build patched algo and run fallback diagnostic backtest' || echo 'No changes to commit'
           git push origin HEAD:cds-eurusd-v1 || true
