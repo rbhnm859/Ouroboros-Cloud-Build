@@ -1,0 +1,115 @@
+{
+  "candidate": "M",
+  "name": "EURUSD M1 Candidate M - Core Limited Runner 30 USD",
+  "base": "Candidate K.1 stable core + Candidate L runner code, without L all-day over-filtering",
+  "objective": "Improve profit factor, recent 1Y behavior, and single-trade upside while preserving the K/K.1 core edge and small-account protection.",
+  "capital_profile": {
+    "starting_balance_usd": 30,
+    "symbol": "EURUSD",
+    "timeframe": "M1",
+    "broker": "FxPro/cTrader-compatible",
+    "risk_style": "FixedMoneyRisk auto-scaled from 100 USD reference"
+  },
+  "professional_assessment": {
+    "direct_all_day_trading": "Rejected. Candidate L proved all-day runner over-filtering produced too few trades and negative ROI.",
+    "selected_direction": "Use K.1 core time window, add limited runner exit and stricter short filters.",
+    "win_rate_policy": "Win rate may fall, but PF, average trade, recent 1Y ROI, max day profit and drawdown must improve or remain acceptable.",
+    "safety_policy": "No grid, no martingale, no DCA, no recovery, no hedging/stacking. One position only with SL/TP. Hard actual loss cap active."
+  },
+  "parameters": {
+    "DeltaThreshold": 125,
+    "MinConfirmations": 3,
+    "UseBarDeltaFallback": true,
+    "FallbackBelowTickDelta": 2,
+    "BarDeltaPointMultiplier": 1.6,
+
+    "UseSessionFilter": true,
+    "OverlapOnly": true,
+    "SessionStartHour": 14,
+    "SessionStartMinute": 0,
+    "SessionEndHour": 14,
+    "SessionEndMinute": 54,
+    "UseSessionQualityFilter": false,
+
+    "UseWeekdayFilter": true,
+    "TradeMonday": true,
+    "TradeTuesday": true,
+    "TradeWednesday": true,
+    "TradeThursday": false,
+    "TradeFriday": true,
+
+    "UseHtfEmaFilter": true,
+    "HtfTimeFrameName": "Minute15",
+    "EmaSlopeBars": 3,
+    "AdxThreshold": 16,
+    "MinAtr": 0.00005,
+    "MaxAtr": 0.00105,
+
+    "UseStrictShortFilter": true,
+    "ShortDeltaBonus": 30,
+    "ShortAdxBonus": 3,
+    "ShortRequireSpreadBelowAverage": true,
+
+    "MaxSpreadPoints": 18,
+    "SpreadAvgMultiplier": 1.8,
+    "SpreadHistorySize": 30,
+
+    "RiskMode": "FixedMoneyRisk",
+    "FixedMoneyRisk": 1.0,
+    "AutoScaleFixedRisk": true,
+    "RiskReferenceBalance": 100,
+    "MinFixedMoneyRisk": 0.05,
+    "MaxLotSize": 0.05,
+    "SlAtrMultiplier": 0.8,
+    "TpAtrMultiplier": 0.4,
+
+    "UseHardActualLossCap": true,
+    "MaxActualTradeLossMoney": 1.0,
+    "SkipIfMinVolumeRiskTooHigh": true,
+
+    "MaxDailyTrades": 5,
+    "MaxDailyLossPercent": 5,
+    "MaxDailyLossMoney": 0.9,
+    "DailyProfitTargetMoney": 0,
+    "UseDailyProfitLock": true,
+    "DailyProfitLockStartMoney": 1.2,
+    "DailyProfitGivebackPercent": 50,
+    "DailyProfitLockFloorMoney": 0.35,
+    "CloseOnDailyProfitLock": false,
+    "MaxConsecutiveLosses": 3,
+    "MinSecondsBetweenTrades": 300,
+    "LossCooldownMinutes": 30,
+
+    "MaxDailyEquityDrawdownMoney": 1.0,
+    "MaxFloatingLossMoney": 1.0,
+    "MaxEquityDrawdownPercent": 15,
+    "CloseOnEquityGuard": true,
+
+    "MaxTradeSeconds": 2700,
+    "UseBreakeven": true,
+    "BreakevenPips": 0.8,
+    "UseRunnerExit": true,
+    "EmergencyTpR": 3.0,
+    "RunnerBreakevenAtR": 0.7,
+    "RunnerProfitLockStartR": 1.0,
+    "RunnerProfitLockR": 0.35,
+    "RunnerTrailStartR": 1.2,
+    "RunnerTrailAtrMultiplier": 0.7,
+    "AdverseDeltaExit": false,
+    "AdverseDeltaCooldownSeconds": 5
+  },
+  "validation_plan": {
+    "backtest_2y": "2024-09-09 to 2026-09-09, 30 USD",
+    "backtest_recent_1y": "2025-09-09 to 2026-09-09, 30 USD",
+    "pass_gate": {
+      "two_year_roi_min_percent": 45,
+      "recent_one_year_roi_min_percent": 8,
+      "profit_factor_min": 1.20,
+      "recent_profit_factor_min": 1.10,
+      "max_drawdown_max_percent": 15,
+      "largest_loss_min_usd": -1.10,
+      "trades_min_2y": 120,
+      "average_win_loss_ratio_min": 1.15
+    }
+  }
+}
