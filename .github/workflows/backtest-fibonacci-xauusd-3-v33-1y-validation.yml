@@ -1,0 +1,139 @@
+name: Fibonacci XAUUSD 3 - v3.3 1Y Robustness
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [fibonacci-xauusd-v3-hybrid]
+    paths:
+      - '.github/workflows/backtest-fibonacci-xauusd-3-v33-1y-validation.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify promoted v3.3 source
+        shell: bash
+        run: |
+          set -euo pipefail
+          SRC='FibonacciHarmonicSniperUltimate/versions/xauusd_3/src/FibonacciXAUUSD3.cs'
+          grep -q 'v3.3.0-london-filter' "$SRC"
+          grep -q 'Block London Entries' "$SRC"
+          grep -q 'Buy H1 Min Score' "$SRC"
+          grep -q 'BrokerMinDistancePips' "$SRC"
+          grep -q 'HasAnySymbolExposure' "$SRC"
+          grep -q '_entryInProgress' "$SRC"
+      - run: docker pull ghcr.io/spotware/ctrader-console:5.9.11
+      - name: Build official cTrader algo
+        shell: bash
+        run: |
+          set -euo pipefail
+          ROOT='FibonacciHarmonicSniperUltimate/versions/xauusd_3'
+          docker run --rm --entrypoint sh -v "$PWD:/repo" -w /repo ghcr.io/spotware/ctrader-console:5.9.11 -c "dotnet restore $ROOT/FibonacciXAUUSD3.csproj && dotnet build $ROOT/FibonacciXAUUSD3.csproj -c Release --no-restore -p:AlgoPublish=False -p:IncludeSource=True"
+          mkdir -p package
+          cp "$(find "$ROOT" -type f -name '*.algo' -print -quit)" package/FibonacciXAUUSD3-v3.3-1Y.algo
+          sha256sum package/FibonacciXAUUSD3-v3.3-1Y.algo > package/algo.sha256
+      - uses: actions/upload-artifact@v4
+        with:
+          name: xauusd_3-v33-1y-build
+          path: package/
+          retention-days: 30
+
+  backtest:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { label: standard, spread: '17.42', commission: '35' }
+          - { label: harsh, spread: '30', commission: '50' }
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: xauusd_3-v33-1y-build
+          path: work
+      - run: docker pull ghcr.io/spotware/ctrader-console:5.9.11
+      - name: Credentials
+        env:
+          CTRADER_PASSWORD: ${{ secrets.CTRADER_PASSWORD }}
+        run: |
+          test -n "${CTRADER_PASSWORD:-}"
+          printf '%s' "$CTRADER_PASSWORD" > work/ctrader.pwd
+      - name: Backtest 1Y ${{ matrix.label }}
+        env:
+          CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+          CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p work/reports work/cache
+          docker run --rm -v "$PWD/work:/work" -e "CTID=$CTRADER_CTID" -e 'PWD-FILE=/work/ctrader.pwd' -e "ACCOUNT=$CTRADER_ACCOUNT" ghcr.io/spotware/ctrader-console:5.9.11 backtest /work/FibonacciXAUUSD3-v3.3-1Y.algo --environment-variables --exit-on-stop --symbol=XAUUSD --period=m5 --start='09/09/2025' --end='09/09/2026' --balance=10000 --data-mode=m1 --data-dir=/work/cache --commission='${{ matrix.commission }}' --spread='${{ matrix.spread }}' --RiskPercent=0.50 --MaxDailyLossPercent=3 --MinimumRiskReward=1.5 --PreScoreMin=42 --FinalScoreMin=60 --MinImpulseAtr=1.2 --MinStopAtr=0.20 --MaxAllowedRR=8 --BuyH1MinScore=18 --BlockLondonEntries=true --report='/work/reports/${{ matrix.label }}.html' --report-json='/work/reports/${{ matrix.label }}.json' 2>&1 | tee 'work/reports/${{ matrix.label }}.log'
+          test -s 'work/reports/${{ matrix.label }}.json'
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: xauusd_3-v33-1y-report-${{ matrix.label }}
+          path: work/reports/
+          retention-days: 30
+
+  aggregate:
+    needs: backtest
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: xauusd_3-v33-1y-build
+          path: package
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: xauusd_3-v33-1y-report-*
+          path: reports
+          merge-multiple: true
+      - name: Aggregate, monthly robustness, and safety audit
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json, datetime, collections
+          from pathlib import Path
+          out=['# xauusd_3 v3.3 1-Year Robustness','', '| Cost | Trades | W | L | Net | ROI % | PF | DD % | Overlap | Hedge | London | Positive Months |','|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|']
+          detail=[]
+          for label in ('standard','harsh'):
+              d=json.loads(Path(f'reports/{label}.json').read_text())
+              ts=d['tradeStatistics']; main=d['main']; eq=d['equity']; hist=d['history']['items']
+              t=int(ts['totalTrades']['all']); w=int(ts['winningTrades']['all']); l=int(ts['losingTrades']['all'])
+              spans=sorted((int(x['entryTime']),int(x['closeTime']),x['direction']) for x in hist)
+              ov=hg=0
+              for i,a in enumerate(spans):
+                  for b in spans[i+1:]:
+                      if b[0]>=a[1]: break
+                      ov+=1; hg+=b[2]!=a[2]
+              london=0
+              months=collections.defaultdict(lambda:[0,0.0])
+              for x in hist:
+                  dt=datetime.datetime.fromtimestamp(int(x['entryTime'])/1000, datetime.timezone.utc)
+                  if 7 <= dt.hour < 13: london += 1
+                  key=f'{dt.year:04d}-{dt.month:02d}'
+                  months[key][0]+=1; months[key][1]+=float(x['net'])
+              pos=sum(1 for _,net in months.values() if net>0)
+              out.append(f"| {label} | {t} | {w} | {l} | {float(main['netProfit']):.2f} | {float(main['roi']):.2f} | {float(ts['profitFactor']['all']):.2f} | {float(eq['maxEquityDrawdownPercent']):.2f} | {ov} | {hg} | {london} | {pos}/{len(months)} |")
+              detail += ['', f'## {label} monthly', '', '| Month | Trades | Net |', '|---|---:|---:|']
+              for k in sorted(months): detail.append(f'| {k} | {months[k][0]} | {months[k][1]:.2f} |')
+              assert ov==0 and hg==0 and london==0
+          Path('V33_1Y_SUMMARY.md').write_text('\n'.join(out+detail)+'\n')
+          print('\n'.join(out+detail))
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: xauusd_3-v33-1y-complete
+          path: |
+            package/
+            reports/
+            V33_1Y_SUMMARY.md
+          retention-days: 30
