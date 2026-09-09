@@ -1,0 +1,78 @@
+{
+  "schema_version": 1,
+  "bot": "CumulativeDeltaScalper-EURUSD-v1",
+  "preset_name": "eurusd_m1_candidate_d_1y_drawdown_guard",
+  "purpose": "Reduce the full-year drawdown and overtrading exposed by Candidate C 1Y while keeping the strategy measurable and positive.",
+  "based_on": {
+    "candidate": "Candidate C balanced guard",
+    "is_result": {
+      "period": "2026-08-10 to 2026-09-09",
+      "return_percent": 16.45,
+      "profit_factor": 1.5071,
+      "win_rate": 68.09,
+      "max_drawdown_percent": 5.74,
+      "total_trades": 94
+    },
+    "oos_result": {
+      "period": "2026-07-10 to 2026-08-10",
+      "return_percent": 14.09,
+      "profit_factor": 1.3756,
+      "win_rate": 64.76,
+      "max_drawdown_percent": 7.52,
+      "total_trades": 105
+    },
+    "one_year_result_problem": {
+      "period": "2025-09-09 to 2026-09-09",
+      "return_percent": 24.65,
+      "profit_factor": 1.0336,
+      "win_rate": 58.88,
+      "max_drawdown_percent": 42.07,
+      "total_trades": 1481,
+      "largest_loss": -16.60
+    }
+  },
+  "candidate_parameters": {
+    "DeltaThreshold": 125,
+    "MinConfirmations": 3,
+    "UseBarDeltaFallback": true,
+    "FallbackBelowTickDelta": 2,
+    "BarDeltaPointMultiplier": 1.6,
+    "UseSessionFilter": true,
+    "OverlapOnly": true,
+    "SessionStartHour": 13,
+    "SessionStartMinute": 0,
+    "SessionEndHour": 15,
+    "SessionEndMinute": 30,
+    "UseHtfEmaFilter": true,
+    "EmaSlopeBars": 3,
+    "AdxThreshold": 16.0,
+    "MinAtr": 0.00005,
+    "MaxAtr": 0.00105,
+    "MaxSpreadPoints": 18,
+    "SpreadAvgMultiplier": 1.8,
+    "MaxDailyTrades": 4,
+    "MaxDailyLossPercent": 6,
+    "MaxDailyLossMoney": 1.8,
+    "DailyProfitTargetMoney": 3.5,
+    "MaxConsecutiveLosses": 2,
+    "MinSecondsBetweenTrades": 900,
+    "LossCooldownMinutes": 45,
+    "MaxTradeSeconds": 1800,
+    "UseBreakeven": true,
+    "BreakevenPips": 1.0,
+    "AdverseDeltaExit": true
+  },
+  "acceptance_gate": {
+    "total_trades_min": 120,
+    "profit_factor_min": 1.15,
+    "win_rate_min_percent": 55,
+    "max_drawdown_max_percent": 20,
+    "return_percent_min": 5
+  },
+  "expected_effect": [
+    "Reduce yearly trade count materially below Candidate C's 1481 trades.",
+    "Avoid the weakest/noisiest M1 fallback signals by increasing DeltaThreshold and requiring 3 confirmations.",
+    "Reduce exposure during volatile periods using lower MaxAtr, lower spread gates and a narrower 13:00-15:30 UTC overlap window.",
+    "Cut large equity drawdown risk using fewer daily trades, lower daily loss money and faster cooldown after losses."
+  ]
+}
