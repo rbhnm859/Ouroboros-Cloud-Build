@@ -1,0 +1,79 @@
+name: BTC Round29 Build Parameter Probe
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ btc-round29-macro-asymmetric-sell ]
+    paths:
+      - 'FibonacciHarmonicSniperUltimate/versions/v0.26.0-btc-round29-macro-asymmetric-sell/**'
+      - '.github/workflows/probe-fibonacci-btc-round29.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fibonacci-btc-round29-probe
+  cancel-in-progress: true
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '6.0.x'
+      - name: Generate Round29 source
+        run: |
+          set -euo pipefail
+          mkdir -p work/r26-src work/r29-src work/build
+          python3 - <<'PYCODE'
+          from pathlib import Path
+          import base64,gzip,hashlib
+          root=Path('FibonacciHarmonicSniperUltimate/versions/v0.17.0-btc-round18-diagnostics')
+          parts=sorted(root.glob('source_payload.part*'))
+          data=gzip.decompress(base64.b64decode(''.join(p.read_text().strip() for p in parts)))
+          expected='5f2b7f31c4b8f0d60f52c4c15869aa75df4ff07d7224af971784137716bc8b93'
+          actual=hashlib.sha256(data).hexdigest()
+          if actual != expected: raise SystemExit(f'Round18 anchor SHA mismatch: {actual}')
+          Path('work/Round18.cs').write_bytes(data)
+          PYCODE
+          python3 FibonacciHarmonicSniperUltimate/versions/v0.20.0-btc-round21-selective-bypass/round21_transform.py work/Round18.cs work/Round21.cs
+          python3 FibonacciHarmonicSniperUltimate/versions/v0.21.0-btc-round22-capital-efficiency/round22_transform.py work/Round21.cs work/Round22.cs
+          python3 FibonacciHarmonicSniperUltimate/versions/v0.23.0-btc-round26-core-refactor/round26_transform.py work/Round22.cs work/r26-src/FibonacciHarmonicSniperUltimate-BTC-Round26-CoreRefactor.cs
+          python3 FibonacciHarmonicSniperUltimate/versions/v0.26.0-btc-round29-macro-asymmetric-sell/round29_transform.py work/r26-src work/r29-src
+          grep -RIn 'Round29\|R29 ' work/r29-src/*.cs | tee work/Round29-Parameters.txt || true
+          cat > work/r29-src/Round29-MacroSell.csproj <<'EOF'
+          <Project Sdk="Microsoft.NET.Sdk">
+            <PropertyGroup>
+              <TargetFramework>net6.0</TargetFramework>
+              <ImplicitUsings>disable</ImplicitUsings>
+              <Nullable>disable</Nullable>
+              <RootNamespace>cAlgo.Robots</RootNamespace>
+              <AlgoName>FibonacciHarmonicSniperUltimate-BTC-Round29-MacroSell</AlgoName>
+            </PropertyGroup>
+            <ItemGroup>
+              <PackageReference Include="cTrader.Automate" Version="1.0.19" />
+            </ItemGroup>
+          </Project>
+          EOF
+      - name: Build Round29 algo
+        run: |
+          set -euo pipefail
+          dotnet restore work/r29-src/Round29-MacroSell.csproj
+          dotnet build work/r29-src/Round29-MacroSell.csproj -c Release --no-restore -p:AlgoPublish=False -p:IncludeSource=True
+          ALGO=$(find work/r29-src/bin/Release -type f -name '*.algo' | head -n1)
+          test -n "$ALGO"
+          cp "$ALGO" work/build/FibonacciHarmonicSniperUltimate-BTC-Round29-MacroSell.algo
+          sha256sum work/build/*.algo | tee work/build/SHA256SUMS.txt
+      - name: Upload Round29 probe artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Fibonacci-BTC-Round29-Probe
+          retention-days: 7
+          path: |
+            work/r29-src/*.cs
+            work/r29-src/*.csproj
+            work/build/*
+            work/Round29-Parameters.txt
