@@ -1,0 +1,187 @@
+name: Fibonacci XAUUSD 3 - v3.7 IS Quality Retest Screen
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [fibonacci-xauusd-v3-hybrid]
+    paths:
+      - '.github/workflows/backtest-fibonacci-xauusd-3-v37-is-quality-retest-screen.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker pull ghcr.io/spotware/ctrader-console:5.9.11
+      - name: Patch v3.6 safety then v3.7 candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          ROOT='FibonacciHarmonicSniperUltimate/versions/xauusd_3'
+          python3 "$ROOT/tools/patch_v36_candidate.py"
+          python3 "$ROOT/tools/patch_v37_quality_retest_candidate.py"
+          grep -q 'v3.7.0-quality-retest-candidate' "$ROOT/src/FibonacciXAUUSD3.cs"
+          grep -q 'Neutralize Generic Harmonic' "$ROOT/src/FibonacciXAUUSD3.cs"
+          grep -q 'Max Arms Per Structure' "$ROOT/src/FibonacciXAUUSD3.cs"
+          grep -q 'Use Actual M5 Rule Score' "$ROOT/src/FibonacciXAUUSD3.cs"
+      - name: Build v3.7 candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          ROOT='FibonacciHarmonicSniperUltimate/versions/xauusd_3'
+          docker run --rm --entrypoint sh -v "$PWD:/repo" -w /repo ghcr.io/spotware/ctrader-console:5.9.11 -c "dotnet restore $ROOT/FibonacciXAUUSD3.csproj && dotnet build $ROOT/FibonacciXAUUSD3.csproj -c Release --no-restore -p:AlgoPublish=False -p:IncludeSource=True"
+          mkdir -p package
+          cp "$(find "$ROOT" -type f -name '*.algo' -print -quit)" package/FibonacciXAUUSD3-v3.7-IS-Candidate.algo
+          cp "$ROOT/src/FibonacciXAUUSD3.cs" package/FibonacciXAUUSD3-v3.7-IS-Candidate.cs
+          sha256sum package/FibonacciXAUUSD3-v3.7-IS-Candidate.algo > package/algo.sha256
+      - uses: actions/upload-artifact@v4
+        with:
+          name: xauusd_3-v37-is-build
+          path: package/
+          retention-days: 30
+
+  screen:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        variant: [base, adaptive65, generic0, rearm2, adaptive65-generic0, adaptive65-rearm2, generic0-rearm2, all3]
+        cost: [standard, harsh]
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: xauusd_3-v37-is-build
+          path: work
+      - run: docker pull ghcr.io/spotware/ctrader-console:5.9.11
+      - name: Credentials
+        env:
+          CTRADER_PASSWORD: ${{ secrets.CTRADER_PASSWORD }}
+        run: |
+          test -n "${CTRADER_PASSWORD:-}"
+          printf '%s' "$CTRADER_PASSWORD" > work/ctrader.pwd
+      - name: Backtest IS ${{ matrix.variant }} ${{ matrix.cost }}
+        env:
+          CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+          CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          GEN=false; ARMS=1; ACTUAL=false; FINAL=60
+          case '${{ matrix.variant }}' in
+            base) ;;
+            adaptive65) ACTUAL=true; FINAL=65 ;;
+            generic0) GEN=true ;;
+            rearm2) ARMS=2 ;;
+            adaptive65-generic0) ACTUAL=true; FINAL=65; GEN=true ;;
+            adaptive65-rearm2) ACTUAL=true; FINAL=65; ARMS=2 ;;
+            generic0-rearm2) GEN=true; ARMS=2 ;;
+            all3) ACTUAL=true; FINAL=65; GEN=true; ARMS=2 ;;
+            *) exit 2 ;;
+          esac
+          case '${{ matrix.cost }}' in
+            standard) SPREAD='17.42'; COMMISSION='35' ;;
+            harsh) SPREAD='30'; COMMISSION='50' ;;
+            *) exit 2 ;;
+          esac
+          mkdir -p work/reports work/cache
+          LABEL='${{ matrix.variant }}-${{ matrix.cost }}'
+          docker run --rm -v "$PWD/work:/work" \
+            -e "CTID=$CTRADER_CTID" -e 'PWD-FILE=/work/ctrader.pwd' -e "ACCOUNT=$CTRADER_ACCOUNT" \
+            ghcr.io/spotware/ctrader-console:5.9.11 \
+            backtest /work/FibonacciXAUUSD3-v3.7-IS-Candidate.algo \
+            --environment-variables --exit-on-stop \
+            --symbol=XAUUSD --period=m5 \
+            --start='09/09/2025' --end='09/03/2026' --balance=10000 \
+            --data-mode=m1 --data-dir=/work/cache \
+            --commission="$COMMISSION" --spread="$SPREAD" \
+            --RiskPercent=0.50 --MaxDailyLossPercent=3 --MinimumRiskReward=1.5 \
+            --PreScoreMin=42 --FinalScoreMin="$FINAL" --M5PreScoreFloor=50 --M5RulesNeeded=2 \
+            --MinImpulseAtr=1.2 --MinStopAtr=0.20 --MaxAllowedRR=8 \
+            --BuyH1MinScore=18 --BlockLondonEntries=true \
+            --RequireH1AtrExpansion=true --H1AtrExpansionMin=1.15 \
+            --TakeProfitMultiplier=1.00 --EnableBreakeven=false \
+            --NeutralizeGenericHarmonic="$GEN" --RecheckSpreadAtEntry=false \
+            --MaxArmsPerStructure="$ARMS" --UseActualM5RuleScore="$ACTUAL" \
+            --report="/work/reports/${LABEL}.html" \
+            --report-json="/work/reports/${LABEL}.json" \
+            2>&1 | tee "work/reports/${LABEL}.log"
+          test -s "work/reports/${LABEL}.json"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: xauusd_3-v37-is-${{ matrix.variant }}-${{ matrix.cost }}
+          path: work/reports/
+          retention-days: 30
+
+  aggregate:
+    needs: screen
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: xauusd_3-v37-is-build
+          path: package
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: xauusd_3-v37-is-*
+          path: reports
+          merge-multiple: true
+      - name: Aggregate IS screen
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import datetime, json
+          from pathlib import Path
+          variants=['base','adaptive65','generic0','rearm2','adaptive65-generic0','adaptive65-rearm2','generic0-rearm2','all3']
+          costs=['standard','harsh']
+          rows=[]
+          out=['# xauusd_3 v3.7 IS Quality + Retest Screen','',
+               'IS: 2025-09-09 to 2026-03-09. Candidate selection must not use the later OOS half.','',
+               '| Variant | Cost | Trades | W | L | Net | ROI % | PF | DD % | Overlap | Hedge | London |',
+               '|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|']
+          for v in variants:
+              for c in costs:
+                  p=Path(f'reports/{v}-{c}.json')
+                  d=json.loads(p.read_text())
+                  ts=d['tradeStatistics']; main=d['main']; eq=d['equity']; hist=d['history']['items']
+                  spans=sorted((int(x['entryTime']),int(x['closeTime']),x['direction']) for x in hist)
+                  overlap=hedge=0
+                  for i,a in enumerate(spans):
+                      for b in spans[i+1:]:
+                          if b[0]>=a[1]: break
+                          overlap+=1; hedge+=int(a[2]!=b[2])
+                  london=sum(1 for x in hist if 7 <= datetime.datetime.fromtimestamp(int(x['entryTime'])/1000,datetime.timezone.utc).hour < 13)
+                  row=dict(v=v,c=c,trades=int(ts['totalTrades']['all']),wins=int(ts['winningTrades']['all']),losses=int(ts['losingTrades']['all']),net=float(main['netProfit']),roi=float(main['roi']),pf=float(ts['profitFactor']['all']),dd=float(eq['maxEquityDrawdownPercent']),overlap=overlap,hedge=hedge,london=london)
+                  rows.append(row)
+                  out.append(f"| {v} | {c} | {row['trades']} | {row['wins']} | {row['losses']} | {row['net']:.2f} | {row['roi']:.2f} | {row['pf']:.2f} | {row['dd']:.2f} | {overlap} | {hedge} | {london} |")
+          out += ['', '## Robust ranking (IS only)', '', '| Rank | Variant | Std ROI | Harsh ROI | Std PF | Harsh PF | Worst DD | Score |', '|---:|---|---:|---:|---:|---:|---:|---:|']
+          ranked=[]
+          for v in variants:
+              s=next(r for r in rows if r['v']==v and r['c']=='standard')
+              h=next(r for r in rows if r['v']==v and r['c']=='harsh')
+              safe=(s['overlap']==0 and s['hedge']==0 and s['london']==0 and h['overlap']==0 and h['hedge']==0 and h['london']==0)
+              viable=safe and s['net']>0 and h['net']>0 and s['pf']>1 and h['pf']>1
+              score=(0.35*s['roi']+0.65*h['roi']+0.8*h['pf']-0.25*max(s['dd'],h['dd'])) if viable else -1e9
+              ranked.append((score,v,s,h))
+          ranked.sort(reverse=True,key=lambda x:x[0])
+          for i,(score,v,s,h) in enumerate(ranked,1):
+              out.append(f"| {i} | {v} | {s['roi']:.2f} | {h['roi']:.2f} | {s['pf']:.2f} | {h['pf']:.2f} | {max(s['dd'],h['dd']):.2f} | {score:.3f} |")
+          out += ['', 'Top IS candidate is only a hypothesis. It must beat baseline on the untouched 2026-03-09 to 2026-09-09 OOS window before promotion.']
+          Path('V37_IS_SCREEN_SUMMARY.md').write_text('\n'.join(out)+'\n')
+          print('\n'.join(out))
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: xauusd_3-v37-is-screen-complete
+          path: |
+            package/
+            reports/
+            V37_IS_SCREEN_SUMMARY.md
+          retention-days: 30
