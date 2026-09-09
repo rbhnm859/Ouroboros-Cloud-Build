@@ -35,6 +35,9 @@ namespace cAlgo.Robots
         [Parameter("Final Score Min", DefaultValue = 60.0, MinValue = 40, MaxValue = 90, Group = "Scoring")]
         public double FinalScoreMin { get; set; }
 
+        [Parameter("M5 PreScore Floor", DefaultValue = 50.0, MinValue = 40, MaxValue = 80, Group = "Scoring")]
+        public double M5PreScoreFloor { get; set; }
+
         [Parameter("Pivot Left", DefaultValue = 2, MinValue = 1, MaxValue = 8, Group = "M15 Structure")]
         public int PivotLeft { get; set; }
 
@@ -95,6 +98,12 @@ namespace cAlgo.Robots
         [Parameter("Block London Entries", DefaultValue = true, Group = "Session")]
         public bool BlockLondonEntries { get; set; }
 
+        [Parameter("Require H1 ATR Expansion", DefaultValue = true, Group = "Regime")]
+        public bool RequireH1AtrExpansion { get; set; }
+
+        [Parameter("H1 ATR14/ATR50 Min", DefaultValue = 1.15, MinValue = 1.00, MaxValue = 2.00, Group = "Regime")]
+        public double H1AtrExpansionMin { get; set; }
+
         private Bars _m15;
         private Bars _h1;
         private DateTime _lastM15ProcessedOpenTime = DateTime.MinValue;
@@ -116,7 +125,7 @@ namespace cAlgo.Robots
             _h1 = MarketData.GetBars(TimeFrame.Hour, SymbolName);
             Positions.Closed += OnPositionClosed;
             ResetDay();
-            Print("VERSION xauusd_3 v3.3.0-london-filter");
+            Print("VERSION xauusd_3 v3.5.0-m5-first-valid");
             Print("[ARCH] H1 regime + M15 Fibonacci/structure + optional harmonic confluence + M5 execution scoring");
             Print("[SAFETY] account-wide symbol exposure lock + pending-order lock + entry mutex; no hedge/no duplicate");
             Print("[SCORE] H1 20 + M15 Fib 20 + M15 Structure 15 + Harmonic 25 + M5 20");
@@ -225,6 +234,12 @@ namespace cAlgo.Robots
             if (_consumed.Contains(key))
                 return;
 
+            double h1AtrRatio = H1AtrExpansionRatio();
+            if (RequireH1AtrExpansion && h1AtrRatio <= H1AtrExpansionMin)
+            {
+                if (DebugLogging) Print("[VOL REGIME REJECT] H1 ATR14/ATR50={0:F3} min>{1:F3}", h1AtrRatio, H1AtrExpansionMin);
+                return;
+            }
             double h1Score = H1RegimeScore(direction);
             if (direction == TradeType.Buy && h1Score < BuyH1MinScore)
             {
@@ -238,7 +253,7 @@ namespace cAlgo.Robots
 
             if (DebugLogging)
                 Print("[SETUP] {0} M15={1:u} pre={2:F1} H1={3:F1}/20 Fib={4:F1}/20 Struct={5:F1}/15 Harm={6:F1}/25 tag={7} zone={8:F2}-{9:F2}", direction, stamp, preScore, h1Score, fibScore, structureScore, harmonic.Score, harmonic.Tag, zoneLow, zoneHigh);
-            if (preScore < PreScoreMin)
+            if (preScore < Math.Max(PreScoreMin, M5PreScoreFloor))
                 return;
 
             _consumed.Add(key);
@@ -298,7 +313,7 @@ namespace cAlgo.Robots
             if (momentum) rules++;
             if (rules < M5RulesNeeded)
                 return false;
-            double m5Score = rules * 5.0;
+            double m5Score = M5RulesNeeded * 5.0;
             double finalScore = a.PreScore + m5Score;
             Print("[M5 CONFIRM] {0} {1} pre={2:F1} rules={3}/4 M5={4:F1}/20 final={5:F1}", a.Tag, a.Direction, a.PreScore, rules, m5Score, finalScore);
             if (finalScore < FinalScoreMin)
@@ -378,6 +393,16 @@ namespace cAlgo.Robots
             {
                 _entryInProgress = false;
             }
+        }
+
+        private double H1AtrExpansionRatio()
+        {
+            int h = _h1.Count - 2;
+            if (h < 55) return 0.0;
+            double atr14 = Atr(_h1, h, 14);
+            double atr50 = Atr(_h1, h, 50);
+            if (atr50 <= Symbol.PipSize) return 0.0;
+            return atr14 / atr50;
         }
 
         private double H1RegimeScore(TradeType direction)
