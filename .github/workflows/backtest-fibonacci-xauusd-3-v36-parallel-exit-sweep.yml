@@ -1,0 +1,147 @@
+name: Fibonacci XAUUSD 3 - v3.6 Parallel Exit Sweep
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [fibonacci-xauusd-v3-hybrid]
+    paths:
+      - '.github/workflows/backtest-fibonacci-xauusd-3-v36-parallel-exit-sweep.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Patch candidate source
+        run: |
+          set -euo pipefail
+          python3 FibonacciHarmonicSniperUltimate/versions/xauusd_3/tools/patch_v36_candidate.py
+          grep -q 'v3.6.0-exit-resilience-candidate' FibonacciHarmonicSniperUltimate/versions/xauusd_3/src/FibonacciXAUUSD3.cs
+      - run: docker pull ghcr.io/spotware/ctrader-console:5.9.11
+      - name: Build official cTrader algo
+        run: |
+          set -euo pipefail
+          ROOT='FibonacciHarmonicSniperUltimate/versions/xauusd_3'
+          docker run --rm --entrypoint sh -v "$PWD:/repo" -w /repo ghcr.io/spotware/ctrader-console:5.9.11 -c "dotnet restore $ROOT/FibonacciXAUUSD3.csproj && dotnet build $ROOT/FibonacciXAUUSD3.csproj -c Release --no-restore -p:AlgoPublish=False -p:IncludeSource=True"
+          mkdir -p package
+          cp "$(find "$ROOT" -type f -name '*.algo' -print -quit)" package/FibonacciXAUUSD3-v3.6-ExitResilience.algo
+          cp "$ROOT/src/FibonacciXAUUSD3.cs" package/FibonacciXAUUSD3-v3.6.cs
+          sha256sum package/FibonacciXAUUSD3-v3.6-ExitResilience.algo > package/algo.sha256
+      - uses: actions/upload-artifact@v4
+        with:
+          name: xauusd_3-v36-parallel-build
+          path: package/
+          retention-days: 30
+
+  backtest:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 100
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { variant: 'base', tp: '1.00', be: 'false', trigger: '1.00', lockr: '0.05', cost: 'standard', spread: '17.42', commission: '35' }
+          - { variant: 'base', tp: '1.00', be: 'false', trigger: '1.00', lockr: '0.05', cost: 'harsh', spread: '30', commission: '50' }
+          - { variant: 'tp110', tp: '1.10', be: 'false', trigger: '1.00', lockr: '0.05', cost: 'standard', spread: '17.42', commission: '35' }
+          - { variant: 'tp110', tp: '1.10', be: 'false', trigger: '1.00', lockr: '0.05', cost: 'harsh', spread: '30', commission: '50' }
+          - { variant: 'tp120', tp: '1.20', be: 'false', trigger: '1.00', lockr: '0.05', cost: 'standard', spread: '17.42', commission: '35' }
+          - { variant: 'tp120', tp: '1.20', be: 'false', trigger: '1.00', lockr: '0.05', cost: 'harsh', spread: '30', commission: '50' }
+          - { variant: 'tp130', tp: '1.30', be: 'false', trigger: '1.00', lockr: '0.05', cost: 'standard', spread: '17.42', commission: '35' }
+          - { variant: 'tp130', tp: '1.30', be: 'false', trigger: '1.00', lockr: '0.05', cost: 'harsh', spread: '30', commission: '50' }
+          - { variant: 'tp110-be100', tp: '1.10', be: 'true', trigger: '1.00', lockr: '0.05', cost: 'standard', spread: '17.42', commission: '35' }
+          - { variant: 'tp110-be100', tp: '1.10', be: 'true', trigger: '1.00', lockr: '0.05', cost: 'harsh', spread: '30', commission: '50' }
+          - { variant: 'tp120-be125', tp: '1.20', be: 'true', trigger: '1.25', lockr: '0.05', cost: 'standard', spread: '17.42', commission: '35' }
+          - { variant: 'tp120-be125', tp: '1.20', be: 'true', trigger: '1.25', lockr: '0.05', cost: 'harsh', spread: '30', commission: '50' }
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: xauusd_3-v36-parallel-build
+          path: work
+      - run: docker pull ghcr.io/spotware/ctrader-console:5.9.11
+      - name: Credentials
+        env:
+          CTRADER_PASSWORD: ${{ secrets.CTRADER_PASSWORD }}
+        run: |
+          test -n "${CTRADER_PASSWORD:-}"
+          printf '%s' "$CTRADER_PASSWORD" > work/ctrader.pwd
+      - name: Backtest ${{ matrix.variant }} ${{ matrix.cost }}
+        env:
+          CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+          CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p work/reports work/cache
+          LABEL='${{ matrix.variant }}-1y-${{ matrix.cost }}'
+          docker run --rm -v "$PWD/work:/work" -e "CTID=$CTRADER_CTID" -e 'PWD-FILE=/work/ctrader.pwd' -e "ACCOUNT=$CTRADER_ACCOUNT" ghcr.io/spotware/ctrader-console:5.9.11 backtest /work/FibonacciXAUUSD3-v3.6-ExitResilience.algo --environment-variables --exit-on-stop --symbol=XAUUSD --period=m5 --start='09/09/2025' --end='09/09/2026' --balance=10000 --data-mode=m1 --data-dir=/work/cache --commission='${{ matrix.commission }}' --spread='${{ matrix.spread }}' --RiskPercent=0.50 --MaxDailyLossPercent=3 --MinimumRiskReward=1.5 --PreScoreMin=42 --FinalScoreMin=60 --M5PreScoreFloor=50 --M5RulesNeeded=2 --MinImpulseAtr=1.2 --MinStopAtr=0.20 --MaxAllowedRR=8 --BuyH1MinScore=18 --BlockLondonEntries=true --RequireH1AtrExpansion=true --H1AtrExpansionMin=1.15 --TakeProfitMultiplier='${{ matrix.tp }}' --EnableBreakeven='${{ matrix.be }}' --BreakevenTriggerR='${{ matrix.trigger }}' --BreakevenLockR='${{ matrix.lockr }}' --report="/work/reports/${LABEL}.html" --report-json="/work/reports/${LABEL}.json" 2>&1 | tee "work/reports/${LABEL}.log"
+          test -s "work/reports/${LABEL}.json"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: xauusd_3-v36-${{ matrix.variant }}-1y-${{ matrix.cost }}
+          path: work/reports/
+          retention-days: 30
+
+  aggregate:
+    needs: backtest
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: xauusd_3-v36-parallel-build
+          path: package
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: xauusd_3-v36-*-1y-*
+          path: reports
+          merge-multiple: true
+      - name: Aggregate and safety audit
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import datetime, json
+          from pathlib import Path
+          variants=['base','tp110','tp120','tp130','tp110-be100','tp120-be125']
+          out=['# xauusd_3 v3.6 Parallel 1Y Exit Sweep','', '| Variant | Cost | Trades | W | L | Net | ROI % | PF | DD % | Overlap | Hedge | London |','|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|']
+          rows=[]
+          for v in variants:
+              for cost in ('standard','harsh'):
+                  d=json.loads(Path(f'reports/{v}-1y-{cost}.json').read_text())
+                  ts=d['tradeStatistics']; main=d['main']; eq=d['equity']; hist=d['history']['items']
+                  spans=sorted((int(x['entryTime']),int(x['closeTime']),x['direction']) for x in hist)
+                  ov=hg=0
+                  for i,a in enumerate(spans):
+                      for b in spans[i+1:]:
+                          if b[0] >= a[1]: break
+                          ov += 1; hg += int(b[2] != a[2])
+                  london=sum(1 for x in hist if 7 <= datetime.datetime.fromtimestamp(int(x['entryTime'])/1000, datetime.timezone.utc).hour < 13)
+                  t=int(ts['totalTrades']['all']); w=int(ts['winningTrades']['all']); l=int(ts['losingTrades']['all'])
+                  net=float(main['netProfit']); roi=float(main['roi']); pf=float(ts['profitFactor']['all']); dd=float(eq['maxEquityDrawdownPercent'])
+                  assert ov==0 and hg==0 and london==0
+                  rows.append((v,cost,t,w,l,net,roi,pf,dd))
+                  out.append(f'| {v} | {cost} | {t} | {w} | {l} | {net:.2f} | {roi:.2f} | {pf:.2f} | {dd:.2f} | {ov} | {hg} | {london} |')
+          out += ['', '## Robustness ranking', '']
+          ranking=[]
+          for v in variants:
+              vr=[r for r in rows if r[0]==v]
+              minroi=min(r[6] for r in vr); minpf=min(r[7] for r in vr); maxdd=max(r[8] for r in vr)
+              score=minroi + 2*(minpf-1) - max(0,maxdd-6)
+              ranking.append((score,v,minroi,minpf,maxdd))
+          for score,v,minroi,minpf,maxdd in sorted(ranking, reverse=True):
+              out.append(f'- {v}: score={score:.2f}; minROI={minroi:.2f}%; minPF={minpf:.2f}; maxDD={maxdd:.2f}%')
+          Path('V36_PARALLEL_SUMMARY.md').write_text('\n'.join(out)+'\n')
+          print('\n'.join(out))
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: xauusd_3-v36-parallel-complete
+          path: |
+            package/
+            reports/
+            V36_PARALLEL_SUMMARY.md
+          retention-days: 30
