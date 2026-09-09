@@ -6,7 +6,8 @@ on:
     branches:
       - cds-eurusd-v1
     paths:
-      - 'CumulativeDeltaScalper-EURUSD-v1/**'
+      - 'CumulativeDeltaScalper-EURUSD-v1/src/**'
+      - 'CumulativeDeltaScalper-EURUSD-v1/CumulativeDeltaScalper_EURUSD_v1.csproj'
       - '.github/workflows/cdscalper-eurusd-v1-build-algo.yml'
 
 permissions:
@@ -33,19 +34,13 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          $project = 'CumulativeDeltaScalper-EURUSD-v1/CumulativeDeltaScalper_EURUSD_v1.csproj'
+          $root = 'CumulativeDeltaScalper-EURUSD-v1'
+          $project = Join-Path $root 'CumulativeDeltaScalper_EURUSD_v1.csproj'
+          $builds = Join-Path $root 'builds'
+          New-Item -ItemType Directory -Force -Path $builds | Out-Null
           dotnet --info
           dotnet restore $project
           dotnet build $project -c Release -p:AlgoName=CumulativeDeltaScalper_EURUSD_v1 -p:AlgoBuild=true -p:AlgoPublish=false -p:IncludeSource=true
-
-      - name: Collect .algo output
-        id: collect
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = 'Stop'
-          $root = 'CumulativeDeltaScalper-EURUSD-v1'
-          $builds = Join-Path $root 'builds'
-          New-Item -ItemType Directory -Force -Path $builds | Out-Null
           $algos = Get-ChildItem -Path $root -Recurse -Filter '*.algo' -ErrorAction SilentlyContinue
           if (-not $algos -or $algos.Count -eq 0) {
             Write-Host 'No .algo file generated.'
@@ -54,8 +49,10 @@ jobs:
           $selected = $algos | Sort-Object LastWriteTime -Descending | Select-Object -First 1
           $target = Join-Path $builds 'CumulativeDeltaScalper_EURUSD_v1.algo'
           Copy-Item $selected.FullName $target -Force
+          $hash = Get-FileHash -Algorithm SHA256 $target
+          Set-Content -Path (Join-Path $builds 'CumulativeDeltaScalper_EURUSD_v1.algo.sha256') -Value "$($hash.Hash.ToLower())  CumulativeDeltaScalper_EURUSD_v1.algo" -Encoding UTF8
           Write-Host "Generated .algo: $target"
-          "algo_path=$target" >> $env:GITHUB_OUTPUT
+          Write-Host "SHA256: $($hash.Hash.ToLower())"
 
       - name: Update build result report
         if: always()
@@ -74,11 +71,12 @@ jobs:
 - Runner: windows-latest
 - Build method: dotnet build + cTrader.Automate NuGet
 - Status: $status
+- Source patch: bar delta fallback for M1 diagnostic backtests
 - Expected artifact path: CumulativeDeltaScalper-EURUSD-v1/builds/CumulativeDeltaScalper_EURUSD_v1.algo
 - Generated at: $(Get-Date -Format o)
 
 Notes:
-- This workflow uses the official cTrader.Automate NuGet build path.
+- This workflow uses the cTrader.Automate NuGet build path.
 - If this file says failed, check the workflow logs for cAlgo API compile errors or package restore issues.
 - Do not rename ordinary zip files to .algo.
 "@
@@ -90,14 +88,16 @@ Notes:
         run: |
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add CumulativeDeltaScalper-EURUSD-v1/builds/CumulativeDeltaScalper_EURUSD_v1.algo CumulativeDeltaScalper-EURUSD-v1/reports/build_result.md
+          git add CumulativeDeltaScalper-EURUSD-v1/builds/CumulativeDeltaScalper_EURUSD_v1.algo CumulativeDeltaScalper-EURUSD-v1/builds/CumulativeDeltaScalper_EURUSD_v1.algo.sha256 CumulativeDeltaScalper-EURUSD-v1/reports/build_result.md
           git status --short
-          git commit -m 'Generate CumulativeDeltaScalper EURUSD v1 algo' || echo 'No changes to commit'
+          git commit -m 'Generate patched CumulativeDeltaScalper EURUSD v1 algo' || echo 'No changes to commit'
           git push origin HEAD:cds-eurusd-v1
 
       - name: Upload .algo artifact
         if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: CumulativeDeltaScalper_EURUSD_v1-algo
-          path: CumulativeDeltaScalper-EURUSD-v1/builds/CumulativeDeltaScalper_EURUSD_v1.algo
+          name: CumulativeDeltaScalper_EURUSD_v1-patched-algo
+          path: |
+            CumulativeDeltaScalper-EURUSD-v1/builds/CumulativeDeltaScalper_EURUSD_v1.algo
+            CumulativeDeltaScalper-EURUSD-v1/builds/CumulativeDeltaScalper_EURUSD_v1.algo.sha256
