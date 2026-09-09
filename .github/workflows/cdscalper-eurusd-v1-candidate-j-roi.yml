@@ -1,0 +1,233 @@
+name: Backtest CDScalper EURUSD v1 M1 Candidate J ROI Guard
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - cds-eurusd-v1
+    paths:
+      - '.github/workflows/cdscalper-eurusd-v1-candidate-j-roi.yml'
+      - 'CumulativeDeltaScalper-EURUSD-v1/src/**'
+      - 'CumulativeDeltaScalper-EURUSD-v1/CumulativeDeltaScalper_EURUSD_v1.csproj'
+      - 'CumulativeDeltaScalper-EURUSD-v1/presets/eurusd_m1_candidate_j_roi_session_guard.json'
+
+permissions:
+  contents: write
+
+env:
+  START_DATE_CTRADER: '09/09/2024'
+  END_DATE_CTRADER: '09/09/2026'
+  STARTING_BALANCE: '100'
+  SYMBOL: 'EURUSD'
+  PERIOD: 'm1'
+  OUT_JSON: 'CumulativeDeltaScalper-EURUSD-v1/backtests/EURUSD_M1_2024-09-09_to_2026-09-09_candidate_j_2y_100.json'
+  OUT_MD: 'CumulativeDeltaScalper-EURUSD-v1/reports/EURUSD_M1_2Y_candidate_j_100_summary.md'
+  BUILD_MD: 'CumulativeDeltaScalper-EURUSD-v1/reports/build_result_candidate_j_2y_100.md'
+
+jobs:
+  build-candidate-algo:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout workflow commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+
+      - name: Setup .NET SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '6.0.x'
+
+      - name: Build Candidate J .algo on Windows
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $root = 'CumulativeDeltaScalper-EURUSD-v1'
+          $project = Join-Path $root 'CumulativeDeltaScalper_EURUSD_v1.csproj'
+          $builds = Join-Path $root 'builds'
+          New-Item -ItemType Directory -Force -Path $builds | Out-Null
+          dotnet restore $project
+          dotnet build $project -c Release -p:AlgoName=CumulativeDeltaScalper_EURUSD_v1 -p:AlgoBuild=true -p:AlgoPublish=false -p:IncludeSource=true
+          $algos = Get-ChildItem -Path (Join-Path $root 'bin') -Recurse -Filter '*.algo' -ErrorAction SilentlyContinue
+          if (-not $algos -or $algos.Count -eq 0) { Write-Host 'No new .algo file generated under bin/.'; exit 1 }
+          $selected = $algos | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+          $target = Join-Path $builds 'CumulativeDeltaScalper_EURUSD_v1.algo'
+          Copy-Item $selected.FullName $target -Force
+          $hash = Get-FileHash -Algorithm SHA256 $target
+          Set-Content -Path (Join-Path $builds 'CumulativeDeltaScalper_EURUSD_v1.algo.sha256') -Value "$($hash.Hash.ToLower())  CumulativeDeltaScalper_EURUSD_v1.algo" -Encoding UTF8
+
+      - name: Upload Candidate J .algo build
+        uses: actions/upload-artifact@v4
+        with:
+          name: candidate-j-algo-build
+          path: |
+            CumulativeDeltaScalper-EURUSD-v1/builds/CumulativeDeltaScalper_EURUSD_v1.algo
+            CumulativeDeltaScalper-EURUSD-v1/builds/CumulativeDeltaScalper_EURUSD_v1.algo.sha256
+          retention-days: 14
+
+  candidate-j-2y-backtest:
+    runs-on: ubuntu-latest
+    needs: build-candidate-algo
+    timeout-minutes: 120
+    env:
+      CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+      CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+      CTRADER_PASSWORD: ${{ secrets.CTRADER_PASSWORD }}
+    steps:
+      - name: Checkout workflow commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+
+      - name: Download Candidate J .algo build
+        uses: actions/download-artifact@v4
+        with:
+          name: candidate-j-algo-build
+          path: candidate-j-algo-build
+
+      - name: Prepare artifact and preflight
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p CumulativeDeltaScalper-EURUSD-v1/builds CumulativeDeltaScalper-EURUSD-v1/backtests CumulativeDeltaScalper-EURUSD-v1/reports backtest/reports backtest/cache/EURUSD
+          algo_path="$(find candidate-j-algo-build -type f -name 'CumulativeDeltaScalper_EURUSD_v1.algo' | head -n 1)"
+          sha_path="$(find candidate-j-algo-build -type f -name 'CumulativeDeltaScalper_EURUSD_v1.algo.sha256' | head -n 1)"
+          if [ -z "$algo_path" ]; then echo 'Cannot locate downloaded algo'; find candidate-j-algo-build -maxdepth 4 -type f -print; exit 1; fi
+          cp "$algo_path" CumulativeDeltaScalper-EURUSD-v1/builds/CumulativeDeltaScalper_EURUSD_v1.algo
+          if [ -n "$sha_path" ]; then cp "$sha_path" CumulativeDeltaScalper-EURUSD-v1/builds/CumulativeDeltaScalper_EURUSD_v1.algo.sha256; else sha256sum CumulativeDeltaScalper-EURUSD-v1/builds/CumulativeDeltaScalper_EURUSD_v1.algo > CumulativeDeltaScalper-EURUSD-v1/builds/CumulativeDeltaScalper_EURUSD_v1.algo.sha256; fi
+          cat > "$BUILD_MD" <<EOF
+          # Build Result
+          - Candidate: J
+          - Build runner: windows-latest
+          - Backtest runner: ubuntu-latest
+          - Target framework: net6.0
+          - Preset: eurusd_m1_candidate_j_roi_session_guard.json
+          - Validation period: 2024-09-09 to 2026-09-09 UTC
+          - Starting balance: 100 USD
+          - Status: success
+          EOF
+          if [ -z "${CTRADER_CTID:-}" ] || [ -z "${CTRADER_ACCOUNT:-}" ] || [ -z "${CTRADER_PASSWORD:-}" ]; then echo 'missing_secrets=true' >> "$GITHUB_ENV"; else echo 'missing_secrets=false' >> "$GITHUB_ENV"; fi
+
+      - name: Write missing secrets report
+        if: env.missing_secrets == 'true'
+        shell: bash
+        run: |
+          python3 - <<'PYCODE'
+          import json
+          from pathlib import Path
+          out_json=Path('CumulativeDeltaScalper-EURUSD-v1/backtests/EURUSD_M1_2024-09-09_to_2026-09-09_candidate_j_2y_100.json')
+          out_md=Path('CumulativeDeltaScalper-EURUSD-v1/reports/EURUSD_M1_2Y_candidate_j_100_summary.md')
+          out_json.parent.mkdir(parents=True, exist_ok=True); out_md.parent.mkdir(parents=True, exist_ok=True)
+          out={"schema_version":1,"bot":"CumulativeDeltaScalper-EURUSD-v1","run_type":"candidate_j_roi_session_guard_2y_100","symbol":"EURUSD","timeframe":"M1","period":{"start":"2024-09-09","end":"2026-09-09","timezone":"UTC","end_inclusive":False},"backtest":{"status":"missing_github_secrets","metrics":{"total_trades":None}},"errors":["Missing cTrader GitHub Actions secrets."]}
+          out_json.write_text(json.dumps(out,indent=2,ensure_ascii=False)); out_md.write_text('# Candidate J 2Y 回測摘要\n\nBacktest status: missing_github_secrets\n')
+          PYCODE
+
+      - name: Run cTrader console Candidate J 2Y backtest EURUSD M1
+        if: env.missing_secrets == 'false'
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp CumulativeDeltaScalper-EURUSD-v1/builds/CumulativeDeltaScalper_EURUSD_v1.algo backtest/CumulativeDeltaScalper_EURUSD_v1.algo
+          printf '%s' "$CTRADER_PASSWORD" | tr -d '\r\n' > backtest/ctrader.pwd
+          chmod 600 backtest/ctrader.pwd
+          docker run --rm -v "$PWD/backtest:/work" \
+            -e "CTID=$CTRADER_CTID" \
+            -e "ACCOUNT=$CTRADER_ACCOUNT" \
+            -e "PWD-FILE=/work/ctrader.pwd" \
+            ghcr.io/spotware/ctrader-console:5.9.11 \
+            backtest /work/CumulativeDeltaScalper_EURUSD_v1.algo --environment-variables \
+            --symbol="$SYMBOL" --period="$PERIOD" --start="$START_DATE_CTRADER" --end="$END_DATE_CTRADER" \
+            --balance="$STARTING_BALANCE" --data-mode=m1 --data-dir="/work/cache/EURUSD" \
+            --DeltaThreshold=125 --MinConfirmations=3 \
+            --UseBarDeltaFallback=true --FallbackBelowTickDelta=2 --BarDeltaPointMultiplier=1.6 \
+            --UseSessionFilter=true --OverlapOnly=true --SessionStartHour=14 --SessionStartMinute=0 --SessionEndHour=14 --SessionEndMinute=54 \
+            --UseWeekdayFilter=true --TradeMonday=true --TradeTuesday=true --TradeWednesday=true --TradeThursday=false --TradeFriday=true \
+            --UseHtfEmaFilter=true --HtfTimeFrameName=Minute15 --EmaSlopeBars=3 --AdxThreshold=16 --MinAtr=0.00005 --MaxAtr=0.00105 \
+            --MaxSpreadPoints=18 --SpreadAvgMultiplier=1.8 \
+            --FixedMoneyRisk=1.0 --AutoScaleFixedRisk=true --RiskReferenceBalance=100 --MinFixedMoneyRisk=0.05 --MaxLotSize=0.05 \
+            --SlAtrMultiplier=0.8 --TpAtrMultiplier=0.4 \
+            --MaxDailyTrades=4 --MaxDailyLossPercent=6 --MaxDailyLossMoney=1.8 --DailyProfitTargetMoney=3.5 \
+            --MaxConsecutiveLosses=2 --MinSecondsBetweenTrades=900 --LossCooldownMinutes=45 \
+            --MaxDailyEquityDrawdownMoney=2.2 --MaxFloatingLossMoney=3.0 --MaxEquityDrawdownPercent=20 --CloseOnEquityGuard=true \
+            --MaxTradeSeconds=1800 --UseBreakeven=true --BreakevenPips=1.0 --AdverseDeltaExit=true \
+            --report="/work/reports/EURUSD-M1-2Y-candidate-j-100.html" --report-json="/work/reports/EURUSD-M1-2Y-candidate-j-100.json" \
+            --exit-on-stop 2>&1 | tee backtest/reports/console-2y-candidate-j-100.log
+          rm -f backtest/ctrader.pwd
+
+      - name: Publish Candidate J 2Y result files
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PYCODE'
+          import json, math
+          from pathlib import Path
+          out_json=Path('CumulativeDeltaScalper-EURUSD-v1/backtests/EURUSD_M1_2024-09-09_to_2026-09-09_candidate_j_2y_100.json')
+          out_md=Path('CumulativeDeltaScalper-EURUSD-v1/reports/EURUSD_M1_2Y_candidate_j_100_summary.md')
+          rep=Path('backtest/reports/EURUSD-M1-2Y-candidate-j-100.json')
+          log=Path('backtest/reports/console-2y-candidate-j-100.log')
+          out_json.parent.mkdir(parents=True, exist_ok=True); out_md.parent.mkdir(parents=True, exist_ok=True)
+          metrics={"initial_balance":100.0,"final_balance":None,"net_profit":None,"return_percent":None,"profit_factor":None,"win_rate":None,"max_drawdown":None,"total_trades":None,"average_trade":None,"largest_win":None,"largest_loss":None,"gross_profit":None,"gross_loss":None,"return_to_drawdown":None}
+          errors=[]; raw_keys=[]; status='completed' if rep.exists() else 'failed_no_report_json'
+          if rep.exists():
+              try:
+                  d=json.loads(rep.read_text()); raw_keys=sorted(d.keys()) if isinstance(d,dict) else []
+                  hist=d.get('history',{}).get('items',[]) if isinstance(d,dict) else []
+                  nets=[]
+                  for t in hist:
+                      val=t.get('net',t.get('netProfit',t.get('Net',t.get('NetProfit',0))))
+                      try: nets.append(float(val))
+                      except Exception: pass
+                  total=len(nets); wins=sum(1 for n in nets if n>0); gp=sum(n for n in nets if n>0); gl=-sum(n for n in nets if n<0)
+                  net=float(d.get('main',{}).get('netProfit',d.get('main',{}).get('NetProfit',sum(nets) if total else 0)))
+                  final=100.0+net
+                  dd=d.get('equity',{}).get('maxEquityDrawdownPercent') if isinstance(d,dict) else None
+                  ret=(final-100.0)/100.0*100.0
+                  metrics.update({"final_balance":final,"net_profit":net,"return_percent":ret,"profit_factor":(gp/gl if gl>0 else (math.inf if gp>0 else 0.0)) if total else None,"win_rate":(wins/total*100.0) if total else None,"max_drawdown":dd,"total_trades":total,"average_trade":(sum(nets)/total) if total else None,"largest_win":max(nets) if nets else None,"largest_loss":min(nets) if nets else None,"gross_profit":gp if total else None,"gross_loss":gl if total else None,"return_to_drawdown":(ret/dd if dd and dd>0 else None)})
+              except Exception as e:
+                  status='failed_parse_report_json'; errors.append(str(e))
+          else:
+              errors.append('cTrader console did not produce report JSON')
+              if log.exists():
+                  txt=log.read_text(errors='replace')
+                  for marker in ['Invalid settings','Unknown symbol name','Unknown period','Account cannot be found','No historical data','Stop out during a backtest','Parameter','error','failed']:
+                      if marker in txt: errors.append('console marker: '+marker)
+          total=metrics.get('total_trades'); pf=metrics.get('profit_factor'); wr=metrics.get('win_rate'); dd=metrics.get('max_drawdown'); ret=metrics.get('return_percent'); rdd=metrics.get('return_to_drawdown')
+          passed=bool(status=='completed' and total is not None and total>=200 and pf is not None and pf>=1.20 and wr is not None and wr>=58 and ret is not None and ret>=40 and dd is not None and dd<=15 and rdd is not None and rdd>=3.0)
+          cls='candidate_j_2y_trades_triggered' if status=='completed' and total and total>0 else ('candidate_j_2y_zero_trades' if status=='completed' and total==0 else 'candidate_j_2y_execution_failed')
+          out={"schema_version":1,"bot":"CumulativeDeltaScalper-EURUSD-v1","run_type":"candidate_j_roi_session_guard_2y_100","symbol":"EURUSD","timeframe":"M1","period":{"start":"2024-09-09","end":"2026-09-09","timezone":"UTC","end_inclusive":False},"execution":{"environment":"GitHub Actions windows build + ubuntu backtest","engine":"ghcr.io/spotware/ctrader-console:5.9.11","starting_balance_usd":100.0,"artifact_path":"CumulativeDeltaScalper-EURUSD-v1/builds/CumulativeDeltaScalper_EURUSD_v1.algo","ctrader_date_format":"DD/MM/YYYY","cli_start":"09/09/2024","cli_end":"09/09/2026","data_mode":"m1","source_patch":"candidate_i_base_code_guard","target_framework":"net6.0"},"candidate_parameters":{"DeltaThreshold":125,"MinConfirmations":3,"UseBarDeltaFallback":True,"FallbackBelowTickDelta":2,"BarDeltaPointMultiplier":1.6,"UseSessionFilter":True,"OverlapOnly":True,"SessionStartHour":14,"SessionStartMinute":0,"SessionEndHour":14,"SessionEndMinute":54,"UseWeekdayFilter":True,"TradeMonday":True,"TradeTuesday":True,"TradeWednesday":True,"TradeThursday":False,"TradeFriday":True,"UseHtfEmaFilter":True,"HtfTimeFrameName":"Minute15","EmaSlopeBars":3,"AdxThreshold":16.0,"MinAtr":0.00005,"MaxAtr":0.00105,"MaxSpreadPoints":18,"SpreadAvgMultiplier":1.8,"FixedMoneyRisk":1.0,"AutoScaleFixedRisk":True,"RiskReferenceBalance":100.0,"MinFixedMoneyRisk":0.05,"MaxLotSize":0.05,"SlAtrMultiplier":0.8,"TpAtrMultiplier":0.4,"MaxDailyTrades":4,"MaxDailyLossPercent":6,"MaxDailyLossMoney":1.8,"DailyProfitTargetMoney":3.5,"MaxConsecutiveLosses":2,"MinSecondsBetweenTrades":900,"LossCooldownMinutes":45,"MaxDailyEquityDrawdownMoney":2.2,"MaxFloatingLossMoney":3.0,"MaxEquityDrawdownPercent":20,"CloseOnEquityGuard":True,"MaxTradeSeconds":1800,"UseBreakeven":True,"BreakevenPips":1.0,"AdverseDeltaExit":True},"promotion_gate":{"total_trades_min":200,"profit_factor_min":1.20,"win_rate_min_percent":58,"max_drawdown_max_percent":15,"return_percent_min":40,"return_to_drawdown_min":3.0,"passed":passed},"backtest":{"status":status,"data_source":"cTrader console report json" if rep.exists() else "none","metrics":metrics,"is_suitable_for_promotion":bool(passed),"debug_classification":cls,"debug_summary":"Candidate J tests Candidate I plus a negative-tail session trim from 14:00-15:00 to 14:00-14:54 UTC without increasing risk or using recovery logic."},"raw_report_top_level_keys":raw_keys,"errors":errors,"generated_by":"GitHub Actions workflow cdscalper-eurusd-v1-candidate-j-roi.yml","generated_at":"2026-09-10"}
+          out_json.write_text(json.dumps(out,indent=2,ensure_ascii=False))
+          out_md.write_text('# EURUSD M1 Candidate J 2Y ROI Guard 回測摘要\n\n' + '\n'.join([f'- Bot: {out["bot"]}', f'- Run type: {out["run_type"]}', f'- Symbol: {out["symbol"]}', f'- Timeframe: {out["timeframe"]}', f'- Period: 2024-09-09 ~ 2026-09-09 UTC', f'- Starting balance: 100', f'- Backtest status: {status}', f'- Debug classification: {cls}', f'- Promotion gate passed: {passed}', '', '## Metrics'] + [f'- {k}: {v}' for k,v in metrics.items()] + ['', '## Candidate J intent', '- Keep Candidate I base-code guards.', '- Trim negative final minutes: 14:54-14:59 UTC.', '- Maximize return-to-drawdown without increasing leverage or using recovery logic.']) + '\n')
+          print(json.dumps(out,indent=2,ensure_ascii=False))
+          PYCODE
+
+      - name: Commit Candidate J .algo and 2Y result
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add CumulativeDeltaScalper-EURUSD-v1/builds/CumulativeDeltaScalper_EURUSD_v1.algo CumulativeDeltaScalper-EURUSD-v1/builds/CumulativeDeltaScalper_EURUSD_v1.algo.sha256 "$OUT_JSON" "$OUT_MD" "$BUILD_MD"
+          if git diff --cached --quiet; then
+            echo "No Candidate J changes to commit."
+          else
+            git commit -m "Add Candidate J 2Y ROI guard validation result"
+            git pull --rebase origin cds-eurusd-v1 || true
+            git push origin HEAD:cds-eurusd-v1
+          fi
+
+      - name: Upload Candidate J 2Y reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: CDScalper_EURUSD_M1_2Y_candidate_j_100_reports
+          path: |
+            CumulativeDeltaScalper-EURUSD-v1/backtests/EURUSD_M1_2024-09-09_to_2026-09-09_candidate_j_2y_100.json
+            CumulativeDeltaScalper-EURUSD-v1/reports/EURUSD_M1_2Y_candidate_j_100_summary.md
+            CumulativeDeltaScalper-EURUSD-v1/reports/build_result_candidate_j_2y_100.md
+            CumulativeDeltaScalper-EURUSD-v1/builds/CumulativeDeltaScalper_EURUSD_v1.algo
+            CumulativeDeltaScalper-EURUSD-v1/builds/CumulativeDeltaScalper_EURUSD_v1.algo.sha256
+            backtest/reports/**
+          retention-days: 14
