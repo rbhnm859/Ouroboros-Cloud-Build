@@ -1,0 +1,237 @@
+name: BTC Round26 Core Refactor Parity
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ btc-round26-core-refactor ]
+    paths:
+      - 'FibonacciHarmonicSniperUltimate/versions/v0.23.0-btc-round26-core-refactor/**'
+      - '.github/workflows/backtest-fibonacci-btc-round26-core-refactor.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fibonacci-btc-round26-core-refactor
+  cancel-in-progress: true
+
+jobs:
+  parity:
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '6.0.x'
+
+      - name: Reconstruct Round22 and generate Round26
+        run: |
+          set -euo pipefail
+          mkdir -p work/r22-src work/r26-src work/build work/cache work/r22-3y work/r26-3y work/r22-1y work/r26-1y
+          python3 - <<'PYCODE'
+          from pathlib import Path
+          import base64,gzip,hashlib
+          root=Path('FibonacciHarmonicSniperUltimate/versions/v0.17.0-btc-round18-diagnostics')
+          parts=sorted(root.glob('source_payload.part*'))
+          data=gzip.decompress(base64.b64decode(''.join(p.read_text().strip() for p in parts)))
+          expected='5f2b7f31c4b8f0d60f52c4c15869aa75df4ff07d7224af971784137716bc8b93'
+          actual=hashlib.sha256(data).hexdigest()
+          if actual != expected:
+              raise SystemExit(f'Round18 anchor SHA mismatch: {actual}')
+          Path('work/Round18.cs').write_bytes(data)
+          PYCODE
+          python3 FibonacciHarmonicSniperUltimate/versions/v0.20.0-btc-round21-selective-bypass/round21_transform.py work/Round18.cs work/Round21.cs
+          python3 FibonacciHarmonicSniperUltimate/versions/v0.21.0-btc-round22-capital-efficiency/round22_transform.py work/Round21.cs work/r22-src/FibonacciHarmonicSniperUltimate-BTC-Round22-Control.cs
+          cp work/r22-src/FibonacciHarmonicSniperUltimate-BTC-Round22-Control.cs work/Round22.cs
+          python3 FibonacciHarmonicSniperUltimate/versions/v0.23.0-btc-round26-core-refactor/round26_transform.py work/Round22.cs work/r26-src/FibonacciHarmonicSniperUltimate-BTC-Round26-CoreRefactor.cs
+          rm -f work/Round18.cs work/Round21.cs work/Round22.cs
+
+          cat > work/r22-src/Round22-Control.csproj <<'EOF'
+          <Project Sdk="Microsoft.NET.Sdk">
+            <PropertyGroup>
+              <TargetFramework>net6.0</TargetFramework>
+              <ImplicitUsings>disable</ImplicitUsings>
+              <Nullable>disable</Nullable>
+              <RootNamespace>cAlgo.Robots</RootNamespace>
+              <AlgoName>FibonacciHarmonicSniperUltimate-BTC-Round22-Control</AlgoName>
+            </PropertyGroup>
+            <ItemGroup>
+              <PackageReference Include="cTrader.Automate" Version="1.0.19" />
+            </ItemGroup>
+          </Project>
+          EOF
+
+          cat > work/r26-src/Round26-CoreRefactor.csproj <<'EOF'
+          <Project Sdk="Microsoft.NET.Sdk">
+            <PropertyGroup>
+              <TargetFramework>net6.0</TargetFramework>
+              <ImplicitUsings>disable</ImplicitUsings>
+              <Nullable>disable</Nullable>
+              <RootNamespace>cAlgo.Robots</RootNamespace>
+              <AlgoName>FibonacciHarmonicSniperUltimate-BTC-Round26-CoreRefactor</AlgoName>
+            </PropertyGroup>
+            <ItemGroup>
+              <PackageReference Include="cTrader.Automate" Version="1.0.19" />
+            </ItemGroup>
+          </Project>
+          EOF
+
+          sha256sum work/r22-src/*.cs work/r26-src/*.cs
+
+      - name: Build Round22 and Round26 algos
+        run: |
+          set -euo pipefail
+          dotnet restore work/r22-src/Round22-Control.csproj
+          dotnet build work/r22-src/Round22-Control.csproj -c Release --no-restore -p:AlgoPublish=False -p:IncludeSource=True
+          R22=$(find work/r22-src/bin/Release -type f -name '*.algo' | head -n1)
+          test -n "$R22"
+          cp "$R22" work/build/Round22-Control.algo
+
+          dotnet restore work/r26-src/Round26-CoreRefactor.csproj
+          dotnet build work/r26-src/Round26-CoreRefactor.csproj -c Release --no-restore -p:AlgoPublish=False -p:IncludeSource=True
+          R26=$(find work/r26-src/bin/Release -type f -name '*.algo' | head -n1)
+          test -n "$R26"
+          cp "$R26" work/build/Round26-CoreRefactor.algo
+
+          test $(stat -c%s work/build/Round22-Control.algo) -gt 50000
+          test $(stat -c%s work/build/Round26-CoreRefactor.algo) -gt 50000
+          sha256sum work/build/*.algo > work/build/SHA256SUMS.txt
+
+      - name: Prepare cTrader
+        env:
+          CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+          CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+          CTRADER_PASSWORD: ${{ secrets.CTRADER_PASSWORD }}
+        run: |
+          set -euo pipefail
+          test -n "${CTRADER_CTID:-}"
+          test -n "${CTRADER_ACCOUNT:-}"
+          test -n "${CTRADER_PASSWORD:-}"
+          printf '%s' "$CTRADER_PASSWORD" | tr -d '\r\n' > work/ctrader.pwd
+          chmod 600 work/ctrader.pwd
+
+      - name: Pull cTrader CLI
+        run: docker pull ghcr.io/spotware/ctrader-console:5.9.11
+
+      - name: Run 3Y and 1Y Round22 versus Round26
+        env:
+          CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+          CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+        run: |
+          set -euo pipefail
+          run_case() {
+            algo="$1"; out="$2"; start="$3"; end="$4"
+            docker run --rm -v "$PWD/work:/work" -e "CTID=$CTRADER_CTID" -e 'PWD-FILE=/work/ctrader.pwd' -e "ACCOUNT=$CTRADER_ACCOUNT" \
+              ghcr.io/spotware/ctrader-console:5.9.11 backtest "/work/build/$algo" \
+              --environment-variables --exit-on-stop --symbol=BITCOIN --period=h1 --start="$start" --end="$end" --balance=10000 --data-mode=m1 --data-dir=/work/cache \
+              --commission=65 --spread=0 --RiskPercent=1.0 --Round17M30RiskPercent=0.50 --Round18CandidateDiagnostics=false \
+              --Round21SelectiveHealthBypass=true --Round21BypassMinScore=93 --Round21SameDirH1MaxAgeHours=2 --Round21BypassRiskPercent=0.10 --Round21ReserveH1AtHour=true \
+              --Round22H1BuyRiskPercent=1.15 --Round22H1SellRiskPercent=0.80 --Round22M30BuyRiskPercent=0.40 --Round22M30SellRiskPercent=0.50 \
+              --MaxOpenPositions=1 --MaxTradesPerDay=6 --MaxDailyLossPercent=5 --EnabledPatterns='Reciprocal ABCD' --PivotLeft=2 --PivotRight=2 --RatioTolerancePercent=6 --MinPatternScore=84 \
+              --MaxPatternAgeBars=16 --MaxEntryDistanceAtr=1.80 --ConfirmationMoveAtr=0.05 --UseCandleConfirmation=true --CooldownBars=2 --FallbackRiskReward=1.80 --MinimumRiskReward=1.50 \
+              --StopAnchorMode=LegacyD --TargetRiskRewardPolicy=LegacyFallback --Round5Mode=ObserveOnly --MtfMode=Off --Round6RequireM30SellConfirm=false --Round7VetoM30SellAlignment=false \
+              --Round8LogExcursions=false --Round9ShadowTpContinuation=false --Round10LogFunnel=false --Round15EnableM30Engine=true --Round16H1HealthGate=true --DebugLogging=false \
+              --report="/work/$out/report.html" --report-json="/work/$out/report.json" 2>&1 | tee "work/$out/report.log"
+          }
+
+          run_case Round22-Control.algo r22-3y '08/09/2023 00:00' '08/09/2026 00:00'
+          run_case Round26-CoreRefactor.algo r26-3y '08/09/2023 00:00' '08/09/2026 00:00'
+          run_case Round22-Control.algo r22-1y '08/09/2025 00:00' '08/09/2026 00:00'
+          run_case Round26-CoreRefactor.algo r26-1y '08/09/2025 00:00' '08/09/2026 00:00'
+
+      - name: Enforce exact trade parity
+        run: |
+          set -euo pipefail
+          python3 - <<'PYCODE'
+          import json, hashlib
+          from pathlib import Path
+
+          def load(name):
+              return json.loads(Path(f'work/{name}/report.json').read_text())
+
+          def metrics(r):
+              return {
+                  'trades': int(r['tradeStatistics']['totalTrades']['all']),
+                  'roi': float(r['main']['roi']),
+                  'net': float(r['main']['netProfit']),
+                  'pf': float(r['tradeStatistics']['profitFactor']['all']),
+                  'dd': float(r['equity']['maxEquityDrawdownPercent'])
+              }
+
+          def normalized(r):
+              out=[]
+              for x in r['history']['items']:
+                  out.append({
+                      'direction':x['direction'],
+                      'entryTime':x['entryTime'],
+                      'closeTime':x['closeTime'],
+                      'entryPrice':round(float(x['entryPrice']),8),
+                      'closePrice':round(float(x['closePrice']),8),
+                      'volume':round(float(x['volume']),8),
+                      'net':round(float(x['net']),8),
+                      'pips':round(float(x['pips']),8),
+                      'comment':x.get('comment','')
+                  })
+              return out
+
+          summary={'version':'Round26 Core Refactor Parity','periods':{}}
+          for label in ('3y','1y'):
+              a=load(f'r22-{label}')
+              b=load(f'r26-{label}')
+              na,nb=normalized(a),normalized(b)
+              ha=hashlib.sha256(json.dumps(na,sort_keys=True,separators=(',',':')).encode()).hexdigest()
+              hb=hashlib.sha256(json.dumps(nb,sort_keys=True,separators=(',',':')).encode()).hexdigest()
+              exact = na == nb
+              summary['periods'][label]={
+                  'round22':metrics(a),
+                  'round26':metrics(b),
+                  'round22_trade_hash':ha,
+                  'round26_trade_hash':hb,
+                  'exact_trade_parity':exact
+              }
+              if not exact:
+                  limit=max(len(na),len(nb))
+                  first=None
+                  for i in range(limit):
+                      aa=na[i] if i<len(na) else None
+                      bb=nb[i] if i<len(nb) else None
+                      if aa!=bb:
+                          first={'index':i,'round22':aa,'round26':bb}
+                          break
+                  summary['periods'][label]['first_difference']=first
+                  Path('work/Round26-Parity-Summary.json').write_text(json.dumps(summary,indent=2))
+                  raise SystemExit(f'Round26 trade parity FAILED for {label}: {first}')
+
+          m3=summary['periods']['3y']['round22']
+          m1=summary['periods']['1y']['round22']
+          if m3['trades'] != 256 or abs(m3['roi']-26.55)>0.05 or abs(m3['pf']-1.22)>0.03 or abs(m3['dd']-21.893009225762995)>0.10:
+              raise SystemExit(f'3Y Round22 anchor drift: {m3}')
+          if m1['trades'] != 95 or abs(m1['roi']-39.93)>0.05 or abs(m1['pf']-1.95)>0.03 or abs(m1['dd']-5.646259277527718)>0.10:
+              raise SystemExit(f'1Y Round22 anchor drift: {m1}')
+
+          summary['parity_passed']=True
+          Path('work/Round26-Parity-Summary.json').write_text(json.dumps(summary,indent=2))
+          print(json.dumps(summary,indent=2))
+          PYCODE
+
+      - name: Remove credentials
+        if: always()
+        run: rm -f work/ctrader.pwd
+
+      - name: Upload Round26 parity artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Fibonacci-BTC-Round26-Core-Refactor-Parity
+          path: |
+            work/build/*
+            work/r26-src/*.cs
+            work/r26-src/*.csproj
+            work/r22-3y/report.*
+            work/r26-3y/report.*
+            work/r22-1y/report.*
+            work/r26-1y/report.*
+            work/Round26-Parity-Summary.json
+          retention-days: 30
