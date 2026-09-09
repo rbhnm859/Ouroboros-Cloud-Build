@@ -86,6 +86,6 @@
   "errors": [
     "cTrader console did not produce backtest/reports/EURUSD-M1-30D-candidate-a.json"
   ],
-  "generated_by": "GitHub Actions workflow cdscalper-eurusd-v1-backtest-30d-candidate-a.yml",
+  "generated_by": "GitHub Actions workflow cdscalper-eurusd-v1-backtest-30d-diagnostic.yml",
   "generated_at": "2026-09-09"
 }
