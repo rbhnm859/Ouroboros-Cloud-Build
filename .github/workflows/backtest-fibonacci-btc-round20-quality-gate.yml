@@ -1,0 +1,109 @@
+name: BTC Round20 Quality Gate build and 1Y validation
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ btc-round20-quality-gate ]
+    paths:
+      - 'FibonacciHarmonicSniperUltimate/versions/v0.19.0-btc-round20-quality-gate/**'
+      - '.github/workflows/backtest-fibonacci-btc-round20-quality-gate.yml'
+
+permissions:
+  contents: read
+concurrency:
+  group: fibonacci-btc-round20-quality-gate
+  cancel-in-progress: true
+jobs:
+  build-backtest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '6.0.x'
+      - name: Generate Round20 source from frozen Round18 anchor
+        run: |
+          set -euo pipefail
+          mkdir -p backtest/src backtest/build backtest/cache backtest/harsh
+          python3 - <<'PY'
+          from pathlib import Path
+          import base64,gzip,hashlib
+          root=Path('FibonacciHarmonicSniperUltimate/versions/v0.17.0-btc-round18-diagnostics')
+          data=gzip.decompress(base64.b64decode(''.join(p.read_text().strip() for p in sorted(root.glob('source_payload.part*')))))
+          assert hashlib.sha256(data).hexdigest()=='5f2b7f31c4b8f0d60f52c4c15869aa75df4ff07d7224af971784137716bc8b93'
+          Path('backtest/src/Round18.cs').write_bytes(data)
+          PY
+          python3 FibonacciHarmonicSniperUltimate/versions/v0.18.0-btc-round19-quality-expansion/round19_transform.py backtest/src/Round18.cs backtest/src/Round19.cs
+          python3 FibonacciHarmonicSniperUltimate/versions/v0.19.0-btc-round20-quality-gate/round20_transform.py backtest/src/Round19.cs backtest/src/FibonacciHarmonicSniperUltimate-BTC-Round20-QualityGate.cs
+          rm backtest/src/Round18.cs backtest/src/Round19.cs
+          cat > backtest/src/FibonacciHarmonicSniperUltimate-BTC-Round20-QualityGate.csproj <<'EOF'
+          <Project Sdk="Microsoft.NET.Sdk"><PropertyGroup><TargetFramework>net6.0</TargetFramework><ImplicitUsings>disable</ImplicitUsings><Nullable>disable</Nullable><RootNamespace>cAlgo.Robots</RootNamespace><AlgoName>FibonacciHarmonicSniperUltimate-BTC-Round20-QualityGate</AlgoName></PropertyGroup><ItemGroup><PackageReference Include="cTrader.Automate" Version="1.*-*" /></ItemGroup></Project>
+          EOF
+      - name: Build Round20 .algo
+        run: |
+          set -euo pipefail
+          P=backtest/src/FibonacciHarmonicSniperUltimate-BTC-Round20-QualityGate.csproj
+          dotnet restore "$P" && dotnet build "$P" -c Release --no-restore -p:AlgoPublish=False -p:IncludeSource=True
+          A=$(find backtest/src/bin/Release -name '*.algo' -type f | head -1); cp "$A" backtest/build/FibonacciHarmonicSniperUltimate-BTC-Round20-QualityGate.algo
+          sha256sum backtest/build/*.algo > backtest/build/SHA256SUMS.txt
+      - name: Prepare cTrader
+        env:
+          CTRADER_PASSWORD: ${{ secrets.CTRADER_PASSWORD }}
+        run: printf '%s' "$CTRADER_PASSWORD" | tr -d '\r\n' > backtest/ctrader.pwd
+      - name: Pull cTrader CLI
+        run: docker pull ghcr.io/spotware/ctrader-console:5.9.11
+      - name: Standard screens 30 60 120 minute M30 handoff
+        env:
+          CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+          CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+        run: |
+          set -euo pipefail
+          for HOLD in 30 60 120; do
+            mkdir -p "backtest/hold${HOLD}"
+            docker run --rm -v "$PWD/backtest:/work" -e "CTID=$CTRADER_CTID" -e 'PWD-FILE=/work/ctrader.pwd' -e "ACCOUNT=$CTRADER_ACCOUNT" ghcr.io/spotware/ctrader-console:5.9.11 backtest /work/build/FibonacciHarmonicSniperUltimate-BTC-Round20-QualityGate.algo --environment-variables --exit-on-stop --symbol=BITCOIN --period=h1 --start='08/09/2025 00:00' --end='08/09/2026 00:00' --balance=10000 --data-mode=m1 --data-dir=/work/cache --commission=65 --spread=0 --RiskPercent=1.0 --Round17M30RiskPercent=0.50 --Round18CandidateDiagnostics=false --Round19QualityExpansion=true --Round19H1AlignMaxAgeHours=4 --Round19M30BuyRiskPercent=0.35 --Round19M30SellRiskPercent=0.50 --Round19AlignedBuyRiskPercent=0.50 --Round20H1PriorityHandoff=true --Round20MaxM30HoldMinutes="$HOLD" --MaxOpenPositions=1 --MaxTradesPerDay=6 --MaxDailyLossPercent=5 --EnabledPatterns='Reciprocal ABCD' --PivotLeft=2 --PivotRight=2 --RatioTolerancePercent=6 --MinPatternScore=84 --MaxPatternAgeBars=16 --MaxEntryDistanceAtr=1.80 --ConfirmationMoveAtr=0.05 --UseCandleConfirmation=true --CooldownBars=2 --FallbackRiskReward=1.80 --MinimumRiskReward=1.50 --StopAnchorMode=LegacyD --TargetRiskRewardPolicy=LegacyFallback --Round5Mode=ObserveOnly --MtfMode=Off --Round6RequireM30SellConfirm=false --Round7VetoM30SellAlignment=false --Round8LogExcursions=false --Round9ShadowTpContinuation=false --Round10LogFunnel=false --Round15EnableM30Engine=true --Round16H1HealthGate=true --DebugLogging=false --report="/work/hold${HOLD}/report.html" --report-json="/work/hold${HOLD}/report.json" 2>&1 | tee "backtest/hold${HOLD}/report.log"
+          done
+      - name: Select best Round20 standard screen
+        run: |
+          python3 - <<'PY'
+          import json,os
+          from pathlib import Path
+          out=[]
+          for h in (30,60,120):
+            r=json.loads(Path(f'backtest/hold{h}/report.json').read_text())
+            x={'hold':h,'trades':int(r['tradeStatistics']['totalTrades']['all']),'roi':float(r['main']['roi']),'net':float(r['main']['netProfit']),'pf':float(r['tradeStatistics']['profitFactor']['all']),'dd':float(r['equity']['maxEquityDrawdownPercent'])}
+            x['gates']={'trades':x['trades']>=99,'roi':x['roi']>38.48,'pf':x['pf']>1.85,'dd':x['dd']<5.92}; x['gate_count']=sum(x['gates'].values()); x['pass_all']=all(x['gates'].values()); out.append(x)
+          best=max(out,key=lambda x:(x['pass_all'],x['gate_count'],x['roi'],x['pf'],-x['dd'],x['trades']))
+          Path('backtest/Round20-Standard-Screen.json').write_text(json.dumps({'screen':out,'selected':best},indent=2))
+          with open(os.environ['GITHUB_ENV'],'a') as f:f.write(f"R20_HOLD={best['hold']}\n")
+          print(json.dumps({'screen':out,'selected':best},indent=2))
+          PY
+      - name: Harsh selected Round20
+        env:
+          CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+          CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+        run: |
+          docker run --rm -v "$PWD/backtest:/work" -e "CTID=$CTRADER_CTID" -e 'PWD-FILE=/work/ctrader.pwd' -e "ACCOUNT=$CTRADER_ACCOUNT" ghcr.io/spotware/ctrader-console:5.9.11 backtest /work/build/FibonacciHarmonicSniperUltimate-BTC-Round20-QualityGate.algo --environment-variables --exit-on-stop --symbol=BITCOIN --period=h1 --start='08/09/2025 00:00' --end='08/09/2026 00:00' --balance=10000 --data-mode=m1 --data-dir=/work/cache --commission=100 --spread=1500 --RiskPercent=1.0 --Round17M30RiskPercent=0.50 --Round18CandidateDiagnostics=false --Round19QualityExpansion=true --Round19H1AlignMaxAgeHours=4 --Round19M30BuyRiskPercent=0.35 --Round19M30SellRiskPercent=0.50 --Round19AlignedBuyRiskPercent=0.50 --Round20H1PriorityHandoff=true --Round20MaxM30HoldMinutes="$R20_HOLD" --MaxOpenPositions=1 --MaxTradesPerDay=6 --MaxDailyLossPercent=5 --EnabledPatterns='Reciprocal ABCD' --PivotLeft=2 --PivotRight=2 --RatioTolerancePercent=6 --MinPatternScore=84 --MaxPatternAgeBars=16 --MaxEntryDistanceAtr=1.80 --ConfirmationMoveAtr=0.05 --UseCandleConfirmation=true --CooldownBars=2 --FallbackRiskReward=1.80 --MinimumRiskReward=1.50 --StopAnchorMode=LegacyD --TargetRiskRewardPolicy=LegacyFallback --Round5Mode=ObserveOnly --MtfMode=Off --Round6RequireM30SellConfirm=false --Round7VetoM30SellAlignment=false --Round8LogExcursions=false --Round9ShadowTpContinuation=false --Round10LogFunnel=false --Round15EnableM30Engine=true --Round16H1HealthGate=true --DebugLogging=false --report=/work/harsh/report.html --report-json=/work/harsh/report.json 2>&1 | tee backtest/harsh/report.log
+      - name: Final summary
+        run: |
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          s=json.loads(Path('backtest/Round20-Standard-Screen.json').read_text()); r=json.loads(Path('backtest/harsh/report.json').read_text())
+          h={'trades':int(r['tradeStatistics']['totalTrades']['all']),'roi':float(r['main']['roi']),'net':float(r['main']['netProfit']),'pf':float(r['tradeStatistics']['profitFactor']['all']),'dd':float(r['equity']['maxEquityDrawdownPercent'])}
+          Path('backtest/Round20-Final-Summary.json').write_text(json.dumps({'version':'v0.19.0-btc-round20-quality-gate','round17':{'trades':94,'roi':38.48,'pf':1.85,'dd':5.92},'round19':{'trades':99,'roi':34.03,'pf':1.75,'dd':7.7935},'standard':s['selected'],'harsh':h},indent=2))
+          PY
+      - if: always()
+        run: rm -f backtest/ctrader.pwd
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Fibonacci-BTC-Round20-QualityGate
+          path: |
+            backtest/build/*
+            backtest/src/FibonacciHarmonicSniperUltimate-BTC-Round20-QualityGate.cs
+            backtest/hold*/report.*
+            backtest/harsh/report.*
+            backtest/Round20-Standard-Screen.json
+            backtest/Round20-Final-Summary.json
+          retention-days: 30
