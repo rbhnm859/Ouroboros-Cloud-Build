@@ -29,8 +29,23 @@ jobs:
           ROOT='FibonacciHarmonicSniperUltimate/versions/xauusd_1'
           mkdir -p "$ROOT/src" backtest/cache backtest/reports backtest/package
           base64 -d "$ROOT/source.gz.b64" | gzip -dc > "$ROOT/src/FibonacciXAUUSD1.cs"
+          python3 - <<'PY_PATCH'
+          from pathlib import Path
+          p=Path('FibonacciHarmonicSniperUltimate/versions/xauusd_1/src/FibonacciXAUUSD1.cs')
+          s=p.read_text()
+          s=s.replace('VERSION xauusd_1 v1.1.0-gold-v7','VERSION xauusd_1 v1.2.0-gold-v8')
+          s=s.replace('[ARCH] H1 named harmonic -> Quality/PRZ -> M30 Confirm -> Risk/Execution | Direction is pattern geometry only | StandaloneABCD={0}',
+                      '[ARCH] H1 named harmonic -> TRUE geometry quality -> M30 Confirm -> Risk/Execution | age/EMA/cost are independent | StandaloneABCD={0}')
+          old='m.BaseQuality = 0.50 * m.RatioScore + 0.20 * m.PrzScore + 0.10 * m.SymmetryScore + 0.05 * m.ReciprocalScore + 0.10 * m.FreshnessScore + 0.05 * m.EmaContextScore;'
+          new='m.BaseQuality = 0.55 * m.RatioScore + 0.25 * m.PrzScore + 0.10 * m.SymmetryScore + 0.10 * m.ReciprocalScore;'
+          if old not in s:
+              raise SystemExit('expected v7 BaseQuality formula not found')
+          s=s.replace(old,new,1)
+          p.write_text(s)
+          PY_PATCH
           sha256sum "$ROOT/src/FibonacciXAUUSD1.cs" | tee backtest/package/source.sha256
           grep -q 'v1.2.0-gold-v8' "$ROOT/src/FibonacciXAUUSD1.cs"
+          grep -q '0.55 \* m.RatioScore + 0.25 \* m.PrzScore' "$ROOT/src/FibonacciXAUUSD1.cs"
           cp "$ROOT/src/FibonacciXAUUSD1.cs" backtest/package/FibonacciXAUUSD1.cs
           cp "$ROOT/README.md" backtest/package/README.md
 
