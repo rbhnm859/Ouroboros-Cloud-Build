@@ -1,0 +1,173 @@
+name: Fibonacci XAUUSD 3 - Harmonic Hybrid v1
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [fibonacci-xauusd-v3-hybrid]
+    paths:
+      - 'FibonacciHarmonicSniperUltimate/versions/xauusd_3/**'
+      - '.github/workflows/backtest-fibonacci-xauusd-3-hybrid-v1.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fibonacci-xauusd-3-hybrid-v1
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Prepare package
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p package
+          ROOT='FibonacciHarmonicSniperUltimate/versions/xauusd_3'
+          cp "$ROOT/src/FibonacciXAUUSD3.cs" package/FibonacciXAUUSD3.cs
+          cp "$ROOT/README.md" package/README.md
+          grep -q 'v3.0.0-harmonic-hybrid' "$ROOT/src/FibonacciXAUUSD3.cs"
+          grep -q 'HasAnySymbolExposure' "$ROOT/src/FibonacciXAUUSD3.cs"
+          grep -q '_entryInProgress' "$ROOT/src/FibonacciXAUUSD3.cs"
+      - name: Pull official cTrader CLI
+        run: docker pull ghcr.io/spotware/ctrader-console:5.9.11
+      - name: Build xauusd_3
+        shell: bash
+        run: |
+          set -euo pipefail
+          ROOT='FibonacciHarmonicSniperUltimate/versions/xauusd_3'
+          docker run --rm --entrypoint sh -v "$PWD:/repo" -w /repo ghcr.io/spotware/ctrader-console:5.9.11 -c "dotnet restore $ROOT/FibonacciXAUUSD3.csproj && dotnet build $ROOT/FibonacciXAUUSD3.csproj --configuration Release --no-restore -p:AlgoPublish=False -p:IncludeSource=True"
+          ALGO="$(find "$ROOT" -type f -name '*.algo' -print -quit)"
+          test -n "$ALGO"
+          cp "$ALGO" package/FibonacciXAUUSD3-v1-Hybrid.algo
+          sha256sum package/FibonacciXAUUSD3-v1-Hybrid.algo | tee package/algo.sha256
+      - uses: actions/upload-artifact@v4
+        with:
+          name: xauusd_3-hybrid-v1-build
+          path: package/
+          retention-days: 30
+
+  backtest:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { label: standard, spread: '17.42', commission: '35' }
+          - { label: harsh, spread: '30', commission: '50' }
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: xauusd_3-hybrid-v1-build
+          path: work
+      - run: docker pull ghcr.io/spotware/ctrader-console:5.9.11
+      - name: Create cTrader password file
+        env:
+          CTRADER_PASSWORD: ${{ secrets.CTRADER_PASSWORD }}
+        run: |
+          test -n "${CTRADER_PASSWORD:-}" || exit 1
+          printf '%s' "$CTRADER_PASSWORD" > work/ctrader.pwd
+          chmod 600 work/ctrader.pwd
+      - name: Run full 3M ${{ matrix.label }} hybrid backtest
+        env:
+          CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+          CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p work/reports work/cache
+          docker run --rm -v "$PWD/work:/work" \
+            -e "CTID=$CTRADER_CTID" -e 'PWD-FILE=/work/ctrader.pwd' -e "ACCOUNT=$CTRADER_ACCOUNT" \
+            ghcr.io/spotware/ctrader-console:5.9.11 \
+            backtest /work/FibonacciXAUUSD3-v1-Hybrid.algo --environment-variables --exit-on-stop \
+            --symbol=XAUUSD --period=m5 --start='09/06/2026' --end='09/09/2026' \
+            --balance=10000 --data-mode=m1 --data-dir=/work/cache \
+            --commission='${{ matrix.commission }}' --spread='${{ matrix.spread }}' \
+            --RiskPercent=0.50 --MaxDailyLossPercent=3.0 --MinimumRiskReward=1.50 \
+            --PreScoreMin=42 --FinalScoreMin=60 --PivotLeft=2 --PivotRight=1 --PivotLookback=320 \
+            --MinImpulseAtr=1.20 --FibShallow=0.50 --FibDeep=0.786 --StopFib=0.886 \
+            --SlAtrBuffer=0.12 --MaxSpreadAtrRatio=0.05 --CooldownM5Bars=9 \
+            --ConfirmWindowM5Bars=12 --M5RulesNeeded=2 --M5BreakLookback=3 \
+            --M5WickMinRatio=0.22 --M5BodyMinRatio=0.42 --MaxEntryDistanceAtr=0.55 \
+            --report='/work/reports/${{ matrix.label }}.html' --report-json='/work/reports/${{ matrix.label }}.json' \
+            2>&1 | tee 'work/reports/${{ matrix.label }}.log'
+          grep -E '\[(SETUP|ARM|M5 CONFIRM|OPEN|CLOSE|STATS|SESSION)\]' 'work/reports/${{ matrix.label }}.log' > 'work/reports/${{ matrix.label }}-signals.txt' || true
+          test -s 'work/reports/${{ matrix.label }}.json'
+      - if: always()
+        run: rm -f work/ctrader.pwd
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: xauusd_3-hybrid-v1-report-${{ matrix.label }}
+          path: work/reports/
+          retention-days: 30
+
+  aggregate:
+    needs: backtest
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: xauusd_3-hybrid-v1-build
+          path: package
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: xauusd_3-hybrid-v1-report-*
+          path: reports
+          merge-multiple: true
+      - name: Aggregate metrics and assert no overlap / hedge
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import json
+
+          def stat(d,key):
+              x=d.get('tradeStatistics',{}).get(key,0)
+              if isinstance(x,dict): return float(x.get('all',0) or 0)
+              return float(x or 0)
+
+          def overlap_count(d):
+              items=d.get('history',{}).get('items',[]) or []
+              spans=[]
+              for x in items:
+                  spans.append((int(x.get('entryTime',0) or 0), int(x.get('closeTime',0) or 0), str(x.get('direction',''))))
+              spans.sort()
+              overlaps=hedges=0
+              for i in range(len(spans)):
+                  for j in range(i+1,len(spans)):
+                      if spans[j][0] >= spans[i][1]: break
+                      overlaps += 1
+                      if spans[j][2] != spans[i][2]: hedges += 1
+              return overlaps,hedges
+
+          out=['# xauusd_3 Harmonic Hybrid v1','',
+               '| Cost | Trades | Wins | Losses | WR % | Net $ | ROI % | PF | Max Eq DD % | Overlap | Hedge |',
+               '|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|']
+          for label in ('standard','harsh'):
+              d=json.loads(Path(f'reports/{label}.json').read_text())
+              t=int(stat(d,'totalTrades')); w=int(stat(d,'winningTrades')); l=int(stat(d,'losingTrades'))
+              wr=100*w/t if t else 0
+              net=stat(d,'netProfit'); pf=stat(d,'profitFactor')
+              roi=float(d.get('main',{}).get('roi',0) or 0)
+              dd=float(d.get('equity',{}).get('maxEquityDrawdownPercent',0) or 0)
+              ov,hg=overlap_count(d)
+              out.append(f'| {label} | {t} | {w} | {l} | {wr:.2f} | {net:.2f} | {roi:.2f} | {pf:.2f} | {dd:.2f} | {ov} | {hg} |')
+              if ov != 0 or hg != 0:
+                  raise SystemExit(f'SAFETY FAIL {label}: overlaps={ov} hedges={hg}')
+          Path('HYBRID_V1_BACKTEST_SUMMARY.md').write_text('\n'.join(out)+'\n')
+          print('\n'.join(out))
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: xauusd_3-hybrid-v1-complete
+          path: |
+            package/
+            reports/
+            HYBRID_V1_BACKTEST_SUMMARY.md
+          retention-days: 30
