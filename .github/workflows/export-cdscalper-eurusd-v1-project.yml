@@ -5,8 +5,6 @@ on:
   push:
     branches:
       - cds-eurusd-v1
-    paths:
-      - '.github/workflows/export-cdscalper-eurusd-v1-project.yml'
 
 permissions:
   contents: read
@@ -16,6 +14,7 @@ env:
 
 jobs:
   export-project:
+    name: export-project
     runs-on: ubuntu-latest
     timeout-minutes: 10
 
@@ -29,39 +28,39 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          rm -rf "$EXPORT_NAME"
+          rm -rf "$EXPORT_NAME" "$EXPORT_NAME.zip" "$EXPORT_NAME.zip.sha256"
           mkdir -p "$EXPORT_NAME"
 
-          # Core cBot project
           cp -R CumulativeDeltaScalper-EURUSD-v1 "$EXPORT_NAME/"
 
-          # Relevant workflows for build/backtest/debug/export
           mkdir -p "$EXPORT_NAME/.github/workflows"
-          cp .github/workflows/cdscalper-eurusd-v1-build-algo.yml "$EXPORT_NAME/.github/workflows/" 2>/dev/null || true
-          cp .github/workflows/cdscalper-eurusd-v1-backtest-30d.yml "$EXPORT_NAME/.github/workflows/" 2>/dev/null || true
-          cp .github/workflows/cdscalper-eurusd-v1-backtest-30d-diagnostic.yml "$EXPORT_NAME/.github/workflows/" 2>/dev/null || true
-          cp .github/workflows/cdscalper-eurusd-v1-backtest-1y.yml "$EXPORT_NAME/.github/workflows/" 2>/dev/null || true
-          cp .github/workflows/export-cdscalper-eurusd-v1-project.yml "$EXPORT_NAME/.github/workflows/" 2>/dev/null || true
+          for wf in \
+            cdscalper-eurusd-v1-build-algo.yml \
+            cdscalper-eurusd-v1-backtest-30d.yml \
+            cdscalper-eurusd-v1-backtest-30d-diagnostic.yml \
+            cdscalper-eurusd-v1-backtest-1y.yml \
+            export-cdscalper-eurusd-v1-project.yml; do
+            if [ -f ".github/workflows/$wf" ]; then
+              cp ".github/workflows/$wf" "$EXPORT_NAME/.github/workflows/"
+            fi
+          done
 
           cat > "$EXPORT_NAME/EXPORT_README.md" <<'EOF'
 # CumulativeDeltaScalper-EURUSD-v1 Project Export
 
-This export was generated from branch `cds-eurusd-v1` in `rbhnm859/Ouroboros-Cloud-Build`.
+Generated from branch `cds-eurusd-v1` in `rbhnm859/Ouroboros-Cloud-Build`.
 
 Included:
 - Full `CumulativeDeltaScalper-EURUSD-v1` project folder
 - Source code
-- Build output folder if present
-- Presets
-- Backtest JSON files
-- Reports
+- Builds, presets, backtests, reports and docs if present
 - Relevant GitHub Actions workflows
 
-Important current status:
-- The `.algo` build pipeline previously succeeded.
-- EURUSD M1 30D backtest completed but produced 0 trades.
-- Relaxed diagnostic backtest also completed but produced 0 trades.
-- Current debug direction: add/fix a bar-delta fallback or change delta source because tick-delta does not appear to accumulate under cTrader CLI `--data-mode=m1`.
+Current debug status:
+- `.algo` build previously succeeded.
+- EURUSD M1 30D backtest completed with 0 trades.
+- Relaxed diagnostic backtest completed with 0 trades.
+- Next fix direction: add/fix bar-delta fallback or change delta source because tick-delta does not appear to accumulate under cTrader CLI `--data-mode=m1`.
 EOF
 
       - name: Create ZIP
