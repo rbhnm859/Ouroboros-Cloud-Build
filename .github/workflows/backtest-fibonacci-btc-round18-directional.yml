@@ -1,0 +1,238 @@
+name: Backtest Fibonacci BTC Round18 Directional Expansion
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - btc-round18-directional-expansion
+    paths:
+      - '.github/workflows/backtest-fibonacci-btc-round18-directional.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fibonacci-btc-round18-directional
+  cancel-in-progress: true
+
+jobs:
+  build-and-backtest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Pull exact Round17 cTrader CLI image
+        run: docker pull ghcr.io/spotware/ctrader-console:5.9.11
+
+      - name: Build deterministic Round18 directional source
+        run: |
+          set -euo pipefail
+          python3 - <<'PYCODE'
+          from pathlib import Path
+          import base64, gzip, hashlib
+          parent = Path('FibonacciHarmonicSniperUltimate/versions/v0.17.0-btc-round18-diagnostics')
+          work = Path('FibonacciHarmonicSniperUltimate/versions/v0.18.0-btc-round18-directional')
+          work.mkdir(parents=True, exist_ok=True)
+          payload = ''.join(p.read_text() for p in sorted(parent.glob('source_payload.part*'))).strip()
+          raw = gzip.decompress(base64.b64decode(payload))
+          parent_sha = hashlib.sha256(raw).hexdigest()
+          expected_parent = '80390542f4eff2cc1f8a0f804090c3c5598441057ade12f3c8bb4b62f38dfeb0'
+          if parent_sha != expected_parent:
+              raise SystemExit(f'Parent diagnostics SHA mismatch: {parent_sha}')
+          s = raw.decode('utf-8')
+          s = s.replace('Print("VERSION v0.17.0-btc-round18-diagnostics");','Print("VERSION v0.18.0-btc-round18-directional");')
+          needle = '''        [Parameter("R18 Candidate Diagnostics", DefaultValue = true, Group = "BTC Round18 Diagnostics")]
+          public bool Round18CandidateDiagnostics { get; set; }
+          '''
+          repl = needle + '''
+          [Parameter("R18 Directional Expansion", DefaultValue = true, Group = "BTC Round18 Expansion")]
+          public bool Round18DirectionalExpansion { get; set; }
+
+          [Parameter("R18 H1 Align Max Age Hours", DefaultValue = 12, MinValue = 1, MaxValue = 24, Group = "BTC Round18 Expansion")]
+          public int Round18H1AlignMaxAgeHours { get; set; }
+
+          [Parameter("R18 Standalone M30 Buy Risk %", DefaultValue = 0.35, MinValue = 0.05, MaxValue = 0.50, Group = "BTC Round18 Expansion")]
+          public double Round18StandaloneM30BuyRiskPercent { get; set; }
+          '''
+          if needle not in s: raise SystemExit('parameter anchor not found')
+          s=s.replace(needle,repl)
+          old='''        private double Round17CalculateM30Volume(double slPips)
+          {
+              if (slPips <= 0 || Round17M30RiskPercent <= 0)
+                  return 0;
+              double amount = Account.Equity * Round17M30RiskPercent / 100.0;
+              double raw = Symbol.VolumeForFixedRisk(amount, slPips, RoundingMode.Down);
+              if (double.IsNaN(raw) || double.IsInfinity(raw) || raw <= 0)
+                  return 0;
+              raw = Symbol.NormalizeVolumeInUnits(raw, RoundingMode.Down);
+              if (raw > Symbol.VolumeInUnitsMax)
+                  raw = Symbol.VolumeInUnitsMax;
+              return raw;
+          }
+          '''
+          new='''        private double Round18CalculateM30Volume(double slPips, double riskPercent)
+          {
+              if (slPips <= 0 || riskPercent <= 0)
+                  return 0;
+              double amount = Account.Equity * riskPercent / 100.0;
+              double raw = Symbol.VolumeForFixedRisk(amount, slPips, RoundingMode.Down);
+              if (double.IsNaN(raw) || double.IsInfinity(raw) || raw <= 0)
+                  return 0;
+              raw = Symbol.NormalizeVolumeInUnits(raw, RoundingMode.Down);
+              if (raw > Symbol.VolumeInUnitsMax)
+                  raw = Symbol.VolumeInUnitsMax;
+              return raw;
+          }
+
+          private bool Round18HasRecentSameDirectionH1(PatternMatch m)
+          {
+              if (!Round18DirectionalExpansion || m == null)
+                  return false;
+              Round5FrameState h1Same = Round18FindH1StateForDirection(m.Direction);
+              return h1Same != null && h1Same.AgeBars >= 0 && h1Same.AgeBars <= Round18H1AlignMaxAgeHours;
+          }
+
+          private double Round18RiskForM30(PatternMatch m, bool aligned)
+          {
+              if (!Round18DirectionalExpansion || m == null)
+                  return Round17M30RiskPercent;
+              if (m.Direction == TradeType.Buy && !aligned)
+                  return Math.Min(Round17M30RiskPercent, Round18StandaloneM30BuyRiskPercent);
+              return Round17M30RiskPercent;
+          }
+          '''
+          if old not in s: raise SystemExit('risk function anchor not found')
+          s=s.replace(old,new)
+          old='''            bool healthAllowed = Round16H1HealthAllowsM30();
+              if (!healthAllowed)
+              {
+                  _r16M30BlockedHealth++;
+                  if (best != null)
+                      Round18RecordCandidate(best, lastClosed, confirmationPassed, "HEALTH");
+                  return;
+              }
+
+              if (!Round15PassSharedLimits(lastClosed))
+          '''
+          new='''            bool alignedLane = Round18HasRecentSameDirectionH1(best);
+              bool healthAllowed = Round16H1HealthAllowsM30();
+              bool directionalHealthBypass = Round18DirectionalExpansion && best != null && alignedLane;
+              if (!healthAllowed && !directionalHealthBypass)
+              {
+                  _r16M30BlockedHealth++;
+                  if (best != null)
+                      Round18RecordCandidate(best, lastClosed, confirmationPassed, "HEALTH");
+                  return;
+              }
+
+              if (!Round15PassSharedLimits(lastClosed))
+          '''
+          if old not in s: raise SystemExit('health gate anchor not found')
+          s=s.replace(old,new)
+          old='''            Round18RecordCandidate(best, lastClosed, true, "EXECUTE");
+              Round15ExecuteM30(best, lastClosed);
+          '''
+          new='''            double m30RiskPercent = Round18RiskForM30(best, alignedLane);
+              string lane = alignedLane ? "ALIGNED" : "STANDALONE";
+              Round18RecordCandidate(best, lastClosed, true, "EXECUTE:" + lane);
+              Round15ExecuteM30(best, lastClosed, m30RiskPercent, lane);
+          '''
+          if old not in s: raise SystemExit('execution anchor not found')
+          s=s.replace(old,new)
+          s=s.replace('private void Round15ExecuteM30(PatternMatch m, int lastClosed)','private void Round15ExecuteM30(PatternMatch m, int lastClosed, double riskPercent, string lane)')
+          s=s.replace('double volume=Round17CalculateM30Volume(slPips);','double volume=Round18CalculateM30Volume(slPips,riskPercent);')
+          s=s.replace('Print("[R15 M30 OPEN] {0} {1} score={2:F1}% volume={3} SL={4:F1}p TP={5:F1}p RR={6:F2}",m.Definition.Name,m.Direction,m.Score,volume,slPips,tpPips,tpPips/slPips);','Print("[R18 M30 OPEN] lane={0} {1} {2} score={3:F1}% risk={4:F2}% volume={5} SL={6:F1}p TP={7:F1}p RR={8:F2}",lane,m.Definition.Name,m.Direction,m.Score,riskPercent,volume,slPips,tpPips,tpPips/slPips);')
+          s=s.replace('else if (finalGate == "EXECUTE") _r18ExecuteCandidates++;','else if (finalGate.StartsWith("EXECUTE", StringComparison.Ordinal)) _r18ExecuteCandidates++;')
+          startup='            Print("BTC Round18 Diagnostics | candidate-first instrumentation={0} | trading gates and risk unchanged", Round18CandidateDiagnostics);\n'
+          if startup not in s: raise SystemExit('startup anchor not found')
+          s=s.replace(startup,startup+'            Print("BTC Round18 Directional Expansion | enabled={0} | H1 same-dir max age={1}h | standalone M30 Buy risk={2:F2}% | M30 Sell cap={3:F2}%", Round18DirectionalExpansion, Round18H1AlignMaxAgeHours, Round18StandaloneM30BuyRiskPercent, Round17M30RiskPercent);\n')
+          out=work/'FibonacciHarmonicSniperUltimate-BTC-Round18-Directional.cs'
+          out.write_text(s)
+          actual=hashlib.sha256(out.read_bytes()).hexdigest()
+          expected='d82b55350e2f809f204df97a46bea5c4046508296d534c813e6e983ff54e8d66'
+          if actual != expected: raise SystemExit(f'Directional SHA mismatch {actual} != {expected}')
+          (work/'FibonacciHarmonicSniperUltimate-BTC-Round18-Directional.csproj').write_text('''<Project Sdk="Microsoft.NET.Sdk">\n<PropertyGroup><TargetFramework>net6.0</TargetFramework><ImplicitUsings>disable</ImplicitUsings><Nullable>disable</Nullable><RootNamespace>cAlgo.Robots</RootNamespace><AlgoName>FibonacciHarmonicSniperUltimate-BTC-Round18-Directional</AlgoName></PropertyGroup>\n<ItemGroup><PackageReference Include="cTrader.Automate" Version="1.0.19" /></ItemGroup>\n</Project>\n''')
+          print('Directional source SHA256='+actual)
+          PYCODE
+
+      - name: Build .algo
+        run: |
+          set -euo pipefail
+          mkdir -p backtest/cache backtest/standard backtest/harsh backtest/build
+          PROJ='FibonacciHarmonicSniperUltimate/versions/v0.18.0-btc-round18-directional/FibonacciHarmonicSniperUltimate-BTC-Round18-Directional.csproj'
+          docker run --rm --entrypoint sh -v "$PWD:/repo" -w /repo ghcr.io/spotware/ctrader-console:5.9.11 -c "dotnet restore '$PROJ' && dotnet build '$PROJ' --configuration Release --no-restore -p:AlgoPublish=False -p:IncludeSource=True"
+          ALGO="$(find FibonacciHarmonicSniperUltimate/versions/v0.18.0-btc-round18-directional -type f -name '*.algo' -print -quit)"
+          test -n "$ALGO"
+          cp "$ALGO" backtest/build/Round18Directional.algo
+          sha256sum backtest/build/Round18Directional.algo > backtest/build/SHA256SUMS.txt
+
+      - name: Create cTrader password file
+        env:
+          CTRADER_PASSWORD: ${{ secrets.CTRADER_PASSWORD }}
+        run: |
+          test -n "${CTRADER_PASSWORD:-}" || exit 1
+          printf '%s' "$CTRADER_PASSWORD" | tr -d '\r\n' > backtest/ctrader.pwd
+          chmod 600 backtest/ctrader.pwd
+
+      - name: Standard one-year backtest
+        env:
+          CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+          CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+        run: |
+          set -euo pipefail
+          docker run --rm -v "$PWD/backtest:/work" -e "CTID=$CTRADER_CTID" -e 'PWD-FILE=/work/ctrader.pwd' -e "ACCOUNT=$CTRADER_ACCOUNT" ghcr.io/spotware/ctrader-console:5.9.11 backtest /work/build/Round18Directional.algo --environment-variables --exit-on-stop --symbol=BITCOIN --period=h1 --start='08/09/2025 00:00' --end='08/09/2026 00:00' --balance=10000 --data-mode=m1 --data-dir=/work/cache --commission=65 --spread=0 --RiskPercent=1.0 --Round17M30RiskPercent=0.50 --Round18CandidateDiagnostics=true --Round18DirectionalExpansion=true --Round18H1AlignMaxAgeHours=12 --Round18StandaloneM30BuyRiskPercent=0.35 --MaxOpenPositions=1 --MaxTradesPerDay=6 --MaxDailyLossPercent=5 --EnabledPatterns='Reciprocal ABCD' --PivotLeft=2 --PivotRight=2 --RatioTolerancePercent=6 --MinPatternScore=84 --MaxPatternAgeBars=16 --MaxEntryDistanceAtr=1.80 --ConfirmationMoveAtr=0.05 --UseCandleConfirmation=true --CooldownBars=2 --FallbackRiskReward=1.80 --MinimumRiskReward=1.50 --StopAnchorMode=LegacyD --TargetRiskRewardPolicy=LegacyFallback --Round5Mode=ObserveOnly --MtfMode=Off --Round6RequireM30SellConfirm=false --Round7VetoM30SellAlignment=false --Round8LogExcursions=false --Round9ShadowTpContinuation=false --Round10LogFunnel=false --Round15EnableM30Engine=true --Round16H1HealthGate=true --DebugLogging=false --report=/work/standard/report.html --report-json=/work/standard/report.json 2>&1 | tee backtest/standard/report.log
+
+      - name: Harsh one-year backtest
+        env:
+          CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+          CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+        run: |
+          set -euo pipefail
+          docker run --rm -v "$PWD/backtest:/work" -e "CTID=$CTRADER_CTID" -e 'PWD-FILE=/work/ctrader.pwd' -e "ACCOUNT=$CTRADER_ACCOUNT" ghcr.io/spotware/ctrader-console:5.9.11 backtest /work/build/Round18Directional.algo --environment-variables --exit-on-stop --symbol=BITCOIN --period=h1 --start='08/09/2025 00:00' --end='08/09/2026 00:00' --balance=10000 --data-mode=m1 --data-dir=/work/cache --commission=100 --spread=1500 --RiskPercent=1.0 --Round17M30RiskPercent=0.50 --Round18CandidateDiagnostics=true --Round18DirectionalExpansion=true --Round18H1AlignMaxAgeHours=12 --Round18StandaloneM30BuyRiskPercent=0.35 --MaxOpenPositions=1 --MaxTradesPerDay=6 --MaxDailyLossPercent=5 --EnabledPatterns='Reciprocal ABCD' --PivotLeft=2 --PivotRight=2 --RatioTolerancePercent=6 --MinPatternScore=84 --MaxPatternAgeBars=16 --MaxEntryDistanceAtr=1.80 --ConfirmationMoveAtr=0.05 --UseCandleConfirmation=true --CooldownBars=2 --FallbackRiskReward=1.80 --MinimumRiskReward=1.50 --StopAnchorMode=LegacyD --TargetRiskRewardPolicy=LegacyFallback --Round5Mode=ObserveOnly --MtfMode=Off --Round6RequireM30SellConfirm=false --Round7VetoM30SellAlignment=false --Round8LogExcursions=false --Round9ShadowTpContinuation=false --Round10LogFunnel=false --Round15EnableM30Engine=true --Round16H1HealthGate=true --DebugLogging=false --report=/work/harsh/report.html --report-json=/work/harsh/report.json 2>&1 | tee backtest/harsh/report.log
+
+      - name: Compare with Round17 acceptance gates
+        run: |
+          python3 - <<'PY'
+          import json,re
+          from pathlib import Path
+          base={'standard':{'trades':94,'roi':38.48,'pf':1.85,'dd':5.92},'harsh':{'trades':92,'roi':19.25,'pf':1.40,'dd':7.67}}
+          out=['# Round18 Directional Candidate 1','']
+          vals={}
+          for sc in ('standard','harsh'):
+              r=json.loads(Path(f'backtest/{sc}/report.json').read_text()); m=r['main']; t=r['tradeStatistics']; e=r['equity']; h=r['history']['items']
+              x={'trades':int(t['totalTrades']['all']),'roi':float(m['roi']),'pf':float(t['profitFactor']['all']),'dd':float(e['maxEquityDrawdownPercent'])}; vals[sc]=x
+              h1=sum(str(z.get('comment','')).startswith('H1|') for z in h); m30=sum(str(z.get('comment','')).startswith('M30|') for z in h)
+              log=Path(f'backtest/{sc}/report.log').read_text(errors='replace'); aligned=len(re.findall(r'\[R18 M30 OPEN\] lane=ALIGNED',log)); standalone=len(re.findall(r'\[R18 M30 OPEN\] lane=STANDALONE',log))
+              out += [f'## {sc}',f'- trades: {x["trades"]} (R17 {base[sc]["trades"]})',f'- ROI: {x["roi"]:.2f}% (R17 {base[sc]["roi"]:.2f}%)',f'- PF: {x["pf"]:.2f} (R17 {base[sc]["pf"]:.2f})',f'- max DD: {x["dd"]:.2f}% (R17 {base[sc]["dd"]:.2f}%)',f'- H1={h1}, M30={m30}, aligned opens={aligned}, standalone opens={standalone}','']
+          s=vals['standard']; h=vals['harsh']; gates={'standard trades >=105':s['trades']>=105,'harsh trades >=105':h['trades']>=105,'standard ROI >=38.48':s['roi']>=38.48,'standard PF >=1.70':s['pf']>=1.70,'standard DD <=7.0':s['dd']<=7.0,'harsh ROI >=19.25':h['roi']>=19.25,'harsh PF >=1.40':h['pf']>=1.40,'harsh DD <=8.5':h['dd']<=8.5}
+          for sc in ('standard','harsh'):
+              gates[f'{sc} protection']=('PROTECTION FAIL' not in Path(f'backtest/{sc}/report.log').read_text(errors='replace'))
+          out += ['## Gates']+[f'- {k}: {"PASS" if v else "FAIL"}' for k,v in gates.items()]
+          out += ['',f'Overall: **{"PASS" if all(gates.values()) else "REJECT — keep Round17 champion"}**']
+          Path('backtest/ROUND18_DIRECTIONAL_SUMMARY.md').write_text('\n'.join(out)); print('\n'.join(out))
+          PY
+
+      - name: Remove credentials
+        if: always()
+        run: rm -f backtest/ctrader.pwd
+
+      - name: Upload candidate artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Fibonacci-BTC-Round18-Directional-Candidate1
+          path: |
+            backtest/build/Round18Directional.algo
+            backtest/build/SHA256SUMS.txt
+            backtest/standard/report.html
+            backtest/standard/report.json
+            backtest/standard/report.log
+            backtest/harsh/report.html
+            backtest/harsh/report.json
+            backtest/harsh/report.log
+            backtest/ROUND18_DIRECTIONAL_SUMMARY.md
+            FibonacciHarmonicSniperUltimate/versions/v0.18.0-btc-round18-directional/*.cs
+            FibonacciHarmonicSniperUltimate/versions/v0.18.0-btc-round18-directional/*.csproj
+          retention-days: 30
