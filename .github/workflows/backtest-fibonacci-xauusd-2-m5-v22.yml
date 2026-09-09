@@ -1,0 +1,196 @@
+name: Fibonacci XAUUSD 2 - M15 Harmonic M5 Execution v2.2
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [fibonacci-xauusd-v22-m5-execution]
+    paths:
+      - '.github/workflows/backtest-fibonacci-xauusd-2-m5-v22.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fibonacci-xauusd-2-m5-v22
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Prepare package
+        shell: bash
+        run: |
+          set -euo pipefail
+          ROOT='FibonacciHarmonicSniperUltimate/versions/xauusd_2'
+          mkdir -p package
+          cp "$ROOT/src/FibonacciXAUUSD2.cs" package/FibonacciXAUUSD2.cs
+          cp "$ROOT/README.md" package/README.md
+          grep -q 'v2.2.0-m15-harmonic-m5-execution' "$ROOT/src/FibonacciXAUUSD2.cs"
+          grep -q 'TryConfirmArmedM5' "$ROOT/src/FibonacciXAUUSD2.cs"
+      - name: Pull official cTrader CLI
+        run: docker pull ghcr.io/spotware/ctrader-console:5.9.11
+      - name: Build xauusd_2 v2.2
+        shell: bash
+        run: |
+          set -euo pipefail
+          ROOT='FibonacciHarmonicSniperUltimate/versions/xauusd_2'
+          docker run --rm --entrypoint sh -v "$PWD:/repo" -w /repo ghcr.io/spotware/ctrader-console:5.9.11 -c "dotnet restore $ROOT/FibonacciXAUUSD2.csproj && dotnet build $ROOT/FibonacciXAUUSD2.csproj --configuration Release --no-restore -p:AlgoPublish=False -p:IncludeSource=True"
+          ALGO="$(find "$ROOT" -type f -name '*.algo' -print -quit)"
+          test -n "$ALGO"
+          cp "$ALGO" package/xauusd_2-m5-v22.algo
+          sha256sum package/xauusd_2-m5-v22.algo | tee package/algo.sha256
+      - uses: actions/upload-artifact@v4
+        with:
+          name: xauusd_2-m5-v22-build
+          path: package/
+          retention-days: 30
+
+  backtest:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { label: standard, spread: '17.42', commission: '35' }
+          - { label: harsh, spread: '30', commission: '50' }
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: xauusd_2-m5-v22-build
+          path: work
+      - run: docker pull ghcr.io/spotware/ctrader-console:5.9.11
+      - name: Create cTrader password file
+        env:
+          CTRADER_PASSWORD: ${{ secrets.CTRADER_PASSWORD }}
+        run: |
+          test -n "${CTRADER_PASSWORD:-}" || exit 1
+          printf '%s' "$CTRADER_PASSWORD" > work/ctrader.pwd
+          chmod 600 work/ctrader.pwd
+      - name: Run full 3M ${{ matrix.label }} M5 execution backtest
+        env:
+          CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+          CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p work/reports work/cache
+          docker run --rm -v "$PWD/work:/work" \
+            -e "CTID=$CTRADER_CTID" -e 'PWD-FILE=/work/ctrader.pwd' -e "ACCOUNT=$CTRADER_ACCOUNT" \
+            ghcr.io/spotware/ctrader-console:5.9.11 \
+            backtest /work/xauusd_2-m5-v22.algo --environment-variables --exit-on-stop \
+            --symbol=XAUUSD --period=m5 --start='09/06/2026' --end='09/09/2026' \
+            --balance=10000 --data-mode=m1 --data-dir=/work/cache \
+            --commission='${{ matrix.commission }}' --spread='${{ matrix.spread }}' \
+            --RiskPercent=0.50 --MaxDailyLossPercent=3.0 --MinimumRiskReward=1.50 --MaxTradesPerDay=6 \
+            --PivotLeft=2 --PivotRight=1 --PivotLookback=320 --MinLegAtr=0.45 \
+            --MinConfidence=62 --H1EmaPeriod=50 --PrzAtrWidth=0.18 \
+            --SlAtrBuffer=0.25 --MaxSpreadAtrRatio=0.05 \
+            --CooldownM5Bars=12 --ConfirmWindowM5Bars=9 --M5RulesNeeded=2 \
+            --M5BreakLookback=3 --M5WickMinRatio=0.25 --M5BodyMinRatio=0.45 --MaxEntryDistanceAtr=0.45 \
+            --report='/work/reports/${{ matrix.label }}.html' --report-json='/work/reports/${{ matrix.label }}.json' \
+            2>&1 | tee 'work/reports/${{ matrix.label }}.log'
+          grep -E '\[(ARM M5|M5 CONFIRM|OPEN|CLOSE|STATS|SESSION)\]' 'work/reports/${{ matrix.label }}.log' > 'work/reports/${{ matrix.label }}-signals.txt' || true
+          test -s 'work/reports/${{ matrix.label }}.json'
+      - if: always()
+        run: rm -f work/ctrader.pwd
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: xauusd_2-m5-v22-report-${{ matrix.label }}
+          path: work/reports/
+          retention-days: 30
+
+  aggregate:
+    needs: backtest
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: xauusd_2-m5-v22-build
+          path: package
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: xauusd_2-m5-v22-report-*
+          path: reports
+          merge-multiple: true
+      - name: Aggregate v2.2 M5 execution results
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import json, re
+
+          def val(d, section, key):
+              try:
+                  x=d[section][key]
+                  if isinstance(x,dict): x=x.get('all',0)
+                  return float(x or 0)
+              except Exception:
+                  return 0.0
+
+          def max_dd(d):
+              peak=worst=0.0
+              for p in d.get('equity',{}).get('points',[]):
+                  peak=max(peak,float(p.get('maxEquity',p.get('balance',0)) or 0))
+                  low=float(p.get('minEquity',p.get('balance',0)) or 0)
+                  if peak>0: worst=max(worst,(peak-low)/peak*100)
+              return worst
+
+          def recompute_pf(d):
+              gp=gl=0.0
+              for x in d.get('history',{}).get('items',[]):
+                  n=float(x.get('netProfit',0) or 0)
+                  if n>0: gp+=n
+                  elif n<0: gl-=n
+              return gp/gl if gl>0 else (999.0 if gp>0 else 0.0)
+
+          rows=[]
+          out=['# xauusd_2 v2.2 — M15 Harmonic + M5 Execution','',
+               'Architecture: M5 host; M15 predictive XABC/PRZ; H1 soft context; entry requires 2 of 4 M5 confirmation rules while price remains within 0.45 M15 ATR of PRZ.','',
+               '| Cost | Trades | Wins | Losses | WR % | Net $ | ROI % | PF | Max Eq DD % |',
+               '|---|---:|---:|---:|---:|---:|---:|---:|---:|']
+
+          for label in ('standard','harsh'):
+              d=json.loads(Path(f'reports/{label}.json').read_text())
+              t=int(val(d,'tradeStatistics','totalTrades'))
+              w=int(val(d,'tradeStatistics','winningTrades'))
+              l=int(val(d,'tradeStatistics','losingTrades'))
+              net=val(d,'tradeStatistics','netProfit')
+              if net==0:
+                  net=sum(float(x.get('netProfit',0) or 0) for x in d.get('history',{}).get('items',[]))
+              wr=100*w/t if t else 0.0
+              roi=net/10000*100
+              pf=recompute_pf(d)
+              dd=max_dd(d)
+              rows.append((label,t,w,l,wr,net,roi,pf,dd))
+              out.append(f'| {label} | {t} | {w} | {l} | {wr:.2f} | {net:.2f} | {roi:.2f} | {pf:.2f} | {dd:.2f} |')
+
+          out += ['', '## Attribution from bot logs']
+          for label in ('standard','harsh'):
+              log=Path(f'reports/{label}.log').read_text(errors='ignore')
+              out += ['', f'### {label}']
+              stats=[x for x in log.splitlines() if '[STATS]' in x or '[SESSION]' in x]
+              if stats:
+                  out += ['```'] + stats[-40:] + ['```']
+              else:
+                  out += ['No STATS/SESSION lines found.']
+
+          out += ['', '## Decision rule',
+                  '- Keep v2.2 only if trade count remains materially above the old 1–2 trade regime and Standard/Harsh expectancy improves versus predictive v1 and armed-M15 v2.1.',
+                  '- If trade count is adequate but PF remains weak, next step is Pattern × Direction × Session pruning, not broader entry loosening.',
+                  '- If trade count collapses, test one M5 execution parameter at a time before changing harmonic geometry.']
+
+          Path('package/M5_V22_BACKTEST_SUMMARY.md').write_text('\n'.join(out)+'\n')
+          print('\n'.join(out[:14]))
+          PY
+          cp -r reports package/reports
+      - uses: actions/upload-artifact@v4
+        with:
+          name: xauusd_2-m5-v22-complete
+          path: package/
+          retention-days: 30
