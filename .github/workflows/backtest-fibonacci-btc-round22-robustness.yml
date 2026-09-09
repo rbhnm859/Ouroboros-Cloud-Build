@@ -1,0 +1,17 @@
+name: BTC Round22 Robustness validation
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validation manifest
+        run: |
+          echo 'Round22 robustness validation scaffold'
+          echo 'Compare split-period behavior against Round17 control before promotion.'
