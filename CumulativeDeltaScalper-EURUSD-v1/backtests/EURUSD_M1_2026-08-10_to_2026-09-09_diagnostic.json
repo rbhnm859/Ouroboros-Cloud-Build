@@ -11,7 +11,7 @@
     "end_inclusive": false
   },
   "execution": {
-    "environment": "GitHub Actions ubuntu-latest",
+    "environment": "GitHub Actions windows build + ubuntu backtest",
     "engine": "ghcr.io/spotware/ctrader-console:5.9.11",
     "starting_balance_usd": 100.0,
     "artifact_path": "CumulativeDeltaScalper-EURUSD-v1/builds/CumulativeDeltaScalper_EURUSD_v1.algo",
