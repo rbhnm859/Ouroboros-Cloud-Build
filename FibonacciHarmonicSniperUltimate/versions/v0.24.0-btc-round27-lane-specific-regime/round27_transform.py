@@ -172,7 +172,7 @@ namespace cAlgo.Robots
 locked={
     "FibonacciHarmonicSniperUltimate-BTC-Round26-CoreRefactor.cs":"fea75f79c36c512bc7da2ed5dd42073bad604f4ff43f6825c07eaa0c0483be32",
     "Round26.Quality.cs":"fa7ecfb3e184330a2ec5790c9aa4edb946a74a0ce78c10197fad1ada7d235fec",
-    "Round27.Regime.cs":"81f9975914096d65fd2c9a3fd867f98ba86dec7efcbec90cabd39e3c3b205da1"
+    "Round27.Regime.cs":"5342daa1b23117edb038cd3cac6d223ba446b665ee10614cb75446610a394542"
 }
 for name, sha in locked.items():
     actual=hashlib.sha256((outdir/name).read_bytes()).hexdigest()
