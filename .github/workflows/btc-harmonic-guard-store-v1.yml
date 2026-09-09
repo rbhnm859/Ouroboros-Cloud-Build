@@ -43,9 +43,10 @@ jobs:
           python3 FibonacciHarmonicSniperUltimate/versions/v0.21.0-btc-round22-capital-efficiency/round22_transform.py work/Round21.cs work/Round22.cs
           cp work/Round22.cs work/r26-src/Round22.cs
           python3 FibonacciHarmonicSniperUltimate/versions/v0.23.0-btc-round26-core-refactor/round26_transform.py work/Round22.cs work/r26-src/BTC-Harmonic-Guard-Control.cs
+          rm -f work/r26-src/Round22.cs
           cp work/r26-src/*.cs work/store-src/
           python3 FibonacciHarmonicSniperUltimate/store-v1/store_v1_transform.py work/store-src/BTC-Harmonic-Guard-Control.cs work/store-src/BTC-Harmonic-Guard.cs
-          rm -f work/store-src/BTC-Harmonic-Guard-Control.cs work/Round18.cs work/Round21.cs work/Round22.cs work/r26-src/Round22.cs
+          rm -f work/store-src/BTC-Harmonic-Guard-Control.cs work/Round18.cs work/Round21.cs work/Round22.cs
 
           cat > work/r26-src/Control.csproj <<'EOF'
           <Project Sdk="Microsoft.NET.Sdk">
