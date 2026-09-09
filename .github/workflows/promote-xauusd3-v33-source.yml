@@ -1,0 +1,68 @@
+name: Promote XAUUSD3 v3.3 Verified Source
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [fibonacci-xauusd-v3-hybrid]
+    paths:
+      - '.github/workflows/promote-xauusd3-v33-source.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  promote:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fibonacci-xauusd-v3-hybrid
+      - name: Promote exact verified v3.3 logic
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('FibonacciHarmonicSniperUltimate/versions/xauusd_3/src/FibonacciXAUUSD3.cs')
+          s=p.read_text()
+          s=s.replace('Print("VERSION xauusd_3 v3.0.0-harmonic-hybrid");','Print("VERSION xauusd_3 v3.3.0-london-filter");',1)
+          old='''        [Parameter("Max Entry Distance ATR", DefaultValue = 0.55, MinValue = 0.10, MaxValue = 1.50, Group = "M5 Confirmation")]\n        public double MaxEntryDistanceAtr { get; set; }\n'''
+          new='''        [Parameter("Max Entry Distance ATR", DefaultValue = 0.55, MinValue = 0.10, MaxValue = 1.50, Group = "M5 Confirmation")]\n        public double MaxEntryDistanceAtr { get; set; }\n\n        [Parameter("Min Stop ATR", DefaultValue = 0.20, MinValue = 0.05, MaxValue = 1.50, Group = "Execution")]\n        public double MinStopAtr { get; set; }\n\n        [Parameter("Max Allowed RR", DefaultValue = 8.0, MinValue = 2.0, MaxValue = 20.0, Group = "Execution")]\n        public double MaxAllowedRR { get; set; }\n\n        [Parameter("Buy H1 Min Score", DefaultValue = 18.0, MinValue = 0, MaxValue = 20, Group = "Regime")]\n        public double BuyH1MinScore { get; set; }\n\n        [Parameter("Block London Entries", DefaultValue = true, Group = "Session")]\n        public bool BlockLondonEntries { get; set; }\n'''
+          assert s.count(old)==1
+          s=s.replace(old,new,1)
+          old='''            double h1Score = H1RegimeScore(direction);\n            double fibScore = FibonacciScore(_m15.ClosePrices[index], zoneLow, zoneHigh);\n'''
+          new='''            double h1Score = H1RegimeScore(direction);\n            if (direction == TradeType.Buy && h1Score < BuyH1MinScore)\n            {\n                if (DebugLogging) Print("[REGIME REJECT] Buy H1={0:F1} min={1:F1}", h1Score, BuyH1MinScore);\n                return;\n            }\n            double fibScore = FibonacciScore(_m15.ClosePrices[index], zoneLow, zoneHigh);\n'''
+          assert s.count(old)==1
+          s=s.replace(old,new,1)
+          old='''        private bool TryExecute(ArmedSetup a, double finalScore, int m5Index, int confirmRules)\n        {\n            if (_entryInProgress || HasAnySymbolExposure())\n                return false;\n'''
+          new='''        private bool TryExecute(ArmedSetup a, double finalScore, int m5Index, int confirmRules)\n        {\n            if (BlockLondonEntries && Server.Time.Hour >= 7 && Server.Time.Hour < 13)\n            {\n                if (DebugLogging) Print("[SESSION REJECT] London UTC hour={0}", Server.Time.Hour);\n                return false;\n            }\n            if (_entryInProgress || HasAnySymbolExposure())\n                return false;\n'''
+          assert s.count(old)==1
+          s=s.replace(old,new,1)
+          old='''                double slPips = slDistance / Symbol.PipSize;\n                double tpPips = tpDistance / Symbol.PipSize;\n                double rr = tpPips / slPips;\n                if (rr < MinimumRiskReward)\n                    return false;\n'''
+          new='''                double slPips = slDistance / Symbol.PipSize;\n                double tpPips = tpDistance / Symbol.PipSize;\n                double rr = tpPips / slPips;\n                double brokerMinSlPips = BrokerMinDistancePips(entry, Symbol.MinStopLossDistance);\n                double brokerMinTpPips = BrokerMinDistancePips(entry, Symbol.MinTakeProfitDistance);\n                double requiredSlPips = Math.Max(brokerMinSlPips * 1.10, MinStopAtr * a.M15Atr / Symbol.PipSize);\n                double requiredTpPips = brokerMinTpPips * 1.10;\n                if (slPips < requiredSlPips || tpPips < requiredTpPips) return false;\n                if (rr < MinimumRiskReward || rr > MaxAllowedRR) return false;\n'''
+          assert s.count(old)==1
+          s=s.replace(old,new,1)
+          old='''                TradeResult result = ExecuteMarketOrder(a.Direction, SymbolName, volume, BotLabel, slPips, tpPips, comment);\n                if (!result.IsSuccessful || result.Position == null)\n                    return false;\n\n                _tradesToday++;\n'''
+          new='''                TradeResult result = ExecuteMarketOrder(a.Direction, SymbolName, volume, BotLabel, slPips, tpPips, comment);\n                if (!result.IsSuccessful || result.Position == null) return false;\n                if (result.Position.StopLoss == null || result.Position.TakeProfit == null)\n                {\n                    ClosePosition(result.Position);\n                    return false;\n                }\n\n                _tradesToday++;\n'''
+          assert s.count(old)==1
+          s=s.replace(old,new,1)
+          marker='''        private double Atr(Bars bars, int end, int period)\n'''
+          helper='''        private double BrokerMinDistancePips(double price, double distance)\n        {\n            if (distance <= 0) return 0.0;\n            if (Symbol.MinDistanceType == SymbolMinDistanceType.Pips) return distance;\n            return (price * distance / 100.0) / Symbol.PipSize;\n        }\n\n        private double Atr(Bars bars, int end, int period)\n'''
+          assert s.count(marker)==1
+          s=s.replace(marker,helper,1)
+          p.write_text(s)
+          PY
+          grep -q 'v3.3.0-london-filter' FibonacciHarmonicSniperUltimate/versions/xauusd_3/src/FibonacciXAUUSD3.cs
+          grep -q 'Block London Entries' FibonacciHarmonicSniperUltimate/versions/xauusd_3/src/FibonacciXAUUSD3.cs
+          grep -q 'Buy H1 Min Score' FibonacciHarmonicSniperUltimate/versions/xauusd_3/src/FibonacciXAUUSD3.cs
+          grep -q 'BrokerMinDistancePips' FibonacciHarmonicSniperUltimate/versions/xauusd_3/src/FibonacciXAUUSD3.cs
+      - name: Commit promoted source
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add FibonacciHarmonicSniperUltimate/versions/xauusd_3/src/FibonacciXAUUSD3.cs
+          git diff --cached --quiet && exit 0
+          git commit -m 'feat(xauusd_3): promote verified v3.3 London-filter baseline'
+          git push origin HEAD:fibonacci-xauusd-v3-hybrid
