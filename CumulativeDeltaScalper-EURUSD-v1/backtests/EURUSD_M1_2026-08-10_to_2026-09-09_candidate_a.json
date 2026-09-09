@@ -1,0 +1,91 @@
+{
+  "schema_version": 1,
+  "bot": "CumulativeDeltaScalper-EURUSD-v1",
+  "run_type": "candidate_a_guarded_fallback",
+  "symbol": "EURUSD",
+  "timeframe": "M1",
+  "period": {
+    "start": "2026-08-10",
+    "end": "2026-09-09",
+    "timezone": "UTC",
+    "end_inclusive": false
+  },
+  "execution": {
+    "environment": "GitHub Actions windows build + ubuntu backtest",
+    "engine": "ghcr.io/spotware/ctrader-console:5.9.11",
+    "starting_balance_usd": 100.0,
+    "artifact_path": "CumulativeDeltaScalper-EURUSD-v1/builds/CumulativeDeltaScalper_EURUSD_v1.algo",
+    "ctrader_date_format": "DD/MM/YYYY",
+    "cli_start": "10/08/2026",
+    "cli_end": "09/09/2026",
+    "data_mode": "m1",
+    "source_patch": "bar_delta_fallback",
+    "target_framework": "net6.0"
+  },
+  "candidate_parameters": {
+    "DeltaThreshold": 85,
+    "MinConfirmations": 2,
+    "UseBarDeltaFallback": true,
+    "FallbackBelowTickDelta": 3,
+    "BarDeltaPointMultiplier": 2.0,
+    "UseSessionFilter": true,
+    "OverlapOnly": true,
+    "SessionStartHour": 12,
+    "SessionStartMinute": 30,
+    "SessionEndHour": 16,
+    "SessionEndMinute": 0,
+    "UseHtfEmaFilter": true,
+    "EmaSlopeBars": 2,
+    "AdxThreshold": 12.0,
+    "MinAtr": 5e-05,
+    "MaxAtr": 0.0015,
+    "MaxSpreadPoints": 25,
+    "SpreadAvgMultiplier": 2.5,
+    "MaxDailyTrades": 12,
+    "MaxDailyLossPercent": 20,
+    "MaxDailyLossMoney": 5,
+    "DailyProfitTargetMoney": 8,
+    "MaxConsecutiveLosses": 4,
+    "MinSecondsBetweenTrades": 180,
+    "LossCooldownMinutes": 20,
+    "MaxTradeSeconds": 3600,
+    "UseBreakeven": true,
+    "AdverseDeltaExit": true
+  },
+  "acceptance_gate": {
+    "total_trades_min": 30,
+    "profit_factor_min": 1.15,
+    "win_rate_min_percent": 55,
+    "max_drawdown_max_percent": 12,
+    "return_percent_min": 5,
+    "passed": false
+  },
+  "backtest": {
+    "status": "failed_no_report_json",
+    "data_source": "none",
+    "metrics": {
+      "initial_balance": 100.0,
+      "final_balance": null,
+      "net_profit": null,
+      "return_percent": null,
+      "profit_factor": null,
+      "win_rate": null,
+      "max_drawdown": null,
+      "total_trades": null,
+      "average_trade": null,
+      "largest_win": null,
+      "largest_loss": null,
+      "gross_profit": null,
+      "gross_loss": null
+    },
+    "is_suitable_for_further_optimization": false,
+    "debug_classification": "candidate_a_execution_failed",
+    "debug_summary": "Candidate A backtest did not complete with a usable JSON report. Inspect console markers before changing strategy logic again."
+  },
+  "raw_report_top_level_keys": [],
+  "errors": [
+    "cTrader console did not produce backtest/reports/EURUSD-M1-30D-candidate-a.json"
+  ],
+  "generated_by": "GitHub Actions workflow cdscalper-eurusd-v1-backtest-30d-candidate-a.yml",
+  "generated_at": "2026-09-09"
+}
