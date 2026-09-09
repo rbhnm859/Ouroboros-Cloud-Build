@@ -1,0 +1,279 @@
+name: BTC Round20 Selective Quality Gate build and 1Y validation
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ btc-round20-selective-quality-gate ]
+    paths:
+      - 'FibonacciHarmonicSniperUltimate/versions/v0.19.0-btc-round20-selective-quality-gate/**'
+      - '.github/workflows/backtest-fibonacci-btc-round20-selective-quality-gate.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fibonacci-btc-round20-selective-quality-gate
+  cancel-in-progress: true
+
+jobs:
+  build-and-validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '6.0.x'
+
+      - name: Reconstruct Round19 anchor and generate Round20 source
+        run: |
+          set -euo pipefail
+          mkdir -p backtest/src
+          python3 - <<'PYCODE'
+          from pathlib import Path
+          import base64, gzip, hashlib
+          root = Path('FibonacciHarmonicSniperUltimate/versions/v0.17.0-btc-round18-diagnostics')
+          parts = sorted(root.glob('source_payload.part*'))
+          if not parts:
+              raise SystemExit('Round18 source payload parts missing')
+          data = gzip.decompress(base64.b64decode(''.join(p.read_text().strip() for p in parts)))
+          expected = '5f2b7f31c4b8f0d60f52c4c15869aa75df4ff07d7224af971784137716bc8b93'
+          actual = hashlib.sha256(data).hexdigest()
+          if actual != expected:
+              raise SystemExit(f'Round18 anchor SHA mismatch: {actual} != {expected}')
+          Path('backtest/src/Round18.cs').write_bytes(data)
+          print(f'Round18 anchor verified: {actual}')
+          PYCODE
+          python3 FibonacciHarmonicSniperUltimate/versions/v0.18.0-btc-round19-quality-expansion/round19_transform.py \
+            backtest/src/Round18.cs \
+            backtest/src/Round19.cs
+          python3 FibonacciHarmonicSniperUltimate/versions/v0.19.0-btc-round20-selective-quality-gate/round20_transform.py \
+            backtest/src/Round19.cs \
+            backtest/src/FibonacciHarmonicSniperUltimate-BTC-Round20-SelectiveQualityGate.cs
+          rm -f backtest/src/Round18.cs backtest/src/Round19.cs
+          cat > backtest/src/FibonacciHarmonicSniperUltimate-BTC-Round20-SelectiveQualityGate.csproj <<'EOF'
+          <Project Sdk="Microsoft.NET.Sdk">
+            <PropertyGroup>
+              <TargetFramework>net6.0</TargetFramework>
+              <ImplicitUsings>disable</ImplicitUsings>
+              <Nullable>disable</Nullable>
+              <RootNamespace>cAlgo.Robots</RootNamespace>
+              <AlgoName>FibonacciHarmonicSniperUltimate-BTC-Round20-SelectiveQualityGate</AlgoName>
+            </PropertyGroup>
+            <ItemGroup>
+              <PackageReference Include="cTrader.Automate" Version="1.*-*" />
+            </ItemGroup>
+          </Project>
+          EOF
+
+      - name: Build Round20 .algo
+        run: |
+          set -euo pipefail
+          PROJ='backtest/src/FibonacciHarmonicSniperUltimate-BTC-Round20-SelectiveQualityGate.csproj'
+          dotnet restore "$PROJ"
+          dotnet build "$PROJ" -c Release --no-restore -p:AlgoPublish=False -p:IncludeSource=True
+          mkdir -p backtest/build backtest/cache backtest/control-r17 backtest/q96a2 backtest/q93a2 backtest/q84a2 backtest/harsh-q96a2
+          ALGO=$(find backtest/src/bin/Release -type f -name '*.algo' | head -n 1)
+          test -n "$ALGO"
+          cp "$ALGO" backtest/build/FibonacciHarmonicSniperUltimate-BTC-Round20-SelectiveQualityGate.algo
+          sha256sum backtest/build/FibonacciHarmonicSniperUltimate-BTC-Round20-SelectiveQualityGate.algo | tee backtest/build/SHA256SUMS.txt
+          sha256sum backtest/src/FibonacciHarmonicSniperUltimate-BTC-Round20-SelectiveQualityGate.cs | tee backtest/build/SOURCE_SHA256.txt
+
+      - name: Prepare cTrader credentials
+        env:
+          CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+          CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+          CTRADER_PASSWORD: ${{ secrets.CTRADER_PASSWORD }}
+        run: |
+          set -euo pipefail
+          test -n "${CTRADER_CTID:-}"
+          test -n "${CTRADER_ACCOUNT:-}"
+          test -n "${CTRADER_PASSWORD:-}"
+          printf '%s' "$CTRADER_PASSWORD" | tr -d '\r\n' > backtest/ctrader.pwd
+          chmod 600 backtest/ctrader.pwd
+
+      - name: Pull cTrader CLI
+        run: docker pull ghcr.io/spotware/ctrader-console:5.9.11
+
+      - name: Standard control and Round20 quality screens
+        env:
+          CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+          CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+        run: |
+          set -euo pipefail
+          run_case() {
+            OUT="$1"; R19="$2"; SCORE="$3"; AGE="$4"
+            docker run --rm \
+              -v "$PWD/backtest:/work" \
+              -e "CTID=$CTRADER_CTID" \
+              -e 'PWD-FILE=/work/ctrader.pwd' \
+              -e "ACCOUNT=$CTRADER_ACCOUNT" \
+              ghcr.io/spotware/ctrader-console:5.9.11 \
+              backtest /work/build/FibonacciHarmonicSniperUltimate-BTC-Round20-SelectiveQualityGate.algo \
+              --environment-variables --exit-on-stop \
+              --symbol=BITCOIN --period=h1 \
+              --start='08/09/2025 00:00' --end='08/09/2026 00:00' \
+              --balance=10000 --data-mode=m1 --data-dir=/work/cache \
+              --commission=65 --spread=0 \
+              --RiskPercent=1.0 --Round17M30RiskPercent=0.50 --Round18CandidateDiagnostics=false \
+              --Round19QualityExpansion="$R19" --Round19H1AlignMaxAgeHours=16 \
+              --Round19M30BuyRiskPercent=0.50 --Round19M30SellRiskPercent=0.50 --Round19AlignedBuyRiskPercent=0.50 \
+              --Round20SelectiveHealthBypass=true --Round20AllowBuyBypass=true --Round20AllowSellBypass=false \
+              --Round20BypassBuyMinScore="$SCORE" --Round20BypassMaxH1AgeHours="$AGE" \
+              --MaxOpenPositions=1 --MaxTradesPerDay=6 --MaxDailyLossPercent=5 \
+              --EnabledPatterns='Reciprocal ABCD' --PivotLeft=2 --PivotRight=2 \
+              --RatioTolerancePercent=6 --MinPatternScore=84 --MaxPatternAgeBars=16 \
+              --MaxEntryDistanceAtr=1.80 --ConfirmationMoveAtr=0.05 --UseCandleConfirmation=true \
+              --CooldownBars=2 --FallbackRiskReward=1.80 --MinimumRiskReward=1.50 \
+              --StopAnchorMode=LegacyD --TargetRiskRewardPolicy=LegacyFallback \
+              --Round5Mode=ObserveOnly --MtfMode=Off \
+              --Round6RequireM30SellConfirm=false --Round7VetoM30SellAlignment=false \
+              --Round8LogExcursions=false --Round9ShadowTpContinuation=false --Round10LogFunnel=false \
+              --Round15EnableM30Engine=true --Round16H1HealthGate=true --DebugLogging=false \
+              --report="/work/${OUT}/report.html" --report-json="/work/${OUT}/report.json" \
+              2>&1 | tee "backtest/${OUT}/report.log"
+          }
+          run_case control-r17 false 96 2
+          run_case q96a2 true 96 2
+          run_case q93a2 true 93 2
+          run_case q84a2 true 84 2
+
+      - name: Summarize Standard screens and verify Round17 control
+        run: |
+          set -euo pipefail
+          python3 - <<'PYCODE'
+          import json
+          from pathlib import Path
+          def metrics(name):
+              r=json.loads(Path(f'backtest/{name}/report.json').read_text())
+              return {
+                  'trades':int(r['tradeStatistics']['totalTrades']['all']),
+                  'roi':float(r['main']['roi']),
+                  'net_profit':float(r['main']['netProfit']),
+                  'pf':float(r['tradeStatistics']['profitFactor']['all']),
+                  'dd':float(r['equity']['maxEquityDrawdownPercent'])
+              }
+          baseline={'trades':94,'roi':38.48,'net_profit':3848.11,'pf':1.85,'dd':5.92}
+          control=metrics('control-r17')
+          q96=metrics('q96a2')
+          q93=metrics('q93a2')
+          q84=metrics('q84a2')
+          control_ok=(control['trades']==94 and abs(control['roi']-38.48)<=0.03 and abs(control['pf']-1.85)<=0.02 and abs(control['dd']-5.92)<=0.05)
+          q96_gates={
+              'trades':q96['trades']>94,
+              'roi':q96['roi']>38.48,
+              'pf':q96['pf']>1.85,
+              'dd':q96['dd']<=5.92,
+          }
+          summary={'round17_reference':baseline,'control':control,'control_reproduces_round17':control_ok,
+                   'q96a2':q96,'q93a2':q93,'q84a2':q84,'q96a2_standard_gates':q96_gates,
+                   'q96a2_standard_pass_all':all(q96_gates.values())}
+          Path('backtest/Round20-Standard-Summary.json').write_text(json.dumps(summary,indent=2))
+          print(json.dumps(summary,indent=2))
+          PYCODE
+
+      - name: Harsh-cost validation of default Round20 q96a2
+        env:
+          CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+          CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+        run: |
+          set -euo pipefail
+          docker run --rm \
+            -v "$PWD/backtest:/work" \
+            -e "CTID=$CTRADER_CTID" \
+            -e 'PWD-FILE=/work/ctrader.pwd' \
+            -e "ACCOUNT=$CTRADER_ACCOUNT" \
+            ghcr.io/spotware/ctrader-console:5.9.11 \
+            backtest /work/build/FibonacciHarmonicSniperUltimate-BTC-Round20-SelectiveQualityGate.algo \
+            --environment-variables --exit-on-stop \
+            --symbol=BITCOIN --period=h1 \
+            --start='08/09/2025 00:00' --end='08/09/2026 00:00' \
+            --balance=10000 --data-mode=m1 --data-dir=/work/cache \
+            --commission=100 --spread=1500 \
+            --RiskPercent=1.0 --Round17M30RiskPercent=0.50 --Round18CandidateDiagnostics=false \
+            --Round19QualityExpansion=true --Round19H1AlignMaxAgeHours=16 \
+            --Round19M30BuyRiskPercent=0.50 --Round19M30SellRiskPercent=0.50 --Round19AlignedBuyRiskPercent=0.50 \
+            --Round20SelectiveHealthBypass=true --Round20AllowBuyBypass=true --Round20AllowSellBypass=false \
+            --Round20BypassBuyMinScore=96 --Round20BypassMaxH1AgeHours=2 \
+            --MaxOpenPositions=1 --MaxTradesPerDay=6 --MaxDailyLossPercent=5 \
+            --EnabledPatterns='Reciprocal ABCD' --PivotLeft=2 --PivotRight=2 \
+            --RatioTolerancePercent=6 --MinPatternScore=84 --MaxPatternAgeBars=16 \
+            --MaxEntryDistanceAtr=1.80 --ConfirmationMoveAtr=0.05 --UseCandleConfirmation=true \
+            --CooldownBars=2 --FallbackRiskReward=1.80 --MinimumRiskReward=1.50 \
+            --StopAnchorMode=LegacyD --TargetRiskRewardPolicy=LegacyFallback \
+            --Round5Mode=ObserveOnly --MtfMode=Off \
+            --Round6RequireM30SellConfirm=false --Round7VetoM30SellAlignment=false \
+            --Round8LogExcursions=false --Round9ShadowTpContinuation=false --Round10LogFunnel=false \
+            --Round15EnableM30Engine=true --Round16H1HealthGate=true --DebugLogging=false \
+            --report=/work/harsh-q96a2/report.html --report-json=/work/harsh-q96a2/report.json \
+            2>&1 | tee backtest/harsh-q96a2/report.log
+
+      - name: Build final Round20 comparison
+        run: |
+          set -euo pipefail
+          python3 - <<'PYCODE'
+          import json,re
+          from pathlib import Path
+          std=json.loads(Path('backtest/Round20-Standard-Summary.json').read_text())
+          r=json.loads(Path('backtest/harsh-q96a2/report.json').read_text())
+          harsh={'trades':int(r['tradeStatistics']['totalTrades']['all']),
+                 'roi':float(r['main']['roi']),
+                 'net_profit':float(r['main']['netProfit']),
+                 'pf':float(r['tradeStatistics']['profitFactor']['all']),
+                 'dd':float(r['equity']['maxEquityDrawdownPercent'])}
+          harsh_baseline={'trades':92,'roi':19.25,'net_profit':1924.51,'pf':1.40,'dd':7.67}
+          harsh_gates={'trades':harsh['trades']>92,'roi':harsh['roi']>=19.25,'pf':harsh['pf']>=1.40,'dd':harsh['dd']<=7.67}
+          slog=Path('backtest/q96a2/report.log').read_text(errors='replace')
+          hlog=Path('backtest/harsh-q96a2/report.log').read_text(errors='replace')
+          final={
+              'version':'v0.19.0-btc-round20-selective-quality-gate',
+              'source_sha256':'5916aede6a0fdee5fe5db0c6baa5262213cb07184210ae77036a5cb83dea0691',
+              'policy':{'normal_m30_risk_pct':0.50,'buy_bypass_only':True,'sell_bypass':False,'buy_min_score':96.0,'max_same_direction_h1_age_hours':2},
+              'standard':std,
+              'harsh_round17_reference':harsh_baseline,
+              'harsh_q96a2':harsh,
+              'harsh_gates':harsh_gates,
+              'harsh_pass_all':all(harsh_gates.values()),
+              'q96a2_standard_bypass_count':len(re.findall(r'\[R20 HEALTH BYPASS\]',slog)),
+              'q96a2_harsh_bypass_count':len(re.findall(r'\[R20 HEALTH BYPASS\]',hlog)),
+          }
+          final['promote_over_round17']=bool(std['control_reproduces_round17'] and std['q96a2_standard_pass_all'] and final['harsh_pass_all'])
+          Path('backtest/Round20-Final-Summary.json').write_text(json.dumps(final,indent=2))
+          print(json.dumps(final,indent=2))
+          PYCODE
+
+      - name: Remove credentials
+        if: always()
+        run: rm -f backtest/ctrader.pwd
+
+      - name: Upload Round20 build and validation artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Fibonacci-BTC-Round20-SelectiveQualityGate
+          path: |
+            backtest/build/FibonacciHarmonicSniperUltimate-BTC-Round20-SelectiveQualityGate.algo
+            backtest/build/SHA256SUMS.txt
+            backtest/build/SOURCE_SHA256.txt
+            backtest/src/FibonacciHarmonicSniperUltimate-BTC-Round20-SelectiveQualityGate.cs
+            backtest/src/FibonacciHarmonicSniperUltimate-BTC-Round20-SelectiveQualityGate.csproj
+            backtest/control-r17/report.html
+            backtest/control-r17/report.json
+            backtest/control-r17/report.log
+            backtest/q96a2/report.html
+            backtest/q96a2/report.json
+            backtest/q96a2/report.log
+            backtest/q93a2/report.html
+            backtest/q93a2/report.json
+            backtest/q93a2/report.log
+            backtest/q84a2/report.html
+            backtest/q84a2/report.json
+            backtest/q84a2/report.log
+            backtest/harsh-q96a2/report.html
+            backtest/harsh-q96a2/report.json
+            backtest/harsh-q96a2/report.log
+            backtest/Round20-Standard-Summary.json
+            backtest/Round20-Final-Summary.json
+          if-no-files-found: warn
+          retention-days: 30
