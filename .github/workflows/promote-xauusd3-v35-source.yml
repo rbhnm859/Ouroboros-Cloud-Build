@@ -1,0 +1,80 @@
+name: Promote XAUUSD3 v3.5 Verified Source
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [fibonacci-xauusd-v3-hybrid]
+    paths:
+      - '.github/workflows/promote-xauusd3-v35-source.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  promote:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fibonacci-xauusd-v3-hybrid
+          fetch-depth: 0
+      - name: Promote exact verified v3.5 logic
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('FibonacciHarmonicSniperUltimate/versions/xauusd_3/src/FibonacciXAUUSD3.cs')
+          s=p.read_text()
+          s=s.replace('Print("VERSION xauusd_3 v3.3.0-london-filter");','Print("VERSION xauusd_3 v3.5.0-m5-first-valid");',1)
+          old='''        [Parameter("Final Score Min", DefaultValue = 60.0, MinValue = 40, MaxValue = 90, Group = "Scoring")]\n        public double FinalScoreMin { get; set; }\n'''
+          new=old+'''\n        [Parameter("M5 PreScore Floor", DefaultValue = 50.0, MinValue = 40, MaxValue = 80, Group = "Scoring")]\n        public double M5PreScoreFloor { get; set; }\n'''
+          assert s.count(old)==1
+          s=s.replace(old,new,1)
+          old='''        [Parameter("Block London Entries", DefaultValue = true, Group = "Session")]\n        public bool BlockLondonEntries { get; set; }\n'''
+          new='''        [Parameter("Block London Entries", DefaultValue = true, Group = "Session")]\n        public bool BlockLondonEntries { get; set; }\n\n        [Parameter("Require H1 ATR Expansion", DefaultValue = true, Group = "Regime")]\n        public bool RequireH1AtrExpansion { get; set; }\n\n        [Parameter("H1 ATR14/ATR50 Min", DefaultValue = 1.15, MinValue = 1.00, MaxValue = 2.00, Group = "Regime")]\n        public double H1AtrExpansionMin { get; set; }\n'''
+          assert s.count(old)==1
+          s=s.replace(old,new,1)
+          old='''            double h1Score = H1RegimeScore(direction);\n            if (direction == TradeType.Buy && h1Score < BuyH1MinScore)\n'''
+          new='''            double h1AtrRatio = H1AtrExpansionRatio();\n            if (RequireH1AtrExpansion && h1AtrRatio <= H1AtrExpansionMin)\n            {\n                if (DebugLogging) Print("[VOL REGIME REJECT] H1 ATR14/ATR50={0:F3} min>{1:F3}", h1AtrRatio, H1AtrExpansionMin);\n                return;\n            }\n            double h1Score = H1RegimeScore(direction);\n            if (direction == TradeType.Buy && h1Score < BuyH1MinScore)\n'''
+          assert s.count(old)==1
+          s=s.replace(old,new,1)
+          old='''            if (preScore < PreScoreMin)\n                return;\n'''
+          new='''            if (preScore < Math.Max(PreScoreMin, M5PreScoreFloor))\n                return;\n'''
+          assert s.count(old)==1
+          s=s.replace(old,new,1)
+          old='''            double m5Score = rules * 5.0;\n            double finalScore = a.PreScore + m5Score;\n'''
+          new='''            double m5Score = M5RulesNeeded * 5.0;\n            double finalScore = a.PreScore + m5Score;\n'''
+          assert s.count(old)==1
+          s=s.replace(old,new,1)
+          marker='''        private double H1RegimeScore(TradeType direction)\n        {\n'''
+          helper='''        private double H1AtrExpansionRatio()\n        {\n            int h = _h1.Count - 2;\n            if (h < 55) return 0.0;\n            double atr14 = Atr(_h1, h, 14);\n            double atr50 = Atr(_h1, h, 50);\n            if (atr50 <= Symbol.PipSize) return 0.0;\n            return atr14 / atr50;\n        }\n\n        private double H1RegimeScore(TradeType direction)\n        {\n'''
+          assert s.count(marker)==1
+          s=s.replace(marker,helper,1)
+          p.write_text(s)
+          PY
+          SRC='FibonacciHarmonicSniperUltimate/versions/xauusd_3/src/FibonacciXAUUSD3.cs'
+          grep -q 'v3.5.0-m5-first-valid' "$SRC"
+          grep -q 'M5 PreScore Floor' "$SRC"
+          grep -q 'Require H1 ATR Expansion' "$SRC"
+          grep -q 'Math.Max(PreScoreMin, M5PreScoreFloor)' "$SRC"
+          grep -q 'M5RulesNeeded \* 5.0' "$SRC"
+          grep -q 'HasAnySymbolExposure' "$SRC"
+      - name: Build promoted source with official cTrader CLI
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker pull ghcr.io/spotware/ctrader-console:5.9.11
+          ROOT='FibonacciHarmonicSniperUltimate/versions/xauusd_3'
+          docker run --rm --entrypoint sh -v "$PWD:/repo" -w /repo ghcr.io/spotware/ctrader-console:5.9.11 -c "dotnet restore $ROOT/FibonacciXAUUSD3.csproj && dotnet build $ROOT/FibonacciXAUUSD3.csproj -c Release --no-restore -p:AlgoPublish=False -p:IncludeSource=True"
+      - name: Commit promoted source
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add FibonacciHarmonicSniperUltimate/versions/xauusd_3/src/FibonacciXAUUSD3.cs
+          git diff --cached --quiet && exit 0
+          git commit -m 'promote(xauusd_3): v3.5 verified M5 first-valid baseline'
+          git push origin HEAD:fibonacci-xauusd-v3-hybrid
