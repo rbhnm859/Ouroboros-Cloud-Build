@@ -25,12 +25,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Setup .NET 8
-        uses: actions/setup-dotnet@v4
-        with:
-          dotnet-version: '8.0.x'
-
-      - name: Pull official cTrader CLI
+      - name: Pull exact Round17 cTrader CLI image
         run: docker pull ghcr.io/spotware/ctrader-console:5.9.11
 
       - name: Reconstruct exact Round18 source and verify SHA
@@ -51,14 +46,14 @@ jobs:
           print(f'Reconstructed {out} SHA256={actual}')
           PYCODE
 
-      - name: Build Round18 diagnostics .algo
+      - name: Build Round18 diagnostics .algo with Round17 toolchain
         run: |
           set -euo pipefail
           mkdir -p backtest/cache backtest/standard backtest/harsh backtest/build
           PROJ='FibonacciHarmonicSniperUltimate/versions/v0.17.0-btc-round18-diagnostics/FibonacciHarmonicSniperUltimate-BTC-Round18-Diagnostics.csproj'
-          dotnet --info
-          dotnet restore "$PROJ"
-          dotnet build "$PROJ" --configuration Release --no-restore -p:AlgoPublish=False -p:IncludeSource=True
+          docker run --rm --entrypoint sh -v "$PWD:/repo" -w /repo \
+            ghcr.io/spotware/ctrader-console:5.9.11 -c \
+            "dotnet restore '$PROJ' && dotnet build '$PROJ' --configuration Release --no-restore -p:AlgoPublish=False -p:IncludeSource=True"
           ALGO="$(find FibonacciHarmonicSniperUltimate/versions/v0.17.0-btc-round18-diagnostics -type f -name '*.algo' -print -quit)"
           test -n "$ALGO"
           cp "$ALGO" backtest/build/Round18Diagnostics.algo
@@ -144,7 +139,6 @@ jobs:
           python3 - <<'PY'
           import json, re
           from pathlib import Path
-
           baselines = {
               'standard': {'trades':94,'roi':38.48,'pf':1.85,'dd':5.924155484890702},
               'harsh': {'trades':92,'roi':19.25,'pf':1.40,'dd':7.668971079402352},
@@ -164,11 +158,9 @@ jobs:
               ok = actual['trades']==b['trades'] and abs(actual['roi']-b['roi'])<=0.05 and abs(actual['pf']-b['pf'])<=0.02 and abs(actual['dd']-b['dd'])<=0.10
               neutral &= ok
               lines += [f'## {scenario}', f'- trades: {actual["trades"]} (baseline {b["trades"]})', f'- ROI: {actual["roi"]:.2f}% (baseline {b["roi"]:.2f}%)', f'- PF: {actual["pf"]:.2f} (baseline {b["pf"]:.2f})', f'- max equity DD: {actual["dd"]:.2f}% (baseline {b["dd"]:.2f}%)', f'- logic-neutral gate: {"PASS" if ok else "FAIL"}', '']
-
               log = Path(f'backtest/{scenario}/report.log').read_text(errors='replace')
               cands = [x for x in log.splitlines() if '[R18 CANDIDATE]' in x]
-              gates = {}
-              within6=within12=standalone=0
+              gates = {}; within6=within12=standalone=0
               for row in cands:
                   m=re.search(r'finalGate=([^ ]+)', row)
                   if m: gates[m.group(1)] = gates.get(m.group(1),0)+1
@@ -179,7 +171,6 @@ jobs:
                       if 0 <= age <= 6: within6 += 1
                       if 0 <= age <= 12: within12 += 1
               lines += [f'- R18 candidate records: {len(cands)}', f'- same-direction H1 within 6h: {within6}', f'- same-direction H1 within 12h: {within12}', f'- standalone/no valid same-direction H1 state: {standalone}', f'- final gates: {gates}', '']
-
           lines += [f'Overall diagnostics logic-neutral result: **{"PASS" if neutral else "FAIL"}**']
           Path('backtest/ROUND18_DIAGNOSTICS_SUMMARY.md').write_text('\n'.join(lines))
           print('\n'.join(lines))
