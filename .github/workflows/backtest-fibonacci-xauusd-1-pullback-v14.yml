@@ -1,0 +1,219 @@
+name: Fibonacci XAUUSD 1 - Pullback Limit v14
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [fibonacci-xauusd-round1]
+    paths:
+      - '.github/workflows/backtest-fibonacci-xauusd-1-pullback-v14.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fibonacci-xauusd-1-pullback-v14
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Reconstruct and patch v14 candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          ROOT='FibonacciHarmonicSniperUltimate/versions/xauusd_1'
+          mkdir -p "$ROOT/src" package
+          base64 -d "$ROOT/source.gz.b64" | gzip -dc > "$ROOT/src/FibonacciXAUUSD1.cs"
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('FibonacciHarmonicSniperUltimate/versions/xauusd_1/src/FibonacciXAUUSD1.cs')
+          s=p.read_text()
+
+          ema_param='''        [Parameter("EMA Period", DefaultValue = 50, MinValue = 10, MaxValue = 300, Group = "Quality")]\n        public int EmaPeriod { get; set; }\n'''
+          params=ema_param+'''\n        [Parameter("Require EMA Alignment", DefaultValue = true, Group = "Quality")]\n        public bool RequireEmaAlignment { get; set; }\n\n        [Parameter("Enable Pullback Limit", DefaultValue = true, Group = "Execution")]\n        public bool EnablePullbackLimit { get; set; }\n\n        [Parameter("Max Pullback ATR", DefaultValue = 0.50, MinValue = 0.05, MaxValue = 2.0, Group = "Execution")]\n        public double MaxPullbackAtr { get; set; }\n\n        [Parameter("Pullback Expiry H1 Bars", DefaultValue = 3, MinValue = 1, MaxValue = 12, Group = "Execution")]\n        public int PullbackExpiryBars { get; set; }\n'''
+          assert s.count(ema_param)==1
+          s=s.replace(ema_param, params, 1)
+
+          assert s.count('Print("VERSION xauusd_1 v1.1.0-gold-v7");')==1
+          s=s.replace('Print("VERSION xauusd_1 v1.1.0-gold-v7");','Print("VERSION xauusd_1 v1.5.0-gold-v14-pullback");',1)
+
+          fields='''        private readonly Dictionary<long, TradeRecord> _records = new Dictionary<long, TradeRecord>();\n        private readonly Dictionary<string, PatternStats> _stats = new Dictionary<string, PatternStats>(StringComparer.OrdinalIgnoreCase);\n'''
+          fields2='''        private readonly Dictionary<long, TradeRecord> _records = new Dictionary<long, TradeRecord>();\n        private readonly Dictionary<long, PendingTradeRecord> _pendingRecords = new Dictionary<long, PendingTradeRecord>();\n        private readonly Dictionary<string, PatternStats> _stats = new Dictionary<string, PatternStats>(StringComparer.OrdinalIgnoreCase);\n'''
+          assert s.count(fields)==1
+          s=s.replace(fields,fields2,1)
+
+          onstart='''            _patterns = PatternLibrary.Create();\n            Positions.Closed += OnPositionClosed;\n            ResetDay();\n'''
+          onstart2='''            _patterns = PatternLibrary.Create();\n            Positions.Closed += OnPositionClosed;\n            PendingOrders.Filled += OnPendingOrderFilled;\n            ResetDay();\n'''
+          assert s.count(onstart)==1
+          s=s.replace(onstart,onstart2,1)
+
+          onstop='''        protected override void OnStop()\n        {\n            Positions.Closed -= OnPositionClosed;\n'''
+          onstop2='''        protected override void OnStop()\n        {\n            Positions.Closed -= OnPositionClosed;\n            PendingOrders.Filled -= OnPendingOrderFilled;\n'''
+          assert s.count(onstop)==1
+          s=s.replace(onstop,onstop2,1)
+
+          m30_gate='''            if (UseM30Confirmation && m30Score < M30ConfirmRulesNeeded)\n            {\n                Reject("m30_confirm");\n                LogDecision(selected, "REJECT", "m30_confirm");\n                return;\n            }\n'''
+          ema_gate=m30_gate+'''\n            if (selected.Definition.Name == "ABCD" && RequireEmaAlignment && selected.EmaContextScore < 99.5)\n            {\n                Reject("ema_alignment");\n                LogDecision(selected, "REJECT", "ema_alignment");\n                return;\n            }\n'''
+          assert s.count(m30_gate)==1
+          s=s.replace(m30_gate,ema_gate,1)
+
+          own='''            int own = 0;\n            foreach (var p in Positions)\n                if (p.SymbolName == SymbolName && p.Label == BotLabel) own++;\n            if (own >= MaxOpenPositions) return Reject("position_limit");\n'''
+          own2='''            int own = 0;\n            foreach (var p in Positions)\n                if (p.SymbolName == SymbolName && p.Label == BotLabel) own++;\n            if (own >= MaxOpenPositions) return Reject("position_limit");\n\n            int ownPending = 0;\n            foreach (var o in PendingOrders)\n                if (o.SymbolName == SymbolName && o.Label == BotLabel) ownPending++;\n            if (ownPending > 0) return Reject("pending_limit");\n'''
+          assert s.count(own)==1
+          s=s.replace(own,own2,1)
+
+          rr='''            if (rr < MinimumRiskReward)\n            {\n                Reject("poor_geometry_rr");\n                LogDecision(m, "REJECT", "poor_geometry_rr");\n                return;\n            }\n'''
+          rr2='''            if (rr < MinimumRiskReward)\n            {\n                if (EnablePullbackLimit && TryPlacePullbackLimit(m, atr, entry, stopPrice, targetPrice))\n                    return;\n                Reject("poor_geometry_rr");\n                LogDecision(m, "REJECT", "poor_geometry_rr");\n                return;\n            }\n'''
+          assert s.count(rr)==1
+          s=s.replace(rr,rr2,1)
+
+          marker='''        private void OnPositionClosed(PositionClosedEventArgs args)\n'''
+          methods='''        private bool TryPlacePullbackLimit(PatternMatch m, double atr, double marketEntry, double stopPrice, double targetPrice)\n        {\n            double idealEntry = (targetPrice + MinimumRiskReward * stopPrice) / (1.0 + MinimumRiskReward);\n            double tick = Math.Max(Symbol.TickSize, 1e-9);\n            double limitPrice = m.Direction == TradeType.Buy\n                ? Math.Floor(idealEntry / tick) * tick\n                : Math.Ceiling(idealEntry / tick) * tick;\n\n            double pullbackDistance = m.Direction == TradeType.Buy ? marketEntry - limitPrice : limitPrice - marketEntry;\n            if (pullbackDistance <= tick * 0.5)\n            {\n                Reject("pullback_invalid_side");\n                return false;\n            }\n\n            double pullbackAtr = pullbackDistance / Math.Max(atr, Symbol.PipSize);\n            if (pullbackAtr > MaxPullbackAtr)\n            {\n                Reject("pullback_too_deep");\n                if (DebugLogging) Print("[PULLBACK REJECT] {0} {1} Q={2:F1} need={3:F2}ATR max={4:F2}", m.Definition.Name, m.Direction, m.FinalQuality, pullbackAtr, MaxPullbackAtr);\n                return false;\n            }\n\n            double slDistance = m.Direction == TradeType.Buy ? limitPrice - stopPrice : stopPrice - limitPrice;\n            double tpDistance = m.Direction == TradeType.Buy ? targetPrice - limitPrice : limitPrice - targetPrice;\n            if (slDistance <= 0 || tpDistance <= 0)\n            {\n                Reject("pullback_geometry_invalid");\n                return false;\n            }\n\n            double slPips = slDistance / Symbol.PipSize;\n            double tpPips = tpDistance / Symbol.PipSize;\n            double rr = tpPips / slPips;\n            if (rr + 1e-6 < MinimumRiskReward)\n            {\n                Reject("pullback_rr_rounding");\n                return false;\n            }\n\n            double budget = Account.Equity * RiskPercent / 100.0;\n            double rawVolume = Symbol.VolumeForFixedRisk(budget, slPips, RoundingMode.Down);\n            if (double.IsNaN(rawVolume) || double.IsInfinity(rawVolume) || rawVolume <= 0)\n            {\n                Reject("pullback_volume_invalid");\n                return false;\n            }\n            double volume = Symbol.NormalizeVolumeInUnits(rawVolume, RoundingMode.Down);\n            if (volume < Symbol.VolumeInUnitsMin)\n            {\n                Reject("pullback_volume_below_min");\n                return false;\n            }\n            if (volume > Symbol.VolumeInUnitsMax) volume = Symbol.VolumeInUnitsMax;\n\n            double actualRisk = Symbol.AmountRisked(volume, slPips);\n            if (double.IsNaN(actualRisk) || actualRisk <= 0 || actualRisk > budget * 1.02)\n            {\n                Reject("pullback_risk_budget_exceeded");\n                return false;\n            }\n\n            double margin = Symbol.GetEstimatedMargin(m.Direction, volume);\n            if (margin > Account.FreeMargin * MarginSafetyPercent / 100.0)\n            {\n                Reject("pullback_margin");\n                return false;\n            }\n\n            DateTime expiry = Server.Time.AddHours(PullbackExpiryBars);\n            var result = PlaceLimitOrder(m.Direction, SymbolName, volume, limitPrice, BotLabel, slPips, tpPips, expiry, m.Definition.Name + "|PB");\n            if (!result.IsSuccessful || result.PendingOrder == null)\n            {\n                Reject("pullback_order_fail_" + result.Error);\n                Print("[PENDING FAIL] {0} {1} price={2:F2} error={3}", m.Definition.Name, m.Direction, limitPrice, result.Error);\n                return false;\n            }\n\n            _consumedSignals.Add(m.SignalKey);\n            _pendingRecords[result.PendingOrder.Id] = new PendingTradeRecord(m.Definition.Name, m.Direction, m.FinalQuality, rr, m.SignalKey, actualRisk);\n            LogDecision(m, "PENDING", "pullback_rr");\n            Print("[PENDING] {0} {1} Q={2:F1} id={3} market={4:F2} limit={5:F2} pullback={6:F2}ATR SL={7:F1}p TP={8:F1}p RR={9:F2} exp={10:u}",\n                m.Definition.Name, m.Direction, m.FinalQuality, result.PendingOrder.Id, marketEntry, limitPrice, pullbackAtr, slPips, tpPips, rr, expiry);\n            return true;\n        }\n\n        private void OnPendingOrderFilled(PendingOrderFilledEventArgs args)\n        {\n            if (args.PendingOrder.Label != BotLabel || args.PendingOrder.SymbolName != SymbolName) return;\n            PendingTradeRecord rec;\n            if (!_pendingRecords.TryGetValue(args.PendingOrder.Id, out rec)) return;\n            _pendingRecords.Remove(args.PendingOrder.Id);\n\n            if (Server.Time.Date != _day) ResetDay();\n            var p = args.Position;\n            if (p == null || !p.StopLoss.HasValue || !p.TakeProfit.HasValue)\n            {\n                Reject("pullback_protection_fail");\n                if (p != null) ClosePosition(p);\n                return;\n            }\n\n            _tradesToday++;\n            _lastTradeBar = Bars.Count - 2;\n            _records[p.Id] = new TradeRecord(rec.Pattern, rec.Direction, rec.Quality, rec.Rr);\n            string key = rec.Pattern + "|" + rec.Direction;\n            if (!_stats.ContainsKey(key)) _stats[key] = new PatternStats();\n            _stats[key].Trades++;\n            Print("[FILL] {0} {1} Q={2:F1} order={3} position={4} entry={5:F2} RR={6:F2} risk={7:F2}",\n                rec.Pattern, rec.Direction, rec.Quality, args.PendingOrder.Id, p.Id, p.EntryPrice, rec.Rr, rec.Risk);\n        }\n\n'''+marker
+          assert s.count(marker)==1
+          s=s.replace(marker,methods,1)
+
+          trade_record='''        private sealed class TradeRecord\n        {\n            public TradeRecord(string pattern, TradeType direction, double quality, double rr) { Pattern = pattern; Direction = direction; Quality = quality; Rr = rr; }\n            public string Pattern; public TradeType Direction; public double Quality; public double Rr;\n        }\n'''
+          trade_record2=trade_record+'''\n        private sealed class PendingTradeRecord\n        {\n            public PendingTradeRecord(string pattern, TradeType direction, double quality, double rr, string signalKey, double risk)\n            { Pattern = pattern; Direction = direction; Quality = quality; Rr = rr; SignalKey = signalKey; Risk = risk; }\n            public string Pattern; public TradeType Direction; public double Quality; public double Rr; public string SignalKey; public double Risk;\n        }\n'''
+          assert s.count(trade_record)==1
+          s=s.replace(trade_record,trade_record2,1)
+
+          p.write_text(s)
+          PY
+          grep -q 'v1.5.0-gold-v14-pullback' "$ROOT/src/FibonacciXAUUSD1.cs"
+          grep -q 'TryPlacePullbackLimit' "$ROOT/src/FibonacciXAUUSD1.cs"
+          grep -q 'PendingOrders.Filled' "$ROOT/src/FibonacciXAUUSD1.cs"
+          cp "$ROOT/src/FibonacciXAUUSD1.cs" package/FibonacciXAUUSD1.cs
+          cp "$ROOT/README.md" package/README.md
+          sha256sum "$ROOT/src/FibonacciXAUUSD1.cs" | tee package/source.sha256
+      - name: Pull official cTrader CLI
+        run: docker pull ghcr.io/spotware/ctrader-console:5.9.11
+      - name: Build v14 candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          ROOT='FibonacciHarmonicSniperUltimate/versions/xauusd_1'
+          docker run --rm --entrypoint sh -v "$PWD:/repo" -w /repo ghcr.io/spotware/ctrader-console:5.9.11 -c "dotnet restore $ROOT/FibonacciXAUUSD1.csproj && dotnet build $ROOT/FibonacciXAUUSD1.csproj --configuration Release --no-restore -p:AlgoPublish=False -p:IncludeSource=True"
+          ALGO="$(find "$ROOT" -type f -name '*.algo' -print -quit)"
+          test -n "$ALGO"
+          cp "$ALGO" package/xauusd_1-v14-pullback.algo
+          sha256sum package/xauusd_1-v14-pullback.algo | tee package/algo.sha256
+      - uses: actions/upload-artifact@v4
+        with:
+          name: xauusd_1-v14-pullback-build
+          path: package/
+          retention-days: 30
+
+  backtest:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: standard
+            spread: '17.42'
+            commission: '35'
+          - label: harsh
+            spread: '30'
+            commission: '50'
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: xauusd_1-v14-pullback-build
+          path: work
+      - name: Pull official cTrader CLI
+        run: docker pull ghcr.io/spotware/ctrader-console:5.9.11
+      - name: Create cTrader password file
+        env:
+          CTRADER_PASSWORD: ${{ secrets.CTRADER_PASSWORD }}
+        run: |
+          test -n "${CTRADER_PASSWORD:-}" || exit 1
+          printf '%s' "$CTRADER_PASSWORD" > work/ctrader.pwd
+          chmod 600 work/ctrader.pwd
+      - name: Run full 3M ${{ matrix.label }} v14 backtest
+        env:
+          CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+          CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p work/reports work/cache
+          docker run --rm -v "$PWD/work:/work" \
+            -e "CTID=$CTRADER_CTID" -e 'PWD-FILE=/work/ctrader.pwd' -e "ACCOUNT=$CTRADER_ACCOUNT" \
+            ghcr.io/spotware/ctrader-console:5.9.11 \
+            backtest /work/xauusd_1-v14-pullback.algo --environment-variables --exit-on-stop \
+            --symbol=XAUUSD --period=h1 --start='09/06/2026' --end='09/09/2026' \
+            --balance=10000 --data-mode=m1 --data-dir=/work/cache \
+            --commission='${{ matrix.commission }}' --spread='${{ matrix.spread }}' \
+            --RiskPercent=0.50 --MaxDailyLossPercent=3.0 \
+            --PivotLeft=3 --PivotRight=3 --EnableStandaloneABCD=true --RequireEmaAlignment=true \
+            --MinQualityScore=75 --M30ConfirmRulesNeeded=2 --MinimumRiskReward=1.5 --TargetAdFib=0.786 \
+            --EnablePullbackLimit=true --MaxPullbackAtr=0.50 --PullbackExpiryBars=3 \
+            --report='/work/reports/${{ matrix.label }}.html' --report-json='/work/reports/${{ matrix.label }}.json' \
+            2>&1 | tee 'work/reports/${{ matrix.label }}.log'
+          grep -E '\[(PENDING|FILL|OPEN|CLOSE|PENDING FAIL)\]' 'work/reports/${{ matrix.label }}.log' > 'work/reports/${{ matrix.label }}-trades.txt' || true
+          test -s 'work/reports/${{ matrix.label }}.json'
+      - name: Remove credentials
+        if: always()
+        run: rm -f work/ctrader.pwd
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: xauusd_1-v14-pullback-report-${{ matrix.label }}
+          path: work/reports/
+          retention-days: 30
+
+  aggregate:
+    needs: backtest
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: xauusd_1-v14-pullback-build
+          path: package
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: xauusd_1-v14-pullback-report-*
+          path: reports
+          merge-multiple: true
+      - name: Aggregate v14 reports
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import json
+          def v(d,s,k):
+              try:
+                  x=d[s][k]; return float(x.get('all',0) if isinstance(x,dict) else x or 0)
+              except: return 0.0
+          def dd(d):
+              peak=0.; worst=0.
+              for p in d.get('equity',{}).get('points',[]):
+                  peak=max(peak,float(p.get('maxEquity',p.get('balance',0)) or 0)); low=float(p.get('minEquity',p.get('balance',0)) or 0)
+                  if peak>0: worst=max(worst,(peak-low)/peak*100)
+              return worst
+          out=['# xauusd_1 Pullback Limit v14','',
+               'Period: 2026-06-09 to 2026-09-09 UTC | XAUUSD H1 | M1 data | $10,000 | risk 0.5%','',
+               'Single-factor change from v11: if an otherwise valid signal fails only MinimumRiskReward=1.5, place a limit order at the price required to restore RR 1.5 when the pullback is <=0.50 ATR; expiry 3 H1 bars.','',
+               '| Cost | Trades | Wins | Losses | WR % | Net $ | ROI % | PF | Max Eq DD % |','|---|---:|---:|---:|---:|---:|---:|---:|---:|']
+          for label in ('standard','harsh'):
+              p=Path(f'reports/{label}.json')
+              if not p.exists(): out.append(f'| {label} | NO REPORT | | | | | | | |'); continue
+              d=json.loads(p.read_text()); t=int(v(d,'tradeStatistics','totalTrades')); w=int(v(d,'tradeStatistics','winningTrades')); l=int(v(d,'tradeStatistics','losingTrades')); net=float(d.get('main',{}).get('netProfit',0) or 0)
+              hist=d.get('history',{}).get('items',[]); gp=sum(max(0.,float(x.get('net',0) or 0)) for x in hist); gl=sum(abs(min(0.,float(x.get('net',0) or 0))) for x in hist); pf=gp/gl if gl else (999. if gp else 0.)
+              out.append(f'| {label} | {t} | {w} | {l} | {(100*w/t if t else 0):.2f} | {net:.2f} | {net/10000*100:.2f} | {pf:.2f} | {dd(d):.2f} |')
+          out += ['', 'v11 reference: Standard 1 trade / +$94.61 / +0.95%; Harsh 1 trade / +$94.08 / +0.94%.',
+                  'Promotion rule: v14 must add at least one unique filled trade while retaining positive Standard and Harsh expectancy with acceptable drawdown. Otherwise reject v14 and keep v11.']
+          text='\n'.join(out)+'\n'; Path('package/PULLBACK_V14_BACKTEST_SUMMARY.md').write_text(text); print(text)
+          with open(__import__('os').environ['GITHUB_STEP_SUMMARY'],'a') as f:f.write(text)
+          PY
+          cp -r reports package/reports
+      - uses: actions/upload-artifact@v4
+        with:
+          name: xauusd_1-v14-pullback-complete
+          path: package/
+          retention-days: 30
