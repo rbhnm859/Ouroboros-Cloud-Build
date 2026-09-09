@@ -86,6 +86,7 @@ namespace cAlgo.Robots
         private double _dayNet;
         private int _tradesToday;
         private int _lastTradeM5Index = -100000;
+        private bool _entryInProgress;
 
         private ArmedSignal _armed;
         private readonly HashSet<string> _consumed = new HashSet<string>();
@@ -100,8 +101,8 @@ namespace cAlgo.Robots
             Positions.Closed += OnPositionClosed;
             ResetDay();
 
-            Print("VERSION xauusd_2 v2.2.0-m15-harmonic-m5-execution");
-            Print("[ARCH] M5 host -> M15 predictive XABC/PRZ -> ARM on completed M15 touch -> M5 2-of-4 reversal confirmation -> fixed-risk execution | H1 context remains soft score");
+            Print("VERSION xauusd_2 v2.3.0-safety-abcd-sell-pruned");
+            Print("[ARCH] M5 host -> M15 predictive XABC/PRZ -> M5 confirmation -> fixed-risk execution | hard no-duplicate/no-hedge exposure guard | ABCD Sell pruned");
             Print("[M5 RULES] engulfing | rejection-wick | micro-structure break | momentum body");
             Print("[SYMBOL] {0} Pip={1} Tick={2} VolMin={3} VolMax={4} Step={5}", SymbolName, Symbol.PipSize, Symbol.TickSize, Symbol.VolumeInUnitsMin, Symbol.VolumeInUnitsMax, Symbol.VolumeInUnitsStep);
         }
@@ -137,8 +138,12 @@ namespace cAlgo.Robots
             if (m5Index < 10)
                 return;
 
-            if (OwnPositionCount() > 0)
+            if (HasAnySymbolExposure())
+            {
+                if (DebugLogging)
+                    Print("[EXPOSURE BLOCK] Existing {0} position or pending order detected; no new signal may open.", SymbolName);
                 return;
+            }
 
             if (_armed != null)
             {
@@ -219,6 +224,15 @@ namespace cAlgo.Robots
             {
                 if (_consumed.Contains(candidate.Key))
                     continue;
+
+                if (candidate.Name == "ABCD" && candidate.Direction == TradeType.Sell)
+                {
+                    if (DebugLogging)
+                        Print("[PRUNE] ABCD Sell rejected by v2.3 expectancy filter key={0}", candidate.Key);
+                    _consumed.Add(candidate.Key);
+                    continue;
+                }
+
                 if (!BarTouchesPrz(candidate, index))
                     continue;
 
@@ -352,6 +366,37 @@ namespace cAlgo.Robots
 
         private bool TryExecute(HarmonicCandidate c, double confidence, double atr, int m5Index, int confirmRules)
         {
+            if (c.Name == "ABCD" && c.Direction == TradeType.Sell)
+            {
+                Print("[PRUNE BLOCK] ABCD Sell reached execution guard unexpectedly; order blocked.");
+                return false;
+            }
+
+            if (_entryInProgress)
+            {
+                Print("[DUPLICATE BLOCK] Entry transaction already in progress; second order blocked.");
+                return false;
+            }
+
+            if (HasAnySymbolExposure())
+            {
+                Print("[EXPOSURE BLOCK] Existing {0} exposure detected immediately before execution; order blocked.", SymbolName);
+                return false;
+            }
+
+            _entryInProgress = true;
+            try
+            {
+                return TryExecuteCore(c, confidence, atr, m5Index, confirmRules);
+            }
+            finally
+            {
+                _entryInProgress = false;
+            }
+        }
+
+        private bool TryExecuteCore(HarmonicCandidate c, double confidence, double atr, int m5Index, int confirmRules)
+        {
             double entry = c.Direction == TradeType.Buy ? Symbol.Ask : Symbol.Bid;
             double stop = c.Direction == TradeType.Buy ? c.ZoneLow - SlAtrBuffer * atr : c.ZoneHigh + SlAtrBuffer * atr;
             double target = c.CPrice;
@@ -396,6 +441,13 @@ namespace cAlgo.Robots
 
             string session = SessionName(Server.Time.Hour);
             string comment = c.Name + "|" + confidence.ToString("F1") + "|M5R" + confirmRules;
+
+            // Final broker-send guard. This is deliberately repeated inside the locked section.
+            if (HasAnySymbolExposure())
+            {
+                Print("[EXPOSURE BLOCK] Exposure appeared during order preparation; broker order not sent.");
+                return false;
+            }
 
             TradeResult result = ExecuteMarketOrder(c.Direction, SymbolName, volume, BotLabel, slPips, tpPips, comment);
             if (!result.IsSuccessful || result.Position == null)
@@ -685,13 +737,21 @@ namespace cAlgo.Robots
             return ema;
         }
 
-        private int OwnPositionCount()
+        private bool HasAnySymbolExposure()
         {
-            int count = 0;
+            // Account-wide symbol guard: prevents this cBot from duplicating or hedging
+            // against an existing manual trade, another cBot, or its own position.
             foreach (var p in Positions)
-                if (p.SymbolName == SymbolName && p.Label == BotLabel)
-                    count++;
-            return count;
+                if (p.SymbolName == SymbolName)
+                    return true;
+
+            // Future-proofing: this version uses market orders only, but any existing
+            // pending order on XAUUSD also blocks a new market entry.
+            foreach (var order in PendingOrders)
+                if (order.SymbolName == SymbolName)
+                    return true;
+
+            return false;
         }
 
         private bool DailyLossLocked()
