@@ -1,0 +1,185 @@
+name: BTC Round23 H1 Buy Near-Miss Research
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ btc-round23-h1-buy-nearmiss-research ]
+    paths:
+      - 'FibonacciHarmonicSniperUltimate/versions/v0.22.0-btc-round23-h1-buy-nearmiss-research/**'
+      - '.github/workflows/backtest-fibonacci-btc-round23-h1-buy-nearmiss.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fibonacci-btc-round23-h1-buy-nearmiss
+  cancel-in-progress: true
+
+jobs:
+  research:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '6.0.x'
+
+      - name: Generate frozen Round23 diagnostics source
+        run: |
+          set -euo pipefail
+          mkdir -p backtest/src backtest/build backtest/standard backtest/cache
+          python3 - <<'PYCODE'
+          from pathlib import Path
+          import base64,gzip,hashlib
+          root=Path('FibonacciHarmonicSniperUltimate/versions/v0.17.0-btc-round18-diagnostics')
+          parts=sorted(root.glob('source_payload.part*'))
+          data=gzip.decompress(base64.b64decode(''.join(p.read_text().strip() for p in parts)))
+          expected='5f2b7f31c4b8f0d60f52c4c15869aa75df4ff07d7224af971784137716bc8b93'
+          actual=hashlib.sha256(data).hexdigest()
+          if actual != expected: raise SystemExit(f'Round18 anchor SHA mismatch: {actual}')
+          Path('backtest/src/Round18.cs').write_bytes(data)
+          PYCODE
+          python3 FibonacciHarmonicSniperUltimate/versions/v0.20.0-btc-round21-selective-bypass/round21_transform.py backtest/src/Round18.cs backtest/src/Round21.cs
+          python3 FibonacciHarmonicSniperUltimate/versions/v0.21.0-btc-round22-capital-efficiency/round22_transform.py backtest/src/Round21.cs backtest/src/Round22.cs
+          python3 FibonacciHarmonicSniperUltimate/versions/v0.22.0-btc-round23-h1-buy-nearmiss-research/round23_transform.py backtest/src/Round22.cs backtest/src/FibonacciHarmonicSniperUltimate-BTC-Round23-NearMiss.cs
+          rm -f backtest/src/Round18.cs backtest/src/Round21.cs backtest/src/Round22.cs
+          cat > backtest/src/FibonacciHarmonicSniperUltimate-BTC-Round23-NearMiss.csproj <<'EOF'
+          <Project Sdk="Microsoft.NET.Sdk">
+            <PropertyGroup>
+              <TargetFramework>net6.0</TargetFramework>
+              <ImplicitUsings>disable</ImplicitUsings>
+              <Nullable>disable</Nullable>
+              <RootNamespace>cAlgo.Robots</RootNamespace>
+              <AlgoName>FibonacciHarmonicSniperUltimate-BTC-Round23-NearMiss</AlgoName>
+            </PropertyGroup>
+            <ItemGroup>
+              <PackageReference Include="cTrader.Automate" Version="1.0.19" />
+            </ItemGroup>
+          </Project>
+          EOF
+          sha256sum backtest/src/FibonacciHarmonicSniperUltimate-BTC-Round23-NearMiss.cs
+
+      - name: Build Round23 diagnostics algo
+        run: |
+          set -euo pipefail
+          PROJ=backtest/src/FibonacciHarmonicSniperUltimate-BTC-Round23-NearMiss.csproj
+          dotnet restore "$PROJ"
+          dotnet build "$PROJ" -c Release --no-restore -p:AlgoPublish=False -p:IncludeSource=True
+          ALGO=$(find backtest/src/bin/Release -type f -name '*.algo' | head -n1)
+          test -n "$ALGO"
+          cp "$ALGO" backtest/build/FibonacciHarmonicSniperUltimate-BTC-Round23-NearMiss.algo
+          sha256sum backtest/build/FibonacciHarmonicSniperUltimate-BTC-Round23-NearMiss.algo > backtest/build/SHA256SUMS.txt
+
+      - name: Prepare cTrader
+        env:
+          CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+          CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+          CTRADER_PASSWORD: ${{ secrets.CTRADER_PASSWORD }}
+        run: |
+          set -euo pipefail
+          test -n "${CTRADER_CTID:-}"; test -n "${CTRADER_ACCOUNT:-}"; test -n "${CTRADER_PASSWORD:-}"
+          printf '%s' "$CTRADER_PASSWORD" | tr -d '\r\n' > backtest/ctrader.pwd
+          chmod 600 backtest/ctrader.pwd
+
+      - name: Pull cTrader CLI
+        run: docker pull ghcr.io/spotware/ctrader-console:5.9.11
+
+      - name: Run 1Y Standard Round23 research
+        env:
+          CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+          CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+        run: |
+          set -euo pipefail
+          docker run --rm -v "$PWD/backtest:/work" -e "CTID=$CTRADER_CTID" -e 'PWD-FILE=/work/ctrader.pwd' -e "ACCOUNT=$CTRADER_ACCOUNT" \
+            ghcr.io/spotware/ctrader-console:5.9.11 backtest /work/build/FibonacciHarmonicSniperUltimate-BTC-Round23-NearMiss.algo \
+            --environment-variables --exit-on-stop --symbol=BITCOIN --period=h1 --start='08/09/2025 00:00' --end='08/09/2026 00:00' --balance=10000 --data-mode=m1 --data-dir=/work/cache \
+            --commission=65 --spread=0 --RiskPercent=1.0 --Round17M30RiskPercent=0.50 --Round18CandidateDiagnostics=false \
+            --Round21SelectiveHealthBypass=true --Round21BypassMinScore=93 --Round21SameDirH1MaxAgeHours=2 --Round21BypassRiskPercent=0.10 --Round21ReserveH1AtHour=true \
+            --Round22H1BuyRiskPercent=1.15 --Round22H1SellRiskPercent=0.80 --Round22M30BuyRiskPercent=0.40 --Round22M30SellRiskPercent=0.50 \
+            --Round23NearMissDiagnostics=true --Round23ScoreFloor=82 --Round23MaxExtendedAgeBars=18 --Round23MaxExtendedDistanceAtr=2.0 --Round23ShadowHorizonBars=48 \
+            --MaxOpenPositions=1 --MaxTradesPerDay=6 --MaxDailyLossPercent=5 --EnabledPatterns='Reciprocal ABCD' --PivotLeft=2 --PivotRight=2 --RatioTolerancePercent=6 --MinPatternScore=84 \
+            --MaxPatternAgeBars=16 --MaxEntryDistanceAtr=1.80 --ConfirmationMoveAtr=0.05 --UseCandleConfirmation=true --CooldownBars=2 --FallbackRiskReward=1.80 --MinimumRiskReward=1.50 \
+            --StopAnchorMode=LegacyD --TargetRiskRewardPolicy=LegacyFallback --Round5Mode=ObserveOnly --MtfMode=Off --Round6RequireM30SellConfirm=false --Round7VetoM30SellAlignment=false \
+            --Round8LogExcursions=false --Round9ShadowTpContinuation=false --Round10LogFunnel=false --Round15EnableM30Engine=true --Round16H1HealthGate=true --DebugLogging=false \
+            --report=/work/standard/report.html --report-json=/work/standard/report.json 2>&1 | tee backtest/standard/report.log
+
+      - name: Parse Round23 shadow research
+        run: |
+          set -euo pipefail
+          python3 - <<'PYCODE'
+          import json,re,statistics
+          from pathlib import Path
+          report=json.loads(Path('backtest/standard/report.json').read_text())
+          baseline={
+            'trades':int(report['tradeStatistics']['totalTrades']['all']),
+            'roi':float(report['main']['roi']),
+            'net':float(report['main']['netProfit']),
+            'pf':float(report['tradeStatistics']['profitFactor']['all']),
+            'dd':float(report['equity']['maxEquityDrawdownPercent'])
+          }
+          if baseline['trades'] != 95 or abs(baseline['roi']-39.93) > 0.05 or abs(baseline['pf']-1.95) > 0.03 or abs(baseline['dd']-5.65) > 0.05:
+            raise SystemExit(f'Round23 instrumentation changed Round22 baseline: {baseline}')
+          log=Path('backtest/standard/report.log').read_text(errors='replace')
+          pat=re.compile(r'\[R23 SHADOW CLOSE\] cat=(\S+) pattern=(\S+) d=(\d+) start=(\S+) end=(\S+) score=([\d.]+) age=(\d+) distAtr=([\d.]+) feasible=(True|False) baselineLater=(True|False) result=(\S+) r=([-\d.]+) mfeR=([-\d.]+) maeR=([-\d.]+) rr=([-\d.]+)')
+          rows=[]
+          for m in pat.finditer(log):
+            rows.append({
+              'category':m.group(1),'pattern':m.group(2),'d_index':int(m.group(3)),'start':m.group(4),'end':m.group(5),
+              'score':float(m.group(6)),'age':int(m.group(7)),'distance_atr':float(m.group(8)),
+              'feasible':m.group(9)=='True','baseline_later':m.group(10)=='True','result':m.group(11),
+              'r':float(m.group(12)),'mfe_r':float(m.group(13)),'mae_r':float(m.group(14)),'target_r':float(m.group(15))
+            })
+          def summarize(xs):
+            if not xs:
+              return {'count':0}
+            rs=[x['r'] for x in xs]; wins=[x for x in xs if x['r']>0]; losses=[x for x in xs if x['r']<0]
+            gw=sum(x['r'] for x in wins); gl=-sum(x['r'] for x in losses)
+            return {
+              'count':len(xs),'target_hits':sum(x['result']=='TARGET' for x in xs),'stop_or_ambig':sum(x['result'] in ('STOP','AMBIG_STOP') for x in xs),
+              'timeouts_or_partial':sum(x['result'] in ('TIMEOUT','PARTIAL') for x in xs),'positive_r':len(wins),'negative_r':len(losses),
+              'win_rate_r_percent':100*len(wins)/len(xs),'sum_r':sum(rs),'avg_r':statistics.mean(rs),'median_r':statistics.median(rs),
+              'profit_factor_r':(gw/gl if gl>0 else None),'avg_mfe_r':statistics.mean(x['mfe_r'] for x in xs),'avg_mae_r':statistics.mean(x['mae_r'] for x in xs),
+              'baseline_later_count':sum(x['baseline_later'] for x in xs),'feasible_count':sum(x['feasible'] for x in xs)
+            }
+          cats=sorted(set(x['category'] for x in rows))
+          by_cat={}
+          for c in cats:
+            allc=[x for x in rows if x['category']==c]
+            feasible_new=[x for x in allc if x['feasible'] and not x['baseline_later']]
+            by_cat[c]={'all':summarize(allc),'feasible_new':summarize(feasible_new)}
+          feasible_new_all=[x for x in rows if x['feasible'] and not x['baseline_later']]
+          ranking=[]
+          for c,v in by_cat.items():
+            f=v['feasible_new']
+            ranking.append({'category':c,'count':f.get('count',0),'sum_r':f.get('sum_r',0),'avg_r':f.get('avg_r',0),'pf_r':f.get('profit_factor_r')})
+          ranking.sort(key=lambda x:(x['sum_r'],x['avg_r'],x['count']), reverse=True)
+          out={
+            'version':'Round23 H1 Buy Near-Miss Research',
+            'baseline_round22':baseline,
+            'shadow_total':summarize(rows),
+            'feasible_new_total':summarize(feasible_new_all),
+            'by_category':by_cat,
+            'ranking':ranking,
+            'rows':rows
+          }
+          Path('backtest/Round23-NearMiss-Summary.json').write_text(json.dumps(out,indent=2))
+          print(json.dumps({k:v for k,v in out.items() if k!='rows'},indent=2))
+          PYCODE
+
+      - name: Remove credentials
+        if: always()
+        run: rm -f backtest/ctrader.pwd
+
+      - name: Upload Round23 research artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Fibonacci-BTC-Round23-H1-Buy-NearMiss-Research
+          path: |
+            backtest/build/*
+            backtest/src/FibonacciHarmonicSniperUltimate-BTC-Round23-NearMiss.cs
+            backtest/src/FibonacciHarmonicSniperUltimate-BTC-Round23-NearMiss.csproj
+            backtest/standard/report.*
+            backtest/Round23-NearMiss-Summary.json
+          retention-days: 30
