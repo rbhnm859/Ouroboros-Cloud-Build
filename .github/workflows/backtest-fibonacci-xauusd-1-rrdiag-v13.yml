@@ -1,0 +1,135 @@
+name: Fibonacci XAUUSD 1 - RR Entry Diagnostic v13
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [fibonacci-xauusd-round1]
+    paths:
+      - '.github/workflows/backtest-fibonacci-xauusd-1-rrdiag-v13.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fibonacci-xauusd-1-rrdiag-v13
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Reconstruct and instrument v11 logic
+        shell: bash
+        run: |
+          set -euo pipefail
+          ROOT='FibonacciHarmonicSniperUltimate/versions/xauusd_1'
+          mkdir -p "$ROOT/src" package
+          base64 -d "$ROOT/source.gz.b64" | gzip -dc > "$ROOT/src/FibonacciXAUUSD1.cs"
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('FibonacciHarmonicSniperUltimate/versions/xauusd_1/src/FibonacciXAUUSD1.cs')
+          s=p.read_text()
+
+          ema_param='''        [Parameter("EMA Period", DefaultValue = 50, MinValue = 10, MaxValue = 300, Group = "Quality")]\n        public int EmaPeriod { get; set; }\n'''
+          ema_insert=ema_param+'''\n        [Parameter("Require EMA Alignment", DefaultValue = true, Group = "Quality")]\n        public bool RequireEmaAlignment { get; set; }\n'''
+          assert s.count(ema_param)==1
+          s=s.replace(ema_param, ema_insert, 1)
+
+          assert s.count('Print("VERSION xauusd_1 v1.1.0-gold-v7");')==1
+          s=s.replace('Print("VERSION xauusd_1 v1.1.0-gold-v7");','Print("VERSION xauusd_1 v1.3.1-gold-v13-rrdiag");',1)
+
+          m30_gate='''            if (UseM30Confirmation && m30Score < M30ConfirmRulesNeeded)\n            {\n                Reject("m30_confirm");\n                LogDecision(selected, "REJECT", "m30_confirm");\n                return;\n            }\n'''
+          ema_gate=m30_gate+'''\n            if (selected.Definition.Name == "ABCD" && RequireEmaAlignment && selected.EmaContextScore < 99.5)\n            {\n                Reject("ema_alignment");\n                LogDecision(selected, "REJECT", "ema_alignment");\n                return;\n            }\n'''
+          assert s.count(m30_gate)==1
+          s=s.replace(m30_gate, ema_gate, 1)
+
+          old='''            if (rr < MinimumRiskReward)\n            {\n                Reject("poor_geometry_rr");\n                LogDecision(m, "REJECT", "poor_geometry_rr");\n                return;\n            }\n'''
+          new='''            if (rr < MinimumRiskReward)\n            {\n                double idealEntry = (targetPrice + MinimumRiskReward * stopPrice) / (1.0 + MinimumRiskReward);\n                double pullbackPips = m.Direction == TradeType.Buy\n                    ? Math.Max(0.0, (entry - idealEntry) / Symbol.PipSize)\n                    : Math.Max(0.0, (idealEntry - entry) / Symbol.PipSize);\n                double dOffsetPips = Math.Abs(entry - m.D.Price) / Symbol.PipSize;\n                double atrPips = atr / Symbol.PipSize;\n                Print("[RRDIAG] pattern={0} side={1} Q={2:F1} age={3} m30={4}/3 ema={5:F0} entry={6:F2} D={7:F2} stop={8:F2} target={9:F2} RR={10:F2} idealEntry={11:F2} pullback={12:F1}p dOffset={13:F1}p ATR={14:F1}p",\n                    m.Definition.Name, m.Direction, m.FinalQuality, m.Age, m.M30RulesPassed, m.EmaContextScore, entry, m.D.Price, stopPrice, targetPrice, rr, idealEntry, pullbackPips, dOffsetPips, atrPips);\n                Reject("poor_geometry_rr");\n                LogDecision(m, "REJECT", "poor_geometry_rr");\n                return;\n            }\n'''
+          assert s.count(old)==1
+          s=s.replace(old,new,1)
+          p.write_text(s)
+          PY
+          grep -q 'RRDIAG' "$ROOT/src/FibonacciXAUUSD1.cs"
+          grep -q 'v1.3.1-gold-v13-rrdiag' "$ROOT/src/FibonacciXAUUSD1.cs"
+          cp "$ROOT/src/FibonacciXAUUSD1.cs" package/FibonacciXAUUSD1.cs
+          cp "$ROOT/README.md" package/README.md
+          sha256sum "$ROOT/src/FibonacciXAUUSD1.cs" | tee package/source.sha256
+      - name: Pull official cTrader CLI
+        run: docker pull ghcr.io/spotware/ctrader-console:5.9.11
+      - name: Build diagnostic candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          ROOT='FibonacciHarmonicSniperUltimate/versions/xauusd_1'
+          docker run --rm --entrypoint sh -v "$PWD:/repo" -w /repo ghcr.io/spotware/ctrader-console:5.9.11 -c "dotnet restore $ROOT/FibonacciXAUUSD1.csproj && dotnet build $ROOT/FibonacciXAUUSD1.csproj --configuration Release --no-restore -p:AlgoPublish=False -p:IncludeSource=True"
+          ALGO="$(find "$ROOT" -type f -name '*.algo' -print -quit)"
+          test -n "$ALGO"
+          cp "$ALGO" package/xauusd_1-v13-rrdiag.algo
+          sha256sum package/xauusd_1-v13-rrdiag.algo | tee package/algo.sha256
+      - uses: actions/upload-artifact@v4
+        with:
+          name: xauusd_1-v13-rrdiag-build
+          path: package/
+          retention-days: 30
+
+  diagnostic:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: standard
+            spread: '17.42'
+            commission: '35'
+          - label: harsh
+            spread: '30'
+            commission: '50'
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: xauusd_1-v13-rrdiag-build
+          path: work
+      - name: Pull official cTrader CLI
+        run: docker pull ghcr.io/spotware/ctrader-console:5.9.11
+      - name: Create cTrader password file
+        env:
+          CTRADER_PASSWORD: ${{ secrets.CTRADER_PASSWORD }}
+        run: |
+          test -n "${CTRADER_PASSWORD:-}" || exit 1
+          printf '%s' "$CTRADER_PASSWORD" > work/ctrader.pwd
+          chmod 600 work/ctrader.pwd
+      - name: Run ${{ matrix.label }} RR diagnostics
+        env:
+          CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+          CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p work/reports work/cache
+          docker run --rm -v "$PWD/work:/work" \
+            -e "CTID=$CTRADER_CTID" -e 'PWD-FILE=/work/ctrader.pwd' -e "ACCOUNT=$CTRADER_ACCOUNT" \
+            ghcr.io/spotware/ctrader-console:5.9.11 \
+            backtest /work/xauusd_1-v13-rrdiag.algo --environment-variables --exit-on-stop \
+            --symbol=XAUUSD --period=h1 --start='09/06/2026' --end='09/09/2026' \
+            --balance=10000 --data-mode=m1 --data-dir=/work/cache \
+            --commission='${{ matrix.commission }}' --spread='${{ matrix.spread }}' \
+            --RiskPercent=0.50 --MaxDailyLossPercent=3.0 \
+            --PivotLeft=3 --PivotRight=3 --EnableStandaloneABCD=true --RequireEmaAlignment=true \
+            --MinQualityScore=75 --M30ConfirmRulesNeeded=2 --MinimumRiskReward=1.5 --TargetAdFib=0.786 \
+            --report='/work/reports/${{ matrix.label }}.html' --report-json='/work/reports/${{ matrix.label }}.json' \
+            2>&1 | tee 'work/reports/${{ matrix.label }}.log'
+          grep '\[RRDIAG\]' 'work/reports/${{ matrix.label }}.log' | tee 'work/reports/${{ matrix.label }}-rrdiag.txt' || true
+          test -s 'work/reports/${{ matrix.label }}.json'
+      - name: Remove credentials
+        if: always()
+        run: rm -f work/ctrader.pwd
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: xauusd_1-v13-rrdiag-${{ matrix.label }}
+          path: work/reports/
+          retention-days: 30
