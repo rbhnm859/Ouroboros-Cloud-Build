@@ -2,21 +2,21 @@
 //  CumulativeDeltaScalper_EURUSD_v1
 //  Hardened cTrader / cAlgo EURUSD-only baseline.
 //
-//  Derived from:
-//  https://github.com/dhruuvsharma/Trading-Strategies
-//  platforms/cTrader/CumulativeDeltaScalper/src/CumulativeDeltaScalper.cs
+//  Candidate L patch:
+//  - All-day scan with session-quality tiers, not blind 24h trading
+//  - Runner exit model: far emergency TP, breakeven, profit lock, ATR trail
+//  - Daily profit giveback lock instead of hard daily profit cap
+//  - Code-level hard actual loss cap
+//  - Stricter short-side filter
 //
 //  Design goals:
 //  - EURUSD / EURUSD suffix only
 //  - M1, M5, M15, M30 only
 //  - One completed-bar entry decision, not repeated OnTick entries
 //  - One position only, no hedging, no grid, no martingale, no DCA
-//  - Every market order is sent with SL and TP
+//  - Every market order is sent with SL and an emergency TP
 //  - Fixed money risk / risk percent / fixed lots modes
 //  - Broker min/max/step volume checks
-//  - Daily loss/profit guards, cooldown, consecutive-loss stop
-//  - Bar-delta fallback for cTrader CLI M1 backtests when tick delta is not populated
-//  - Candidate I controls: weekday filters, equity kill-switches, selectable HTF, risk auto-scale, skip stats
 // ===================================================================
 
 using System;
@@ -140,6 +140,42 @@ namespace cAlgo.Robots
         [Parameter("Max ATR", DefaultValue = 0.00200, MinValue = 0.0, Step = 0.00005, Group = "Filters")]
         public double MaxAtr { get; set; }
 
+        [Parameter("Use Session Quality Filter", DefaultValue = false, Group = "Filters")]
+        public bool UseSessionQualityFilter { get; set; }
+
+        [Parameter("Extended Start H", DefaultValue = 7, MinValue = 0, MaxValue = 23, Group = "Filters")]
+        public int ExtendedStartHour { get; set; }
+
+        [Parameter("Extended Start M", DefaultValue = 0, MinValue = 0, MaxValue = 59, Group = "Filters")]
+        public int ExtendedStartMinute { get; set; }
+
+        [Parameter("Extended End H", DefaultValue = 16, MinValue = 0, MaxValue = 23, Group = "Filters")]
+        public int ExtendedEndHour { get; set; }
+
+        [Parameter("Extended End M", DefaultValue = 30, MinValue = 0, MaxValue = 59, Group = "Filters")]
+        public int ExtendedEndMinute { get; set; }
+
+        [Parameter("AllDay Delta Bonus", DefaultValue = 40, MinValue = 0, Group = "Filters")]
+        public int AllDayDeltaBonus { get; set; }
+
+        [Parameter("AllDay ADX Bonus", DefaultValue = 3.0, MinValue = 0.0, Step = 0.5, Group = "Filters")]
+        public double AllDayAdxBonus { get; set; }
+
+        [Parameter("AllDay Extra Conf", DefaultValue = 1, MinValue = 0, MaxValue = 2, Group = "Filters")]
+        public int AllDayExtraConfirmations { get; set; }
+
+        [Parameter("Use Strict Short Filter", DefaultValue = false, Group = "Filters")]
+        public bool UseStrictShortFilter { get; set; }
+
+        [Parameter("Short Delta Bonus", DefaultValue = 20, MinValue = 0, Group = "Filters")]
+        public int ShortDeltaBonus { get; set; }
+
+        [Parameter("Short ADX Bonus", DefaultValue = 2.0, MinValue = 0.0, Step = 0.5, Group = "Filters")]
+        public double ShortAdxBonus { get; set; }
+
+        [Parameter("Short Spread Below Avg", DefaultValue = true, Group = "Filters")]
+        public bool ShortRequireSpreadBelowAverage { get; set; }
+
         [Parameter("Max Spread Points", DefaultValue = 15, MinValue = 1, Group = "Execution")]
         public int MaxSpreadPoints { get; set; }
 
@@ -179,6 +215,15 @@ namespace cAlgo.Robots
         [Parameter("TP Multiplier ATR", DefaultValue = 0.4, MinValue = 0.1, Step = 0.1, Group = "Risk")]
         public double TpAtrMultiplier { get; set; }
 
+        [Parameter("Hard Actual Loss Cap", DefaultValue = false, Group = "Risk")]
+        public bool UseHardActualLossCap { get; set; }
+
+        [Parameter("Max Actual Loss Money", DefaultValue = 1.0, MinValue = 0.0, Step = 0.01, Group = "Risk")]
+        public double MaxActualTradeLossMoney { get; set; }
+
+        [Parameter("Skip Min Volume Overcap", DefaultValue = true, Group = "Risk")]
+        public bool SkipIfMinVolumeRiskTooHigh { get; set; }
+
         [Parameter("Max Daily Trades", DefaultValue = 3, MinValue = 1, Group = "Protection")]
         public int MaxDailyTrades { get; set; }
 
@@ -190,6 +235,21 @@ namespace cAlgo.Robots
 
         [Parameter("Daily Profit Target Money", DefaultValue = 5.00, MinValue = 0.0, Step = 0.01, Group = "Protection")]
         public double DailyProfitTargetMoney { get; set; }
+
+        [Parameter("Use Daily Profit Lock", DefaultValue = false, Group = "Protection")]
+        public bool UseDailyProfitLock { get; set; }
+
+        [Parameter("Daily Lock Start Money", DefaultValue = 0.80, MinValue = 0.0, Step = 0.01, Group = "Protection")]
+        public double DailyProfitLockStartMoney { get; set; }
+
+        [Parameter("Daily Giveback %", DefaultValue = 40.0, MinValue = 1.0, MaxValue = 95.0, Step = 1.0, Group = "Protection")]
+        public double DailyProfitGivebackPercent { get; set; }
+
+        [Parameter("Daily Lock Floor Money", DefaultValue = 0.0, MinValue = 0.0, Step = 0.01, Group = "Protection")]
+        public double DailyProfitLockFloorMoney { get; set; }
+
+        [Parameter("Close On Profit Lock", DefaultValue = true, Group = "Protection")]
+        public bool CloseOnDailyProfitLock { get; set; }
 
         [Parameter("Max Consecutive Losses", DefaultValue = 2, MinValue = 1, Group = "Protection")]
         public int MaxConsecutiveLosses { get; set; }
@@ -221,6 +281,27 @@ namespace cAlgo.Robots
         [Parameter("Breakeven Pips", DefaultValue = 1.5, MinValue = 0.1, Step = 0.1, Group = "Exit")]
         public double BreakevenPips { get; set; }
 
+        [Parameter("Use Runner Exit", DefaultValue = false, Group = "Exit")]
+        public bool UseRunnerExit { get; set; }
+
+        [Parameter("Emergency TP R", DefaultValue = 6.0, MinValue = 1.0, Step = 0.5, Group = "Exit")]
+        public double EmergencyTpR { get; set; }
+
+        [Parameter("BE At R", DefaultValue = 0.8, MinValue = 0.1, Step = 0.1, Group = "Exit")]
+        public double RunnerBreakevenAtR { get; set; }
+
+        [Parameter("Lock Start R", DefaultValue = 1.2, MinValue = 0.1, Step = 0.1, Group = "Exit")]
+        public double RunnerProfitLockStartR { get; set; }
+
+        [Parameter("Lock Profit R", DefaultValue = 0.5, MinValue = 0.0, Step = 0.1, Group = "Exit")]
+        public double RunnerProfitLockR { get; set; }
+
+        [Parameter("Trail Start R", DefaultValue = 1.5, MinValue = 0.1, Step = 0.1, Group = "Exit")]
+        public double RunnerTrailStartR { get; set; }
+
+        [Parameter("Trail ATR Mult", DefaultValue = 1.0, MinValue = 0.1, Step = 0.1, Group = "Exit")]
+        public double RunnerTrailAtrMultiplier { get; set; }
+
         [Parameter("Adverse Delta Exit", DefaultValue = true, Group = "Exit")]
         public bool AdverseDeltaExit { get; set; }
 
@@ -249,12 +330,14 @@ namespace cAlgo.Robots
         private DateTime _openTradeTime = DateTime.MinValue;
         private int _openTradeDirection;
         private bool _breakevenApplied;
+        private double _openInitialRiskPips;
 
         private DateTime _currentDay = DateTime.MinValue;
         private double _dayStartBalance;
         private double _dayHighEquity;
         private double _accountPeakEquity;
         private double _dailyClosedPnl;
+        private double _dayPeakNetPnl;
         private int _dailyTradeCount;
         private int _consecutiveLosses;
 
@@ -297,10 +380,11 @@ namespace cAlgo.Robots
             _dayStartBalance = Account.Balance;
             _dayHighEquity = Account.Equity;
             _accountPeakEquity = Account.Equity;
+            _dayPeakNetPnl = 0;
 
             Positions.Closed += OnPositionClosed;
 
-            Debug("started on " + SymbolName + " " + TimeFrame + " label=" + TradeLabel + " htf=" + htf + " barDeltaFallback=" + UseBarDeltaFallback);
+            Debug("started on " + SymbolName + " " + TimeFrame + " label=" + TradeLabel + " htf=" + htf + " runner=" + UseRunnerExit + " sessionQuality=" + UseSessionQualityFilter);
         }
 
         protected override void OnStop()
@@ -315,12 +399,11 @@ namespace cAlgo.Robots
             ResetDailyIfNeeded();
             SyncDailyStatsFromHistory();
             UpdateEquityPeaks();
+            UpdateDailyProfitPeak();
             ProcessTickDelta();
 
             if (HasOpenPosition())
-            {
                 ManageOpenPosition();
-            }
         }
 
         protected override void OnBar()
@@ -328,6 +411,7 @@ namespace cAlgo.Robots
             ResetDailyIfNeeded();
             SyncDailyStatsFromHistory();
             UpdateEquityPeaks();
+            UpdateDailyProfitPeak();
             FinalizeClosedBarDelta();
 
             DateTime barTime = Bars.OpenTimes.LastValue;
@@ -476,8 +560,44 @@ namespace cAlgo.Robots
             if (CheckAdx()) confirmations++;
             if (CheckSpreadDynamic()) confirmations++;
 
-            Debug("signal=" + signal + " confirmations=" + confirmations + "/5 need=" + MinConfirmations);
-            return confirmations >= MinConfirmations ? signal : 0;
+            int requiredConfirmations = MinConfirmations;
+            if (UseSessionQualityFilter)
+            {
+                int tier = GetSessionQualityTier();
+                requiredConfirmations = Math.Min(5, requiredConfirmations + tier * Math.Max(0, AllDayExtraConfirmations));
+                int requiredDelta = DeltaThreshold + tier * Math.Max(0, AllDayDeltaBonus);
+                double requiredAdx = AdxThreshold + tier * Math.Max(0.0, AllDayAdxBonus);
+                int maxSpread = Math.Max(1, MaxSpreadPoints - tier * 2);
+
+                if (Math.Abs(cumulativeDelta) < requiredDelta)
+                {
+                    Debug("quality blocked delta tier=" + tier + " delta=" + cumulativeDelta + " need=" + requiredDelta);
+                    return 0;
+                }
+
+                if (_htfDms.ADX.LastValue < requiredAdx)
+                {
+                    Debug("quality blocked adx tier=" + tier + " adx=" + _htfDms.ADX.LastValue.ToString("F2") + " need=" + requiredAdx.ToString("F2"));
+                    return 0;
+                }
+
+                if (SpreadInPoints() > maxSpread)
+                {
+                    Debug("quality blocked spread tier=" + tier + " spread=" + SpreadInPoints() + " max=" + maxSpread);
+                    return 0;
+                }
+            }
+
+            if (signal < 0 && UseStrictShortFilter)
+            {
+                if (Math.Abs(cumulativeDelta) < DeltaThreshold + Math.Max(0, ShortDeltaBonus)) return 0;
+                if (_htfDms.ADX.LastValue < AdxThreshold + Math.Max(0.0, ShortAdxBonus)) return 0;
+                if (!CheckEmaSlope(signal)) return 0;
+                if (ShortRequireSpreadBelowAverage && AverageSpreadPoints() > 0 && SpreadInPoints() > AverageSpreadPoints()) return 0;
+            }
+
+            Debug("signal=" + signal + " confirmations=" + confirmations + "/5 need=" + requiredConfirmations + " delta=" + cumulativeDelta);
+            return confirmations >= requiredConfirmations ? signal : 0;
         }
 
         private int CalculateCumulativeDelta()
@@ -553,6 +673,7 @@ namespace cAlgo.Robots
             double dailyLossLimit = MaxDailyLossMoney > 0 ? Math.Min(dailyLimitByPercent, MaxDailyLossMoney) : dailyLimitByPercent;
             if (dailyLossLimit > 0 && _dailyClosedPnl <= -dailyLossLimit) { reason = "daily_loss_limit_hit"; return false; }
             if (DailyProfitTargetMoney > 0 && _dailyClosedPnl >= DailyProfitTargetMoney) { reason = "daily_profit_target_hit"; return false; }
+            if (UseDailyProfitLock && IsDailyProfitGivebackHit()) { reason = "daily_profit_lock_hit"; return false; }
 
             if (IsDailyEquityDrawdownHit()) { reason = "daily_equity_drawdown_hit"; return false; }
             if (IsAccountEquityDrawdownHit()) { reason = "account_equity_drawdown_hit"; return false; }
@@ -581,18 +702,35 @@ namespace cAlgo.Robots
 
         private bool IsInSession()
         {
+            return IsTimeInWindow(SessionStartHour, SessionStartMinute, SessionEndHour, SessionEndMinute);
+        }
+
+        private bool IsInExtendedSession()
+        {
+            return IsTimeInWindow(ExtendedStartHour, ExtendedStartMinute, ExtendedEndHour, ExtendedEndMinute);
+        }
+
+        private bool IsTimeInWindow(int startHour, int startMinute, int endHour, int endMinute)
+        {
             int now = Server.Time.ToUniversalTime().Hour * 60 + Server.Time.ToUniversalTime().Minute;
-            int start = SessionStartHour * 60 + SessionStartMinute;
-            int end = SessionEndHour * 60 + SessionEndMinute;
+            int start = startHour * 60 + startMinute;
+            int end = endHour * 60 + endMinute;
             if (start == end) return true;
             if (start < end) return now >= start && now < end;
             return now >= start || now < end;
         }
 
+        private int GetSessionQualityTier()
+        {
+            if (IsInSession()) return 0;
+            if (IsInExtendedSession()) return 1;
+            return 2;
+        }
+
         private void OpenTrade(int signal)
         {
             double slPips = PriceDistanceToPips(_atr.Result.LastValue * SlAtrMultiplier);
-            double tpPips = PriceDistanceToPips(_atr.Result.LastValue * TpAtrMultiplier);
+            double tpPips = UseRunnerExit ? slPips * Math.Max(1.0, EmergencyTpR) : PriceDistanceToPips(_atr.Result.LastValue * TpAtrMultiplier);
 
             string distanceReason;
             if (!ValidateStopDistances(slPips, tpPips, out distanceReason))
@@ -602,11 +740,24 @@ namespace cAlgo.Robots
             }
 
             double riskMoney = CalculateRiskMoney();
+            if (UseHardActualLossCap && MaxActualTradeLossMoney > 0 && riskMoney > MaxActualTradeLossMoney)
+                riskMoney = MaxActualTradeLossMoney;
+
             double volume = CalculateVolumeInUnits(slPips, riskMoney);
             if (volume < Symbol.VolumeInUnitsMin)
             {
                 Skip("volume_below_broker_minimum_riskMoney=" + riskMoney.ToString("F2"));
                 return;
+            }
+
+            if (UseHardActualLossCap && SkipIfMinVolumeRiskTooHigh && MaxActualTradeLossMoney > 0)
+            {
+                double maxCapVolume = Symbol.VolumeForFixedRisk(MaxActualTradeLossMoney, slPips, RoundingMode.Down);
+                if (maxCapVolume < Symbol.VolumeInUnitsMin)
+                {
+                    Skip("min_volume_estimated_risk_above_hard_cap");
+                    return;
+                }
             }
 
             if (volume > Symbol.VolumeInUnitsMax)
@@ -631,11 +782,12 @@ namespace cAlgo.Robots
             _lastTradeTime = Server.Time;
             _openTradeTime = Server.Time;
             _openTradeDirection = signal;
+            _openInitialRiskPips = slPips;
             _breakevenApplied = false;
             _dailyTradeCount++;
             Entry(signal > 0 ? "buy_signal" : "sell_signal");
 
-            Debug((signal > 0 ? "BUY" : "SELL") + " opened volume=" + volume + " riskMoney=" + riskMoney.ToString("F2") + " slPips=" + slPips.ToString("F2") + " tpPips=" + tpPips.ToString("F2"));
+            Debug((signal > 0 ? "BUY" : "SELL") + " opened volume=" + volume + " riskMoney=" + riskMoney.ToString("F2") + " slPips=" + slPips.ToString("F2") + " emergencyTpPips=" + tpPips.ToString("F2") + " runner=" + UseRunnerExit);
         }
 
         private double CalculateRiskMoney()
@@ -700,6 +852,19 @@ namespace cAlgo.Robots
             {
                 _openTradeDirection = 0;
                 _openTradeTime = DateTime.MinValue;
+                _openInitialRiskPips = 0;
+                return;
+            }
+
+            if (UseHardActualLossCap && MaxActualTradeLossMoney > 0 && position.NetProfit <= -MaxActualTradeLossMoney)
+            {
+                ClosePositionWithLog(position, "HARD_ACTUAL_LOSS_CAP");
+                return;
+            }
+
+            if (CloseOnDailyProfitLock && UseDailyProfitLock && IsDailyProfitGivebackHit())
+            {
+                ClosePositionWithLog(position, "DAILY_PROFIT_LOCK");
                 return;
             }
 
@@ -727,8 +892,92 @@ namespace cAlgo.Robots
                 }
             }
 
-            if (UseBreakeven && !_breakevenApplied)
+            if (UseRunnerExit)
+                ManageRunnerExit(position);
+            else if (UseBreakeven && !_breakevenApplied)
                 TryBreakeven(position);
+        }
+
+        private void ManageRunnerExit(Position position)
+        {
+            double riskPips = EstimateRiskPips(position);
+            if (riskPips <= 0) return;
+
+            double profitPips = CurrentProfitPips(position);
+            double? tp = position.TakeProfit;
+
+            if (profitPips >= RunnerBreakevenAtR * riskPips)
+            {
+                double beSl = position.TradeType == TradeType.Buy
+                    ? position.EntryPrice + BreakevenBufferPips * Symbol.PipSize
+                    : position.EntryPrice - BreakevenBufferPips * Symbol.PipSize;
+                TryImproveStop(position, beSl, tp, "RUNNER_BE");
+            }
+
+            if (profitPips >= RunnerProfitLockStartR * riskPips)
+            {
+                double lockPips = Math.Max(0, RunnerProfitLockR) * riskPips;
+                double lockSl = position.TradeType == TradeType.Buy
+                    ? position.EntryPrice + lockPips * Symbol.PipSize
+                    : position.EntryPrice - lockPips * Symbol.PipSize;
+                TryImproveStop(position, lockSl, tp, "RUNNER_LOCK");
+            }
+
+            if (profitPips >= RunnerTrailStartR * riskPips)
+            {
+                double trailPips = PriceDistanceToPips(_atr.Result.LastValue * RunnerTrailAtrMultiplier);
+                if (trailPips <= 0) return;
+
+                double trailSl = position.TradeType == TradeType.Buy
+                    ? Symbol.Bid - trailPips * Symbol.PipSize
+                    : Symbol.Ask + trailPips * Symbol.PipSize;
+                TryImproveStop(position, trailSl, tp, "RUNNER_TRAIL");
+            }
+        }
+
+        private double EstimateRiskPips(Position position)
+        {
+            if (_openInitialRiskPips > 0)
+                return _openInitialRiskPips;
+
+            if (position.StopLoss.HasValue)
+            {
+                if (position.TradeType == TradeType.Buy)
+                    return Math.Abs(position.EntryPrice - position.StopLoss.Value) / Symbol.PipSize;
+                return Math.Abs(position.StopLoss.Value - position.EntryPrice) / Symbol.PipSize;
+            }
+
+            return PriceDistanceToPips(_atr.Result.LastValue * SlAtrMultiplier);
+        }
+
+        private double CurrentProfitPips(Position position)
+        {
+            if (position.TradeType == TradeType.Buy)
+                return (Symbol.Bid - position.EntryPrice) / Symbol.PipSize;
+            return (position.EntryPrice - Symbol.Ask) / Symbol.PipSize;
+        }
+
+        private void TryImproveStop(Position position, double newStopLoss, double? takeProfit, string reason)
+        {
+            if (position.TradeType == TradeType.Buy)
+            {
+                if (newStopLoss >= Symbol.Bid) return;
+                if (position.StopLoss.HasValue && newStopLoss <= position.StopLoss.Value) return;
+            }
+            else
+            {
+                if (newStopLoss <= Symbol.Ask) return;
+                if (position.StopLoss.HasValue && newStopLoss >= position.StopLoss.Value) return;
+            }
+
+            TradeResult result = ModifyPosition(position, newStopLoss, takeProfit);
+            if (result.IsSuccessful)
+            {
+                _breakevenApplied = true;
+                Debug("stop improved: " + reason + " newSL=" + newStopLoss.ToString("F5"));
+            }
+            else
+                Debug("stop improve failed " + reason + ": " + result.Error);
         }
 
         private bool CheckCriticalEquityExit(out string reason)
@@ -761,10 +1010,36 @@ namespace cAlgo.Robots
             return drawdownPct >= MaxEquityDrawdownPercent;
         }
 
+        private bool IsDailyProfitGivebackHit()
+        {
+            if (!UseDailyProfitLock || DailyProfitLockStartMoney <= 0) return false;
+            if (_dayPeakNetPnl < DailyProfitLockStartMoney) return false;
+
+            double current = CurrentDailyNetPnl();
+            double lockedFloor = _dayPeakNetPnl * (1.0 - DailyProfitGivebackPercent / 100.0);
+            if (DailyProfitLockFloorMoney > 0)
+                lockedFloor = Math.Max(lockedFloor, DailyProfitLockFloorMoney);
+
+            return current <= lockedFloor;
+        }
+
         private void UpdateEquityPeaks()
         {
             if (Account.Equity > _dayHighEquity) _dayHighEquity = Account.Equity;
             if (Account.Equity > _accountPeakEquity) _accountPeakEquity = Account.Equity;
+        }
+
+        private void UpdateDailyProfitPeak()
+        {
+            double current = CurrentDailyNetPnl();
+            if (current > _dayPeakNetPnl)
+                _dayPeakNetPnl = current;
+        }
+
+        private double CurrentDailyNetPnl()
+        {
+            double floating = Positions.Where(p => p.SymbolName == SymbolName && p.Label == TradeLabel).Sum(p => p.NetProfit);
+            return _dailyClosedPnl + floating;
         }
 
         private void ClosePositionWithLog(Position position, string reason)
@@ -786,24 +1061,14 @@ namespace cAlgo.Robots
                 double profitPips = (Symbol.Bid - position.EntryPrice) / Symbol.PipSize;
                 if (profitPips < BreakevenPips) return;
                 double newSl = position.EntryPrice + buffer;
-                if (!position.StopLoss.HasValue || newSl > position.StopLoss.Value)
-                {
-                    TradeResult result = ModifyPosition(position, newSl, tp);
-                    if (result.IsSuccessful) _breakevenApplied = true;
-                    else Debug("breakeven modify failed: " + result.Error);
-                }
+                TryImproveStop(position, newSl, tp, "BREAKEVEN");
             }
             else
             {
                 double profitPips = (position.EntryPrice - Symbol.Ask) / Symbol.PipSize;
                 if (profitPips < BreakevenPips) return;
                 double newSl = position.EntryPrice - buffer;
-                if (!position.StopLoss.HasValue || newSl < position.StopLoss.Value)
-                {
-                    TradeResult result = ModifyPosition(position, newSl, tp);
-                    if (result.IsSuccessful) _breakevenApplied = true;
-                    else Debug("breakeven modify failed: " + result.Error);
-                }
+                TryImproveStop(position, newSl, tp, "BREAKEVEN");
             }
         }
 
@@ -840,6 +1105,7 @@ namespace cAlgo.Robots
             _dayStartBalance = Account.Balance;
             _dayHighEquity = Account.Equity;
             _dailyClosedPnl = 0;
+            _dayPeakNetPnl = 0;
             _dailyTradeCount = 0;
             _consecutiveLosses = 0;
             Debug("new trading day balance=" + _dayStartBalance + " equity=" + Account.Equity);
@@ -886,7 +1152,8 @@ namespace cAlgo.Robots
 
             _openTradeDirection = 0;
             _openTradeTime = DateTime.MinValue;
-            Debug("position closed pnl=" + p.NetProfit + " consecutiveLosses=" + _consecutiveLosses);
+            _openInitialRiskPips = 0;
+            Debug("position closed pnl=" + p.NetProfit + " consecutiveLosses=" + _consecutiveLosses + " dayPeak=" + _dayPeakNetPnl.ToString("F2"));
         }
 
         private void Skip(string reason)
