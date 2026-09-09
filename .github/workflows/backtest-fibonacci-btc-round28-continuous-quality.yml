@@ -1,0 +1,56 @@
+name: BTC Round28 Continuous Quality Risk Validation
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ btc-round28-continuous-quality ]
+    paths:
+      - 'FibonacciHarmonicSniperUltimate/versions/v0.25.0-btc-round28-continuous-quality/**'
+      - '.github/workflows/backtest-fibonacci-btc-round28-continuous-quality.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fibonacci-btc-round28-continuous-quality
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '6.0.x'
+      - name: Run Round28 objective validation
+        env:
+          CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+          CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+          CTRADER_PASSWORD: ${{ secrets.CTRADER_PASSWORD }}
+        run: bash FibonacciHarmonicSniperUltimate/versions/v0.25.0-btc-round28-continuous-quality/round28_validation.sh
+      - name: Remove credentials
+        if: always()
+        run: rm -f work/ctrader.pwd
+      - name: Upload Round28 validation artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Fibonacci-BTC-Round28-Continuous-Quality
+          retention-days: 30
+          path: |
+            work/build/*
+            work/r28-src/*.cs
+            work/r28-src/*.csproj
+            work/control/report.*
+            work/balanced/report.*
+            work/h1-protect/report.*
+            work/m30-protect/report.*
+            work/y1/report.*
+            work/y2/report.*
+            work/y3/report.*
+            work/harsh-3y/report.*
+            work/harsh-y3/report.*
+            work/Round28-3Y-Screen.json
+            work/Round28-Final-Summary.json
