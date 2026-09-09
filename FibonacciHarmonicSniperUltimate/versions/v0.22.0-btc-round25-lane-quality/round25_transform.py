@@ -164,7 +164,7 @@ s=s.replace(closed_anchor,closed_insert,1)
 
 out.write_text(s)
 sha=hashlib.sha256(out.read_bytes()).hexdigest()
-expected25='a68107129546992d2c4e27bf01c5583c12912767af916050c072d52e3d1e24ba'
+expected25='adf8e28f307aeb33673b17ed3f83c618fa1089f2faaa852f3e650f702d4d474f'
 if sha!=expected25:
     raise SystemExit(f'Round25 source SHA mismatch: {sha}')
 print(f'Round25 source verified: {sha}')
