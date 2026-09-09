@@ -1,0 +1,55 @@
+name: BTC Harmonic Guard Monthly Growth
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ btc-store-v1-hardening-monthly-growth ]
+    paths:
+      - 'FibonacciHarmonicSniperUltimate/monthly-growth/**'
+      - '.github/workflows/btc-harmonic-guard-monthly-growth.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: btc-harmonic-guard-monthly-growth
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '6.0.x'
+      - name: Run precommitted Growth Alpha validation
+        env:
+          CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+          CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+          CTRADER_PASSWORD: ${{ secrets.CTRADER_PASSWORD }}
+        run: bash FibonacciHarmonicSniperUltimate/monthly-growth/growth_validation.sh
+      - name: Remove credentials
+        if: always()
+        run: rm -f work/ctrader.pwd
+      - name: Upload monthly growth validation
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: BTC-Harmonic-Guard-Monthly-Growth
+          retention-days: 30
+          path: |
+            work/build/*
+            work/growth-src/*.cs
+            work/growth-src/*.csproj
+            work/*-3y/report.*
+            work/recent-a/report.*
+            work/recent-b/report.*
+            work/y1/report.*
+            work/y2/report.*
+            work/harsh-3y/report.*
+            work/harsh-y3/report.*
+            work/Growth-3Y-Screen.json
+            work/Growth-Recent-Screen.json
+            work/Growth-Final-Summary.json
