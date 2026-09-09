@@ -1,0 +1,115 @@
+name: Inspect VSB cTrader ALGO
+
+on:
+  workflow_dispatch:
+    inputs:
+      algo_path:
+        description: "Repository path to Volatility Sniper Breakout BETA .algo"
+        required: true
+        default: "VSB/VolatilitySniperBreakoutBETA.algo"
+  push:
+    branches:
+      - main
+    paths:
+      - "VSB/**/*.algo"
+      - ".github/workflows/vsb-inspect-algo.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    name: Read cBot metadata
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Resolve ALGO path
+        id: algo
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            ALGO_PATH="${{ inputs.algo_path }}"
+          else
+            ALGO_PATH="$(find VSB -type f -name '*.algo' -print -quit 2>/dev/null || true)"
+          fi
+          if [ -z "${ALGO_PATH:-}" ] || [ ! -f "$ALGO_PATH" ]; then
+            echo "VSB .algo not found. Upload it to VSB/VolatilitySniperBreakoutBETA.algo or run manually with the correct path."
+            exit 1
+          fi
+          echo "algo_path=$ALGO_PATH" >> "$GITHUB_OUTPUT"
+          echo "Found: $ALGO_PATH"
+          ls -lh "$ALGO_PATH"
+
+      - name: Create cTrader credentials file
+        env:
+          CTRADER_PASSWORD: ${{ secrets.CTRADER_PASSWORD }}
+        run: |
+          set -euo pipefail
+          if [ -z "${CTRADER_PASSWORD:-}" ]; then
+            echo "Missing GitHub Secret: CTRADER_PASSWORD"
+            exit 1
+          fi
+          mkdir -p vsb-work/reports
+          printf '%s' "$CTRADER_PASSWORD" | tr -d '\r\n' > vsb-work/ctrader.pwd
+          chmod 600 vsb-work/ctrader.pwd
+
+      - name: Copy ALGO into isolated work folder
+        run: |
+          set -euo pipefail
+          cp "${{ steps.algo.outputs.algo_path }}" vsb-work/VolatilitySniperBreakoutBETA.algo
+          sha256sum vsb-work/VolatilitySniperBreakoutBETA.algo | tee vsb-work/reports/algo-sha256.txt
+
+      - name: Verify cTrader account credentials
+        env:
+          CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+          CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+        run: |
+          set -euo pipefail
+          if [ -z "${CTRADER_CTID:-}" ] || [ -z "${CTRADER_ACCOUNT:-}" ]; then
+            echo "Missing CTRADER_CTID or CTRADER_ACCOUNT"
+            exit 1
+          fi
+          CTRADER_CTID="$(printf '%s' "$CTRADER_CTID" | tr -d '[:space:]')"
+          CTRADER_ACCOUNT="$(printf '%s' "$CTRADER_ACCOUNT" | tr -d '[:space:]')"
+          docker run --rm \
+            -v "$PWD/vsb-work:/work" \
+            ghcr.io/spotware/ctrader-console:latest \
+            accounts \
+            --ctid="$CTRADER_CTID" \
+            --pwd-file=/work/ctrader.pwd \
+            > vsb-work/reports/accounts.txt
+          grep -F "$CTRADER_ACCOUNT" vsb-work/reports/accounts.txt >/dev/null || {
+            echo "CTRADER_ACCOUNT was not found under this cTrader ID."
+            exit 1
+          }
+
+      - name: Read VSB metadata
+        env:
+          CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+        run: |
+          set -euo pipefail
+          CTRADER_CTID="$(printf '%s' "$CTRADER_CTID" | tr -d '[:space:]')"
+          docker run --rm \
+            -v "$PWD/vsb-work:/work" \
+            ghcr.io/spotware/ctrader-console:latest \
+            metadata /work/VolatilitySniperBreakoutBETA.algo \
+            --ctid="$CTRADER_CTID" \
+            --pwd-file=/work/ctrader.pwd \
+            | tee vsb-work/reports/vsb-metadata.txt
+
+      - name: Remove credentials
+        if: always()
+        run: rm -f vsb-work/ctrader.pwd
+
+      - name: Upload VSB metadata artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: VSB-ALGO-Metadata
+          path: vsb-work/reports/
+          if-no-files-found: warn
