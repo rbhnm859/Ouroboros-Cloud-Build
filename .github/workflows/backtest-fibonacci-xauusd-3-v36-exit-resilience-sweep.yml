@@ -1,0 +1,307 @@
+name: Fibonacci XAUUSD 3 - v3.6 Exit Resilience Sweep
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [fibonacci-xauusd-v3-hybrid]
+    paths:
+      - '.github/workflows/backtest-fibonacci-xauusd-3-v36-exit-resilience-sweep.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Patch v3.6 candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('FibonacciHarmonicSniperUltimate/versions/xauusd_3/src/FibonacciXAUUSD3.cs')
+          s=p.read_text()
+          s=s.replace('Print("VERSION xauusd_3 v3.5.0-m5-first-valid");','Print("VERSION xauusd_3 v3.6.0-exit-resilience-candidate");',1)
+
+          old='''        [Parameter("H1 ATR14/ATR50 Min", DefaultValue = 1.15, MinValue = 1.00, MaxValue = 2.00, Group = "Regime")]\n        public double H1AtrExpansionMin { get; set; }\n'''
+          new=old+'''\n        [Parameter("TP Distance Multiplier", DefaultValue = 1.0, MinValue = 0.80, MaxValue = 1.50, Group = "Exit")]
+        public double TakeProfitMultiplier { get; set; }
+
+        [Parameter("Enable Breakeven", DefaultValue = false, Group = "Exit")]
+        public bool EnableBreakeven { get; set; }
+
+        [Parameter("Breakeven Trigger R", DefaultValue = 1.0, MinValue = 0.5, MaxValue = 3.0, Group = "Exit")]
+        public double BreakevenTriggerR { get; set; }
+
+        [Parameter("Breakeven Lock R", DefaultValue = 0.05, MinValue = 0.0, MaxValue = 0.50, Group = "Exit")]
+        public double BreakevenLockR { get; set; }
+'''
+          assert s.count(old)==1
+          s=s.replace(old,new,1)
+
+          old='''        private readonly Dictionary<long, TradeMeta> _openMeta = new Dictionary<long, TradeMeta>();\n'''
+          new=old+'''        private readonly Dictionary<long, double> _initialRiskPips = new Dictionary<long, double>();
+'''
+          assert s.count(old)==1
+          s=s.replace(old,new,1)
+
+          old='''            ResetDay();\n            Print("VERSION xauusd_3 v3.6.0-exit-resilience-candidate");\n'''
+          new='''            ResetDay();
+            RestoreDailyStateFromHistory();
+            Print("VERSION xauusd_3 v3.6.0-exit-resilience-candidate");
+'''
+          assert s.count(old)==1
+          s=s.replace(old,new,1)
+
+          old='''            if (m5Index < 12)\n                return;\n            if (HasAnySymbolExposure())\n                return;\n'''
+          new='''            if (m5Index < 12)
+                return;
+            EnsureProtectionIntegrity();
+            ManageOpenPositions();
+            if (HasAnySymbolExposure())
+                return;
+'''
+          assert s.count(old)==1
+          s=s.replace(old,new,1)
+
+          old='''                double tpPips = tpDistance / Symbol.PipSize;\n                double rr = tpPips / slPips;\n'''
+          new='''                double tpPips = (tpDistance / Symbol.PipSize) * TakeProfitMultiplier;
+                double rr = tpPips / slPips;
+'''
+          assert s.count(old)==1
+          s=s.replace(old,new,1)
+
+          old='''                _openMeta[result.Position.Id] = new TradeMeta(a.Tag, a.Direction, finalScore, rr, confirmRules, session);\n'''
+          new=old+'''                _initialRiskPips[result.Position.Id] = slPips;
+'''
+          assert s.count(old)==1
+          s=s.replace(old,new,1)
+
+          old='''        private double H1AtrExpansionRatio()\n        {\n'''
+          helper='''        private void EnsureProtectionIntegrity()
+        {
+            foreach (Position p in Positions.FindAll(BotLabel, SymbolName))
+            {
+                if (p.StopLoss != null && p.TakeProfit != null) continue;
+                Print("[FAILSAFE] Missing protection PID={0}; closing position", p.Id);
+                ClosePosition(p);
+            }
+        }
+
+        private void ManageOpenPositions()
+        {
+            if (!EnableBreakeven) return;
+            foreach (Position p in Positions.FindAll(BotLabel, SymbolName))
+            {
+                if (p.StopLoss == null || p.TakeProfit == null) continue;
+                double initialRiskPips;
+                if (!_initialRiskPips.TryGetValue(p.Id, out initialRiskPips))
+                {
+                    bool alreadyProtected = p.TradeType == TradeType.Buy ? p.StopLoss.Value >= p.EntryPrice : p.StopLoss.Value <= p.EntryPrice;
+                    if (alreadyProtected) continue;
+                    initialRiskPips = Math.Abs(p.EntryPrice - p.StopLoss.Value) / Symbol.PipSize;
+                    if (initialRiskPips <= 0) continue;
+                    _initialRiskPips[p.Id] = initialRiskPips;
+                }
+
+                double favorablePips = p.TradeType == TradeType.Buy ? (Symbol.Bid - p.EntryPrice) / Symbol.PipSize : (p.EntryPrice - Symbol.Ask) / Symbol.PipSize;
+                if (favorablePips < BreakevenTriggerR * initialRiskPips) continue;
+
+                double desired = p.TradeType == TradeType.Buy
+                    ? p.EntryPrice + BreakevenLockR * initialRiskPips * Symbol.PipSize
+                    : p.EntryPrice - BreakevenLockR * initialRiskPips * Symbol.PipSize;
+                bool improves = p.TradeType == TradeType.Buy ? desired > p.StopLoss.Value : desired < p.StopLoss.Value;
+                if (!improves) continue;
+
+                double market = p.TradeType == TradeType.Buy ? Symbol.Bid : Symbol.Ask;
+                double distancePips = Math.Abs(market - desired) / Symbol.PipSize;
+                double brokerMin = BrokerMinDistancePips(market, Symbol.MinStopLossDistance) * 1.10;
+                if (distancePips <= brokerMin) continue;
+
+                TradeResult mr = ModifyPosition(p, desired, p.TakeProfit);
+                if (mr.IsSuccessful) Print("[BREAKEVEN] PID={0} trigger={1:F2}R lock={2:F2}R SL={3:F2}", p.Id, BreakevenTriggerR, BreakevenLockR, desired);
+                else Print("[BREAKEVEN FAIL] PID={0} error={1}", p.Id, mr.Error);
+            }
+        }
+
+        private void RestoreDailyStateFromHistory()
+        {
+            double net = 0.0;
+            int trades = 0;
+            foreach (HistoricalTrade t in History.FindAll(BotLabel, SymbolName))
+            {
+                if (t.ClosingTime.Date == _day) net += t.NetProfit;
+                if (t.EntryTime.Date == _day) trades++;
+            }
+            _dayNet = net;
+            _tradesToday = trades;
+            _dayStartBalance = Account.Balance - _dayNet;
+            if (_dayStartBalance <= 0) _dayStartBalance = Account.Balance;
+        }
+
+        private double CurrentBotFloatingNet()
+        {
+            double net = 0.0;
+            foreach (Position p in Positions.FindAll(BotLabel, SymbolName)) net += p.NetProfit;
+            return net;
+        }
+
+        private double H1AtrExpansionRatio()
+        {
+'''
+          assert s.count(old)==1
+          s=s.replace(old,helper,1)
+
+          old='''            double cap = _dayStartBalance * MaxDailyLossPercent / 100.0;\n            return -_dayNet >= cap;\n'''
+          new='''            double cap = _dayStartBalance * MaxDailyLossPercent / 100.0;
+            return -(_dayNet + CurrentBotFloatingNet()) >= cap;
+'''
+          assert s.count(old)==1
+          s=s.replace(old,new,1)
+
+          old='''            _openMeta.Remove(p.Id);\n'''
+          new='''            _openMeta.Remove(p.Id);
+            _initialRiskPips.Remove(p.Id);
+'''
+          assert s.count(old)==1
+          s=s.replace(old,new,1)
+
+          p.write_text(s)
+          PY
+          SRC='FibonacciHarmonicSniperUltimate/versions/xauusd_3/src/FibonacciXAUUSD3.cs'
+          grep -q 'v3.6.0-exit-resilience-candidate' "$SRC"
+          grep -q 'TP Distance Multiplier' "$SRC"
+          grep -q 'Enable Breakeven' "$SRC"
+          grep -q 'RestoreDailyStateFromHistory' "$SRC"
+          grep -q 'EnsureProtectionIntegrity' "$SRC"
+          grep -q 'CurrentBotFloatingNet' "$SRC"
+          grep -q 'HasAnySymbolExposure' "$SRC"
+
+      - run: docker pull ghcr.io/spotware/ctrader-console:5.9.11
+      - name: Build v3.6 candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          ROOT='FibonacciHarmonicSniperUltimate/versions/xauusd_3'
+          docker run --rm --entrypoint sh -v "$PWD:/repo" -w /repo ghcr.io/spotware/ctrader-console:5.9.11 -c "dotnet restore $ROOT/FibonacciXAUUSD3.csproj && dotnet build $ROOT/FibonacciXAUUSD3.csproj -c Release --no-restore -p:AlgoPublish=False -p:IncludeSource=True"
+          mkdir -p package
+          cp "$(find "$ROOT" -type f -name '*.algo' -print -quit)" package/FibonacciXAUUSD3-v3.6-ExitResilience.algo
+          cp "$ROOT/src/FibonacciXAUUSD3.cs" package/FibonacciXAUUSD3-v3.6.cs
+          sha256sum package/FibonacciXAUUSD3-v3.6-ExitResilience.algo > package/algo.sha256
+      - uses: actions/upload-artifact@v4
+        with:
+          name: xauusd_3-v36-build
+          path: package/
+          retention-days: 30
+
+  backtest:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        variant:
+          - { name: 'base', tp: '1.00', be: 'false', betrigger: '1.00', belock: '0.05' }
+          - { name: 'tp110', tp: '1.10', be: 'false', betrigger: '1.00', belock: '0.05' }
+          - { name: 'tp120', tp: '1.20', be: 'false', betrigger: '1.00', belock: '0.05' }
+          - { name: 'tp130', tp: '1.30', be: 'false', betrigger: '1.00', belock: '0.05' }
+          - { name: 'tp110-be100', tp: '1.10', be: 'true', betrigger: '1.00', belock: '0.05' }
+          - { name: 'tp120-be125', tp: '1.20', be: 'true', betrigger: '1.25', belock: '0.05' }
+        case:
+          - { period: '3m', cost: 'standard', start: '09/06/2026', end: '09/09/2026', spread: '17.42', commission: '35' }
+          - { period: '3m', cost: 'harsh', start: '09/06/2026', end: '09/09/2026', spread: '30', commission: '50' }
+          - { period: '1y', cost: 'standard', start: '09/09/2025', end: '09/09/2026', spread: '17.42', commission: '35' }
+          - { period: '1y', cost: 'harsh', start: '09/09/2025', end: '09/09/2026', spread: '30', commission: '50' }
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: xauusd_3-v36-build
+          path: work
+      - run: docker pull ghcr.io/spotware/ctrader-console:5.9.11
+      - name: Credentials
+        env:
+          CTRADER_PASSWORD: ${{ secrets.CTRADER_PASSWORD }}
+        run: |
+          test -n "${CTRADER_PASSWORD:-}"
+          printf '%s' "$CTRADER_PASSWORD" > work/ctrader.pwd
+      - name: Backtest ${{ matrix.variant.name }} ${{ matrix.case.period }} ${{ matrix.case.cost }}
+        env:
+          CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+          CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p work/reports work/cache
+          LABEL='${{ matrix.variant.name }}-${{ matrix.case.period }}-${{ matrix.case.cost }}'
+          docker run --rm -v "$PWD/work:/work" -e "CTID=$CTRADER_CTID" -e 'PWD-FILE=/work/ctrader.pwd' -e "ACCOUNT=$CTRADER_ACCOUNT" ghcr.io/spotware/ctrader-console:5.9.11 backtest /work/FibonacciXAUUSD3-v3.6-ExitResilience.algo --environment-variables --exit-on-stop --symbol=XAUUSD --period=m5 --start='${{ matrix.case.start }}' --end='${{ matrix.case.end }}' --balance=10000 --data-mode=m1 --data-dir=/work/cache --commission='${{ matrix.case.commission }}' --spread='${{ matrix.case.spread }}' --RiskPercent=0.50 --MaxDailyLossPercent=3 --MinimumRiskReward=1.5 --PreScoreMin=42 --FinalScoreMin=60 --M5PreScoreFloor=50 --M5RulesNeeded=2 --MinImpulseAtr=1.2 --MinStopAtr=0.20 --MaxAllowedRR=8 --BuyH1MinScore=18 --BlockLondonEntries=true --RequireH1AtrExpansion=true --H1AtrExpansionMin=1.15 --TakeProfitMultiplier='${{ matrix.variant.tp }}' --EnableBreakeven='${{ matrix.variant.be }}' --BreakevenTriggerR='${{ matrix.variant.betrigger }}' --BreakevenLockR='${{ matrix.variant.belock }}' --report="/work/reports/${LABEL}.html" --report-json="/work/reports/${LABEL}.json" 2>&1 | tee "work/reports/${LABEL}.log"
+          test -s "work/reports/${LABEL}.json"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: xauusd_3-v36-${{ matrix.variant.name }}-${{ matrix.case.period }}-${{ matrix.case.cost }}
+          path: work/reports/
+          retention-days: 30
+
+  aggregate:
+    needs: backtest
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: xauusd_3-v36-build
+          path: package
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: xauusd_3-v36-*
+          path: reports
+          merge-multiple: true
+      - name: Aggregate sweep and safety audit
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json, datetime
+          from pathlib import Path
+          variants=['base','tp110','tp120','tp130','tp110-be100','tp120-be125']
+          out=['# xauusd_3 v3.6 Exit + Resilience Sweep','', '| Variant | Period | Cost | Trades | Net | ROI % | PF | DD % | Overlap | Hedge | London |','|---|---|---|---:|---:|---:|---:|---:|---:|---:|---:|']
+          rows=[]
+          for v in variants:
+            for period in ('3m','1y'):
+              for cost in ('standard','harsh'):
+                p=Path(f'reports/{v}-{period}-{cost}.json')
+                d=json.loads(p.read_text()); ts=d['tradeStatistics']; main=d['main']; eq=d['equity']; hist=d['history']['items']
+                spans=sorted((int(x['entryTime']),int(x['closeTime']),x['direction']) for x in hist)
+                ov=hg=0
+                for i,a in enumerate(spans):
+                  for b in spans[i+1:]:
+                    if b[0]>=a[1]: break
+                    ov+=1; hg+=b[2]!=a[2]
+                london=sum(1 for x in hist if 7 <= datetime.datetime.fromtimestamp(int(x['entryTime'])/1000, datetime.timezone.utc).hour < 13)
+                t=int(ts['totalTrades']['all']); net=float(main['netProfit']); roi=float(main['roi']); pf=float(ts['profitFactor']['all']); dd=float(eq['maxEquityDrawdownPercent'])
+                out.append(f'| {v} | {period} | {cost} | {t} | {net:.2f} | {roi:.2f} | {pf:.2f} | {dd:.2f} | {ov} | {hg} | {london} |')
+                assert ov==0 and hg==0 and london==0
+                rows.append((v,period,cost,t,net,roi,pf,dd))
+          out += ['', '## 1Y robustness ranking', '']
+          scores=[]
+          for v in variants:
+            r=[x for x in rows if x[0]==v and x[1]=='1y']
+            minroi=min(x[5] for x in r); minpf=min(x[6] for x in r); maxdd=max(x[7] for x in r)
+            score=minroi + 2.0*(minpf-1.0) - max(0,maxdd-6.0)
+            scores.append((score,v,minroi,minpf,maxdd))
+          for score,v,minroi,minpf,maxdd in sorted(scores, reverse=True):
+            out.append(f'- {v}: score={score:.2f}, min1YROI={minroi:.2f}%, min1YPF={minpf:.2f}, max1YDD={maxdd:.2f}%')
+          Path('V36_SWEEP_SUMMARY.md').write_text('\n'.join(out)+'\n')
+          print('\n'.join(out))
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: xauusd_3-v36-sweep-complete
+          path: |
+            package/
+            reports/
+            V36_SWEEP_SUMMARY.md
+          retention-days: 30
