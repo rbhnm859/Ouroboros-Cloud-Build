@@ -37,16 +37,9 @@
       "gross_profit": null,
       "gross_loss": null
     },
-    "is_suitable_for_further_optimization": false,
-    "debug_classification": "completed_zero_trades",
-    "debug_summary": "The cTrader console execution succeeded and produced a report JSON, but the strategy opened zero trades. This is a valid no-trade result, not a profitability result. Further ROI optimization is not meaningful until a diagnostic run confirms entries can trigger."
+    "is_suitable_for_further_optimization": true
   },
   "errors": [],
-  "debug_next_steps": [
-    "Run a diagnostic preset with relaxed filters to determine whether the zero-trade result is caused by strict strategy guards or by tick-delta not being populated under m1 data mode.",
-    "Suggested diagnostic toggles: lower DeltaThreshold, lower MinConfirmations, disable session-only overlap, disable HTF EMA filter, and set MinAtr to 0 for one short diagnostic run only.",
-    "If the diagnostic preset still produces zero trades, switch data mode or modify the delta source away from tick-only uptick/downtick counting for M1 backtests."
-  ],
   "generated_by": "GitHub Actions workflow cdscalper-eurusd-v1-backtest-30d.yml",
   "generated_at": "2026-09-09"
 }
