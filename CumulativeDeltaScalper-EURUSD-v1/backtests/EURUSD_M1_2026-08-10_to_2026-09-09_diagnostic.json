@@ -1,5 +1,5 @@
 {
-  "schema_version": 5,
+  "schema_version": 6,
   "bot": "CumulativeDeltaScalper-EURUSD-v1",
   "run_type": "diagnostic_bar_delta_fallback",
   "symbol": "EURUSD",
@@ -19,7 +19,8 @@
     "cli_start": "10/08/2026",
     "cli_end": "09/09/2026",
     "data_mode": "m1",
-    "source_patch": "bar_delta_fallback"
+    "source_patch": "bar_delta_fallback",
+    "target_framework": "net6.0"
   },
   "diagnostic_parameters": {
     "DeltaThreshold": 30,
@@ -40,31 +41,41 @@
     "AdverseDeltaExit": false
   },
   "backtest": {
-    "status": "failed_no_report_json",
-    "data_source": "none",
+    "status": "completed",
+    "data_source": "cTrader console report json",
     "metrics": {
       "initial_balance": 100.0,
-      "final_balance": null,
-      "net_profit": null,
-      "return_percent": null,
-      "profit_factor": null,
-      "win_rate": null,
-      "max_drawdown": null,
-      "total_trades": null,
-      "average_trade": null,
-      "largest_win": null,
-      "largest_loss": null,
-      "gross_profit": null,
-      "gross_loss": null
+      "final_balance": 140.7,
+      "net_profit": 40.7,
+      "return_percent": 40.69999999999999,
+      "profit_factor": 1.2065465617863487,
+      "win_rate": 63.06868867082962,
+      "max_drawdown": 9.020618556701006,
+      "total_trades": 1121,
+      "average_trade": 0.03630686886708296,
+      "largest_win": 1.75,
+      "largest_loss": -2.35,
+      "gross_profit": 237.75,
+      "gross_loss": 197.05
     },
-    "is_suitable_for_further_optimization": false,
-    "debug_classification": "diagnostic_execution_failed",
-    "debug_summary": "Diagnostic backtest did not complete with a usable JSON report. Inspect console markers before changing strategy logic again."
+    "is_suitable_for_further_optimization": true,
+    "debug_classification": "bar_delta_fallback_trades_triggered",
+    "debug_summary": "Bar-delta fallback produced trades. The previous zero-trade result was caused by tick-delta not accumulating enough under cTrader CLI m1 data mode and/or too-strict filters."
   },
-  "raw_report_top_level_keys": [],
-  "errors": [
-    "cTrader console did not produce backtest/reports/EURUSD-M1-30D-diagnostic.json"
+  "raw_report_top_level_keys": [
+    "entries",
+    "equity",
+    "history",
+    "main",
+    "orders",
+    "parameters",
+    "positions",
+    "profitsLosses",
+    "roi",
+    "tradeStatistics",
+    "usedSymbols"
   ],
+  "errors": [],
   "generated_by": "GitHub Actions workflow cdscalper-eurusd-v1-backtest-30d-diagnostic.yml",
   "generated_at": "2026-09-09"
 }
