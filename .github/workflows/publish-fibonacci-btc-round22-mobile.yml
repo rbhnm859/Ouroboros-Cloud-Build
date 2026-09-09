@@ -1,0 +1,96 @@
+name: Publish BTC Round22 Mobile algo
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ btc-round22-capital-efficiency ]
+    paths:
+      - '.github/workflows/publish-fibonacci-btc-round22-mobile.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: btc-round22-capital-efficiency
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '6.0.x'
+
+      - name: Generate frozen Round22 source
+        run: |
+          set -euo pipefail
+          mkdir -p mobile-src
+          python3 - <<'PYCODE'
+          from pathlib import Path
+          import base64,gzip,hashlib
+          root=Path('FibonacciHarmonicSniperUltimate/versions/v0.17.0-btc-round18-diagnostics')
+          parts=sorted(root.glob('source_payload.part*'))
+          data=gzip.decompress(base64.b64decode(''.join(p.read_text().strip() for p in parts)))
+          expected='5f2b7f31c4b8f0d60f52c4c15869aa75df4ff07d7224af971784137716bc8b93'
+          actual=hashlib.sha256(data).hexdigest()
+          if actual != expected:
+              raise SystemExit(f'Round18 anchor SHA mismatch: {actual}')
+          Path('mobile-src/Round18.cs').write_bytes(data)
+          PYCODE
+          python3 FibonacciHarmonicSniperUltimate/versions/v0.20.0-btc-round21-selective-bypass/round21_transform.py mobile-src/Round18.cs mobile-src/Round21.cs
+          python3 FibonacciHarmonicSniperUltimate/versions/v0.21.0-btc-round22-capital-efficiency/round22_transform.py mobile-src/Round21.cs mobile-src/FibonacciHarmonicSniperUltimate-BTC-Round22-Mobile.cs
+          cat > mobile-src/FibonacciHarmonicSniperUltimate-BTC-Round22-Mobile.csproj <<'EOF'
+          <Project Sdk="Microsoft.NET.Sdk">
+            <PropertyGroup>
+              <TargetFramework>net6.0</TargetFramework>
+              <ImplicitUsings>disable</ImplicitUsings>
+              <Nullable>disable</Nullable>
+              <RootNamespace>cAlgo.Robots</RootNamespace>
+              <AlgoName>FibonacciHarmonicSniperUltimate-BTC-Round22-Mobile</AlgoName>
+            </PropertyGroup>
+            <ItemGroup>
+              <PackageReference Include="cTrader.Automate" Version="1.0.19" />
+            </ItemGroup>
+          </Project>
+          EOF
+
+      - name: Build Mobile algo
+        run: |
+          set -euo pipefail
+          PROJ=mobile-src/FibonacciHarmonicSniperUltimate-BTC-Round22-Mobile.csproj
+          dotnet restore "$PROJ"
+          dotnet build "$PROJ" -c Release --no-restore -p:AlgoPublish=False -p:IncludeSource=True
+          ALGO=$(find mobile-src/bin/Release -type f -name '*.algo' | head -n1)
+          test -n "$ALGO"
+          SIZE=$(stat -c '%s' "$ALGO")
+          test "$SIZE" -gt 50000
+          DEST=FibonacciHarmonicSniperUltimate/mobile-builds/Round22
+          mkdir -p "$DEST"
+          cp "$ALGO" "$DEST/FibonacciHarmonicSniperUltimate-BTC-Round22-Mobile.algo"
+          SHA=$(sha256sum "$DEST/FibonacciHarmonicSniperUltimate-BTC-Round22-Mobile.algo" | awk '{print $1}')
+          printf '%s  %s\n' "$SHA" 'FibonacciHarmonicSniperUltimate-BTC-Round22-Mobile.algo' > "$DEST/SHA256SUMS.txt"
+          cat > "$DEST/BUILD_INFO.md" <<EOF
+          # BTC Round22 Mobile build
+
+          - Source line: Round22 Capital Efficiency / Balanced champion candidate
+          - Target: cTrader Mobile / Cloud compatible .algo
+          - Framework: .NET 6
+          - cTrader.Automate: 1.0.19
+          - File size: ${SIZE} bytes
+          - SHA-256: ${SHA}
+          - Source branch: btc-round22-capital-efficiency
+          EOF
+          echo "ALGO_SIZE=$SIZE" >> "$GITHUB_ENV"
+          echo "ALGO_SHA=$SHA" >> "$GITHUB_ENV"
+
+      - name: Commit published Mobile build
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add FibonacciHarmonicSniperUltimate/mobile-builds/Round22/
+          git commit -m "Publish BTC Round22 Mobile .algo" || exit 0
+          git push origin HEAD:btc-round22-capital-efficiency
+          echo "Published size: $ALGO_SIZE"
+          echo "Published SHA-256: $ALGO_SHA"
