@@ -36,8 +36,7 @@ jobs:
           ROOT='FibonacciHarmonicSniperUltimate/versions/xauusd_3'
           python3 "$ROOT/tools/patch_v36_candidate.py"
           grep -q 'v3.6.0-exit-resilience-candidate' "$ROOT/src/FibonacciXAUUSD3.cs"
-          rm -rf "$ROOT/bin" "$ROOT/obj"
-          docker run --rm --entrypoint sh -v "$PWD:/repo" -w /repo ghcr.io/spotware/ctrader-console:5.9.11 -c "dotnet restore $ROOT/FibonacciXAUUSD3.csproj && dotnet build $ROOT/FibonacciXAUUSD3.csproj -c Release --no-restore -p:AlgoPublish=False -p:IncludeSource=True"
+          docker run --rm --entrypoint sh -v "$PWD:/repo" -w /repo ghcr.io/spotware/ctrader-console:5.9.11 -c "rm -rf $ROOT/bin $ROOT/obj && dotnet restore $ROOT/FibonacciXAUUSD3.csproj && dotnet build $ROOT/FibonacciXAUUSD3.csproj -c Release --no-restore -p:AlgoPublish=False -p:IncludeSource=True"
           cp "$(find "$ROOT" -type f -name '*.algo' -print -quit)" package/FibonacciXAUUSD3-v3.6-Safety.algo
           cp "$ROOT/src/FibonacciXAUUSD3.cs" package/FibonacciXAUUSD3-v3.6-Safety.cs
           sha256sum package/*.algo > package/algo.sha256
