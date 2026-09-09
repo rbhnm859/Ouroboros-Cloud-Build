@@ -1,0 +1,225 @@
+name: Backtest CDScalper EURUSD v1 Candidate N Matrix 30
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [cds-eurusd-v1]
+    paths:
+      - '.github/workflows/cdscalper-eurusd-v1-candidate-n-matrix-30.yml'
+      - 'CumulativeDeltaScalper-EURUSD-v1/src/**'
+      - 'CumulativeDeltaScalper-EURUSD-v1/CumulativeDeltaScalper_EURUSD_v1.csproj'
+      - 'CumulativeDeltaScalper-EURUSD-v1/presets/eurusd_m1_candidate_n_matrix_30.json'
+      - 'CumulativeDeltaScalper-EURUSD-v1/reports/STORE_COMPARISON_AND_CANDIDATE_N_PLAN.md'
+
+permissions:
+  contents: read
+
+env:
+  SYMBOL: 'EURUSD'
+  PERIOD: 'm1'
+  STARTING_BALANCE: '30'
+
+jobs:
+  build-algo:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: cds-eurusd-v1
+
+      - name: Setup .NET SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '7.0.x'
+
+      - name: Build Candidate N .algo
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $root = 'CumulativeDeltaScalper-EURUSD-v1'
+          $project = Join-Path $root 'CumulativeDeltaScalper_EURUSD_v1.csproj'
+          $out = Join-Path $root 'candidate-n-out'
+          New-Item -ItemType Directory -Force -Path $out | Out-Null
+          dotnet restore $project
+          dotnet build $project -c Release -p:AlgoName=CumulativeDeltaScalper_EURUSD_v1 -p:AlgoBuild=true -p:AlgoPublish=false -p:IncludeSource=true
+          $algos = Get-ChildItem -Path $root -Recurse -Filter '*.algo' -ErrorAction SilentlyContinue
+          if (-not $algos -or $algos.Count -eq 0) {
+            Write-Host 'No .algo file generated.'
+            exit 1
+          }
+          $selected = $algos | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+          Copy-Item $selected.FullName (Join-Path $out 'CumulativeDeltaScalper_EURUSD_v1_candidate_n.algo') -Force
+          Get-FileHash -Algorithm SHA256 (Join-Path $out 'CumulativeDeltaScalper_EURUSD_v1_candidate_n.algo') | Format-List
+
+      - name: Upload Candidate N .algo
+        uses: actions/upload-artifact@v4
+        with:
+          name: CDScalper_EURUSD_candidate_n_algo
+          path: CumulativeDeltaScalper-EURUSD-v1/candidate-n-out/CumulativeDeltaScalper_EURUSD_v1_candidate_n.algo
+          retention-days: 14
+
+  backtest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    needs: build-algo
+    env:
+      CTID: ${{ secrets.CTRADER_CTID }}
+      ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+      CT_PASS: ${{ secrets.CTRADER_PASSWORD }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: cds-eurusd-v1
+
+      - name: Download Candidate N .algo
+        uses: actions/download-artifact@v4
+        with:
+          name: CDScalper_EURUSD_candidate_n_algo
+          path: backtest
+
+      - name: Run Candidate N matrix 30 USD backtests
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p backtest/reports backtest/cache/EURUSD
+          printf '%s' "$CT_PASS" | tr -d '\r\n' > backtest/ctrader.pwd
+          chmod 600 backtest/ctrader.pwd
+
+          COMMON=(
+            --environment-variables
+            --symbol="$SYMBOL"
+            --period="$PERIOD"
+            --balance="$STARTING_BALANCE"
+            --data-mode=m1
+            --data-dir="/work/cache/EURUSD"
+            --DeltaThreshold=125
+            --MinConfirmations=3
+            --UseBarDeltaFallback=true
+            --FallbackBelowTickDelta=2
+            --BarDeltaPointMultiplier=1.6
+            --UseSessionFilter=true
+            --OverlapOnly=true
+            --SessionStartHour=14
+            --SessionStartMinute=0
+            --SessionEndHour=14
+            --SessionEndMinute=54
+            --UseSessionQualityFilter=false
+            --UseWeekdayFilter=true
+            --TradeThursday=false
+            --UseHtfEmaFilter=true
+            --HtfTimeFrameName=Minute15
+            --EmaSlopeBars=3
+            --AdxThreshold=16
+            --MinAtr=0.00005
+            --MaxAtr=0.00105
+            --MaxSpreadPoints=18
+            --SpreadAvgMultiplier=1.8
+            --FixedMoneyRisk=0.90
+            --AutoScaleFixedRisk=true
+            --RiskReferenceBalance=100
+            --MinFixedMoneyRisk=0.05
+            --SlAtrMultiplier=0.8
+            --TpAtrMultiplier=0.4
+            --UseRunnerExit=false
+            --UseBreakeven=true
+            --BreakevenPips=0.8
+            --AdverseDeltaExit=true
+            --AdverseDeltaCooldownSeconds=5
+            --UseHardActualLossCap=true
+            --MaxActualTradeLossMoney=1.0
+            --SkipIfMinVolumeRiskTooHigh=true
+            --DailyProfitTargetMoney=0
+            --UseDailyProfitLock=true
+            --DailyProfitLockStartMoney=0.95
+            --DailyProfitGivebackPercent=45
+            --DailyProfitLockFloorMoney=0.40
+            --CloseOnDailyProfitLock=true
+            --MaxDailyLossPercent=3.5
+            --MaxDailyLossMoney=0.75
+            --MaxConsecutiveLosses=2
+            --MinSecondsBetweenTrades=900
+            --LossCooldownMinutes=60
+            --MaxDailyEquityDrawdownMoney=0.75
+            --MaxFloatingLossMoney=1.0
+            --MaxEquityDrawdownPercent=12
+            --CloseOnEquityGuard=true
+            --MaxTradeSeconds=1800
+            --exit-on-stop
+          )
+
+          run_case() {
+            local case_name="$1"
+            local start_date="$2"
+            local end_date="$3"
+            shift 3
+            echo "=== Running ${case_name} ${start_date} to ${end_date} ==="
+            docker run --rm \
+              -v "$PWD/backtest:/work" \
+              -e "CTID=$CTID" \
+              -e "ACCOUNT=$ACCOUNT" \
+              -e "PWD-FILE=/work/ctrader.pwd" \
+              ghcr.io/spotware/ctrader-console:5.9.11 \
+              backtest /work/CumulativeDeltaScalper_EURUSD_v1_candidate_n.algo \
+              "${COMMON[@]}" \
+              --start="$start_date" \
+              --end="$end_date" \
+              "$@" \
+              --report="/work/reports/${case_name}.html" \
+              --report-json="/work/reports/${case_name}.json" \
+              2>&1 | tee "backtest/reports/${case_name}.log"
+          }
+
+          # N1: Conservative compound, no Monday, Tue/Wed/Fri, max lot 0.01.
+          run_case "N1_2Y_conservative_compound" "09/09/2024" "09/09/2026" \
+            --TradeMonday=false --TradeTuesday=true --TradeWednesday=true --TradeFriday=true \
+            --MaxLotSize=0.01 --MaxDailyTrades=4 \
+            --UseStrictShortFilter=true --ShortDeltaBonus=15 --ShortAdxBonus=2 --ShortRequireSpreadBelowAverage=true
+          run_case "N1_1Y_conservative_compound" "09/09/2025" "09/09/2026" \
+            --TradeMonday=false --TradeTuesday=true --TradeWednesday=true --TradeFriday=true \
+            --MaxLotSize=0.01 --MaxDailyTrades=4 \
+            --UseStrictShortFilter=true --ShortDeltaBonus=15 --ShortAdxBonus=2 --ShortRequireSpreadBelowAverage=true
+
+          # N2: Wednesday/Friday quality filter, max lot 0.01.
+          run_case "N2_2Y_wed_fri_quality" "09/09/2024" "09/09/2026" \
+            --TradeMonday=false --TradeTuesday=false --TradeWednesday=true --TradeFriday=true \
+            --MaxLotSize=0.01 --MaxDailyTrades=5 \
+            --UseStrictShortFilter=true --ShortDeltaBonus=15 --ShortAdxBonus=2 --ShortRequireSpreadBelowAverage=true
+          run_case "N2_1Y_wed_fri_quality" "09/09/2025" "09/09/2026" \
+            --TradeMonday=false --TradeTuesday=false --TradeWednesday=true --TradeFriday=true \
+            --MaxLotSize=0.01 --MaxDailyTrades=5 \
+            --UseStrictShortFilter=true --ShortDeltaBonus=15 --ShortAdxBonus=2 --ShortRequireSpreadBelowAverage=true
+
+          # N3: Long bias / short suppression using impossible short threshold.
+          run_case "N3_2Y_long_bias_short_suppressed" "09/09/2024" "09/09/2026" \
+            --TradeMonday=false --TradeTuesday=true --TradeWednesday=true --TradeFriday=true \
+            --MaxLotSize=0.01 --MaxDailyTrades=4 \
+            --UseStrictShortFilter=true --ShortDeltaBonus=100000 --ShortAdxBonus=100 --ShortRequireSpreadBelowAverage=true
+          run_case "N3_1Y_long_bias_short_suppressed" "09/09/2025" "09/09/2026" \
+            --TradeMonday=false --TradeTuesday=true --TradeWednesday=true --TradeFriday=true \
+            --MaxLotSize=0.01 --MaxDailyTrades=4 \
+            --UseStrictShortFilter=true --ShortDeltaBonus=100000 --ShortAdxBonus=100 --ShortRequireSpreadBelowAverage=true
+
+          # N4: Controlled upside, Wed/Fri only, max lot 0.02 with stricter daily guards.
+          run_case "N4_2Y_controlled_upside" "09/09/2024" "09/09/2026" \
+            --TradeMonday=false --TradeTuesday=false --TradeWednesday=true --TradeFriday=true \
+            --MaxLotSize=0.02 --MaxDailyTrades=5 \
+            --UseStrictShortFilter=true --ShortDeltaBonus=20 --ShortAdxBonus=2.5 --ShortRequireSpreadBelowAverage=true \
+            --MaxDailyLossMoney=0.90 --MaxDailyEquityDrawdownMoney=0.90
+          run_case "N4_1Y_controlled_upside" "09/09/2025" "09/09/2026" \
+            --TradeMonday=false --TradeTuesday=false --TradeWednesday=true --TradeFriday=true \
+            --MaxLotSize=0.02 --MaxDailyTrades=5 \
+            --UseStrictShortFilter=true --ShortDeltaBonus=20 --ShortAdxBonus=2.5 --ShortRequireSpreadBelowAverage=true \
+            --MaxDailyLossMoney=0.90 --MaxDailyEquityDrawdownMoney=0.90
+
+          rm -f backtest/ctrader.pwd
+
+      - name: Upload Candidate N raw reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: CDScalper_EURUSD_M1_candidate_n_matrix_30_reports
+          path: backtest/reports/N*_*
+          retention-days: 14
