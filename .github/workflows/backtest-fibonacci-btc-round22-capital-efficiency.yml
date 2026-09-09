@@ -1,0 +1,168 @@
+name: BTC Round22 Capital Efficiency build and 1Y validation
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ btc-round22-capital-efficiency ]
+    paths:
+      - 'FibonacciHarmonicSniperUltimate/versions/v0.21.0-btc-round22-capital-efficiency/**'
+      - '.github/workflows/backtest-fibonacci-btc-round22-capital-efficiency.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fibonacci-btc-round22-capital-efficiency
+  cancel-in-progress: true
+
+jobs:
+  build-backtest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '6.0.x'
+
+      - name: Generate Round22 source from frozen Round18 anchor
+        run: |
+          set -euo pipefail
+          mkdir -p backtest/src
+          python3 - <<'PYCODE'
+          from pathlib import Path
+          import base64,gzip,hashlib
+          root=Path('FibonacciHarmonicSniperUltimate/versions/v0.17.0-btc-round18-diagnostics')
+          parts=sorted(root.glob('source_payload.part*'))
+          data=gzip.decompress(base64.b64decode(''.join(p.read_text().strip() for p in parts)))
+          exp='5f2b7f31c4b8f0d60f52c4c15869aa75df4ff07d7224af971784137716bc8b93'
+          if hashlib.sha256(data).hexdigest()!=exp: raise SystemExit('Round18 anchor SHA mismatch')
+          Path('backtest/src/Round18.cs').write_bytes(data)
+          PYCODE
+          python3 FibonacciHarmonicSniperUltimate/versions/v0.20.0-btc-round21-selective-bypass/round21_transform.py backtest/src/Round18.cs backtest/src/Round21.cs
+          python3 FibonacciHarmonicSniperUltimate/versions/v0.21.0-btc-round22-capital-efficiency/round22_transform.py backtest/src/Round21.cs backtest/src/FibonacciHarmonicSniperUltimate-BTC-Round22-CapitalEfficiency.cs
+          rm -f backtest/src/Round18.cs backtest/src/Round21.cs
+          cat > backtest/src/FibonacciHarmonicSniperUltimate-BTC-Round22-CapitalEfficiency.csproj <<'EOF'
+          <Project Sdk="Microsoft.NET.Sdk">
+            <PropertyGroup><TargetFramework>net6.0</TargetFramework><ImplicitUsings>disable</ImplicitUsings><Nullable>disable</Nullable><RootNamespace>cAlgo.Robots</RootNamespace><AlgoName>FibonacciHarmonicSniperUltimate-BTC-Round22-CapitalEfficiency</AlgoName></PropertyGroup>
+            <ItemGroup><PackageReference Include="cTrader.Automate" Version="1.*-*" /></ItemGroup>
+          </Project>
+          EOF
+
+      - name: Build Round22 .algo
+        run: |
+          set -euo pipefail
+          PROJ=backtest/src/FibonacciHarmonicSniperUltimate-BTC-Round22-CapitalEfficiency.csproj
+          dotnet restore "$PROJ"
+          dotnet build "$PROJ" -c Release --no-restore -p:AlgoPublish=False -p:IncludeSource=True
+          mkdir -p backtest/build backtest/cache backtest/balanced backtest/growth backtest/conservative backtest/harsh
+          ALGO=$(find backtest/src/bin/Release -type f -name '*.algo' | head -n1)
+          cp "$ALGO" backtest/build/FibonacciHarmonicSniperUltimate-BTC-Round22-CapitalEfficiency.algo
+          sha256sum backtest/build/FibonacciHarmonicSniperUltimate-BTC-Round22-CapitalEfficiency.algo | tee backtest/build/SHA256SUMS.txt
+
+      - name: Prepare cTrader
+        env:
+          CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+          CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+          CTRADER_PASSWORD: ${{ secrets.CTRADER_PASSWORD }}
+        run: |
+          set -euo pipefail
+          test -n "${CTRADER_CTID:-}"; test -n "${CTRADER_ACCOUNT:-}"; test -n "${CTRADER_PASSWORD:-}"
+          printf '%s' "$CTRADER_PASSWORD" | tr -d '\r\n' > backtest/ctrader.pwd
+          chmod 600 backtest/ctrader.pwd
+
+      - name: Pull cTrader CLI
+        run: docker pull ghcr.io/spotware/ctrader-console:5.9.11
+
+      - name: Standard capital-efficiency screens
+        env:
+          CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+          CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+        run: |
+          set -euo pipefail
+          for PROFILE in 'balanced 1.15 0.80 0.40 0.50' 'growth 1.20 0.75 0.35 0.50' 'conservative 1.10 0.85 0.40 0.50'; do
+            set -- $PROFILE; OUT=$1; H1B=$2; H1S=$3; M30B=$4; M30S=$5
+            docker run --rm -v "$PWD/backtest:/work" -e "CTID=$CTRADER_CTID" -e 'PWD-FILE=/work/ctrader.pwd' -e "ACCOUNT=$CTRADER_ACCOUNT" \
+              ghcr.io/spotware/ctrader-console:5.9.11 backtest /work/build/FibonacciHarmonicSniperUltimate-BTC-Round22-CapitalEfficiency.algo \
+              --environment-variables --exit-on-stop --symbol=BITCOIN --period=h1 --start='08/09/2025 00:00' --end='08/09/2026 00:00' --balance=10000 --data-mode=m1 --data-dir=/work/cache \
+              --commission=65 --spread=0 --RiskPercent=1.0 --Round17M30RiskPercent=0.50 --Round18CandidateDiagnostics=false \
+              --Round21SelectiveHealthBypass=true --Round21BypassMinScore=93 --Round21SameDirH1MaxAgeHours=2 --Round21BypassRiskPercent=0.10 --Round21ReserveH1AtHour=true \
+              --Round22H1BuyRiskPercent="$H1B" --Round22H1SellRiskPercent="$H1S" --Round22M30BuyRiskPercent="$M30B" --Round22M30SellRiskPercent="$M30S" \
+              --MaxOpenPositions=1 --MaxTradesPerDay=6 --MaxDailyLossPercent=5 --EnabledPatterns='Reciprocal ABCD' --PivotLeft=2 --PivotRight=2 --RatioTolerancePercent=6 --MinPatternScore=84 \
+              --MaxPatternAgeBars=16 --MaxEntryDistanceAtr=1.80 --ConfirmationMoveAtr=0.05 --UseCandleConfirmation=true --CooldownBars=2 --FallbackRiskReward=1.80 --MinimumRiskReward=1.50 \
+              --StopAnchorMode=LegacyD --TargetRiskRewardPolicy=LegacyFallback --Round5Mode=ObserveOnly --MtfMode=Off --Round6RequireM30SellConfirm=false --Round7VetoM30SellAlignment=false \
+              --Round8LogExcursions=false --Round9ShadowTpContinuation=false --Round10LogFunnel=false --Round15EnableM30Engine=true --Round16H1HealthGate=true --DebugLogging=false \
+              --report="/work/$OUT/report.html" --report-json="/work/$OUT/report.json" 2>&1 | tee "backtest/$OUT/report.log"
+          done
+
+      - name: Select best Round22 Standard profile
+        run: |
+          set -euo pipefail
+          python3 - <<'PYCODE'
+          import json,os,re
+          from pathlib import Path
+          defs=[('balanced',1.15,.80,.40,.50),('growth',1.20,.75,.35,.50),('conservative',1.10,.85,.40,.50)]
+          rows=[]
+          for name,h1b,h1s,m30b,m30s in defs:
+            r=json.loads(Path(f'backtest/{name}/report.json').read_text()); log=Path(f'backtest/{name}/report.log').read_text(errors='replace')
+            x={'profile':name,'h1_buy_risk':h1b,'h1_sell_risk':h1s,'m30_buy_risk':m30b,'m30_sell_risk':m30s,
+               'trades':int(r['tradeStatistics']['totalTrades']['all']),'roi':float(r['main']['roi']),'net':float(r['main']['netProfit']),
+               'pf':float(r['tradeStatistics']['profitFactor']['all']),'dd':float(r['equity']['maxEquityDrawdownPercent']),
+               'bypass_count':len(re.findall(r'\[R21 BYPASS\]',log))}
+            x['gates']={'trades':x['trades']>94,'roi':x['roi']>38.48,'pf':x['pf']>1.85,'dd':x['dd']<5.92}; x['gate_count']=sum(x['gates'].values()); x['pass_all']=all(x['gates'].values()); rows.append(x)
+          passing=[x for x in rows if x['pass_all']]
+          best=max(passing,key=lambda x:(x['roi'],x['pf'],x['trades'],-x['dd'])) if passing else max(rows,key=lambda x:(x['gate_count'],x['roi'],x['pf'],x['trades'],-x['dd']))
+          out={'round17_target':{'trades':94,'roi':38.48,'pf':1.85,'dd':5.92},'profiles':rows,'selected':best}; Path('backtest/Round22-Standard-Screen.json').write_text(json.dumps(out,indent=2)); print(json.dumps(out,indent=2))
+          with open(os.environ['GITHUB_ENV'],'a') as f:
+            f.write(f"R22_PROFILE={best['profile']}\nR22_H1B={best['h1_buy_risk']}\nR22_H1S={best['h1_sell_risk']}\nR22_M30B={best['m30_buy_risk']}\nR22_M30S={best['m30_sell_risk']}\n")
+          PYCODE
+
+      - name: Harsh selected Round22
+        env:
+          CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+          CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+        run: |
+          set -euo pipefail
+          docker run --rm -v "$PWD/backtest:/work" -e "CTID=$CTRADER_CTID" -e 'PWD-FILE=/work/ctrader.pwd' -e "ACCOUNT=$CTRADER_ACCOUNT" \
+            ghcr.io/spotware/ctrader-console:5.9.11 backtest /work/build/FibonacciHarmonicSniperUltimate-BTC-Round22-CapitalEfficiency.algo \
+            --environment-variables --exit-on-stop --symbol=BITCOIN --period=h1 --start='08/09/2025 00:00' --end='08/09/2026 00:00' --balance=10000 --data-mode=m1 --data-dir=/work/cache \
+            --commission=100 --spread=1500 --RiskPercent=1.0 --Round17M30RiskPercent=0.50 --Round18CandidateDiagnostics=false \
+            --Round21SelectiveHealthBypass=true --Round21BypassMinScore=93 --Round21SameDirH1MaxAgeHours=2 --Round21BypassRiskPercent=0.10 --Round21ReserveH1AtHour=true \
+            --Round22H1BuyRiskPercent="$R22_H1B" --Round22H1SellRiskPercent="$R22_H1S" --Round22M30BuyRiskPercent="$R22_M30B" --Round22M30SellRiskPercent="$R22_M30S" \
+            --MaxOpenPositions=1 --MaxTradesPerDay=6 --MaxDailyLossPercent=5 --EnabledPatterns='Reciprocal ABCD' --PivotLeft=2 --PivotRight=2 --RatioTolerancePercent=6 --MinPatternScore=84 \
+            --MaxPatternAgeBars=16 --MaxEntryDistanceAtr=1.80 --ConfirmationMoveAtr=0.05 --UseCandleConfirmation=true --CooldownBars=2 --FallbackRiskReward=1.80 --MinimumRiskReward=1.50 \
+            --StopAnchorMode=LegacyD --TargetRiskRewardPolicy=LegacyFallback --Round5Mode=ObserveOnly --MtfMode=Off --Round6RequireM30SellConfirm=false --Round7VetoM30SellAlignment=false \
+            --Round8LogExcursions=false --Round9ShadowTpContinuation=false --Round10LogFunnel=false --Round15EnableM30Engine=true --Round16H1HealthGate=true --DebugLogging=false \
+            --report=/work/harsh/report.html --report-json=/work/harsh/report.json 2>&1 | tee backtest/harsh/report.log
+
+      - name: Final Round22 summary
+        run: |
+          python3 - <<'PYCODE'
+          import json
+          from pathlib import Path
+          s=json.loads(Path('backtest/Round22-Standard-Screen.json').read_text()); r=json.loads(Path('backtest/harsh/report.json').read_text())
+          h={'trades':int(r['tradeStatistics']['totalTrades']['all']),'roi':float(r['main']['roi']),'net':float(r['main']['netProfit']),'pf':float(r['tradeStatistics']['profitFactor']['all']),'dd':float(r['equity']['maxEquityDrawdownPercent'])}
+          out={'version':'v0.21.0-btc-round22-capital-efficiency','source_sha256':'d103dce25851d89bd51cb736c14ae91f416927dedfc692a441f28115a3343029','round17':{'trades':94,'roi':38.48,'pf':1.85,'dd':5.92},'standard':s['selected'],'harsh':h}
+          Path('backtest/Round22-Final-Summary.json').write_text(json.dumps(out,indent=2)); print(json.dumps(out,indent=2))
+          PYCODE
+
+      - name: Remove credentials
+        if: always()
+        run: rm -f backtest/ctrader.pwd
+
+      - name: Upload Round22 artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Fibonacci-BTC-Round22-CapitalEfficiency
+          path: |
+            backtest/build/*
+            backtest/src/FibonacciHarmonicSniperUltimate-BTC-Round22-CapitalEfficiency.cs
+            backtest/src/FibonacciHarmonicSniperUltimate-BTC-Round22-CapitalEfficiency.csproj
+            backtest/balanced/report.*
+            backtest/growth/report.*
+            backtest/conservative/report.*
+            backtest/harsh/report.*
+            backtest/Round22-Standard-Screen.json
+            backtest/Round22-Final-Summary.json
+          retention-days: 30
