@@ -1,0 +1,207 @@
+name: Backtest Fibonacci BTC Round18 Diagnostics
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - btc-round18-diagnostics
+    paths:
+      - 'FibonacciHarmonicSniperUltimate/versions/v0.17.0-btc-round18-diagnostics/**'
+      - '.github/workflows/backtest-fibonacci-btc-round18-diagnostics.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fibonacci-btc-round18-diagnostics
+  cancel-in-progress: true
+
+jobs:
+  build-and-backtest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Pull official cTrader CLI
+        run: docker pull ghcr.io/spotware/ctrader-console:5.9.11
+
+      - name: Reconstruct exact Round18 source and verify SHA
+        run: |
+          set -euo pipefail
+          python3 - <<'PYCODE'
+          from pathlib import Path
+          import base64, gzip, hashlib
+          root = Path('FibonacciHarmonicSniperUltimate/versions/v0.17.0-btc-round18-diagnostics')
+          payload = ''.join(x.read_text() for x in sorted(root.glob('source_payload.part*'))).strip()
+          data = gzip.decompress(base64.b64decode(payload))
+          expected = '80390542f4eff2cc1f8a0f804090c3c5598441057ade12f3c8bb4b62f38dfeb0'
+          actual = hashlib.sha256(data).hexdigest()
+          if actual != expected:
+              raise SystemExit(f'Round18 source SHA mismatch: {actual} != {expected}')
+          out = root / 'FibonacciHarmonicSniperUltimate-BTC-Round18-Diagnostics.cs'
+          out.write_bytes(data)
+          print(f'Reconstructed {out} SHA256={actual}')
+          PYCODE
+
+      - name: Build Round18 diagnostics .algo
+        run: |
+          set -euo pipefail
+          mkdir -p backtest/cache backtest/standard backtest/harsh backtest/build
+          PROJ='FibonacciHarmonicSniperUltimate/versions/v0.17.0-btc-round18-diagnostics/FibonacciHarmonicSniperUltimate-BTC-Round18-Diagnostics.csproj'
+          docker run --rm --entrypoint sh -v "$PWD:/repo" -w /repo \
+            ghcr.io/spotware/ctrader-console:5.9.11 -c \
+            "dotnet restore '$PROJ' && dotnet build '$PROJ' --configuration Release --no-restore -p:AlgoPublish=False -p:IncludeSource=True"
+          ALGO="$(find FibonacciHarmonicSniperUltimate/versions/v0.17.0-btc-round18-diagnostics -type f -name '*.algo' -print -quit)"
+          test -n "$ALGO"
+          cp "$ALGO" backtest/build/Round18Diagnostics.algo
+          sha256sum backtest/build/Round18Diagnostics.algo > backtest/build/SHA256SUMS.txt
+
+      - name: Create cTrader password file
+        env:
+          CTRADER_PASSWORD: ${{ secrets.CTRADER_PASSWORD }}
+        run: |
+          set -euo pipefail
+          test -n "${CTRADER_PASSWORD:-}" || { echo 'Missing CTRADER_PASSWORD'; exit 1; }
+          printf '%s' "$CTRADER_PASSWORD" | tr -d '\r\n' > backtest/ctrader.pwd
+          chmod 600 backtest/ctrader.pwd
+
+      - name: Backtest standard-cost baseline
+        env:
+          CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+          CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+        run: |
+          set -euo pipefail
+          test -n "${CTRADER_CTID:-}" || { echo 'Missing CTRADER_CTID'; exit 1; }
+          test -n "${CTRADER_ACCOUNT:-}" || { echo 'Missing CTRADER_ACCOUNT'; exit 1; }
+          docker run --rm \
+            -v "$PWD/backtest:/work" \
+            -e "CTID=$CTRADER_CTID" \
+            -e 'PWD-FILE=/work/ctrader.pwd' \
+            -e "ACCOUNT=$CTRADER_ACCOUNT" \
+            ghcr.io/spotware/ctrader-console:5.9.11 \
+            backtest /work/build/Round18Diagnostics.algo \
+            --environment-variables --exit-on-stop \
+            --symbol=BITCOIN --period=h1 \
+            --start='08/09/2025 00:00' --end='08/09/2026 00:00' \
+            --balance=10000 --data-mode=m1 --data-dir=/work/cache \
+            --commission=65 --spread=0 \
+            --RiskPercent=1.0 --Round17M30RiskPercent=0.50 --Round18CandidateDiagnostics=true \
+            --MaxOpenPositions=1 --MaxTradesPerDay=6 --MaxDailyLossPercent=5 \
+            --EnabledPatterns='Reciprocal ABCD' --PivotLeft=2 --PivotRight=2 \
+            --RatioTolerancePercent=6 --MinPatternScore=84 --MaxPatternAgeBars=16 \
+            --MaxEntryDistanceAtr=1.80 --ConfirmationMoveAtr=0.05 --UseCandleConfirmation=true \
+            --CooldownBars=2 --FallbackRiskReward=1.80 --MinimumRiskReward=1.50 \
+            --StopAnchorMode=LegacyD --TargetRiskRewardPolicy=LegacyFallback \
+            --Round5Mode=ObserveOnly --MtfMode=Off \
+            --Round6RequireM30SellConfirm=false --Round7VetoM30SellAlignment=false \
+            --Round8LogExcursions=false --Round9ShadowTpContinuation=false --Round10LogFunnel=false \
+            --Round15EnableM30Engine=true --Round16H1HealthGate=true --DebugLogging=false \
+            --report=/work/standard/report.html --report-json=/work/standard/report.json \
+            2>&1 | tee backtest/standard/report.log
+
+      - name: Backtest harsh-cost baseline
+        env:
+          CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+          CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+        run: |
+          set -euo pipefail
+          docker run --rm \
+            -v "$PWD/backtest:/work" \
+            -e "CTID=$CTRADER_CTID" \
+            -e 'PWD-FILE=/work/ctrader.pwd' \
+            -e "ACCOUNT=$CTRADER_ACCOUNT" \
+            ghcr.io/spotware/ctrader-console:5.9.11 \
+            backtest /work/build/Round18Diagnostics.algo \
+            --environment-variables --exit-on-stop \
+            --symbol=BITCOIN --period=h1 \
+            --start='08/09/2025 00:00' --end='08/09/2026 00:00' \
+            --balance=10000 --data-mode=m1 --data-dir=/work/cache \
+            --commission=100 --spread=1500 \
+            --RiskPercent=1.0 --Round17M30RiskPercent=0.50 --Round18CandidateDiagnostics=true \
+            --MaxOpenPositions=1 --MaxTradesPerDay=6 --MaxDailyLossPercent=5 \
+            --EnabledPatterns='Reciprocal ABCD' --PivotLeft=2 --PivotRight=2 \
+            --RatioTolerancePercent=6 --MinPatternScore=84 --MaxPatternAgeBars=16 \
+            --MaxEntryDistanceAtr=1.80 --ConfirmationMoveAtr=0.05 --UseCandleConfirmation=true \
+            --CooldownBars=2 --FallbackRiskReward=1.80 --MinimumRiskReward=1.50 \
+            --StopAnchorMode=LegacyD --TargetRiskRewardPolicy=LegacyFallback \
+            --Round5Mode=ObserveOnly --MtfMode=Off \
+            --Round6RequireM30SellConfirm=false --Round7VetoM30SellAlignment=false \
+            --Round8LogExcursions=false --Round9ShadowTpContinuation=false --Round10LogFunnel=false \
+            --Round15EnableM30Engine=true --Round16H1HealthGate=true --DebugLogging=false \
+            --report=/work/harsh/report.html --report-json=/work/harsh/report.json \
+            2>&1 | tee backtest/harsh/report.log
+
+      - name: Analyse diagnostics and verify logic neutrality
+        run: |
+          python3 - <<'PY'
+          import json, re
+          from pathlib import Path
+
+          baselines = {
+              'standard': {'trades':94,'roi':38.48,'pf':1.85,'dd':5.924155484890702},
+              'harsh': {'trades':92,'roi':19.25,'pf':1.40,'dd':7.668971079402352},
+          }
+          lines = ['# Round18 Diagnostics Backtest Summary', '']
+          neutral = True
+          for scenario in ('standard','harsh'):
+              r = json.loads(Path(f'backtest/{scenario}/report.json').read_text())
+              main = r['main']; ts = r['tradeStatistics']; eq = r['equity']
+              actual = {
+                  'trades': int(ts['totalTrades']['all']),
+                  'roi': float(main['roi']),
+                  'pf': float(ts['profitFactor']['all']),
+                  'dd': float(eq['maxEquityDrawdownPercent']),
+              }
+              b = baselines[scenario]
+              ok = actual['trades']==b['trades'] and abs(actual['roi']-b['roi'])<=0.05 and abs(actual['pf']-b['pf'])<=0.02 and abs(actual['dd']-b['dd'])<=0.10
+              neutral &= ok
+              lines += [f'## {scenario}', f'- trades: {actual["trades"]} (baseline {b["trades"]})', f'- ROI: {actual["roi"]:.2f}% (baseline {b["roi"]:.2f}%)', f'- PF: {actual["pf"]:.2f} (baseline {b["pf"]:.2f})', f'- max equity DD: {actual["dd"]:.2f}% (baseline {b["dd"]:.2f}%)', f'- logic-neutral gate: {"PASS" if ok else "FAIL"}', '']
+
+              log = Path(f'backtest/{scenario}/report.log').read_text(errors='replace')
+              cands = [x for x in log.splitlines() if '[R18 CANDIDATE]' in x]
+              gates = {}
+              within6=within12=standalone=0
+              for row in cands:
+                  m=re.search(r'finalGate=([^ ]+)', row)
+                  if m: gates[m.group(1)] = gates.get(m.group(1),0)+1
+                  m=re.search(r'sameDirH1AgeH=(-?\d+)', row)
+                  if m:
+                      age=int(m.group(1))
+                      if age < 0: standalone += 1
+                      if 0 <= age <= 6: within6 += 1
+                      if 0 <= age <= 12: within12 += 1
+              lines += [f'- R18 candidate records: {len(cands)}', f'- same-direction H1 within 6h: {within6}', f'- same-direction H1 within 12h: {within12}', f'- standalone/no valid same-direction H1 state: {standalone}', f'- final gates: {gates}', '']
+
+          lines += [f'Overall diagnostics logic-neutral result: **{"PASS" if neutral else "FAIL"}**']
+          Path('backtest/ROUND18_DIAGNOSTICS_SUMMARY.md').write_text('\n'.join(lines))
+          print('\n'.join(lines))
+          if not neutral:
+              raise SystemExit('Round18 diagnostics changed baseline economics; do not proceed to directional expansion.')
+          PY
+
+      - name: Remove credentials
+        if: always()
+        run: rm -f backtest/ctrader.pwd
+
+      - name: Upload Round18 diagnostics artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Fibonacci-BTC-Round18-Diagnostics
+          path: |
+            backtest/build/Round18Diagnostics.algo
+            backtest/build/SHA256SUMS.txt
+            backtest/standard/report.html
+            backtest/standard/report.json
+            backtest/standard/report.log
+            backtest/harsh/report.html
+            backtest/harsh/report.json
+            backtest/harsh/report.log
+            backtest/ROUND18_DIAGNOSTICS_SUMMARY.md
+            FibonacciHarmonicSniperUltimate/versions/v0.17.0-btc-round18-diagnostics/*.cs
+            FibonacciHarmonicSniperUltimate/versions/v0.17.0-btc-round18-diagnostics/*.csproj
+          if-no-files-found: warn
+          retention-days: 30
