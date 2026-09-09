@@ -1,4 +1,4 @@
-name: Backtest CDScalper EURUSD v1 M1 1Y Candidate F Executor
+name: Backtest CDScalper EURUSD v1 M1 1Y Candidate F OOS 2024 Executor
 
 on:
   workflow_dispatch:
@@ -15,16 +15,16 @@ permissions:
   contents: write
 
 env:
-  START_DATE_ISO: '2025-09-09'
-  END_DATE_ISO: '2026-09-09'
-  START_DATE_CTRADER: '09/09/2025'
-  END_DATE_CTRADER: '09/09/2026'
+  START_DATE_ISO: '2024-09-09'
+  END_DATE_ISO: '2025-09-09'
+  START_DATE_CTRADER: '09/09/2024'
+  END_DATE_CTRADER: '09/09/2025'
   STARTING_BALANCE: '100'
   SYMBOL: 'EURUSD'
   PERIOD: 'm1'
-  OUT_JSON: 'CumulativeDeltaScalper-EURUSD-v1/backtests/EURUSD_M1_2025-09-09_to_2026-09-09_candidate_f_1y.json'
-  OUT_MD: 'CumulativeDeltaScalper-EURUSD-v1/reports/EURUSD_M1_1Y_candidate_f_summary.md'
-  BUILD_MD: 'CumulativeDeltaScalper-EURUSD-v1/reports/build_result_candidate_f_1y.md'
+  OUT_JSON: 'CumulativeDeltaScalper-EURUSD-v1/backtests/EURUSD_M1_2024-09-09_to_2025-09-09_candidate_f_oos_1y.json'
+  OUT_MD: 'CumulativeDeltaScalper-EURUSD-v1/reports/EURUSD_M1_1Y_candidate_f_oos_2024_2025_summary.md'
+  BUILD_MD: 'CumulativeDeltaScalper-EURUSD-v1/reports/build_result_candidate_f_oos_2024_2025.md'
 
 jobs:
   build-candidate-algo:
@@ -64,13 +64,13 @@ jobs:
       - name: Upload candidate .algo build
         uses: actions/upload-artifact@v4
         with:
-          name: candidate-f-algo-build
+          name: candidate-f-oos-algo-build
           path: |
             CumulativeDeltaScalper-EURUSD-v1/builds/CumulativeDeltaScalper_EURUSD_v1.algo
             CumulativeDeltaScalper-EURUSD-v1/builds/CumulativeDeltaScalper_EURUSD_v1.algo.sha256
           retention-days: 14
 
-  candidate-f-1y-backtest:
+  candidate-f-oos-1y-backtest:
     runs-on: ubuntu-latest
     needs: build-candidate-algo
     timeout-minutes: 90
@@ -87,23 +87,23 @@ jobs:
       - name: Download candidate .algo build
         uses: actions/download-artifact@v4
         with:
-          name: candidate-f-algo-build
-          path: candidate-f-algo-build
+          name: candidate-f-oos-algo-build
+          path: candidate-f-oos-algo-build
 
       - name: Prepare build artifact and preflight
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p CumulativeDeltaScalper-EURUSD-v1/builds CumulativeDeltaScalper-EURUSD-v1/backtests CumulativeDeltaScalper-EURUSD-v1/reports backtest/reports backtest/cache/EURUSD
-          algo_path="$(find candidate-f-algo-build -type f -name 'CumulativeDeltaScalper_EURUSD_v1.algo' | head -n 1)"
-          sha_path="$(find candidate-f-algo-build -type f -name 'CumulativeDeltaScalper_EURUSD_v1.algo.sha256' | head -n 1)"
-          if [ -z "$algo_path" ]; then echo 'Cannot locate downloaded algo'; find candidate-f-algo-build -maxdepth 4 -type f -print; exit 1; fi
+          algo_path="$(find candidate-f-oos-algo-build -type f -name 'CumulativeDeltaScalper_EURUSD_v1.algo' | head -n 1)"
+          sha_path="$(find candidate-f-oos-algo-build -type f -name 'CumulativeDeltaScalper_EURUSD_v1.algo.sha256' | head -n 1)"
+          if [ -z "$algo_path" ]; then echo 'Cannot locate downloaded algo'; find candidate-f-oos-algo-build -maxdepth 4 -type f -print; exit 1; fi
           cp "$algo_path" CumulativeDeltaScalper-EURUSD-v1/builds/CumulativeDeltaScalper_EURUSD_v1.algo
           if [ -n "$sha_path" ]; then cp "$sha_path" CumulativeDeltaScalper-EURUSD-v1/builds/CumulativeDeltaScalper_EURUSD_v1.algo.sha256; else sha256sum CumulativeDeltaScalper-EURUSD-v1/builds/CumulativeDeltaScalper_EURUSD_v1.algo > CumulativeDeltaScalper-EURUSD-v1/builds/CumulativeDeltaScalper_EURUSD_v1.algo.sha256; fi
           cat > "$BUILD_MD" <<EOF
           # Build Result
 
-          - Workflow: cdscalper-eurusd-v1-backtest-30d-diagnostic.yml as Candidate F 1Y executor
+          - Workflow: cdscalper-eurusd-v1-backtest-30d-diagnostic.yml as Candidate F OOS 2024-2025 executor
           - Build runner: windows-latest
           - Backtest runner: ubuntu-latest
           - Target framework: net6.0
@@ -111,6 +111,7 @@ jobs:
           - Status: success
           - Source patch: bar delta fallback
           - Preset: eurusd_m1_candidate_f_session_trim_guard.json
+          - OOS period: 2024-09-09 to 2025-09-09 UTC
           - Artifact: CumulativeDeltaScalper-EURUSD-v1/builds/CumulativeDeltaScalper_EURUSD_v1.algo
           - Generated at: $(date -u +%Y-%m-%dT%H:%M:%SZ)
           EOF
@@ -124,14 +125,16 @@ jobs:
           python3 - <<'PYCODE'
           import json
           from pathlib import Path
-          Path('CumulativeDeltaScalper-EURUSD-v1/backtests').mkdir(parents=True, exist_ok=True)
-          Path('CumulativeDeltaScalper-EURUSD-v1/reports').mkdir(parents=True, exist_ok=True)
-          out={"schema_version":1,"bot":"CumulativeDeltaScalper-EURUSD-v1","run_type":"candidate_f_1y_session_trim_guard","symbol":"EURUSD","timeframe":"M1","backtest":{"status":"missing_github_secrets","metrics":{"total_trades":None}},"errors":["Missing cTrader GitHub Actions secrets."]}
-          Path('CumulativeDeltaScalper-EURUSD-v1/backtests/EURUSD_M1_2025-09-09_to_2026-09-09_candidate_f_1y.json').write_text(json.dumps(out,indent=2,ensure_ascii=False))
-          Path('CumulativeDeltaScalper-EURUSD-v1/reports/EURUSD_M1_1Y_candidate_f_summary.md').write_text('# EURUSD M1 1Y Candidate F 回測摘要\n\nBacktest status: missing_github_secrets\n')
+          out_json=Path('CumulativeDeltaScalper-EURUSD-v1/backtests/EURUSD_M1_2024-09-09_to_2025-09-09_candidate_f_oos_1y.json')
+          out_md=Path('CumulativeDeltaScalper-EURUSD-v1/reports/EURUSD_M1_1Y_candidate_f_oos_2024_2025_summary.md')
+          out_json.parent.mkdir(parents=True, exist_ok=True)
+          out_md.parent.mkdir(parents=True, exist_ok=True)
+          out={"schema_version":1,"bot":"CumulativeDeltaScalper-EURUSD-v1","run_type":"candidate_f_oos_2024_2025_session_trim_guard","symbol":"EURUSD","timeframe":"M1","period":{"start":"2024-09-09","end":"2025-09-09","timezone":"UTC","end_inclusive":False},"backtest":{"status":"missing_github_secrets","metrics":{"total_trades":None}},"errors":["Missing cTrader GitHub Actions secrets."]}
+          out_json.write_text(json.dumps(out,indent=2,ensure_ascii=False))
+          out_md.write_text('# EURUSD M1 Candidate F OOS 2024-2025 回測摘要\n\nBacktest status: missing_github_secrets\n')
           PYCODE
 
-      - name: Run cTrader console Candidate F 1Y backtest EURUSD M1
+      - name: Run cTrader console Candidate F OOS 1Y backtest EURUSD M1
         if: env.missing_secrets == 'false'
         shell: bash
         run: |
@@ -155,11 +158,11 @@ jobs:
             --MaxDailyLossPercent=6 --MaxDailyLossMoney=1.8 --DailyProfitTargetMoney=3.5 \
             --MaxConsecutiveLosses=2 --MinSecondsBetweenTrades=900 --LossCooldownMinutes=45 \
             --MaxTradeSeconds=1800 --UseBreakeven=true --BreakevenPips=1.0 --AdverseDeltaExit=true \
-            --report="/work/reports/EURUSD-M1-1Y-candidate-f.html" --report-json="/work/reports/EURUSD-M1-1Y-candidate-f.json" \
-            --exit-on-stop 2>&1 | tee backtest/reports/console-1y-candidate-f.log
+            --report="/work/reports/EURUSD-M1-1Y-candidate-f-oos-2024-2025.html" --report-json="/work/reports/EURUSD-M1-1Y-candidate-f-oos-2024-2025.json" \
+            --exit-on-stop 2>&1 | tee backtest/reports/console-1y-candidate-f-oos-2024-2025.log
           rm -f backtest/ctrader.pwd
 
-      - name: Publish Candidate F 1Y result files
+      - name: Publish Candidate F OOS 1Y result files
         if: always()
         shell: bash
         run: |
@@ -167,16 +170,19 @@ jobs:
           python3 - <<'PYCODE'
           import json, math
           from pathlib import Path
-          out_json=Path('CumulativeDeltaScalper-EURUSD-v1/backtests/EURUSD_M1_2025-09-09_to_2026-09-09_candidate_f_1y.json')
-          out_md=Path('CumulativeDeltaScalper-EURUSD-v1/reports/EURUSD_M1_1Y_candidate_f_summary.md')
-          rep=Path('backtest/reports/EURUSD-M1-1Y-candidate-f.json')
-          log=Path('backtest/reports/console-1y-candidate-f.log')
+          out_json=Path('CumulativeDeltaScalper-EURUSD-v1/backtests/EURUSD_M1_2024-09-09_to_2025-09-09_candidate_f_oos_1y.json')
+          out_md=Path('CumulativeDeltaScalper-EURUSD-v1/reports/EURUSD_M1_1Y_candidate_f_oos_2024_2025_summary.md')
+          rep=Path('backtest/reports/EURUSD-M1-1Y-candidate-f-oos-2024-2025.json')
+          log=Path('backtest/reports/console-1y-candidate-f-oos-2024-2025.log')
+          out_json.parent.mkdir(parents=True, exist_ok=True)
+          out_md.parent.mkdir(parents=True, exist_ok=True)
           metrics={"initial_balance":100.0,"final_balance":None,"net_profit":None,"return_percent":None,"profit_factor":None,"win_rate":None,"max_drawdown":None,"total_trades":None,"average_trade":None,"largest_win":None,"largest_loss":None,"gross_profit":None,"gross_loss":None}
           errors=[]; raw_keys=[]; status='completed' if rep.exists() else 'failed_no_report_json'
           if rep.exists():
             try:
               d=json.loads(rep.read_text()); raw_keys=sorted(d.keys()) if isinstance(d,dict) else []
-              m=d.get('main',{}) if isinstance(d,dict) else {}; hist=d.get('history',{}).get('items',[]) if isinstance(d,dict) else []
+              m=d.get('main',{}) if isinstance(d,dict) else {}
+              hist=d.get('history',{}).get('items',[]) if isinstance(d,dict) else []
               nets=[]
               for t in hist:
                 val=t.get('net',t.get('netProfit',t.get('Net',t.get('NetProfit',0))))
@@ -191,7 +197,7 @@ jobs:
             except Exception as e:
               status='failed_parse_report_json'; errors.append(str(e))
           else:
-            errors.append('cTrader console did not produce backtest/reports/EURUSD-M1-1Y-candidate-f.json')
+            errors.append('cTrader console did not produce backtest/reports/EURUSD-M1-1Y-candidate-f-oos-2024-2025.json')
             if log.exists():
               txt=log.read_text(errors='replace')
               for marker in ['Invalid settings','Unknown symbol name','Unknown period','Account cannot be found','No historical data','Stop out during a backtest','Parameter','error','failed']:
@@ -199,18 +205,18 @@ jobs:
           total=metrics.get('total_trades'); pf=metrics.get('profit_factor'); wr=metrics.get('win_rate'); dd=metrics.get('max_drawdown'); ret=metrics.get('return_percent')
           passed=bool(status=='completed' and total is not None and total>=120 and pf is not None and pf>=1.15 and wr is not None and wr>=55 and ret is not None and ret>=5 and (dd is None or dd<=20))
           if status=='completed' and total and total>0:
-            cls='candidate_f_1y_trades_triggered'; summary='Candidate F completed the full-year session-trim test. It should beat Candidate D on PF and drawdown by removing the negative 15 UTC segment.'
+            cls='candidate_f_oos_2024_2025_trades_triggered'; summary='Candidate F completed the prior-year OOS test. Keep it only if the prior-year OOS gate also passes.'
           elif status=='completed' and total==0:
-            cls='candidate_f_1y_zero_trades'; summary='Candidate F became too strict; restore the 15 UTC partial window or lower signal threshold.'
+            cls='candidate_f_oos_2024_2025_zero_trades'; summary='Candidate F produced zero trades in the prior-year OOS period.'
           else:
-            cls='candidate_f_1y_execution_failed'; summary='Candidate F did not complete with a usable JSON report.'
-          out={"schema_version":1,"bot":"CumulativeDeltaScalper-EURUSD-v1","run_type":"candidate_f_1y_session_trim_guard","symbol":"EURUSD","timeframe":"M1","period":{"start":"2025-09-09","end":"2026-09-09","timezone":"UTC","end_inclusive":False},"execution":{"environment":"GitHub Actions windows build + ubuntu backtest","engine":"ghcr.io/spotware/ctrader-console:5.9.11","starting_balance_usd":100.0,"artifact_path":"CumulativeDeltaScalper-EURUSD-v1/builds/CumulativeDeltaScalper_EURUSD_v1.algo","ctrader_date_format":"DD/MM/YYYY","cli_start":"09/09/2025","cli_end":"09/09/2026","data_mode":"m1","source_patch":"bar_delta_fallback","target_framework":"net6.0"},"candidate_parameters":{"DeltaThreshold":125,"MinConfirmations":3,"UseBarDeltaFallback":True,"FallbackBelowTickDelta":2,"BarDeltaPointMultiplier":1.6,"UseSessionFilter":True,"OverlapOnly":True,"SessionStartHour":13,"SessionStartMinute":0,"SessionEndHour":15,"SessionEndMinute":0,"UseHtfEmaFilter":True,"EmaSlopeBars":3,"AdxThreshold":16.0,"MinAtr":0.00005,"MaxAtr":0.00105,"MaxSpreadPoints":18,"SpreadAvgMultiplier":1.8,"MaxDailyTrades":4,"MaxDailyLossPercent":6,"MaxDailyLossMoney":1.8,"DailyProfitTargetMoney":3.5,"MaxConsecutiveLosses":2,"MinSecondsBetweenTrades":900,"LossCooldownMinutes":45,"MaxTradeSeconds":1800,"UseBreakeven":True,"BreakevenPips":1.0,"AdverseDeltaExit":True},"acceptance_gate":{"total_trades_min":120,"profit_factor_min":1.15,"win_rate_min_percent":55,"max_drawdown_max_percent":20,"return_percent_min":5,"passed":passed},"backtest":{"status":status,"data_source":"cTrader console report json" if rep.exists() else "none","metrics":metrics,"is_suitable_for_further_optimization":bool(passed),"debug_classification":cls,"debug_summary":summary},"raw_report_top_level_keys":raw_keys,"errors":errors,"generated_by":"GitHub Actions workflow cdscalper-eurusd-v1-backtest-30d-diagnostic.yml","generated_at":"2026-09-09"}
+            cls='candidate_f_oos_2024_2025_execution_failed'; summary='Candidate F prior-year OOS did not complete with a usable JSON report.'
+          out={"schema_version":1,"bot":"CumulativeDeltaScalper-EURUSD-v1","run_type":"candidate_f_oos_2024_2025_session_trim_guard","symbol":"EURUSD","timeframe":"M1","period":{"start":"2024-09-09","end":"2025-09-09","timezone":"UTC","end_inclusive":False},"execution":{"environment":"GitHub Actions windows build + ubuntu backtest","engine":"ghcr.io/spotware/ctrader-console:5.9.11","starting_balance_usd":100.0,"artifact_path":"CumulativeDeltaScalper-EURUSD-v1/builds/CumulativeDeltaScalper_EURUSD_v1.algo","ctrader_date_format":"DD/MM/YYYY","cli_start":"09/09/2024","cli_end":"09/09/2025","data_mode":"m1","source_patch":"bar_delta_fallback","target_framework":"net6.0"},"candidate_parameters":{"DeltaThreshold":125,"MinConfirmations":3,"UseBarDeltaFallback":True,"FallbackBelowTickDelta":2,"BarDeltaPointMultiplier":1.6,"UseSessionFilter":True,"OverlapOnly":True,"SessionStartHour":13,"SessionStartMinute":0,"SessionEndHour":15,"SessionEndMinute":0,"UseHtfEmaFilter":True,"EmaSlopeBars":3,"AdxThreshold":16.0,"MinAtr":0.00005,"MaxAtr":0.00105,"MaxSpreadPoints":18,"SpreadAvgMultiplier":1.8,"MaxDailyTrades":4,"MaxDailyLossPercent":6,"MaxDailyLossMoney":1.8,"DailyProfitTargetMoney":3.5,"MaxConsecutiveLosses":2,"MinSecondsBetweenTrades":900,"LossCooldownMinutes":45,"MaxTradeSeconds":1800,"UseBreakeven":True,"BreakevenPips":1.0,"AdverseDeltaExit":True},"acceptance_gate":{"total_trades_min":120,"profit_factor_min":1.15,"win_rate_min_percent":55,"max_drawdown_max_percent":20,"return_percent_min":5,"passed":passed},"backtest":{"status":status,"data_source":"cTrader console report json" if rep.exists() else "none","metrics":metrics,"is_suitable_for_further_optimization":bool(passed),"debug_classification":cls,"debug_summary":summary},"raw_report_top_level_keys":raw_keys,"errors":errors,"generated_by":"GitHub Actions workflow cdscalper-eurusd-v1-backtest-30d-diagnostic.yml","generated_at":"2026-09-09"}
           out_json.write_text(json.dumps(out,indent=2,ensure_ascii=False))
-          out_md.write_text('# EURUSD M1 1Y Candidate F 回測摘要\n\n' + '\n'.join([f'- Bot: {out["bot"]}', f'- Run type: {out["run_type"]}', f'- Symbol: {out["symbol"]}', f'- Timeframe: {out["timeframe"]}', f'- Period: 2025-09-09 ~ 2026-09-09 UTC', f'- Backtest status: {status}', f'- Debug classification: {cls}', f'- Acceptance gate passed: {passed}', '', '## Metrics'] + [f'- {k}: {v}' for k,v in metrics.items()] + ['', '## Candidate F intent', '- Return to Candidate D risk/RR structure.', '- Trim the negative 15:00-15:30 UTC segment observed in Candidate D trade diagnostics.', '- Avoid Candidate E aggressive RR settings that collapsed win rate.', '', '## Debug conclusion', summary]) + '\n')
+          out_md.write_text('# EURUSD M1 Candidate F OOS 2024-2025 回測摘要\n\n' + '\n'.join([f'- Bot: {out["bot"]}', f'- Run type: {out["run_type"]}', f'- Symbol: {out["symbol"]}', f'- Timeframe: {out["timeframe"]}', f'- Period: 2024-09-09 ~ 2025-09-09 UTC', f'- Backtest status: {status}', f'- Debug classification: {cls}', f'- Acceptance gate passed: {passed}', '', '## Metrics'] + [f'- {k}: {v}' for k,v in metrics.items()] + ['', '## Candidate F OOS intent', '- Validate the Candidate F session-trim guard on the previous full year.', '- Do not change SL/TP, delta threshold, or risk structure during this OOS check.', '- Reject if PF, drawdown, win rate, return, or trade count fail the gate.', '', '## Debug conclusion', summary]) + '\n')
           print(json.dumps(out,indent=2,ensure_ascii=False))
           PYCODE
 
-      - name: Commit candidate .algo and 1Y result
+      - name: Commit candidate .algo and OOS result
         if: always()
         shell: bash
         run: |
@@ -219,19 +225,19 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add CumulativeDeltaScalper-EURUSD-v1/builds/CumulativeDeltaScalper_EURUSD_v1.algo CumulativeDeltaScalper-EURUSD-v1/builds/CumulativeDeltaScalper_EURUSD_v1.algo.sha256 "$BUILD_MD" "$OUT_JSON" "$OUT_MD"
           if git diff --cached --quiet; then echo "No changes to commit"; exit 0; fi
-          git commit -m "Add Candidate F 1Y backtest result"
+          git commit -m "Add Candidate F OOS 2024-2025 backtest result"
           git pull --rebase origin cds-eurusd-v1 || true
           git push origin HEAD:cds-eurusd-v1
 
-      - name: Upload candidate 1Y reports
+      - name: Upload candidate OOS reports
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: CDScalper_EURUSD_M1_1Y_candidate_f_reports
+          name: CDScalper_EURUSD_M1_1Y_candidate_f_oos_2024_2025_reports
           path: |
             backtest/reports/**
-            CumulativeDeltaScalper-EURUSD-v1/backtests/EURUSD_M1_2025-09-09_to_2026-09-09_candidate_f_1y.json
-            CumulativeDeltaScalper-EURUSD-v1/reports/EURUSD_M1_1Y_candidate_f_summary.md
+            CumulativeDeltaScalper-EURUSD-v1/backtests/EURUSD_M1_2024-09-09_to_2025-09-09_candidate_f_oos_1y.json
+            CumulativeDeltaScalper-EURUSD-v1/reports/EURUSD_M1_1Y_candidate_f_oos_2024_2025_summary.md
             CumulativeDeltaScalper-EURUSD-v1/builds/CumulativeDeltaScalper_EURUSD_v1.algo
             CumulativeDeltaScalper-EURUSD-v1/builds/CumulativeDeltaScalper_EURUSD_v1.algo.sha256
           retention-days: 14
