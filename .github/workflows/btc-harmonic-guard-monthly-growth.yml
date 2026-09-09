@@ -24,12 +24,12 @@ jobs:
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '6.0.x'
-      - name: Run precommitted Growth Alpha validation
+      - name: Run corrected Growth Alpha validation
         env:
           CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
           CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
           CTRADER_PASSWORD: ${{ secrets.CTRADER_PASSWORD }}
-        run: bash FibonacciHarmonicSniperUltimate/monthly-growth/growth_validation.sh
+        run: bash FibonacciHarmonicSniperUltimate/monthly-growth/growth_validation_v2.sh
       - name: Remove credentials
         if: always()
         run: rm -f work/ctrader.pwd
