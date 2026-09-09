@@ -25,6 +25,11 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Setup .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
       - name: Pull official cTrader CLI
         run: docker pull ghcr.io/spotware/ctrader-console:5.9.11
 
@@ -51,9 +56,9 @@ jobs:
           set -euo pipefail
           mkdir -p backtest/cache backtest/standard backtest/harsh backtest/build
           PROJ='FibonacciHarmonicSniperUltimate/versions/v0.17.0-btc-round18-diagnostics/FibonacciHarmonicSniperUltimate-BTC-Round18-Diagnostics.csproj'
-          docker run --rm --entrypoint sh -v "$PWD:/repo" -w /repo \
-            ghcr.io/spotware/ctrader-console:5.9.11 -c \
-            "dotnet restore '$PROJ' && dotnet build '$PROJ' --configuration Release --no-restore -p:AlgoPublish=False -p:IncludeSource=True"
+          dotnet --info
+          dotnet restore "$PROJ"
+          dotnet build "$PROJ" --configuration Release --no-restore -p:AlgoPublish=False -p:IncludeSource=True
           ALGO="$(find FibonacciHarmonicSniperUltimate/versions/v0.17.0-btc-round18-diagnostics -type f -name '*.algo' -print -quit)"
           test -n "$ALGO"
           cp "$ALGO" backtest/build/Round18Diagnostics.algo
