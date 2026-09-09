@@ -1,0 +1,89 @@
+name: Backtest Fibonacci BTC Round18 Directional Expansion v2
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [btc-round18-directional-expansion]
+    paths: ['.github/workflows/backtest-fibonacci-btc-round18-directional-v2.yml']
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-backtest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    steps:
+      - uses: actions/checkout@v4
+      - name: Pull pinned cTrader CLI
+        run: docker pull ghcr.io/spotware/ctrader-console:5.9.11
+      - name: Generate deterministic candidate source
+        run: python3 FibonacciHarmonicSniperUltimate/versions/v0.18.0-btc-round18-directional/build_directional_source.py
+      - name: Build candidate .algo
+        run: |
+          set -euo pipefail
+          mkdir -p backtest/cache backtest/standard backtest/harsh backtest/build
+          PROJ='FibonacciHarmonicSniperUltimate/versions/v0.18.0-btc-round18-directional/FibonacciHarmonicSniperUltimate-BTC-Round18-Directional.csproj'
+          docker run --rm --entrypoint sh -v "$PWD:/repo" -w /repo ghcr.io/spotware/ctrader-console:5.9.11 -c "dotnet restore '$PROJ' && dotnet build '$PROJ' --configuration Release --no-restore -p:AlgoPublish=False -p:IncludeSource=True"
+          ALGO="$(find FibonacciHarmonicSniperUltimate/versions/v0.18.0-btc-round18-directional -type f -name '*.algo' -print -quit)"
+          test -n "$ALGO"
+          cp "$ALGO" backtest/build/Round18Directional.algo
+          sha256sum backtest/build/Round18Directional.algo > backtest/build/SHA256SUMS.txt
+      - name: Create cTrader password file
+        env:
+          CTRADER_PASSWORD: ${{ secrets.CTRADER_PASSWORD }}
+        run: |
+          test -n "${CTRADER_PASSWORD:-}" || exit 1
+          printf '%s' "$CTRADER_PASSWORD" | tr -d '\r\n' > backtest/ctrader.pwd
+          chmod 600 backtest/ctrader.pwd
+      - name: Standard one-year backtest
+        env:
+          CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+          CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+        run: |
+          set -euo pipefail
+          docker run --rm -v "$PWD/backtest:/work" -e "CTID=$CTRADER_CTID" -e 'PWD-FILE=/work/ctrader.pwd' -e "ACCOUNT=$CTRADER_ACCOUNT" ghcr.io/spotware/ctrader-console:5.9.11 backtest /work/build/Round18Directional.algo --environment-variables --exit-on-stop --symbol=BITCOIN --period=h1 --start='08/09/2025 00:00' --end='08/09/2026 00:00' --balance=10000 --data-mode=m1 --data-dir=/work/cache --commission=65 --spread=0 --RiskPercent=1.0 --Round17M30RiskPercent=0.50 --Round18CandidateDiagnostics=true --Round18DirectionalExpansion=true --Round18H1AlignMaxAgeHours=12 --Round18StandaloneM30BuyRiskPercent=0.35 --MaxOpenPositions=1 --MaxTradesPerDay=6 --MaxDailyLossPercent=5 --EnabledPatterns='Reciprocal ABCD' --PivotLeft=2 --PivotRight=2 --RatioTolerancePercent=6 --MinPatternScore=84 --MaxPatternAgeBars=16 --MaxEntryDistanceAtr=1.80 --ConfirmationMoveAtr=0.05 --UseCandleConfirmation=true --CooldownBars=2 --FallbackRiskReward=1.80 --MinimumRiskReward=1.50 --StopAnchorMode=LegacyD --TargetRiskRewardPolicy=LegacyFallback --Round5Mode=ObserveOnly --MtfMode=Off --Round6RequireM30SellConfirm=false --Round7VetoM30SellAlignment=false --Round8LogExcursions=false --Round9ShadowTpContinuation=false --Round10LogFunnel=false --Round15EnableM30Engine=true --Round16H1HealthGate=true --DebugLogging=false --report=/work/standard/report.html --report-json=/work/standard/report.json 2>&1 | tee backtest/standard/report.log
+      - name: Harsh one-year backtest
+        env:
+          CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+          CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+        run: |
+          set -euo pipefail
+          docker run --rm -v "$PWD/backtest:/work" -e "CTID=$CTRADER_CTID" -e 'PWD-FILE=/work/ctrader.pwd' -e "ACCOUNT=$CTRADER_ACCOUNT" ghcr.io/spotware/ctrader-console:5.9.11 backtest /work/build/Round18Directional.algo --environment-variables --exit-on-stop --symbol=BITCOIN --period=h1 --start='08/09/2025 00:00' --end='08/09/2026 00:00' --balance=10000 --data-mode=m1 --data-dir=/work/cache --commission=100 --spread=1500 --RiskPercent=1.0 --Round17M30RiskPercent=0.50 --Round18CandidateDiagnostics=true --Round18DirectionalExpansion=true --Round18H1AlignMaxAgeHours=12 --Round18StandaloneM30BuyRiskPercent=0.35 --MaxOpenPositions=1 --MaxTradesPerDay=6 --MaxDailyLossPercent=5 --EnabledPatterns='Reciprocal ABCD' --PivotLeft=2 --PivotRight=2 --RatioTolerancePercent=6 --MinPatternScore=84 --MaxPatternAgeBars=16 --MaxEntryDistanceAtr=1.80 --ConfirmationMoveAtr=0.05 --UseCandleConfirmation=true --CooldownBars=2 --FallbackRiskReward=1.80 --MinimumRiskReward=1.50 --StopAnchorMode=LegacyD --TargetRiskRewardPolicy=LegacyFallback --Round5Mode=ObserveOnly --MtfMode=Off --Round6RequireM30SellConfirm=false --Round7VetoM30SellAlignment=false --Round8LogExcursions=false --Round9ShadowTpContinuation=false --Round10LogFunnel=false --Round15EnableM30Engine=true --Round16H1HealthGate=true --DebugLogging=false --report=/work/harsh/report.html --report-json=/work/harsh/report.json 2>&1 | tee backtest/harsh/report.log
+      - name: Compare candidate with Round17
+        run: |
+          python3 - <<'PY'
+          import json,re
+          from pathlib import Path
+          b={'standard':(94,38.48,1.85,5.92),'harsh':(92,19.25,1.40,7.67)}
+          vals={}; lines=['# Round18 Directional Candidate 1','']
+          for sc in ('standard','harsh'):
+              r=json.loads(Path(f'backtest/{sc}/report.json').read_text()); x=(int(r['tradeStatistics']['totalTrades']['all']),float(r['main']['roi']),float(r['tradeStatistics']['profitFactor']['all']),float(r['equity']['maxEquityDrawdownPercent'])); vals[sc]=x
+              log=Path(f'backtest/{sc}/report.log').read_text(errors='replace'); a=len(re.findall(r'\[R18 M30 OPEN\] lane=ALIGNED',log)); st=len(re.findall(r'\[R18 M30 OPEN\] lane=STANDALONE',log))
+              lines += [f'## {sc}',f'- trades {x[0]} (R17 {b[sc][0]})',f'- ROI {x[1]:.2f}% (R17 {b[sc][1]:.2f}%)',f'- PF {x[2]:.2f} (R17 {b[sc][2]:.2f})',f'- max DD {x[3]:.2f}% (R17 {b[sc][3]:.2f}%)',f'- aligned M30 opens {a}; standalone M30 opens {st}','']
+          s=vals['standard']; h=vals['harsh']; gates={'standard trades >=105':s[0]>=105,'harsh trades >=105':h[0]>=105,'standard ROI >=38.48':s[1]>=38.48,'standard PF >=1.70':s[2]>=1.70,'standard DD <=7.0':s[3]<=7.0,'harsh ROI >=19.25':h[1]>=19.25,'harsh PF >=1.40':h[2]>=1.40,'harsh DD <=8.5':h[3]<=8.5}
+          lines += ['## Gates']+[f'- {k}: {"PASS" if v else "FAIL"}' for k,v in gates.items()]
+          lines += ['',f'Overall: **{"PASS" if all(gates.values()) else "REJECT — keep Round17 champion"}**']
+          Path('backtest/ROUND18_DIRECTIONAL_SUMMARY.md').write_text('\n'.join(lines)); print('\n'.join(lines))
+          PY
+      - name: Remove credentials
+        if: always()
+        run: rm -f backtest/ctrader.pwd
+      - name: Upload candidate artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Fibonacci-BTC-Round18-Directional-Candidate1-v2
+          path: |
+            backtest/build/Round18Directional.algo
+            backtest/build/SHA256SUMS.txt
+            backtest/standard/report.html
+            backtest/standard/report.json
+            backtest/standard/report.log
+            backtest/harsh/report.html
+            backtest/harsh/report.json
+            backtest/harsh/report.log
+            backtest/ROUND18_DIRECTIONAL_SUMMARY.md
+            FibonacciHarmonicSniperUltimate/versions/v0.18.0-btc-round18-directional/*.cs
+            FibonacciHarmonicSniperUltimate/versions/v0.18.0-btc-round18-directional/*.csproj
+          retention-days: 30
