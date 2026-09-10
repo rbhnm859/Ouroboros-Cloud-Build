@@ -37,7 +37,7 @@ def attr(rows, pred):
     return {'trades':len(a),'net':round(net,2),'pf':round(pf,4)}
 
 policy=load(POLICY)
-if policy.get('policy_version')!='RC7B-2026-09-10' or policy.get('candidate_count')!=1:
+if policy.get('policy_version')!='RC7A-2026-09-10' or policy.get('candidate_count')!=1:
     raise SystemExit('RC7 policy invariant failed')
 
 required=[
@@ -130,7 +130,7 @@ formal={
 ledger_events={k:len(re.findall(r'\[COMMERCIAL LEDGER\] event='+re.escape(k)+r'\b',console)) for k in ['QUEUE','REPLACE','EXPIRE','EXPIRE_BARS','INVALIDATE','REVALIDATION_FAIL','H1_PREEMPT_M30','DEFERRED_EXECUTE']}
 freeze=engineering_pass and all(formal.values())
 payload={
- 'candidate':'BTC Harmonic Guard Commercial RC7B Arbitration/Deferred Intent',
+ 'candidate':'BTC Harmonic Guard Commercial RC7A Arbitration/Deferred Intent',
  'policy_version':policy['policy_version'],
  'status':'PASS' if freeze else 'REJECT',
  'engineering_status':'PASS' if engineering_pass else 'FAIL',
