@@ -1,0 +1,159 @@
+name: BTC Harmonic Guard Commercial RC1
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ btc-store-commercial-rc1 ]
+    paths:
+      - 'FibonacciHarmonicSniperUltimate/store-commercial-rc1/**'
+      - '.github/workflows/btc-harmonic-guard-commercial-rc1.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: btc-harmonic-guard-commercial-rc1
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 210
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '6.0.x'
+
+      - name: Preflight Commercial RC1
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s FibonacciHarmonicSniperUltimate/monthly-growth-v2/growth2_validation.sh
+          test -s FibonacciHarmonicSniperUltimate/monthly-growth-v2/growth2_transform.py
+          test -s FibonacciHarmonicSniperUltimate/monthly-growth-v3/growth3_transform.py
+          test -s FibonacciHarmonicSniperUltimate/store-commercial-rc1/commercial_rc1_transform.py
+          python3 -m py_compile FibonacciHarmonicSniperUltimate/monthly-growth-v3/growth3_transform.py
+          python3 -m py_compile FibonacciHarmonicSniperUltimate/store-commercial-rc1/commercial_rc1_transform.py
+          bash -n FibonacciHarmonicSniperUltimate/monthly-growth-v2/growth2_validation.sh
+          echo '[PREFLIGHT] Commercial RC1 harness OK'
+
+      - name: Install Commercial RC1 transform
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp FibonacciHarmonicSniperUltimate/monthly-growth-v2/growth2_transform.py /tmp/growth2_transform.py
+          cp FibonacciHarmonicSniperUltimate/store-commercial-rc1/commercial_rc1_transform.py FibonacciHarmonicSniperUltimate/monthly-growth-v2/growth2_transform.py
+          echo '[TRANSFORM] RC1 installed'
+
+      - name: Run frozen validation with watchdog
+        env:
+          CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+          CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+          CTRADER_PASSWORD: ${{ secrets.CTRADER_PASSWORD }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p work
+          LOG=work/commercial-rc1-validation-console.log
+          : > "$LOG"
+          heartbeat() {
+            while true; do
+              echo "[HEARTBEAT] $(date -u +%FT%TZ) Commercial RC1 alive" | tee -a "$LOG"
+              find work -maxdepth 2 -type f \( -name 'report.*' -o -name '*.json' -o -name '*.algo' \) -printf '[ARTIFACT] %s %p\n' 2>/dev/null | tail -20 | tee -a "$LOG" || true
+              sleep 300
+            done
+          }
+          heartbeat & HB=$!
+          trap 'kill $HB 2>/dev/null || true' EXIT INT TERM
+          set +e
+          timeout --signal=TERM --kill-after=60s 10800s bash FibonacciHarmonicSniperUltimate/monthly-growth-v2/growth2_validation.sh 2>&1 | tee -a "$LOG"
+          rc=${PIPESTATUS[0]}
+          set -e
+          if [ "$rc" -ne 0 ]; then
+            echo "[VALIDATION FAIL] rc=$rc" | tee -a "$LOG"
+            exit "$rc"
+          fi
+          echo '[VALIDATION DONE]' | tee -a "$LOG"
+
+      - name: Commercial promotion gate
+        if: success()
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json, pathlib
+          p=pathlib.Path('work/Growth2-Final-Summary.json')
+          if not p.exists():
+              raise SystemExit('missing Growth2-Final-Summary.json')
+          s=json.loads(p.read_text())
+          y=s['annual']; full=s['selected_3y']; recent=s['recent']; h3=s['harsh_3y']; hr=s['harsh_recent']
+          positive_years=sum(1 for v in y.values() if v['roi']>0)
+          worst_pf=min(v['pf'] for v in y.values())
+          worst_roi=min(v['roi'] for v in y.values())
+          g3=s.get('full3y_lanes',{}).get('Growth2',{})
+          gr=s.get('recent_lanes',{}).get('Growth2',{})
+          growth3_ok=(g3.get('trades',0)==0 or (g3.get('net',0)>0 and g3.get('pf',0)>1.0)) and (gr.get('trades',0)==0 or (gr.get('net',0)>0 and gr.get('pf',0)>1.0))
+          gates={
+            '3y_trades_ge_250': full['trades']>=250,
+            '3y_pf_ge_1_40': full['pf']>=1.40,
+            '3y_dd_le_18': full['dd']<=18.0,
+            'recent_pf_ge_1_80': recent['pf']>=1.80,
+            'recent_dd_le_6': recent['dd']<=6.0,
+            'positive_years_ge_2': positive_years>=2,
+            'worst_year_pf_ge_0_90': worst_pf>=0.90,
+            'worst_year_roi_ge_minus_3': worst_roi>=-3.0,
+            'harsh3y_roi_nonnegative': h3['roi']>=0,
+            'harsh3y_pf_ge_1': h3['pf']>=1.0,
+            'harsh_recent_pf_ge_1_35': hr['pf']>=1.35,
+            'harsh_recent_dd_le_6_8': hr['dd']<=6.8,
+            'growth3_attribution_positive': growth3_ok,
+          }
+          out={'status':'PASS' if all(gates.values()) else 'REJECT','commercial_freeze_eligible':all(gates.values()),'gates':gates,'summary':s}
+          pathlib.Path('work/Commercial-RC1-Gate.json').write_text(json.dumps(out,indent=2))
+          print(json.dumps(out,indent=2))
+          PY
+
+      - name: Structural invariant audit
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -d work/g2 ]; then
+            count=$(grep -R "ExecuteMarketOrder(" work/g2/*.cs 2>/dev/null | wc -l | tr -d ' ')
+            echo "[INVARIANT] direct ExecuteMarketOrder count=$count"
+            if [ "$count" != "1" ]; then
+              echo '[INVARIANT FAIL] expected exactly one centralized market-order call'
+              exit 1
+            fi
+          fi
+
+      - name: Remove credentials
+        if: always()
+        run: rm -f work/ctrader.pwd
+
+      - name: Upload Commercial RC1 evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: BTC-Harmonic-Guard-Commercial-RC1
+          retention-days: 30
+          if-no-files-found: warn
+          path: |
+            work/commercial-rc1-validation-console.log
+            work/Commercial-RC1-Gate.json
+            work/build/*
+            work/g2/*
+            work/control-3y/report.*
+            work/control-1y/report.*
+            work/strict-3y/report.*
+            work/balanced-3y/report.*
+            work/moderate-3y/report.*
+            work/recent-a/report.*
+            work/recent-b/report.*
+            work/y1/report.*
+            work/y2/report.*
+            work/y3/report.*
+            work/harsh-3y/report.*
+            work/harsh-y3/report.*
+            work/Growth2-*.json
