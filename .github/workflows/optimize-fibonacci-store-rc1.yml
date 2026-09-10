@@ -1,0 +1,130 @@
+name: Fibonacci Store RC1 Genetic Optimisation
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [fibonacci-store-v0.4.0-rc1]
+    paths:
+      - '.github/workflows/optimize-fibonacci-store-rc1.yml'
+      - 'FibonacciHarmonicSniperUltimate/versions/v0.4.0-store-rc1/**'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fibonacci-store-rc1-opt-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  optimise:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Pull current official cTrader CLI
+        run: docker pull ghcr.io/spotware/ctrader-console:latest
+
+      - name: Build Net8 candidate
+        run: |
+          mkdir -p out/cache out/opt
+          docker run --rm --entrypoint sh -v "$PWD:/repo" -w /repo ghcr.io/spotware/ctrader-console:latest -c \
+            'dotnet restore FibonacciHarmonicSniperUltimate/versions/v0.4.0-store-rc1/FibonacciHarmonicSniperUltimate.csproj && dotnet build FibonacciHarmonicSniperUltimate/versions/v0.4.0-store-rc1/FibonacciHarmonicSniperUltimate.csproj -c Release --no-restore -p:AlgoPublish=False -p:IncludeSource=True'
+          ALGO="$(find FibonacciHarmonicSniperUltimate/versions/v0.4.0-store-rc1 -type f -name '*.algo' -print -quit)"
+          test -n "$ALGO" || { echo 'No .algo generated'; exit 1; }
+          cp "$ALGO" out/FibonacciHarmonicSniperUltimate-v0.4.0-store-rc1.algo
+          cp FibonacciHarmonicSniperUltimate/versions/v0.4.0-store-rc1/optimization/store-rc1-genetic.json out/store-rc1-genetic.json
+
+      - name: Create credential file
+        env:
+          CTRADER_PASSWORD: ${{ secrets.CTRADER_PASSWORD }}
+        run: |
+          test -n "${CTRADER_PASSWORD:-}" || exit 1
+          printf '%s' "$CTRADER_PASSWORD" > out/ctrader.pwd
+          chmod 600 out/ctrader.pwd
+
+      - name: Optimise XAUUSD M15 on development data
+        env:
+          CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+          CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+        run: |
+          test -n "${CTRADER_CTID:-}" && test -n "${CTRADER_ACCOUNT:-}"
+          timeout --signal=TERM --kill-after=30s 32m docker run --rm \
+            -v "$PWD/out:/work" \
+            -e "CTID=$CTRADER_CTID" -e 'PWD-FILE=/work/ctrader.pwd' -e "ACCOUNT=$CTRADER_ACCOUNT" \
+            ghcr.io/spotware/ctrader-console:latest \
+            optimize /work/FibonacciHarmonicSniperUltimate-v0.4.0-store-rc1.algo \
+            --params=/work/store-rc1-genetic.json \
+            --environment-variables \
+            --symbol=XAUUSD --timeframe=m15 \
+            --start="01/01/2024 00:00" --end="31/12/2025 23:59" \
+            --balance=10000 --spread=30 --commission=35 --commission-type=UsdPerMillionUsdVolume \
+            --data-mode=m1 --data-dir=/work/cache \
+            --method=genetic --cores=2 \
+            --criteria="ProfitFactor:max,NetProfit:max,TotalTrades:max,MaxEquityDrawdownPercentages:min" \
+            --auto-select-best \
+            --optres=/work/opt/store-rc1.optres \
+            --passes-dir=/work/opt/passes
+
+      - name: Summarise optimisation
+        if: always()
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import json, math, os
+          p=Path('out/opt/store-rc1.optres')
+          if not p.exists():
+              print('No optimisation result file generated')
+              raise SystemExit(1)
+          data=json.loads(p.read_text())
+          Path('out/opt/store-rc1-optres-pretty.json').write_text(json.dumps(data,indent=2))
+          # Schema can evolve; recursively collect dicts that look like pass records.
+          candidates=[]
+          def walk(x):
+              if isinstance(x,dict):
+                  keys={str(k).lower() for k in x.keys()}
+                  if 'profitfactor' in keys or 'netprofit' in keys or 'fitness' in keys:
+                      candidates.append(x)
+                  for v in x.values(): walk(v)
+              elif isinstance(x,list):
+                  for v in x: walk(v)
+          walk(data)
+          def get(d,*names):
+              for n in names:
+                  for k,v in d.items():
+                      if str(k).lower()==n.lower():
+                          try:return float(v)
+                          except:return v
+              return None
+          rows=[]
+          for c in candidates:
+              pf=get(c,'ProfitFactor'); net=get(c,'NetProfit'); dd=get(c,'MaxEquityDrawdownPercentages','MaxEquityDrawdownPercent'); trades=get(c,'TotalTrades'); fit=get(c,'Fitness')
+              if any(v is not None for v in (pf,net,dd,trades,fit)):
+                  rows.append({'fitness':fit,'profit_factor':pf,'net_profit':net,'max_equity_dd_percent':dd,'total_trades':trades,'raw':c})
+          def score(r):
+              f=r['fitness']
+              return f if isinstance(f,(int,float)) and math.isfinite(f) else -1e300
+          rows=sorted(rows,key=score,reverse=True)
+          summary={'candidate_records_found':len(rows),'top_records':rows[:10]}
+          text=json.dumps(summary,indent=2,default=str)
+          Path('out/opt/top-records.json').write_text(text)
+          print(text)
+          with open(os.environ['GITHUB_STEP_SUMMARY'],'a') as f: f.write('```json\n'+text+'\n```\n')
+          PY
+
+      - name: Remove credential file
+        if: always()
+        run: rm -f out/ctrader.pwd
+
+      - name: Upload optimisation evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Fibonacci-Store-RC1-Optimisation
+          path: |
+            out/opt/store-rc1.optres
+            out/opt/store-rc1-optres-pretty.json
+            out/opt/top-records.json
+            out/opt/passes/**
+          if-no-files-found: warn
+          retention-days: 30
