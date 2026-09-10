@@ -1,0 +1,34 @@
+name: Fibonacci XAUUSD v4 - XABCD Commercial Validation
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - fibonacci-xauusd-v4-commercial
+    paths:
+      - '.github/workflows/backtest-fibonacci-xauusd-v40-xabcd-commercial.yml'
+      - 'FibonacciHarmonicSniperUltimate/versions/xauusd_3/tools/v40_xabcd_alpha_validate.sh'
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 330
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run v4 true XABCD commercial validation
+        shell: bash
+        env:
+          CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+          CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+          CTRADER_PASSWORD: ${{ secrets.CTRADER_PASSWORD }}
+        run: bash FibonacciHarmonicSniperUltimate/versions/xauusd_3/tools/v40_xabcd_alpha_validate.sh
+      - name: Upload v4 validation package
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: xauusd-v40-xabcd-commercial-validation
+          path: FibonacciHarmonicSniperUltimate/versions/xauusd_3/validation-v40-xabcd/
+          retention-days: 60
