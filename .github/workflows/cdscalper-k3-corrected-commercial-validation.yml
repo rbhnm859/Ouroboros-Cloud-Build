@@ -1,0 +1,54 @@
+name: Validate CDScalper K3 Corrected Commercial
+
+on:
+  workflow_dispatch:
+
+jobs:
+  preflight:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify immutable Original K lineage
+        shell: bash
+        run: |
+          BASE='ca6d78774eb7f772d32e19e537a9584a5cfc5400'
+          ORIGINAL='CumulativeDeltaScalper-EURUSD-v1/src/CumulativeDeltaScalper_EURUSD_v1.cs'
+          git cat-file -e "$BASE:$ORIGINAL"
+          echo "Original K lineage present at $BASE"
+      - name: Validate K3 specification and banned techniques
+        shell: bash
+        run: |
+          test -f 'CumulativeDeltaScalper-EURUSD-v1/k3/docs/IMPLEMENTATION_SPEC.md'
+          echo 'K3 preflight specification present.'
+      - name: Record corrected promotion contract
+        shell: bash
+        run: |
+          cat <<'EOF'
+          Symbol=EURUSD
+          Period=m1
+          DataMode=ticks
+          InitialBalance=30 USD
+          TargetLeverage=500
+          Spread=0.43 pips
+          Commission=35
+          CommissionType=UsdPerMillionUsdVolume
+          IS=09/09/2024 00:00 -> 08/09/2025 23:59 UTC
+          OOS=09/09/2025 00:00 -> 09/09/2026 23:59 UTC
+          FULL=09/09/2024 00:00 -> 09/09/2026 23:59 UTC
+          EOF
+
+  implementation-gate:
+    needs: preflight
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Require K3 implementation before performance validation
+        shell: bash
+        run: |
+          SRC='CumulativeDeltaScalper-EURUSD-v1/k3/src/CumulativeDeltaScalper_EURUSD_K3.cs'
+          PROJ='CumulativeDeltaScalper-EURUSD-v1/k3/CumulativeDeltaScalper_EURUSD_K3.csproj'
+          test -f "$SRC" || { echo 'K3 source not implemented yet'; exit 1; }
+          test -f "$PROJ" || { echo 'K3 project not implemented yet'; exit 1; }
+          grep -q 'AccessRights.None' "$SRC"
+          grep -q 'net6.0' "$PROJ"
+          echo 'K3 source/project present; performance jobs may be added only after implementation audit.'
