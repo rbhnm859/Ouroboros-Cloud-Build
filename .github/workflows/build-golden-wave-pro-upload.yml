@@ -1,0 +1,59 @@
+name: Build GoldenWavePro Mobile Algo
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/build-golden-wave-pro-upload.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Setup .NET 6
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '6.0.x'
+
+      - name: Recreate GoldenWavePro project
+        shell: bash
+        run: |
+          mkdir -p cli-build/GoldenWavePro
+          python3 - <<'PYCODE'
+          from pathlib import Path
+          import base64, gzip
+          Path('cli-build/GoldenWavePro/GoldenWavePro.cs').write_bytes(gzip.decompress(base64.b64decode('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')))
+          Path('cli-build/GoldenWavePro/GoldenWavePro.csproj').write_bytes(gzip.decompress(base64.b64decode('H4sIAEYdo2oC/2WQsU7DMBCG9z6F5bFSbViYHEsdaJWBqKIBZmNfIxPHjs6XVrw9DpFKVdbvPt3/36kDpi+wxI6ur/iLt5hyOpFonltRENcrxlRxRkD63mOaxpkU1hrsgHZoBrgk7HUEehIPSt7zxa6HMXjr6S372GXtfDafAZS844vcTCHM4z/tShZhG7rUlAC9T8FB/DBnKBWVvPK5tPzXWtUEw+0NB2N708ErnAAhWmB1tGFyUHHbonGAYjtRGgwBZ++A2adY8Uex3qw5k0vIzcrfxPmXevUDQ6J78lYBAAA=')))
+          PYCODE
+
+      - name: Restore cTrader package
+        run: dotnet restore cli-build/GoldenWavePro/GoldenWavePro.csproj
+
+      - name: Build GoldenWavePro .algo
+        run: |
+          dotnet build cli-build/GoldenWavePro/GoldenWavePro.csproj \
+            --configuration Release \
+            --no-restore \
+            -p:AlgoPublish=False \
+            -p:IncludeSource=True
+
+      - name: Collect .algo
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          ALGO=$(find cli-build/GoldenWavePro -type f -name '*.algo' | head -n 1)
+          test -n "$ALGO"
+          cp "$ALGO" dist/GoldenWavePro.algo
+          ls -lh dist/GoldenWavePro.algo
+
+      - name: Upload .algo artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: GoldenWavePro-algo
+          path: dist/GoldenWavePro.algo
+          if-no-files-found: error
