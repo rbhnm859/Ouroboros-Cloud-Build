@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net6.0</TargetFramework>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <Nullable>disable</Nullable>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <RootNamespace>cAlgo.Robots</RootNamespace>
+    <AlgoName>FibonacciXAUUSDCommercialV1</AlgoName>
+    <AlgoType>Robot</AlgoType>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="src/Models.cs" />
+    <Compile Include="src/MarketMath.cs" />
+    <Compile Include="src/HarmonicSignalEngine.cs" />
+    <Compile Include="src/RegimeGate.cs" />
+    <Compile Include="src/CommercialQualityGate.cs" />
+    <Compile Include="src/RiskEngine.cs" />
+    <Compile Include="src/ExecutionGuard.cs" />
+    <Compile Include="src/AccountRiskState.cs" />
+    <Compile Include="src/ProtectionManager.cs" />
+    <Compile Include="src/FibonacciXAUUSDCommercialV1.cs" />
+    <PackageReference Include="cTrader.Automate" Version="1.0.19" />
+  </ItemGroup>
+</Project>
