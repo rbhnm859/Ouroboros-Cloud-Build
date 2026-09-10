@@ -21,7 +21,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: btc-harmonic-guard-commercial-rc7
+  group: btc-harmonic-guard-commercial-rc7-final-arbitration
   cancel-in-progress: true
 
 jobs:
