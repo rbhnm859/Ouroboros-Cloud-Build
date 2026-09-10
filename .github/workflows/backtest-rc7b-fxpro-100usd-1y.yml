@@ -1,0 +1,209 @@
+name: RC7B FxPro $100 1Y Validation
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ btc-rc7b-fxpro-100usd-1y-validation ]
+    paths:
+      - '.github/workflows/backtest-rc7b-fxpro-100usd-1y.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rc7b-fxpro-100usd-1y
+  cancel-in-progress: true
+
+jobs:
+  backtest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    env:
+      CLI_IMAGE: ghcr.io/spotware/ctrader-console:5.9.11
+      BROKER: FxPro
+      SYMBOL: BITCOIN
+      PERIOD: h1
+      START_DATE: 08/09/2025
+      END_DATE: 08/09/2026
+      START_BALANCE: '100'
+      EXPECTED_ACCOUNT_LEVERAGE: '500'
+      EXPECTED_ALGO_SHA256: be97fde0489c2392300deb4543d2dc3d00a50fc20d3d54ff4a2a6ef48a8ac31d
+      ALGO_PATH: FibonacciHarmonicSniperUltimate/commercial-freeze/RC7B/BTC-Harmonic-Guard-RC7B-Commercial-Mobile.algo
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify frozen RC7B binary
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s "$ALGO_PATH"
+          ACTUAL="$(sha256sum "$ALGO_PATH" | awk '{print $1}')"
+          echo "RC7B algo sha256=$ACTUAL"
+          test "$ACTUAL" = "$EXPECTED_ALGO_SHA256"
+          mkdir -p work/cache work/reports
+          cp "$ALGO_PATH" work/RC7B.algo
+
+      - name: Prepare FxPro credentials
+        env:
+          CTID: ${{ secrets.CTRADER_CTID }}
+          CTPASS: ${{ secrets.CTRADER_PASSWORD }}
+          ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${CTID:-}" && test -n "${CTPASS:-}" && test -n "${ACCOUNT:-}"
+          printf '%s' "$CTPASS" | tr -d '\r\n' > work/ctrader.pwd
+          chmod 600 work/ctrader.pwd
+
+      - name: Pull official cTrader CLI
+        run: docker pull "$CLI_IMAGE"
+
+      - name: Verify FxPro account and BITCOIN symbol
+        env:
+          CTID: ${{ secrets.CTRADER_CTID }}
+          ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          CTID="$(printf '%s' "$CTID" | tr -d '[:space:]')"
+          ACCOUNT="$(printf '%s' "$ACCOUNT" | tr -d '[:space:]')"
+          docker run --rm -v "$PWD/work:/work" "$CLI_IMAGE" accounts \
+            --ctid="$CTID" --pwd-file=/work/ctrader.pwd --broker="$BROKER" \
+            | tee work/reports/accounts.txt
+          grep -Fq "$ACCOUNT" work/reports/accounts.txt
+          docker run --rm -v "$PWD/work:/work" "$CLI_IMAGE" symbols \
+            --ctid="$CTID" --pwd-file=/work/ctrader.pwd --account="$ACCOUNT" --broker="$BROKER" \
+            | tee work/reports/symbols.txt
+          grep -qi "$SYMBOL" work/reports/symbols.txt
+
+      - name: Lock validated RC7B strict candidate parameters
+        shell: bash
+        run: |
+          cat > work/RC7B-strict.cbotset <<'EOF'
+          TradingEnabled=true
+          Growth2Enabled=true
+          Growth2RiskPercent=0.10
+          Growth2RiskReward=2.0
+          Growth2StopAtr=1.30
+          Growth2PullbackBars=3
+          Growth2BodyAtr=0.25
+          Growth2MaxExtensionAtr=0.60
+          Growth2DeepPullbackAtr=0.15
+          EOF
+          cat work/RC7B-strict.cbotset
+          docker run --rm -v "$PWD/work:/work" "$CLI_IMAGE" metadata /work/RC7B.algo \
+            | tee work/reports/metadata.txt
+
+      - name: Backtest RC7B on FxPro with $100 for frozen recent 1Y window
+        env:
+          CTID: ${{ secrets.CTRADER_CTID }}
+          ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          CTID="$(printf '%s' "$CTID" | tr -d '[:space:]')"
+          ACCOUNT="$(printf '%s' "$ACCOUNT" | tr -d '[:space:]')"
+          docker run --rm -v "$PWD/work:/work" "$CLI_IMAGE" backtest \
+            /work/RC7B.algo /work/RC7B-strict.cbotset \
+            --ctid="$CTID" --pwd-file=/work/ctrader.pwd --account="$ACCOUNT" --broker="$BROKER" \
+            --symbol="$SYMBOL" --period="$PERIOD" --start="$START_DATE" --end="$END_DATE" \
+            --balance="$START_BALANCE" --data-mode=m1 --data-dir=/work/cache \
+            --report=/work/reports/RC7B-FxPro-100USD-1Y.html \
+            --report-json=/work/reports/RC7B-FxPro-100USD-1Y.json \
+            --full-access --exit-on-stop 2>&1 | tee work/reports/backtest-console.log
+
+      - name: Build independent result summary
+        if: success()
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import json, math, re
+          p=Path('work/reports/RC7B-FxPro-100USD-1Y.json')
+          d=json.loads(p.read_text())
+          main=d.get('main',{}); eq=d.get('equity',{}); ts=d.get('tradeStatistics',{})
+          rows=d.get('history',{}).get('items',[]) or []
+          used=d.get('usedSymbols',[]) or []
+          params={x.get('propertyName'):x.get('value') for x in d.get('parameters',[]) or []}
+          def f(v, default=0.0):
+              try:return float(v)
+              except:return default
+          def stat(name):
+              v=ts.get(name,{})
+              return f(v.get('all') if isinstance(v,dict) else v)
+          start=f(main.get('startingCapital'))
+          end=f(main.get('endingBalance'), start+f(main.get('netProfit')))
+          net=f(main.get('netProfit'))
+          roi=f(main.get('roi'), (net/start*100 if start else 0))
+          trades=int(stat('totalTrades')) if ts else len(rows)
+          wins=int(stat('winningTrades')) if ts else sum(f(r.get('net'))>0 for r in rows)
+          losses=int(stat('losingTrades')) if ts else sum(f(r.get('net'))<0 for r in rows)
+          wr=(wins/trades*100) if trades else 0.0
+          pf=f((ts.get('profitFactor') or {}).get('all')) if ts else 0.0
+          dd=0.0
+          for k in ('maxEquityDrawdownPercent','maxEquityDrawdownPercentages','maxDrawdownPercent'):
+              if k in eq: dd=f(eq[k]); break
+          lev=int(f(main.get('accountLeverage')))
+          if abs(start-100.0)>0.005: raise SystemExit(f'starting capital mismatch: {start}')
+          if str(main.get('symbol','')).upper()!='BITCOIN': raise SystemExit('symbol mismatch')
+          if str(main.get('period','')).lower()!='h1': raise SystemExit('period mismatch')
+          if lev != 500: raise SystemExit(f'FxPro account leverage mismatch: report says 1:{lev}, expected 1:500')
+          if str(params.get('TradingEnabled','')).lower()!='true' or str(params.get('Growth2Enabled','')).lower()!='true':
+              raise SystemExit('candidate mode parameter mismatch')
+          sym=used[0] if used else {}
+          min_step=sym.get('stepVolume')
+          commissions=(main.get('commissions') or {})
+          spread=(main.get('spread') or {})
+          quantities=[]
+          for r in rows:
+              for k in ('quantity','volume'):
+                  if k in r:
+                      try: quantities.append(float(r[k])); break
+                      except: pass
+          summary={
+            'candidate':'RC7B frozen commercial binary',
+            'broker_requested':'FxPro',
+            'broker_reported':main.get('brokerTitle'),
+            'symbol':main.get('symbol'),
+            'period':main.get('period'),
+            'window':main.get('testingPeriod'),
+            'starting_capital':start,
+            'ending_balance':end,
+            'net_profit':net,
+            'roi_pct':roi,
+            'trades':trades,
+            'wins':wins,
+            'losses':losses,
+            'win_rate_pct':wr,
+            'profit_factor':pf,
+            'max_equity_dd_pct':dd,
+            'account_leverage':lev,
+            'symbol_step_volume':min_step,
+            'commission_model':commissions,
+            'spread_model':spread,
+            'min_executed_quantity_or_volume':min(quantities) if quantities else None,
+            'max_executed_quantity_or_volume':max(quantities) if quantities else None,
+            'algo_sha256':'be97fde0489c2392300deb4543d2dc3d00a50fc20d3d54ff4a2a6ef48a8ac31d',
+            'note':'Account leverage is verified from the cTrader report. Effective BITCOIN symbol margin/leverage can be broker/symbol tier dependent; symbols.txt is retained as evidence.'
+          }
+          Path('work/reports/RC7B-FxPro-100USD-1Y-SUMMARY.json').write_text(json.dumps(summary,indent=2))
+          md=f'''# RC7B FxPro $100 1Y backtest\n\n- Window: {main.get('testingPeriod',{}).get('formatted')}\n- Broker requested: FxPro\n- Symbol / period: {main.get('symbol')} / {main.get('period')}\n- Account leverage reported by cTrader: 1:{lev}\n- Starting capital: ${start:.2f}\n- Ending balance: ${end:.2f}\n- Net profit: ${net:.2f}\n- ROI: {roi:.2f}%\n- Trades: {trades}\n- Wins / Losses: {wins} / {losses}\n- Win rate: {wr:.2f}%\n- Profit factor: {pf:.2f}\n- Max equity DD: {dd:.2f}%\n- Symbol volume step: {min_step}\n- Commission model: {commissions}\n- Spread model: {spread}\n\nThis is a real cTrader CLI backtest of the frozen RC7B binary at $100, not a scaled projection from the $10,000 test.\n'''
+          Path('work/reports/SUMMARY.md').write_text(md)
+          print(md)
+          PY
+
+      - name: Remove credentials
+        if: always()
+        run: rm -f work/ctrader.pwd
+
+      - name: Upload FxPro $100 validation evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: RC7B-FxPro-100USD-1Y
+          retention-days: 30
+          if-no-files-found: warn
+          path: |
+            work/reports/
+            work/RC7B-strict.cbotset
