@@ -1,0 +1,63 @@
+name: Apply CDScalper EURUSD v1 Debug Refactor
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [cds-eurusd-v1]
+    paths:
+      - '.github/workflows/cdscalper-eurusd-v1-apply-debug-refactor.yml'
+      - 'CumulativeDeltaScalper-EURUSD-v1/tools/apply_debug_refactor.py'
+
+permissions:
+  contents: write
+
+jobs:
+  apply-debug-refactor:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: cds-eurusd-v1
+          fetch-depth: 0
+
+      - name: Apply deterministic source fixes
+        run: |
+          set -euo pipefail
+          python3 CumulativeDeltaScalper-EURUSD-v1/tools/apply_debug_refactor.py
+
+      - name: Static sanity checks
+        run: |
+          set -euo pipefail
+          SRC='CumulativeDeltaScalper-EURUSD-v1/src/CumulativeDeltaScalper_EURUSD_v1.cs'
+          grep -q 'RebuildDailyStateFromHistory' "$SRC"
+          grep -q 'ClosedHtfAdx' "$SRC"
+          grep -q 'BrokerMinDistancePrice' "$SRC"
+          grep -q 'NormalizeStopForBroker' "$SRC"
+          grep -q 'RecoverOpenPositionState' "$SRC"
+          if grep -q 'SyncDailyStatsFromHistory' "$SRC"; then
+            echo 'Old per-tick History scan still present.'
+            exit 1
+          fi
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('CumulativeDeltaScalper-EURUSD-v1/src/CumulativeDeltaScalper_EURUSD_v1.cs')
+          s=p.read_text(encoding='utf-8')
+          if s.count('{') != s.count('}'):
+              raise SystemExit('Unbalanced C# braces')
+          print('Static checks passed; lines=', len(s.splitlines()))
+          PY
+
+      - name: Commit source debug refactor
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add CumulativeDeltaScalper-EURUSD-v1/src/CumulativeDeltaScalper_EURUSD_v1.cs
+          if git diff --cached --quiet; then
+            echo 'No source changes required.'
+            exit 0
+          fi
+          git commit -m 'Debug CDScalper source execution and risk state'
+          git push origin HEAD:cds-eurusd-v1
