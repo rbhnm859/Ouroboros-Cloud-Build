@@ -1,0 +1,73 @@
+{
+  "policy_version": "RC6A-2026-09-10",
+  "candidate_count": 1,
+  "research_mode": "single_evidence_based_candidate_no_bruteforce",
+  "immutable": {
+    "round22_control": true,
+    "h1_buy_alpha": true,
+    "growth3_live": false,
+    "max_open_positions": 1,
+    "single_execute_market_order_boundary": true,
+    "base_risk_parameters_unchanged": true,
+    "frozen_windows_unchanged": true,
+    "commercial_gates_unchanged": true
+  },
+  "policy": {
+    "h1_buy": {
+      "decision": "LIVE_CORE",
+      "risk_multiplier": 1.0,
+      "reason": "protected_core_alpha"
+    },
+    "h1_sell": {
+      "decision": "LIVE_SATELLITE",
+      "risk_multiplier": 0.35,
+      "reason": "weak_y2_recent_attribution_down_only_isolation"
+    },
+    "m30_reciprocal_abcd_buy": {
+      "decision": "LIVE_SATELLITE",
+      "risk_multiplier": 0.35,
+      "reason": "weak_3y_harsh_attribution_down_only_isolation"
+    },
+    "m30_reciprocal_abcd_sell": {
+      "decision": "LIVE_SATELLITE",
+      "risk_multiplier": 0.75,
+      "reason": "positive_3y_and_recent_but_harsh_requires_reduction"
+    },
+    "m30_abcd": {
+      "decision": "SHADOW",
+      "risk_multiplier": 0.0,
+      "reason": "negative_3y_and_recent_cross_period_attribution"
+    },
+    "growth3": {
+      "decision": "SHADOW",
+      "risk_multiplier": 0.0,
+      "reason": "negative_direct_attribution_keep_context_only"
+    }
+  },
+  "evidence": {
+    "rc4_3y": {
+      "trades": 389,
+      "roi_pct": 20.94,
+      "pf": 1.28,
+      "max_equity_dd_pct": 11.578038465134414
+    },
+    "rc4_recent": {
+      "trades": 141,
+      "roi_pct": 27.94,
+      "pf": 1.97,
+      "max_equity_dd_pct": 4.04
+    },
+    "rc4_m30_abcd_3y": {
+      "trades": 137,
+      "net": -33.58,
+      "pf": 0.9433
+    },
+    "rc4_m30_abcd_recent": {
+      "trades": 50,
+      "net": -69.93,
+      "pf": 0.7061
+    },
+    "rc4_h1_3y_pf": 1.4106,
+    "rc4_h1_recent_pf": 2.2836
+  }
+}
