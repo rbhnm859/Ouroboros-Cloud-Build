@@ -1,0 +1,64 @@
+name: BTC Harmonic Guard Monthly Growth v3
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ btc-monthly-growth-v3-quality-recovery ]
+    paths:
+      - 'FibonacciHarmonicSniperUltimate/monthly-growth-v3/**'
+      - '.github/workflows/btc-harmonic-guard-monthly-growth-v3.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: btc-harmonic-guard-monthly-growth-v3
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '6.0.x'
+      - name: Install Growth3 transform into frozen Growth2 harness
+        run: |
+          cp FibonacciHarmonicSniperUltimate/monthly-growth-v2/growth2_transform.py /tmp/growth2_transform.py
+          cp FibonacciHarmonicSniperUltimate/monthly-growth-v3/growth3_transform.py FibonacciHarmonicSniperUltimate/monthly-growth-v2/growth2_transform.py
+      - name: Run Growth3 frozen-window validation
+        env:
+          CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+          CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+          CTRADER_PASSWORD: ${{ secrets.CTRADER_PASSWORD }}
+        run: bash FibonacciHarmonicSniperUltimate/monthly-growth-v2/growth2_validation.sh
+      - name: Remove credentials
+        if: always()
+        run: rm -f work/ctrader.pwd
+      - name: Upload Growth3 validation
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: BTC-Harmonic-Guard-Monthly-Growth-v3
+          retention-days: 30
+          path: |
+            work/build/*
+            work/g2/*.cs
+            work/g2/*.csproj
+            work/control-3y/report.*
+            work/control-1y/report.*
+            work/strict-3y/report.*
+            work/balanced-3y/report.*
+            work/moderate-3y/report.*
+            work/recent-a/report.*
+            work/recent-b/report.*
+            work/y1/report.*
+            work/y2/report.*
+            work/harsh-3y/report.*
+            work/harsh-y3/report.*
+            work/Growth2-Control-Parity.json
+            work/Growth2-3Y-Screen.json
+            work/Growth2-Recent-Screen.json
+            work/Growth2-Final-Summary.json
