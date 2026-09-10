@@ -94,7 +94,7 @@ jobs:
             backtest /work/bin/GoldenWavePro.algo \
             --ctid="$CTRADER_CTID" --pwd-file=/work/ctrader.pwd --account="$CTRADER_ACCOUNT" --broker=FxPro \
             --symbol=XAUUSD --period=m15 --start="${{ matrix.start }}" --end="${{ matrix.end }}" \
-            --balance=10000 --commission=35 --commission-type=UsdPerMillionUsdVolume \
+            --balance=10000 --commission=35 \
             --spread="${{ matrix.spread }}" --data-mode=m1 --data-dir=/work/cache \
             --report="/work/reports/XAUUSD-M15-${{ matrix.window }}-${{ matrix.scenario }}.html" \
             --report-json="/work/reports/XAUUSD-M15-${{ matrix.window }}-${{ matrix.scenario }}.json" --exit-on-stop
