@@ -34,18 +34,23 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Pull official cTrader CLI
-        run: docker pull ghcr.io/spotware/ctrader-console:5.9.11
+      - name: Setup current .NET 6 SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '6.0.x'
 
       - name: Build HarmonyBot
         run: |
           mkdir -p backtest/cache backtest/reports
-          docker run --rm --entrypoint sh -v "$PWD:/repo" -w /repo \
-            ghcr.io/spotware/ctrader-console:5.9.11 -c \
-            'dotnet restore HarmonyBot-Mobile/HarmonyBot.csproj && dotnet build HarmonyBot-Mobile/HarmonyBot.csproj --configuration Release --no-restore -p:AlgoPublish=False -p:IncludeSource=True'
+          dotnet restore HarmonyBot-Mobile/HarmonyBot.csproj
+          dotnet build HarmonyBot-Mobile/HarmonyBot.csproj --configuration Release --no-restore -p:AlgoPublish=False -p:IncludeSource=True
           ALGO="$(find HarmonyBot-Mobile -type f -name '*.algo' -print -quit)"
           test -n "$ALGO"
           cp "$ALGO" backtest/HarmonyBot-Mobile.algo
+          test -s backtest/HarmonyBot-Mobile.algo
+
+      - name: Pull official cTrader CLI
+        run: docker pull ghcr.io/spotware/ctrader-console:5.9.11
 
       - name: Create cTrader password file
         env:
