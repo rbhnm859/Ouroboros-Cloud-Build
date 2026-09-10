@@ -1,0 +1,128 @@
+name: Audit CDScalper K3 Engineering
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [cds-k3-engineering-audit]
+    paths:
+      - 'CumulativeDeltaScalper-EURUSD-v1/k3/**'
+      - '.github/scripts/cdscalper_report_gate.py'
+      - '.github/workflows/cdscalper-k3-engineering-audit.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+
+      - name: Verify K3 failed-promotion evidence remains preserved
+        shell: bash
+        run: |
+          set -euo pipefail
+          RESULT='CumulativeDeltaScalper-EURUSD-v1/reports/K3_FLOW_FIRST_CORRECTED_IS_STOP_RESULT.md'
+          test -f "$RESULT"
+          grep -q 'Classification: C — FAIL' "$RESULT"
+          test ! -f 'CumulativeDeltaScalper-EURUSD-v1/k3/FREEZE_MANIFEST.json'
+          echo 'K3 remains C-FAIL; no freeze manifest present.'
+
+      - name: Verify engineering-audit source invariants
+        shell: bash
+        run: |
+          set -euo pipefail
+          SRC='CumulativeDeltaScalper-EURUSD-v1/k3/src/CumulativeDeltaScalper_EURUSD_K3.cs'
+          PROJ='CumulativeDeltaScalper-EURUSD-v1/k3/CumulativeDeltaScalper_EURUSD_K3.csproj'
+          grep -q 'AccessRights = AccessRights.None' "$SRC"
+          grep -q '<TargetFramework>net6.0</TargetFramework>' "$PROJ"
+          grep -q 'SIGNAL_AUDIT ts=' "$SRC"
+          grep -q 'ClosedHtfIndex()' "$SRC"
+          grep -q '_htfBars.ClosePrices.Count - 2' "$SRC"
+          grep -q 'ClosedM1Index()' "$SRC"
+          grep -q 'estimatedCostPips=' "$SRC"
+          grep -q 'skipReason=' "$SRC"
+          ! grep -q '_htfEma.Result.LastValue' "$SRC"
+          ! grep -q '_htfDms.ADX.LastValue' "$SRC"
+          echo 'Closed-bar HTF context and threshold-cross audit telemetry are present.'
+
+      - name: Build K3 engineering-audit algo
+        shell: bash
+        run: |
+          set -euo pipefail
+          dotnet build CumulativeDeltaScalper-EURUSD-v1/k3/CumulativeDeltaScalper_EURUSD_K3.csproj -c Release -p:AlgoBuild=true
+          ALGO="$(find CumulativeDeltaScalper-EURUSD-v1/k3/bin/Release/net6.0 -maxdepth 1 -type f -name '*.algo' -print -quit)"
+          test -n "$ALGO"
+          mkdir -p audit-out
+          cp "$ALGO" audit-out/K3_ENGINEERING_AUDIT_ONLY.algo
+          sha256sum audit-out/K3_ENGINEERING_AUDIT_ONLY.algo | tee audit-out/sha256.txt
+
+      - name: Self-test spread evidence fallback
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p audit-test
+          cat > audit-test/report.json <<'JSON'
+          {
+            "main": {
+              "symbol": "EURUSD",
+              "period": "m1",
+              "testingPeriod": {"formatted": "synthetic"},
+              "data": {"type": "tickDataFromServer"},
+              "accountLeverage": 500,
+              "startingCapital": 30,
+              "endingBalance": 30,
+              "roi": 0,
+              "netProfit": 0,
+              "spread": null,
+              "commissions": {
+                "type": "UsdPerMillionUsdVolume",
+                "value": 35,
+                "applyCommissionAutomatically": false
+              }
+            },
+            "tradeStatistics": {
+              "totalTrades": {"all": 0},
+              "winningTrades": {"all": 0},
+              "losingTrades": {"all": 0},
+              "profitFactor": {"all": 0, "long": 0, "short": 0},
+              "averageTrade": {"all": 0},
+              "largestWinningTrade": {"all": 0},
+              "largestLosingTrade": {"all": 0},
+              "commissions": {"all": 0},
+              "netProfit": {"long": 0, "short": 0}
+            },
+            "equity": {
+              "maxEquityDrawdownPercent": 0,
+              "maxEquityDrawdownAbsolute": 0
+            }
+          }
+          JSON
+          printf '%s\n' 'ctrader backtest bot.algo --spread=0.43 --commission=35' > audit-test/with-spread.log
+          printf '%s\n' 'ctrader backtest bot.algo --commission=35' > audit-test/no-spread.log
+
+          python3 .github/scripts/cdscalper_report_gate.py audit-test/report.json \
+            --profile control --execution-log audit-test/with-spread.log --expected-spread 0.43 \
+            --out audit-test/pass.json --fail-on-gate
+
+          if python3 .github/scripts/cdscalper_report_gate.py audit-test/report.json \
+            --profile control --execution-log audit-test/no-spread.log --expected-spread 0.43 \
+            --out audit-test/fail.json --fail-on-gate; then
+            echo 'Parser incorrectly accepted missing spread evidence.'
+            exit 1
+          fi
+          grep -q 'execution_log_fallback' audit-test/pass.json
+          grep -q 'missing_spread_evidence' audit-test/fail.json
+          echo 'Spread fallback accepts only explicit 0.43 execution evidence.'
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: CDScalper_K3_ENGINEERING_AUDIT
+          path: |
+            audit-out/*
+            audit-test/*.json
+          retention-days: 30
