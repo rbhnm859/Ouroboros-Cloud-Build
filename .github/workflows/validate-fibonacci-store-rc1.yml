@@ -49,10 +49,10 @@ jobs:
       - name: Checkout branch
         uses: actions/checkout@v4
 
-      - name: Setup .NET 8 SDK
+      - name: Setup .NET 6 SDK
         uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: '8.0.x'
+          dotnet-version: '6.0.x'
 
       - name: Install official cTrader CLI for Linux
         run: |
@@ -90,7 +90,7 @@ jobs:
           p.write_text(text.replace(old, new, 1))
           PYCODE
 
-      - name: Build Net8 cBot
+      - name: Build cBot
         run: |
           set -euxo pipefail
           mkdir -p backtest/cache backtest/reports
@@ -154,13 +154,9 @@ jobs:
           report = Path('backtest/reports/${{ matrix.id }}.json')
           if not report.exists(): raise SystemExit('No JSON backtest report produced')
           d = json.loads(report.read_text())
-          main = d.get('main', d)
-          equity = d.get('equity', d)
-          stats = d.get('tradeStatistics', d)
           history = d.get('history', {}).get('items', []) if isinstance(d.get('history', {}), dict) else []
           def scan(names, default=0.0):
-              wanted={x.lower() for x in names}
-              stack=[d]
+              wanted={x.lower() for x in names}; stack=[d]
               while stack:
                   x=stack.pop()
                   if isinstance(x,dict):
@@ -179,24 +175,17 @@ jobs:
                           try:nets.append(float(item[key]))
                           except:pass
                           break
-          total=int(scan(['TotalTrades'],len(nets)))
-          wins=int(scan(['WinningTrades'],sum(x>0 for x in nets)))
-          losses=int(scan(['LosingTrades'],sum(x<0 for x in nets)))
-          net=scan(['NetProfit'],sum(nets))
-          roi=scan(['ROI','Roi'],net/10000*100)
-          max_dd=scan(['MaxEquityDrawdownPercentages','MaxEquityDrawdownPercent','maxDrawdownPercent'])
+          total=int(scan(['TotalTrades'],len(nets))); wins=int(scan(['WinningTrades'],sum(x>0 for x in nets))); losses=int(scan(['LosingTrades'],sum(x<0 for x in nets)))
+          net=scan(['NetProfit'],sum(nets)); roi=scan(['ROI','Roi'],net/10000*100); max_dd=scan(['MaxEquityDrawdownPercentages','MaxEquityDrawdownPercent','maxDrawdownPercent'])
           pf=scan(['ProfitFactor'],-1)
           if pf < 0:
               gp=sum(x for x in nets if x>0); gl=-sum(x for x in nets if x<0); pf=gp/gl if gl>0 else (999.0 if gp>0 else 0.0)
           win_rate=100*wins/total if total else 0.0
-          start=datetime.strptime('${{ matrix.start }}','%d/%m/%Y %H:%M'); end=datetime.strptime('${{ matrix.end }}','%d/%m/%Y %H:%M')
-          days=max(1.0,(end-start).total_seconds()/86400)
+          start=datetime.strptime('${{ matrix.start }}','%d/%m/%Y %H:%M'); end=datetime.strptime('${{ matrix.end }}','%d/%m/%Y %H:%M'); days=max(1.0,(end-start).total_seconds()/86400)
           monthly=((1+roi/100)**(30.4375/days)-1)*100 if roi>-100 else None
           gate=bool(monthly is not None and monthly>=7 and pf>=1.30 and max_dd<=15 and total>=int('${{ matrix.min_trades }}') and net>0)
           result={'version':'v0.4.0-store-rc1','case':'${{ matrix.id }}','symbol':'${{ matrix.symbol }}','period':'${{ matrix.period }}','total_trades':total,'wins':wins,'losses':losses,'win_rate_percent':win_rate,'net_profit':net,'roi_percent':roi,'compounded_monthly_roi_percent':monthly,'profit_factor':pf,'max_equity_drawdown_percent':max_dd,'internal_promotion_gate':gate}
-          text=json.dumps(result,indent=2)
-          Path('backtest/reports/${{ matrix.id }}-summary.json').write_text(text)
-          print(text)
+          text=json.dumps(result,indent=2); Path('backtest/reports/${{ matrix.id }}-summary.json').write_text(text); print(text)
           with open(os.environ['GITHUB_STEP_SUMMARY'],'a') as f:f.write('```json\n'+text+'\n```\n')
           PYCODE
 
