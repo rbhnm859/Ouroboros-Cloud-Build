@@ -1,0 +1,27 @@
+name: Cleanup XAUUSD3 Unsafe Artifact
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [fibonacci-xauusd-v3-hybrid]
+    paths:
+      - '.github/workflows/cleanup-xauusd3-unsafe-artifact.yml'
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Delete artifact that accidentally included ctrader.pwd
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          ARTIFACT_ID: '10130933363'
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh api -X DELETE "repos/${REPO}/actions/artifacts/${ARTIFACT_ID}"
+          echo "Deleted artifact ${ARTIFACT_ID}."
