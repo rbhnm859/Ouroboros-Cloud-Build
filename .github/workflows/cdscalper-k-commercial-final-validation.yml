@@ -48,12 +48,12 @@ jobs:
       max-parallel: 6
       matrix:
         include:
-          - { tag: IS_1Y, start: '2024-09-09', end: '2025-09-08', spread: '0.43' }
-          - { tag: OOS_1Y, start: '2025-09-09', end: '2026-09-09', spread: '0.43' }
-          - { tag: FULL_2Y, start: '2024-09-09', end: '2026-09-09', spread: '0.43' }
-          - { tag: RECENT_6M, start: '2026-03-09', end: '2026-09-09', spread: '0.43' }
-          - { tag: OOS_STRESS_1P5X, start: '2025-09-09', end: '2026-09-09', spread: '0.65' }
-          - { tag: FULL_STRESS_1P5X, start: '2024-09-09', end: '2026-09-09', spread: '0.65' }
+          - { tag: IS_1Y, start: '09/09/2024', end: '09/08/2025', spread: '0.43' }
+          - { tag: OOS_1Y, start: '09/09/2025', end: '09/09/2026', spread: '0.43' }
+          - { tag: FULL_2Y, start: '09/09/2024', end: '09/09/2026', spread: '0.43' }
+          - { tag: RECENT_6M, start: '03/09/2026', end: '09/09/2026', spread: '0.43' }
+          - { tag: OOS_STRESS_1P5X, start: '09/09/2025', end: '09/09/2026', spread: '0.65' }
+          - { tag: FULL_STRESS_1P5X, start: '09/09/2024', end: '09/09/2026', spread: '0.65' }
     env:
       CTID: ${{ secrets.CTRADER_CTID }}
       ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
