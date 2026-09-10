@@ -1,0 +1,109 @@
+name: Build Aureus Harmonic Pro XAU v1
+
+on:
+  push:
+    branches: [ gold-harmonic-commercial-v1 ]
+    paths:
+      - '.github/workflows/build-aureus-harmonic-pro-xau-v1.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout commercial branch
+        uses: actions/checkout@v4
+        with:
+          ref: gold-harmonic-commercial-v1
+
+      - name: Materialize clean-room source snapshot
+        shell: bash
+        run: |
+          set -euo pipefail
+          PROJECT='Aureus-Harmonic-Pro-XAU-v1'
+          ARCHIVE="$PROJECT/source.tgz"
+          test -f "$ARCHIVE"
+          rm -rf "$RUNNER_TEMP/aureus-src"
+          mkdir -p "$RUNNER_TEMP/aureus-src"
+          tar -xzf "$ARCHIVE" -C "$RUNNER_TEMP/aureus-src"
+          rsync -a --delete --exclude='source.tgz' "$RUNNER_TEMP/aureus-src/$PROJECT/" "$PROJECT/"
+          rm -f "$ARCHIVE"
+          test -f "$PROJECT/src/AureusHarmonicProXAU.cs"
+          test -f "$PROJECT/src/HarmonicPatternDetector.cs"
+          test -f "$PROJECT/src/RiskEngine.cs"
+          test -f "$PROJECT/AureusHarmonicProXAU.csproj"
+
+      - name: Setup .NET 6
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '6.0.x'
+
+      - name: Restore and build cTrader .algo
+        shell: bash
+        run: |
+          set -euo pipefail
+          PROJECT='Aureus-Harmonic-Pro-XAU-v1'
+          PROJ="$PROJECT/AureusHarmonicProXAU.csproj"
+          dotnet restore "$PROJ"
+          dotnet build "$PROJ" -c Release \
+            -p:AlgoName=AureusHarmonicProXAU \
+            -p:AlgoBuild=true \
+            -p:AlgoPublish=false \
+            -p:IncludeSource=true | tee /tmp/aureus-build.log
+          mkdir -p "$PROJECT/logs"
+          cp /tmp/aureus-build.log "$PROJECT/logs/build.log"
+
+      - name: Locate and verify compiled artifact
+        shell: bash
+        run: |
+          set -euo pipefail
+          PROJECT='Aureus-Harmonic-Pro-XAU-v1'
+          mkdir -p "$PROJECT/builds" "$PROJECT/reports"
+          ALGO=$(find "$PROJECT" -type f -name '*.algo' | head -n 1)
+          test -n "$ALGO"
+          cp "$ALGO" "$PROJECT/builds/AureusHarmonicProXAU.algo"
+          sha256sum "$PROJECT/builds/AureusHarmonicProXAU.algo" > "$PROJECT/builds/AureusHarmonicProXAU.algo.sha256"
+          file "$PROJECT/builds/AureusHarmonicProXAU.algo"
+          cat > "$PROJECT/reports/BUILD_RESULT.md" <<'EOF'
+          # Build Result
+
+          - Status: success
+          - Product: Aureus Harmonic Pro XAU v1
+          - Build method: GitHub Actions ubuntu-latest + .NET 6 + cTrader.Automate NuGet
+          - Artifact: `builds/AureusHarmonicProXAU.algo`
+          - Source included in build: yes (`IncludeSource=true`)
+          - Integrity: see `builds/AureusHarmonicProXAU.algo.sha256`
+          - Strategy scope: XAUUSD harmonic-only entry, M15/H1/H4 consensus, anti-duplicate, anti-hedge, session and risk controls.
+
+          This build result proves compilation only. It does not claim profitability. Commercial acceptance remains subject to the 1-month, 1-year, 3-year, OOS, walk-forward, sensitivity and Monte Carlo validation plan.
+          EOF
+
+      - name: Commit materialized source and compiled .algo
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A 'Aureus-Harmonic-Pro-XAU-v1'
+          if git diff --cached --quiet; then
+            echo 'No materialized/build changes to commit.'
+          else
+            git commit -m 'Materialize and compile Aureus Harmonic Pro XAU v1'
+            git push origin HEAD:gold-harmonic-commercial-v1
+          fi
+
+      - name: Upload mobile/cloud-ready cTrader artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: AureusHarmonicProXAU-v1
+          path: |
+            Aureus-Harmonic-Pro-XAU-v1/builds/AureusHarmonicProXAU.algo
+            Aureus-Harmonic-Pro-XAU-v1/builds/AureusHarmonicProXAU.algo.sha256
+            Aureus-Harmonic-Pro-XAU-v1/reports/BUILD_RESULT.md
+            Aureus-Harmonic-Pro-XAU-v1/logs/build.log
+          retention-days: 30
