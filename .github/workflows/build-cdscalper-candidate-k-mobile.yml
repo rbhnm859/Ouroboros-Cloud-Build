@@ -1,0 +1,183 @@
+name: Build CDScalper Candidate K Mobile
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [cds-eurusd-v1]
+    paths:
+      - '.github/workflows/build-cdscalper-candidate-k-mobile.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  build-candidate-k-mobile:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout current release branch
+        uses: actions/checkout@v4
+        with:
+          ref: cds-eurusd-v1
+          fetch-depth: 0
+
+      - name: Checkout exact Candidate K historical source
+        uses: actions/checkout@v4
+        with:
+          ref: ca6d78774eb7f772d32e19e537a9584a5cfc5400
+          path: k-history
+
+      - name: Setup .NET 6 SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '6.0.x'
+
+      - name: Embed Candidate K defaults without changing K logic
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          @'
+          from pathlib import Path
+          import re
+
+          src = Path(r"k-history/CumulativeDeltaScalper-EURUSD-v1/src/CumulativeDeltaScalper_EURUSD_v1.cs")
+          text = src.read_text(encoding="utf-8")
+
+          defaults = {
+              "TradeLabel": '"CDScalper_Candidate_K_Mobile"',
+              "AllowedSymbolPrefix": '"EURUSD"',
+              "AllowM1": "true",
+              "AllowM5": "false",
+              "AllowM15": "false",
+              "AllowM30": "false",
+              "DeltaThreshold": "125",
+              "MinConfirmations": "3",
+              "UseBarDeltaFallback": "true",
+              "FallbackBelowTickDelta": "2",
+              "BarDeltaPointMultiplier": "1.6",
+              "UseSessionFilter": "true",
+              "OverlapOnly": "true",
+              "SessionStartHour": "14",
+              "SessionStartMinute": "0",
+              "SessionEndHour": "14",
+              "SessionEndMinute": "54",
+              "UseWeekdayFilter": "true",
+              "TradeMonday": "true",
+              "TradeTuesday": "true",
+              "TradeWednesday": "true",
+              "TradeThursday": "false",
+              "TradeFriday": "true",
+              "UseHtfEmaFilter": "true",
+              "HtfTimeFrameName": '"Minute15"',
+              "EmaSlopeBars": "3",
+              "AdxThreshold": "16.0",
+              "MinAtr": "0.00005",
+              "MaxAtr": "0.00105",
+              "MaxSpreadPoints": "18",
+              "SpreadAvgMultiplier": "1.8",
+              "RiskMode": "CdsRiskMode.FixedMoneyRisk",
+              "FixedMoneyRisk": "1.0",
+              "AutoScaleFixedRisk": "true",
+              "RiskReferenceBalance": "100.0",
+              "MinFixedMoneyRisk": "0.05",
+              "MaxLotSize": "0.05",
+              "SlAtrMultiplier": "0.8",
+              "TpAtrMultiplier": "0.4",
+              "MaxDailyTrades": "3",
+              "MaxDailyLossPercent": "4.0",
+              "MaxDailyLossMoney": "0.55",
+              "DailyProfitTargetMoney": "1.10",
+              "MaxConsecutiveLosses": "2",
+              "MinSecondsBetweenTrades": "900",
+              "LossCooldownMinutes": "45",
+              "MaxDailyEquityDrawdownMoney": "0.75",
+              "MaxFloatingLossMoney": "0.90",
+              "MaxEquityDrawdownPercent": "12.0",
+              "CloseOnEquityGuard": "true",
+              "MaxTradeSeconds": "1800",
+              "UseBreakeven": "true",
+              "BreakevenPips": "1.0",
+              "AdverseDeltaExit": "true",
+          }
+
+          for prop, literal in defaults.items():
+              pattern = re.compile(
+                  r'(\[Parameter\([^\]]*?DefaultValue\s*=\s*)([^,\]]+)([^\]]*\)\]\s*public\s+[^\s]+\s+' + re.escape(prop) + r'\s*\{\s*get;\s*set;\s*\})',
+                  re.S,
+              )
+              text2, n = pattern.subn(lambda m: m.group(1) + literal + m.group(3), text, count=1)
+              if n != 1:
+                  raise SystemExit(f"Could not patch default for {prop}; matches={n}")
+              text = text2
+
+          src.write_text(text, encoding="utf-8", newline="\n")
+          print(f"Embedded {len(defaults)} Candidate K defaults into historical source snapshot")
+          '@ | Set-Content -Path patch_candidate_k_defaults.py -Encoding UTF8
+          python patch_candidate_k_defaults.py
+
+      - name: Build Candidate K Mobile .algo
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $root = 'k-history/CumulativeDeltaScalper-EURUSD-v1'
+          $project = Join-Path $root 'CumulativeDeltaScalper_EURUSD_v1.csproj'
+          dotnet restore $project
+          dotnet build $project -c Release -p:AlgoName=CumulativeDeltaScalper_EURUSD_v1 -p:AlgoBuild=true -p:AlgoPublish=false -p:IncludeSource=true
+
+          $algos = Get-ChildItem -Path (Join-Path $root 'bin') -Recurse -Filter '*.algo' -ErrorAction SilentlyContinue
+          if (-not $algos -or $algos.Count -eq 0) { throw 'No .algo generated for Candidate K Mobile' }
+          $selected = $algos | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+
+          $out = 'CumulativeDeltaScalper-EURUSD-v1/builds/mobile/Candidate-K'
+          New-Item -ItemType Directory -Force -Path $out | Out-Null
+          $target = Join-Path $out 'CumulativeDeltaScalper_EURUSD_v1_Candidate_K_Mobile.algo'
+          Copy-Item $selected.FullName $target -Force
+          Copy-Item 'CumulativeDeltaScalper-EURUSD-v1/presets/eurusd_m1_candidate_k_30_capital_profit_guard.json' (Join-Path $out 'eurusd_m1_candidate_k_30_capital_profit_guard.json') -Force
+          Copy-Item (Join-Path $root 'src/CumulativeDeltaScalper_EURUSD_v1.cs') (Join-Path $out 'CumulativeDeltaScalper_EURUSD_v1_Candidate_K_Mobile.cs') -Force
+
+          $hash = (Get-FileHash -Algorithm SHA256 $target).Hash.ToLower()
+          Set-Content -Path (Join-Path $out 'CumulativeDeltaScalper_EURUSD_v1_Candidate_K_Mobile.algo.sha256') -Value "$hash  CumulativeDeltaScalper_EURUSD_v1_Candidate_K_Mobile.algo" -Encoding UTF8
+
+          @"
+          # Candidate K Mobile Build
+
+          - Product: CumulativeDeltaScalper EURUSD M1 Candidate K
+          - Historical K validation head: ca6d78774eb7f772d32e19e537a9584a5cfc5400
+          - Historical K workflow run: 34405972113
+          - Target: cTrader Mobile / Cloud importable .algo
+          - Framework: net6.0
+          - Access rights: None
+          - Symbol: EURUSD
+          - Timeframe default: M1 only in this Mobile archive
+          - Starting-capital profile: USD 30
+          - Strategy exclusions: no grid, martingale, DCA, recovery, loss averaging, or hedge stacking
+          - SHA256: $hash
+
+          Candidate K parameters are embedded as defaults in the archived source and the original K preset is shipped beside the .algo.
+          The historical K backtest used cTrader console M1 data mode and did not explicitly model the later Q2 realistic spread/commission test, so its historical ROI should not be treated as a live-performance guarantee.
+          "@ | Set-Content -Path (Join-Path $out 'README.md') -Encoding UTF8
+
+          Write-Host "Candidate K Mobile built: $target"
+          Write-Host "SHA256: $hash"
+
+      - name: Upload Candidate K Mobile artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: CDScalper_Candidate_K_Mobile
+          path: CumulativeDeltaScalper-EURUSD-v1/builds/mobile/Candidate-K/*
+          retention-days: 30
+
+      - name: Commit Candidate K Mobile build to repository
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -- 'CumulativeDeltaScalper-EURUSD-v1/builds/mobile/Candidate-K'
+          git diff --cached --quiet
+          if ($LASTEXITCODE -eq 0) {
+            Write-Host 'Candidate K Mobile build already matches repository content.'
+            exit 0
+          }
+          git commit -m 'Publish Candidate K mobile .algo'
+          git push origin HEAD:cds-eurusd-v1
