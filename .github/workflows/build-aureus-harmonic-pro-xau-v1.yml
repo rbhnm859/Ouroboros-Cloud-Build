@@ -26,13 +26,16 @@ jobs:
         run: |
           set -euo pipefail
           PROJECT='Aureus-Harmonic-Pro-XAU-v1'
-          ARCHIVE="$PROJECT/source.tgz"
-          test -f "$ARCHIVE"
+          B64="$PROJECT/source.b64"
+          ARCHIVE="$RUNNER_TEMP/aureus-source.tgz"
+          test -f "$B64"
+          base64 -d "$B64" > "$ARCHIVE"
+          gzip -t "$ARCHIVE"
           rm -rf "$RUNNER_TEMP/aureus-src"
           mkdir -p "$RUNNER_TEMP/aureus-src"
           tar -xzf "$ARCHIVE" -C "$RUNNER_TEMP/aureus-src"
-          rsync -a --delete --exclude='source.tgz' "$RUNNER_TEMP/aureus-src/$PROJECT/" "$PROJECT/"
-          rm -f "$ARCHIVE"
+          rsync -a --delete --exclude='source.b64' --exclude='source.tgz' "$RUNNER_TEMP/aureus-src/$PROJECT/" "$PROJECT/"
+          rm -f "$PROJECT/source.b64" "$PROJECT/source.tgz"
           test -f "$PROJECT/src/AureusHarmonicProXAU.cs"
           test -f "$PROJECT/src/HarmonicPatternDetector.cs"
           test -f "$PROJECT/src/RiskEngine.cs"
