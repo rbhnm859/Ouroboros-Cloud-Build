@@ -8,8 +8,9 @@ def rep(text, old, new, label):
     return text.replace(old, new, 1)
 
 
-def transform_generated(out_path):
+def transform_generated(out_path, source_path):
     out = Path(out_path).resolve()
+    source = Path(source_path).resolve()
     base = out.parent
     arch = base / 'Growth3.Architecture.cs'
     r26exec = base / 'Round26.Execution.cs'
@@ -138,16 +139,24 @@ namespace cAlgo.Robots
 }
 ''')
 
+    # The validation harness keeps the immutable Store source beside the generated
+    # project as an input alias. It is not part of the compile set and must not be
+    # counted as a generated direct-order call. This is the same exclusion used by
+    # the validated RC1 wrapper.
     direct=[]
     for p in base.glob('*.cs'):
+        if p.resolve() == source:
+            continue
         direct.append((p.name,p.read_text().count('ExecuteMarketOrder(')))
     total=sum(v for _,v in direct)
     central=commercial.read_text().count('ExecuteMarketOrder(')
     if total!=1 or central!=1:
         raise SystemExit('RC3A invariant failed: direct=%d central=%d files=%r' % (total,central,direct))
+    if out.read_text().count('ExecuteMarketOrder(') != 0:
+        raise SystemExit('RC3A generated main still contains a direct market-order call')
     if 'CommercialPortfolioAllows' in r26exec.read_text():
         raise SystemExit('RC3A inherited portfolio alpha veto')
-    print('Commercial RC3A generated: v3.1 alpha preserved through unified Intent -> Risk -> Execution path; direct orders=1')
+    print('Commercial RC3A generated: v3.1 alpha preserved through unified Intent -> Risk -> Execution path; generated direct orders=1; frozen input alias excluded')
 
 
 if __name__ == '__main__':
@@ -158,4 +167,4 @@ if __name__ == '__main__':
         'FibonacciHarmonicSniperUltimate/monthly-growth-v3/growth3_transform.py',
         sys.argv[1], sys.argv[2]
     ], check=True)
-    transform_generated(sys.argv[2])
+    transform_generated(sys.argv[2], sys.argv[1])
