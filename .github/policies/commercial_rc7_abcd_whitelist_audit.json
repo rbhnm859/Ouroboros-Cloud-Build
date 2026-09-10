@@ -1,0 +1,42 @@
+{
+  "audit_version": "RC6B-ABCD-AUDIT-2026-09-10",
+  "source": "RC4 full trade history and R15 M30 OPEN telemetry; RC6B gate invoked because RC6 3Y trades=247 < 250",
+  "decision": "REJECT_LIVE_WHITELIST",
+  "reason": "No coarse non-time ABCD cell is cross-period robust enough to promote. Do not use score/time slicing or low-sample cells to manufacture the missing trade count.",
+  "cells": {
+    "all_abcd": {
+      "3y": {"trades":137,"net":-33.58,"pf":0.943},
+      "recent": {"trades":50,"net":-69.93,"pf":0.706},
+      "y1": {"trades":48,"net":3.75,"pf":1.019},
+      "y2": {"trades":15,"net":2.32,"pf":1.038},
+      "harsh_3y": {"trades":124,"net":-80.09,"pf":0.853},
+      "harsh_recent": {"trades":47,"net":-58.24,"pf":0.728}
+    },
+    "abcd_buy_score_ge_97_5": {
+      "3y": {"trades":41,"net":11.87,"pf":1.066},
+      "recent": {"trades":16,"net":3.47,"pf":1.044},
+      "y1": {"trades":15,"net":12.54,"pf":1.244},
+      "y2": {"trades":2,"net":-18.36,"pf":0.0},
+      "harsh_3y": {"trades":35,"net":29.12,"pf":1.198},
+      "harsh_recent": {"trades":13,"net":12.97,"pf":1.219}
+    },
+    "abcd_rr_lt_1_8": {
+      "3y": {"trades":8,"net":11.31,"pf":1.400},
+      "recent": {"trades":2,"net":2.74,"pf":1.362},
+      "y1": {"trades":3,"net":-5.93,"pf":0.547},
+      "y2": {"trades":1,"net":17.00,"pf":"no_losses"},
+      "harsh_3y": {"trades":6,"net":10.74,"pf":1.465},
+      "harsh_recent": {"trades":2,"net":2.32,"pf":1.298}
+    }
+  },
+  "next_report_step": "RC6C_DEFERRED_INTENT_TTL_QUEUE",
+  "constraints": [
+    "ABCD remains SHADOW",
+    "Growth3 remains SHADOW",
+    "no score/time whitelist",
+    "no risk increase",
+    "no frozen-window changes",
+    "no commercial-gate changes",
+    "one candidate at a time"
+  ]
+}
