@@ -1,0 +1,546 @@
+name: Validate CDScalper K3 Flow-First Commercial One-Pass
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [cds-k3-flow-first-entry-research]
+    paths:
+      - 'CumulativeDeltaScalper-EURUSD-v1/k3/**'
+      - '.github/workflows/cdscalper-k3-flow-first-commercial-onepass.yml'
+
+permissions:
+  contents: read
+
+env:
+  SYMBOL: EURUSD
+  PERIOD: m1
+  BALANCE: '30'
+  BASE_SPREAD: '0.43'
+  STRESS125_SPREAD: '0.54'
+  STRESS150_SPREAD: '0.65'
+  COMMISSION: '35'
+  COMMISSION_TYPE: UsdPerMillionUsdVolume
+  IS_START: '09/09/2024 00:00'
+  IS_END: '08/09/2025 23:59'
+  OOS_START: '09/09/2025 00:00'
+  OOS_END: '09/09/2026 23:59'
+  FULL_START: '09/09/2024 00:00'
+  FULL_END: '09/09/2026 23:59'
+
+jobs:
+  audit_build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: cds-k3-flow-first-entry-research
+          fetch-depth: 0
+
+      - name: Verify immutable Original K and K3 engineering invariants
+        shell: bash
+        run: |
+          set -euo pipefail
+          ORIGINAL='CumulativeDeltaScalper-EURUSD-v1/src/CumulativeDeltaScalper_EURUSD_v1.cs'
+          K2='CumulativeDeltaScalper-EURUSD-v1/k2/src/CumulativeDeltaScalper_EURUSD_K2.cs'
+          K3='CumulativeDeltaScalper-EURUSD-v1/k3/src/CumulativeDeltaScalper_EURUSD_K3.cs'
+          BASE='ca6d78774eb7f772d32e19e537a9584a5cfc5400'
+          test "$(git rev-parse "$BASE:$ORIGINAL")" = "$(git hash-object "$ORIGINAL")"
+          test -f "$K2" && test -f "$K3"
+          grep -q 'AccessRights = AccessRights.None' "$K3"
+          grep -q 'RequiredContextConfirmations = 2' "$K3"
+          grep -q 'CheckMomentum(signal)' "$K3"
+          grep -q 'entry_flow_not_persistent' "$K3"
+          grep -q 'entry_price_rejected_flow' "$K3"
+          grep -q 'Bars.ClosePrices.Count - 2' "$K3"
+          grep -q 'Account.PreciseLeverage' "$K3"
+          grep -q 'ExecuteMarketOrder' "$K3"
+          grep -q 'ModifyPosition' "$K3"
+          grep -q 'VolumeForFixedRisk' "$K3"
+          grep -q 'NormalizeVolumeInUnits' "$K3"
+          grep -q 'MinStopLossDistance' "$K3"
+          grep -q 'MinTakeProfitDistance' "$K3"
+          grep -q 'Symbol.Spread / Symbol.PipSize' "$K3"
+          if grep -Eqi '\b(grid|martingale|dca|recovery|loss averaging|averaging down|hedging|fibonacci|rsi|macd|bollinger|machine learning|ml)\b' "$K3"; then
+            echo 'Forbidden strategy family token found in K3 source.' >&2
+            exit 1
+          fi
+          echo 'Original K preserved; K3 Flow-First invariants verified.'
+
+      - name: Assert corrected cTrader CLI semantics
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p audit
+          docker run --rm ghcr.io/spotware/ctrader-console:5.9.11 backtest --help > audit/backtest-help.txt 2>&1
+          grep -q -- '--data-mode' audit/backtest-help.txt
+          grep -q -- '--commission-type' audit/backtest-help.txt
+          grep -q 'UsdPerMillionUsdVolume' audit/backtest-help.txt
+          grep -q -- '--spread' audit/backtest-help.txt
+          printf '%s\n' \
+            "IS=$IS_START -> $IS_END" \
+            "OOS=$OOS_START -> $OOS_END" \
+            "FULL=$FULL_START -> $FULL_END" \
+            "data-mode=ticks" \
+            "spread=$BASE_SPREAD pips" \
+            "commission=$COMMISSION" \
+            "commission-type=$COMMISSION_TYPE" > audit/locked-harness.txt
+
+      - name: Build Original K, K2 and K3
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf package && mkdir -p package/original package/k2 package/k3
+          dotnet build CumulativeDeltaScalper-EURUSD-v1/CumulativeDeltaScalper_EURUSD_v1.csproj -c Release -p:AlgoBuild=true
+          ORIGINAL_ALGO="$(find CumulativeDeltaScalper-EURUSD-v1 -type f -name 'CumulativeDeltaScalper_EURUSD_v1.algo' -print -quit)"
+          test -n "$ORIGINAL_ALGO" && cp "$ORIGINAL_ALGO" package/original/
+          dotnet build CumulativeDeltaScalper-EURUSD-v1/k2/CumulativeDeltaScalper_EURUSD_K2.csproj -c Release -p:AlgoBuild=true
+          K2_ALGO="$(find CumulativeDeltaScalper-EURUSD-v1/k2 -type f -name 'CumulativeDeltaScalper_EURUSD_K2.algo' -print -quit)"
+          test -n "$K2_ALGO" && cp "$K2_ALGO" package/k2/
+          dotnet build CumulativeDeltaScalper-EURUSD-v1/k3/CumulativeDeltaScalper_EURUSD_K3.csproj -c Release -p:AlgoBuild=true
+          K3_ALGO="$(find CumulativeDeltaScalper-EURUSD-v1/k3 -type f -name 'CumulativeDeltaScalper_EURUSD_K3.algo' -print -quit)"
+          test -n "$K3_ALGO" && cp "$K3_ALGO" package/k3/
+          sha256sum package/*/*.algo | tee audit/algo-sha256.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: CDScalper_K3_ONEPASS_package
+          path: |
+            package/**
+            audit/**
+            CumulativeDeltaScalper-EURUSD-v1/k3/src/**
+            CumulativeDeltaScalper-EURUSD-v1/k3/CumulativeDeltaScalper_EURUSD_K3.csproj
+          retention-days: 30
+
+  corrected_is:
+    needs: audit_build
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix:
+        include:
+          - { tag: ORIGINAL_K_CORRECTED_IS, engine: original, tp: '1.0' }
+          - { tag: K2_CORRECTED_IS, engine: k2, tp: '1.0' }
+          - { tag: K3_FLOWFIRST_TP10_IS, engine: k3, tp: '1.0' }
+          - { tag: K3_FLOWFIRST_TP08_IS, engine: k3, tp: '0.8' }
+    env:
+      CTID: ${{ secrets.CTRADER_CTID }}
+      ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+      CT_PASS: ${{ secrets.CTRADER_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: cds-k3-flow-first-entry-research
+      - uses: actions/download-artifact@v4
+        with:
+          name: CDScalper_K3_ONEPASS_package
+          path: package
+
+      - name: Run corrected IS control/candidate
+        shell: bash
+        env:
+          TAG: ${{ matrix.tag }}
+          ENGINE: ${{ matrix.engine }}
+          TP: ${{ matrix.tp }}
+        run: |
+          set -euo pipefail
+          case "$ENGINE" in
+            original) ALGO="$(find package/original -type f -name '*.algo' -print -quit)" ;;
+            k2) ALGO="$(find package/k2 -type f -name '*.algo' -print -quit)" ;;
+            k3) ALGO="$(find package/k3 -type f -name '*.algo' -print -quit)" ;;
+            *) exit 2 ;;
+          esac
+          test -n "$ALGO"
+          mkdir -p backtest/reports backtest/cache/EURUSD
+          cp "$ALGO" backtest/
+          printf '%s' "$CT_PASS" | tr -d '\r\n' > backtest/ctrader.pwd
+          chmod 600 backtest/ctrader.pwd
+
+          COMMON=(
+            --environment-variables
+            --symbol="$SYMBOL" --period="$PERIOD"
+            --start="$IS_START" --end="$IS_END" --balance="$BALANCE"
+            --data-mode=ticks --data-dir=/work/cache/EURUSD
+            --spread="$BASE_SPREAD" --commission="$COMMISSION" --commission-type="$COMMISSION_TYPE"
+          )
+
+          BASEPARAMS=(
+            --DeltaThreshold=125
+            --UseBarDeltaFallback=true --FallbackBelowTickDelta=2 --BarDeltaPointMultiplier=1.6
+            --SessionStartHour=14 --SessionStartMinute=0 --SessionEndHour=14 --SessionEndMinute=54
+            --TradeMonday=true --TradeTuesday=true --TradeWednesday=true --TradeThursday=false --TradeFriday=true
+            --HtfTimeFrameName=Minute15 --EmaSlopeBars=3 --AdxThreshold=16
+            --MinAtr=0.00005 --MaxAtr=0.00105 --MaxSpreadPoints=18 --SpreadAvgMultiplier=1.8
+            --FixedMoneyRisk=1.0 --AutoScaleFixedRisk=true --RiskReferenceBalance=100 --MinFixedMoneyRisk=0.05 --MaxLotSize=0.05
+            --SlAtrMultiplier=0.8 --TpAtrMultiplier="$TP"
+            --MaxDailyTrades=3 --MaxDailyLossPercent=4 --MaxDailyLossMoney=0.55 --DailyProfitTargetMoney=1.10
+            --MaxConsecutiveLosses=2 --MinSecondsBetweenTrades=900 --LossCooldownMinutes=45
+            --MaxDailyEquityDrawdownMoney=0.75 --MaxFloatingLossMoney=0.90 --MaxEquityDrawdownPercent=12 --CloseOnEquityGuard=true
+            --MaxTradeSeconds=1800 --UseBreakeven=true --AdverseDeltaExit=true
+          )
+
+          if [ "$ENGINE" = original ]; then
+            EXTRA=(--MinConfirmations=3 --UseSessionFilter=true --OverlapOnly=true --UseWeekdayFilter=true --UseHtfEmaFilter=true --RiskMode=FixedMoneyRisk --BreakevenPips=1.0)
+          elif [ "$ENGINE" = k2 ]; then
+            EXTRA=(--MinConfirmations=3 --UseSessionFilter=true --MinimumExpectedMoveToCostRatio=2.0 --CommissionUsdPerMillion=35 --CommissionIsPerSide=true --ExecutionSafetyBufferPips=0.2 --RiskMode=FixedMoneyRisk --BreakevenTriggerAtr=0.5 --BreakevenCostBufferPips=0.2)
+          else
+            EXTRA=(--UseSessionFilter=true --ExpectedLeverage=500 --MinimumExpectedMoveToCostRatio=1.0 --CommissionUsdPerMillion=35 --CommissionIsPerSide=true --ExecutionSafetyBufferPips=0.2 --RiskMode=FixedMoneyRisk --BreakevenTriggerAtr=0.5 --BreakevenCostBufferPips=0.2)
+          fi
+
+          set +e
+          docker run --rm \
+            -v "$PWD/backtest:/work" \
+            -e "CTID=$CTID" -e "ACCOUNT=$ACCOUNT" -e "PWD-FILE=/work/ctrader.pwd" \
+            ghcr.io/spotware/ctrader-console:5.9.11 \
+            backtest "/work/$(basename "$ALGO")" \
+            "${COMMON[@]}" "${BASEPARAMS[@]}" "${EXTRA[@]}" \
+            --report="/work/reports/${TAG}.html" --report-json="/work/reports/${TAG}.json" --exit-on-stop \
+            2>&1 | tee "backtest/reports/${TAG}.log"
+          RC=${PIPESTATUS[0]}
+          set -e
+          rm -f backtest/ctrader.pwd
+          printf 'ctrader_exit=%s\nengine=%s\ntp=%s\n' "$RC" "$ENGINE" "$TP" > "backtest/reports/${TAG}-meta.txt"
+          test -s "backtest/reports/${TAG}.json"
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: CDScalper_K3_IS_${{ matrix.tag }}
+          path: backtest/reports/*
+          if-no-files-found: warn
+          retention-days: 30
+
+  freeze_is:
+    needs: corrected_is
+    runs-on: ubuntu-latest
+    outputs:
+      promote: ${{ steps.gate.outputs.promote }}
+      frozen_tp: ${{ steps.gate.outputs.frozen_tp }}
+      classification: ${{ steps.gate.outputs.classification }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: CDScalper_K3_IS_*
+          path: is_reports
+          merge-multiple: true
+      - name: Parse corrected IS and freeze candidate
+        id: gate
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json, glob, os
+          rows=[]
+          for p in sorted(glob.glob('is_reports/*.json')):
+              d=json.load(open(p))
+              s=d['tradeStatistics']; m=d['main']; e=d['equity']
+              row=dict(file=os.path.basename(p), roi=float(m['roi']), net=float(m['netProfit']), pf=float(s['profitFactor']['all']), trades=int(s['totalTrades']['all']), wr=(100.0*float(s['winningTrades']['all'])/max(1,int(s['totalTrades']['all']))), avg=float(s['averageTrade']['all']), dd=float(e['maxEquityDrawdownPercent']), largest_loss=float(s['largestLosingTrade']['all']), leverage=float(m.get('accountLeverage') or 0), data=(m.get('data') or {}).get('type'), commission_type=(m.get('commissions') or {}).get('type'))
+              rows.append(row)
+          for r in rows: print(r)
+          by={r['file'].replace('.json',''):r for r in rows}
+          candidates=[]
+          for tag,tp in [('K3_FLOWFIRST_TP10_IS','1.0'),('K3_FLOWFIRST_TP08_IS','0.8')]:
+              r=by.get(tag)
+              if not r: continue
+              harness_ok=('tick' in str(r['data']).lower() and abs(r['leverage']-500)<0.01 and str(r['commission_type']).lower()=='usdpermillionusdvolume')
+              eligible=harness_ok and r['net']>0 and r['pf']>=1.15 and r['trades']>=50 and r['dd']<=15 and r['largest_loss']>=-1.0 and r['avg']>0
+              if eligible: candidates.append((r['pf'], 1 if tp=='1.0' else 0, tp, r))
+          if candidates:
+              candidates.sort(reverse=True)
+              frozen=candidates[0][2]
+              promote='true'; classification='IS_FREEZE_PASS'
+          else:
+              frozen='1.0'; promote='false'; classification='C_FAIL_IS'
+          with open(os.environ['GITHUB_OUTPUT'],'a') as f:
+              f.write(f'promote={promote}\n')
+              f.write(f'frozen_tp={frozen}\n')
+              f.write(f'classification={classification}\n')
+          with open('IS-SUMMARY.md','w') as f:
+              f.write('# K3 Corrected IS Summary\n\n')
+              f.write('|Case|ROI|Net|PF|Trades|WR|Avg trade|Max DD|Largest loss|Data|Leverage|Commission type|\n|---|---:|---:|---:|---:|---:|---:|---:|---:|---|---:|---|\n')
+              for r in rows:
+                  f.write(f"|{r['file']}|{r['roi']:.2f}%|{r['net']:.2f}|{r['pf']:.2f}|{r['trades']}|{r['wr']:.2f}%|{r['avg']:.3f}|{r['dd']:.2f}%|{r['largest_loss']:.2f}|{r['data']}|{r['leverage']:.0f}|{r['commission_type']}|\n")
+              f.write(f'\nFreeze decision: **{classification}**, frozen TP={frozen}.\n')
+          PY
+          cat IS-SUMMARY.md
+      - uses: actions/upload-artifact@v4
+        with:
+          name: CDScalper_K3_IS_FREEZE_DECISION
+          path: IS-SUMMARY.md
+          retention-days: 30
+
+  validation_matrix:
+    needs: [audit_build, freeze_is]
+    if: needs.freeze_is.outputs.promote == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix:
+        include:
+          - { tag: K3_OOS_1Y, start: '09/09/2025 00:00', end: '09/09/2026 23:59', spread: '0.43' }
+          - { tag: K3_FULL_2Y, start: '09/09/2024 00:00', end: '09/09/2026 23:59', spread: '0.43' }
+          - { tag: K3_STRESS125_FULL_2Y, start: '09/09/2024 00:00', end: '09/09/2026 23:59', spread: '0.54' }
+          - { tag: K3_STRESS150_FULL_2Y, start: '09/09/2024 00:00', end: '09/09/2026 23:59', spread: '0.65' }
+    env:
+      CTID: ${{ secrets.CTRADER_CTID }}
+      ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+      CT_PASS: ${{ secrets.CTRADER_PASSWORD }}
+      FROZEN_TP: ${{ needs.freeze_is.outputs.frozen_tp }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: CDScalper_K3_ONEPASS_package
+          path: package
+      - name: Run frozen K3 OOS/FULL/stress
+        shell: bash
+        env:
+          TAG: ${{ matrix.tag }}
+          START_DATE: ${{ matrix.start }}
+          END_DATE: ${{ matrix.end }}
+          CASE_SPREAD: ${{ matrix.spread }}
+        run: |
+          set -euo pipefail
+          ALGO="$(find package/k3 -type f -name '*.algo' -print -quit)"
+          mkdir -p backtest/reports backtest/cache/EURUSD
+          cp "$ALGO" backtest/
+          printf '%s' "$CT_PASS" | tr -d '\r\n' > backtest/ctrader.pwd
+          chmod 600 backtest/ctrader.pwd
+          set +e
+          docker run --rm -v "$PWD/backtest:/work" \
+            -e "CTID=$CTID" -e "ACCOUNT=$ACCOUNT" -e "PWD-FILE=/work/ctrader.pwd" \
+            ghcr.io/spotware/ctrader-console:5.9.11 \
+            backtest "/work/$(basename "$ALGO")" --environment-variables \
+            --symbol="$SYMBOL" --period="$PERIOD" --start="$START_DATE" --end="$END_DATE" --balance="$BALANCE" \
+            --data-mode=ticks --data-dir=/work/cache/EURUSD --spread="$CASE_SPREAD" --commission="$COMMISSION" --commission-type="$COMMISSION_TYPE" \
+            --ExpectedLeverage=500 --DeltaThreshold=125 --UseBarDeltaFallback=true --FallbackBelowTickDelta=2 --BarDeltaPointMultiplier=1.6 \
+            --UseSessionFilter=true --SessionStartHour=14 --SessionStartMinute=0 --SessionEndHour=14 --SessionEndMinute=54 \
+            --TradeMonday=true --TradeTuesday=true --TradeWednesday=true --TradeThursday=false --TradeFriday=true \
+            --HtfTimeFrameName=Minute15 --EmaSlopeBars=3 --AdxThreshold=16 --MinAtr=0.00005 --MaxAtr=0.00105 --MaxSpreadPoints=18 --SpreadAvgMultiplier=1.8 \
+            --MinimumExpectedMoveToCostRatio=1.0 --CommissionUsdPerMillion=35 --CommissionIsPerSide=true --ExecutionSafetyBufferPips=0.2 \
+            --RiskMode=FixedMoneyRisk --FixedMoneyRisk=1.0 --AutoScaleFixedRisk=true --RiskReferenceBalance=100 --MinFixedMoneyRisk=0.05 --MaxLotSize=0.05 \
+            --SlAtrMultiplier=0.8 --TpAtrMultiplier="$FROZEN_TP" --MaxDailyTrades=3 --MaxDailyLossPercent=4 --MaxDailyLossMoney=0.55 --DailyProfitTargetMoney=1.10 \
+            --MaxConsecutiveLosses=2 --MinSecondsBetweenTrades=900 --LossCooldownMinutes=45 --MaxDailyEquityDrawdownMoney=0.75 --MaxFloatingLossMoney=0.90 \
+            --MaxEquityDrawdownPercent=12 --CloseOnEquityGuard=true --MaxTradeSeconds=1800 --UseBreakeven=true --BreakevenTriggerAtr=0.5 --BreakevenCostBufferPips=0.2 --AdverseDeltaExit=true \
+            --report="/work/reports/${TAG}.html" --report-json="/work/reports/${TAG}.json" --exit-on-stop 2>&1 | tee "backtest/reports/${TAG}.log"
+          RC=${PIPESTATUS[0]}
+          set -e
+          rm -f backtest/ctrader.pwd
+          echo "ctrader_exit=$RC" > "backtest/reports/${TAG}-meta.txt"
+          test -s "backtest/reports/${TAG}.json"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: CDScalper_K3_VALIDATE_${{ matrix.tag }}
+          path: backtest/reports/*
+          if-no-files-found: warn
+          retention-days: 30
+
+  robustness:
+    needs: [audit_build, freeze_is]
+    if: needs.freeze_is.outputs.promote == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    strategy:
+      fail-fast: false
+      max-parallel: 3
+      matrix:
+        include:
+          - { tag: ROB_TP_MINUS10, tp_mult: '0.90', delta: '125', adx: '16', sh: '14', sm: '0', eh: '14', em: '54', thu: 'false' }
+          - { tag: ROB_TP_PLUS10, tp_mult: '1.10', delta: '125', adx: '16', sh: '14', sm: '0', eh: '14', em: '54', thu: 'false' }
+          - { tag: ROB_DELTA_MINUS10, tp_mult: '1.00', delta: '113', adx: '16', sh: '14', sm: '0', eh: '14', em: '54', thu: 'false' }
+          - { tag: ROB_DELTA_PLUS10, tp_mult: '1.00', delta: '138', adx: '16', sh: '14', sm: '0', eh: '14', em: '54', thu: 'false' }
+          - { tag: ROB_ADX_MINUS10, tp_mult: '1.00', delta: '125', adx: '14.4', sh: '14', sm: '0', eh: '14', em: '54', thu: 'false' }
+          - { tag: ROB_ADX_PLUS10, tp_mult: '1.00', delta: '125', adx: '17.6', sh: '14', sm: '0', eh: '14', em: '54', thu: 'false' }
+          - { tag: ROB_SESSION_MINUS30, tp_mult: '1.00', delta: '125', adx: '16', sh: '13', sm: '30', eh: '14', em: '24', thu: 'false' }
+          - { tag: ROB_SESSION_PLUS30, tp_mult: '1.00', delta: '125', adx: '16', sh: '14', sm: '30', eh: '15', em: '24', thu: 'false' }
+          - { tag: ROB_MON_FRI, tp_mult: '1.00', delta: '125', adx: '16', sh: '14', sm: '0', eh: '14', em: '54', thu: 'true' }
+    env:
+      CTID: ${{ secrets.CTRADER_CTID }}
+      ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+      CT_PASS: ${{ secrets.CTRADER_PASSWORD }}
+      FROZEN_TP: ${{ needs.freeze_is.outputs.frozen_tp }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: CDScalper_K3_ONEPASS_package
+          path: package
+      - name: Run bounded parameter robustness
+        shell: bash
+        env:
+          TAG: ${{ matrix.tag }}
+          TP_MULT: ${{ matrix.tp_mult }}
+          DELTA: ${{ matrix.delta }}
+          ADX: ${{ matrix.adx }}
+          SH: ${{ matrix.sh }}
+          SM: ${{ matrix.sm }}
+          EH: ${{ matrix.eh }}
+          EM: ${{ matrix.em }}
+          THU: ${{ matrix.thu }}
+        run: |
+          set -euo pipefail
+          TP="$(python -c "print(round(float('$FROZEN_TP')*float('$TP_MULT'), 3))")"
+          ALGO="$(find package/k3 -type f -name '*.algo' -print -quit)"
+          mkdir -p backtest/reports backtest/cache/EURUSD
+          cp "$ALGO" backtest/
+          printf '%s' "$CT_PASS" | tr -d '\r\n' > backtest/ctrader.pwd
+          chmod 600 backtest/ctrader.pwd
+          set +e
+          docker run --rm -v "$PWD/backtest:/work" \
+            -e "CTID=$CTID" -e "ACCOUNT=$ACCOUNT" -e "PWD-FILE=/work/ctrader.pwd" \
+            ghcr.io/spotware/ctrader-console:5.9.11 \
+            backtest "/work/$(basename "$ALGO")" --environment-variables \
+            --symbol="$SYMBOL" --period="$PERIOD" --start="$FULL_START" --end="$FULL_END" --balance="$BALANCE" \
+            --data-mode=ticks --data-dir=/work/cache/EURUSD --spread="$BASE_SPREAD" --commission="$COMMISSION" --commission-type="$COMMISSION_TYPE" \
+            --ExpectedLeverage=500 --DeltaThreshold="$DELTA" --UseBarDeltaFallback=true --FallbackBelowTickDelta=2 --BarDeltaPointMultiplier=1.6 \
+            --UseSessionFilter=true --SessionStartHour="$SH" --SessionStartMinute="$SM" --SessionEndHour="$EH" --SessionEndMinute="$EM" \
+            --TradeMonday=true --TradeTuesday=true --TradeWednesday=true --TradeThursday="$THU" --TradeFriday=true \
+            --HtfTimeFrameName=Minute15 --EmaSlopeBars=3 --AdxThreshold="$ADX" --MinAtr=0.00005 --MaxAtr=0.00105 --MaxSpreadPoints=18 --SpreadAvgMultiplier=1.8 \
+            --MinimumExpectedMoveToCostRatio=1.0 --CommissionUsdPerMillion=35 --CommissionIsPerSide=true --ExecutionSafetyBufferPips=0.2 \
+            --RiskMode=FixedMoneyRisk --FixedMoneyRisk=1.0 --AutoScaleFixedRisk=true --RiskReferenceBalance=100 --MinFixedMoneyRisk=0.05 --MaxLotSize=0.05 \
+            --SlAtrMultiplier=0.8 --TpAtrMultiplier="$TP" --MaxDailyTrades=3 --MaxDailyLossPercent=4 --MaxDailyLossMoney=0.55 --DailyProfitTargetMoney=1.10 \
+            --MaxConsecutiveLosses=2 --MinSecondsBetweenTrades=900 --LossCooldownMinutes=45 --MaxDailyEquityDrawdownMoney=0.75 --MaxFloatingLossMoney=0.90 \
+            --MaxEquityDrawdownPercent=12 --CloseOnEquityGuard=true --MaxTradeSeconds=1800 --UseBreakeven=true --BreakevenTriggerAtr=0.5 --BreakevenCostBufferPips=0.2 --AdverseDeltaExit=true \
+            --report="/work/reports/${TAG}.html" --report-json="/work/reports/${TAG}.json" --exit-on-stop 2>&1 | tee "backtest/reports/${TAG}.log"
+          RC=${PIPESTATUS[0]}
+          set -e
+          rm -f backtest/ctrader.pwd
+          echo "ctrader_exit=$RC" > "backtest/reports/${TAG}-meta.txt"
+          test -s "backtest/reports/${TAG}.json"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: CDScalper_K3_ROB_${{ matrix.tag }}
+          path: backtest/reports/*
+          if-no-files-found: warn
+          retention-days: 30
+
+  final_gate:
+    needs: [audit_build, freeze_is, validation_matrix, robustness]
+    if: always()
+    runs-on: ubuntu-latest
+    outputs:
+      commercial_pass: ${{ steps.final.outputs.commercial_pass }}
+      classification: ${{ steps.final.outputs.classification }}
+    steps:
+      - uses: actions/download-artifact@v4
+        if: needs.freeze_is.outputs.promote == 'true'
+        with:
+          pattern: CDScalper_K3_VALIDATE_*
+          path: validation
+          merge-multiple: true
+      - uses: actions/download-artifact@v4
+        if: needs.freeze_is.outputs.promote == 'true'
+        with:
+          pattern: CDScalper_K3_ROB_*
+          path: robustness
+          merge-multiple: true
+      - name: Commercial gates and Monte Carlo
+        id: final
+        shell: bash
+        env:
+          PROMOTE: ${{ needs.freeze_is.outputs.promote }}
+          FROZEN_TP: ${{ needs.freeze_is.outputs.frozen_tp }}
+        run: |
+          python - <<'PY'
+          import json, glob, os, random, statistics, math
+          promote=os.environ.get('PROMOTE')=='true'
+          def metric(p):
+              d=json.load(open(p)); s=d['tradeStatistics']; m=d['main']; e=d['equity']
+              return dict(path=p,roi=float(m['roi']),net=float(m['netProfit']),pf=float(s['profitFactor']['all']),trades=int(s['totalTrades']['all']),avg=float(s['averageTrade']['all']),dd=float(e['maxEquityDrawdownPercent']),largest_loss=float(s['largestLosingTrade']['all']),history=d['history']['items'])
+          classification='C_FAIL_IS'; commercial=False; report=[]
+          if promote:
+              vals={os.path.basename(p).replace('.json',''):metric(p) for p in glob.glob('validation/*.json')}
+              rob=[metric(p) for p in glob.glob('robustness/*.json')]
+              oos=vals.get('K3_OOS_1Y'); full=vals.get('K3_FULL_2Y'); s125=vals.get('K3_STRESS125_FULL_2Y'); s150=vals.get('K3_STRESS150_FULL_2Y')
+              core_ok=bool(oos and full and s150)
+              if core_ok:
+                  oos_ok=oos['roi']>0 and oos['pf']>=1.20 and oos['trades']>=50 and oos['dd']<=15 and oos['largest_loss']>=-1 and oos['avg']>0
+                  full_ok=full['roi']>=10 and full['pf']>=1.20 and full['trades']>=100 and full['dd']<=15 and full['net']>0 and full['avg']>0
+                  stress_ok=s150['pf']>=1.0 and s150['net']>=0 and s150['dd']<=20
+                  stress125_ok=bool(s125 and s125['pf']>=1.05 and s125['net']>=0 and s125['dd']<=18)
+                  rob_pf=[r['pf'] for r in rob]; rob_ok=(len(rob)>=9 and sum(1 for r in rob if r['pf']>=1.0 and r['net']>=0)>=7 and statistics.median(rob_pf)>=1.10 and max(r['dd'] for r in rob)<=20)
+                  # Deterministic Monte Carlo over frozen FULL trade sequence.
+                  nets=[float(x.get('net',0)) for x in full['history']]
+                  comm=[abs(float(x.get('commissions',0) or 0)) for x in full['history']]
+                  rng=random.Random(20260910); start=30.0; sims=5000; rois=[]; dds=[]; ruin=0
+                  for _ in range(sims):
+                      idx=list(range(len(nets))); rng.shuffle(idx); bal=start; peak=start; maxdd=0.0; ruined=False
+                      for i in idx:
+                          if rng.random()<0.05: continue
+                          extra=comm[i]*rng.uniform(0,0.50)
+                          delay=(abs(nets[i])*rng.uniform(0,0.05)) if rng.random()<0.20 else 0.0
+                          pnl=nets[i]-extra-delay
+                          bal+=pnl; peak=max(peak,bal)
+                          if peak>0: maxdd=max(maxdd,(peak-bal)/peak*100.0)
+                          if bal<=0: ruined=True; break
+                      rois.append((bal/start-1)*100.0); dds.append(maxdd); ruin+=int(ruined)
+                  rois.sort(); dds.sort()
+                  mc=dict(median_roi=statistics.median(rois),p5_roi=rois[int(0.05*(sims-1))],p95_dd=dds[int(0.95*(sims-1))],prob_loss=sum(x<0 for x in rois)/sims,prob_dd20=sum(x>20 for x in dds)/sims,risk_ruin=ruin/sims)
+                  mc_ok=mc['median_roi']>0 and mc['p5_roi']>-10 and mc['prob_loss']<=0.20 and mc['prob_dd20']<=0.05 and mc['risk_ruin']<=0.01
+                  if oos_ok and full_ok and stress_ok and stress125_ok and rob_ok and mc_ok:
+                      classification='A_PASS'; commercial=True
+                  elif oos_ok and full_ok and stress_ok:
+                      classification='B_CONDITIONAL'
+                  else:
+                      classification='C_FAIL_VALIDATION'
+                  report += [('OOS',oos,oos_ok),('FULL',full,full_ok),('STRESS125',s125,stress125_ok),('STRESS150',s150,stress_ok)]
+              else:
+                  classification='C_FAIL_MISSING_REPORT'
+                  mc={}
+          else:
+              vals={}; rob=[]; mc={}
+          with open(os.environ['GITHUB_OUTPUT'],'a') as f:
+              f.write('commercial_pass=' + ('true' if commercial else 'false') + '\n')
+              f.write('classification=' + classification + '\n')
+          with open('COMMERCIAL-RESULTS.md','w') as f:
+              f.write('# K3 Flow-First Commercial Validation\n\n')
+              f.write(f'Classification: **{classification}**  \nFrozen TP: **{os.environ.get("FROZEN_TP","n/a")}**\n\n')
+              if report:
+                  f.write('|Stage|ROI|Net|PF|Trades|Avg trade|Max DD|Largest loss|Gate|\n|---|---:|---:|---:|---:|---:|---:|---:|---|\n')
+                  for name,r,ok in report:
+                      if r: f.write(f"|{name}|{r['roi']:.2f}%|{r['net']:.2f}|{r['pf']:.2f}|{r['trades']}|{r['avg']:.3f}|{r['dd']:.2f}%|{r['largest_loss']:.2f}|{'PASS' if ok else 'FAIL'}|\n")
+                  f.write('\n## Robustness\n')
+                  if rob:
+                      f.write(f"Cases={len(rob)}, positive/PF>=1={sum(1 for r in rob if r['pf']>=1 and r['net']>=0)}, median PF={statistics.median([r['pf'] for r in rob]):.2f}, worst DD={max(r['dd'] for r in rob):.2f}%\n")
+                  f.write('\n## Monte Carlo\n')
+                  for k,v in mc.items(): f.write(f'- {k}: {v:.4f}\n')
+              else:
+                  f.write('IS freeze gate failed; OOS/FULL were intentionally not opened.\n')
+          print(open('COMMERCIAL-RESULTS.md').read())
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: CDScalper_K3_COMMERCIAL_RESULTS
+          path: COMMERCIAL-RESULTS.md
+          retention-days: 30
+
+  commercial_release:
+    needs: [audit_build, freeze_is, final_gate]
+    if: needs.final_gate.outputs.commercial_pass == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: CDScalper_K3_ONEPASS_package
+          path: package
+      - uses: actions/download-artifact@v4
+        with:
+          name: CDScalper_K3_COMMERCIAL_RESULTS
+          path: results
+      - name: Assemble PASS-only mobile/cloud release
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p release
+          cp package/k3/*.algo release/
+          cp results/COMMERCIAL-RESULTS.md release/
+          printf 'branch=cds-k3-flow-first-entry-research\nfrozen_tp=%s\nclassification=A_PASS\n' '${{ needs.freeze_is.outputs.frozen_tp }}' > release/RELEASE-METADATA.txt
+          sha256sum release/*.algo > release/SHA256SUMS.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: CDScalper_K3_COMMERCIAL_MOBILE_CLOUD_RELEASE
+          path: release/*
+          retention-days: 90
