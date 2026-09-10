@@ -1,5 +1,5 @@
 {
-  "policy_version": "RC7B-2026-09-10",
+  "policy_version": "RC7A-2026-09-10",
   "candidate_count": 1,
   "research_mode": "single_evidence_based_candidate_no_bruteforce",
   "objective": "repair RC6 near-miss commercial gates by fixing single-position path dependence, without changing alpha, base risk, frozen windows, or promotion thresholds",
@@ -55,7 +55,7 @@
       "revalidate_confirmation_before_deferred_execution": true,
       "revalidate_invalidation_price_before_deferred_execution": true,
       "replace_pending_rule": "newer_signal_index_then_higher_score",
-      "reason": "RC6 showed H1 materially stronger than M30 and large M30 OPEN_POSITION blocking counts; fix resource conflict instead of adding/loosening alpha"
+      "reason": "RC6 showed H1 materially stronger than M30 and large M30 OPEN_POSITION blocking counts; fix resource conflict instead of adding or loosening alpha"
     },
     "risk_governor": {
       "mode":"reduction_only",
@@ -63,11 +63,11 @@
       "keep_rc6_portfolio_health":true,
       "keep_rc6_cost_factor":true,
       "no_new_cost_threshold_tuning":true,
-      "reason":"RC6 harsh attribution showed low spread/SL bins were not monotonically safer; avoid cost curve-fitting"
+      "reason":"RC6 harsh attribution showed low spread-to-stop bins were not monotonically safer; avoid cost curve-fitting"
     },
     "counterfactual_ledger": {
       "enabled": true,
-      "events": ["QUEUE","REPLACE","EXPIRE","INVALIDATE","REVALIDATION_FAIL","H1_PREEMPT_M30","DEFERRED_EXECUTE"],
+      "events": ["QUEUE","REPLACE","EXPIRE","EXPIRE_BARS","INVALIDATE","REVALIDATION_FAIL","H1_PREEMPT_M30","DEFERRED_EXECUTE"],
       "live_shadow_orders": false
     }
   }
