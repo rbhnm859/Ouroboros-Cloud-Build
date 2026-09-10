@@ -1,0 +1,6 @@
+{
+  "TradeLabel": "CDScalper_EURUSD_K4",
+  "DebugLogging": true,
+  "AllowedSymbolPrefix": "EURUSD",
+  "ExpectedLeverage": 500.0
+}
