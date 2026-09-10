@@ -1,0 +1,133 @@
+name: RC7B FxPro $3000 Live-Cost 1Y Validation
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ btc-rc7b-fxpro-3000usd-1y-livecost ]
+    paths:
+      - '.github/workflows/backtest-rc7b-fxpro-3000usd-1y-livecost.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  backtest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    env:
+      CLI_IMAGE: ghcr.io/spotware/ctrader-console:5.9.11
+      BROKER: FxPro
+      SYMBOL: BITCOIN
+      PERIOD: h1
+      START_DATE: 08/09/2025
+      END_DATE: 08/09/2026
+      START_BALANCE: '3000'
+      EXPECTED_ACCOUNT_LEVERAGE: '500'
+      SPREAD_PIPS: '7888.13'
+      COMMISSION_PER_MILLION: '0'
+      EXPECTED_ALGO_SHA256: be97fde0489c2392300deb4543d2dc3d00a50fc20d3d54ff4a2a6ef48a8ac31d
+      ALGO_PATH: FibonacciHarmonicSniperUltimate/commercial-freeze/RC7B/BTC-Harmonic-Guard-RC7B-Commercial-Mobile.algo
+
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify frozen RC7B binary
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s "$ALGO_PATH"
+          ACTUAL="$(sha256sum "$ALGO_PATH" | awk '{print $1}')"
+          test "$ACTUAL" = "$EXPECTED_ALGO_SHA256"
+          mkdir -p work/cache work/reports
+          cp "$ALGO_PATH" work/RC7B.algo
+      - name: Prepare FxPro credentials
+        env:
+          CTID: ${{ secrets.CTRADER_CTID }}
+          CTPASS: ${{ secrets.CTRADER_PASSWORD }}
+          ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${CTID:-}" && test -n "${CTPASS:-}" && test -n "${ACCOUNT:-}"
+          printf '%s' "$CTPASS" | tr -d '\r\n' > work/ctrader.pwd
+          chmod 600 work/ctrader.pwd
+      - name: Pull official cTrader CLI
+        run: docker pull "$CLI_IMAGE"
+      - name: Verify FxPro account and BITCOIN
+        env:
+          CTID: ${{ secrets.CTRADER_CTID }}
+          ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          CTID="$(printf '%s' "$CTID" | tr -d '[:space:]')"
+          ACCOUNT="$(printf '%s' "$ACCOUNT" | tr -d '[:space:]')"
+          docker run --rm -v "$PWD/work:/work" "$CLI_IMAGE" accounts --ctid="$CTID" --pwd-file=/work/ctrader.pwd --broker="$BROKER" | tee work/reports/accounts.txt
+          grep -Fq "$ACCOUNT" work/reports/accounts.txt
+          docker run --rm -v "$PWD/work:/work" "$CLI_IMAGE" symbols --ctid="$CTID" --pwd-file=/work/ctrader.pwd --account="$ACCOUNT" --broker="$BROKER" | tee work/reports/symbols.txt
+          grep -qi "$SYMBOL" work/reports/symbols.txt
+      - name: Lock RC7B strict parameters
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import json
+          s={'Chart':{'Symbol':'BITCOIN','Period':'h1'},'Parameters':{'TradingEnabled':True,'Growth2Enabled':True,'Growth2RiskPercent':0.10,'Growth2RiskReward':2.0,'Growth2StopAtr':1.30,'Growth2PullbackBars':3,'Growth2BodyAtr':0.25,'Growth2MaxExtensionAtr':0.60,'Growth2DeepPullbackAtr':0.15}}
+          Path('work/RC7B-strict.cbotset').write_text(json.dumps(s,indent=2))
+          PY
+      - name: Backtest FxPro BITCOIN H1 live-cost at $3000
+        env:
+          CTID: ${{ secrets.CTRADER_CTID }}
+          ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          CTID="$(printf '%s' "$CTID" | tr -d '[:space:]')"
+          ACCOUNT="$(printf '%s' "$ACCOUNT" | tr -d '[:space:]')"
+          docker run --rm -v "$PWD/work:/work" "$CLI_IMAGE" backtest /work/RC7B.algo /work/RC7B-strict.cbotset \
+            --ctid="$CTID" --pwd-file=/work/ctrader.pwd --account="$ACCOUNT" --broker="$BROKER" \
+            --symbol="$SYMBOL" --period="$PERIOD" --start="$START_DATE" --end="$END_DATE" \
+            --balance="$START_BALANCE" --data-mode=ticks --data-dir=/work/cache \
+            --commission="$COMMISSION_PER_MILLION" --spread="$SPREAD_PIPS" \
+            --report=/work/reports/RC7B-FxPro-3000USD-1Y-LIVECOST.html \
+            --report-json=/work/reports/RC7B-FxPro-3000USD-1Y-LIVECOST.json \
+            --full-access --exit-on-stop 2>&1 | tee work/reports/backtest-console.log
+      - name: Summarize result
+        if: success()
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import json, os
+          d=json.loads(Path('work/reports/RC7B-FxPro-3000USD-1Y-LIVECOST.json').read_text())
+          m=d.get('main',{}); ts=d.get('tradeStatistics',{}); eq=d.get('equity',{}); rows=d.get('history',{}).get('items',[]) or []
+          def f(v,default=0.0):
+            try:return float(v)
+            except:return default
+          def stat(k):
+            v=ts.get(k,{})
+            return f(v.get('all') if isinstance(v,dict) else v)
+          start=f(m.get('startingCapital')); net=f(m.get('netProfit')); end=f(m.get('endingBalance'),start+net)
+          trades=int(stat('totalTrades')) if ts else len(rows); wins=int(stat('winningTrades')) if ts else sum(f(x.get('net'))>0 for x in rows); losses=int(stat('losingTrades')) if ts else sum(f(x.get('net'))<0 for x in rows)
+          pf=f((ts.get('profitFactor') or {}).get('all')) if ts else 0.0
+          dd=0.0
+          for k in ('maxEquityDrawdownPercent','maxEquityDrawdownPercentages','maxDrawdownPercent'):
+            if k in eq: dd=f(eq[k]); break
+          lev=int(f(m.get('accountLeverage')))
+          if abs(start-3000.0)>0.005: raise SystemExit(f'capital mismatch {start}')
+          if lev!=500: raise SystemExit(f'leverage mismatch 1:{lev}')
+          out={'starting_capital':start,'ending_balance':end,'net_profit':net,'roi_pct':(net/start*100 if start else 0.0),'trades':trades,'wins':wins,'losses':losses,'win_rate_pct':(wins/trades*100 if trades else 0.0),'profit_factor':pf,'max_equity_dd_pct':dd,'account_leverage':lev,'symbol':m.get('symbol'),'period':m.get('period'),'data_mode':'ticks','spread_pips':float(os.environ['SPREAD_PIPS']),'commission_per_million':float(os.environ['COMMISSION_PER_MILLION']),'slippage_model':'native CLI has no standalone slippage option'}
+          Path('work/reports/RC7B-FxPro-3000USD-1Y-LIVECOST-SUMMARY.json').write_text(json.dumps(out,indent=2)); print(json.dumps(out,indent=2))
+          PY
+      - name: Remove credentials
+        if: always()
+        run: rm -f work/ctrader.pwd
+      - name: Upload evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: RC7B-FxPro-3000USD-1Y-LIVECOST
+          retention-days: 30
+          if-no-files-found: warn
+          path: |
+            work/reports/
+            work/RC7B-strict.cbotset
