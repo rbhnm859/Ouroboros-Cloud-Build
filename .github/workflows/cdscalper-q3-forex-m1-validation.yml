@@ -1,0 +1,156 @@
+name: Validate CDScalper Q3 Forex M1 Core
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [cds-q3-forex-m1-core]
+    paths:
+      - '.github/workflows/cdscalper-q3-forex-m1-validation.yml'
+      - 'CumulativeDeltaScalper-Forex-M1-Q3/**'
+
+permissions:
+  contents: read
+
+env:
+  STARTING_BALANCE: '30'
+  PERIOD: 'm1'
+  COMMISSION_PER_MILLION: '35'
+  IS_START: '09/09/2024'
+  IS_END: '09/08/2025'
+  OOS_START: '09/09/2025'
+  OOS_END: '09/09/2026'
+  FULL_START: '09/09/2024'
+  RECENT_6M_START: '03/09/2026'
+
+jobs:
+  build-algo:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: cds-q3-forex-m1-core
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '7.0.x'
+      - name: Build Q3 .algo
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $root='CumulativeDeltaScalper-Forex-M1-Q3'
+          $project=Join-Path $root 'CumulativeDeltaScalper_Forex_M1_Q3.csproj'
+          $out=Join-Path $root 'builds'
+          New-Item -ItemType Directory -Force -Path $out | Out-Null
+          dotnet restore $project
+          dotnet build $project -c Release -p:AlgoBuild=true -p:AlgoPublish=false -p:IncludeSource=true
+          $algo=Get-ChildItem -Path $root -Recurse -Filter '*.algo' | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+          if(-not $algo){ throw 'No .algo generated' }
+          Copy-Item $algo.FullName (Join-Path $out 'CDScalper_Forex_M1_Q3.algo') -Force
+      - uses: actions/upload-artifact@v4
+        with:
+          name: CDScalper_Forex_M1_Q3_algo
+          path: CumulativeDeltaScalper-Forex-M1-Q3/builds/CDScalper_Forex_M1_Q3.algo
+          retention-days: 14
+
+  validate-symbol:
+    needs: build-algo
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - symbol: EURUSD
+            spread: '0.43'
+            stress_spread: '0.65'
+          - symbol: GBPUSD
+            spread: '0.73'
+            stress_spread: '1.10'
+          - symbol: USDJPY
+            spread: '0.35'
+            stress_spread: '0.53'
+          - symbol: AUDUSD
+            spread: '0.55'
+            stress_spread: '0.83'
+    env:
+      CTID: ${{ secrets.CTRADER_CTID }}
+      ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+      CT_PASS: ${{ secrets.CTRADER_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: cds-q3-forex-m1-core
+      - uses: actions/download-artifact@v4
+        with:
+          name: CDScalper_Forex_M1_Q3_algo
+          path: backtest
+      - name: Run Q3 locked-parameter validation
+        shell: bash
+        env:
+          SYMBOL: ${{ matrix.symbol }}
+          BASE_SPREAD: ${{ matrix.spread }}
+          STRESS_SPREAD: ${{ matrix.stress_spread }}
+        run: |
+          set -euo pipefail
+          mkdir -p "backtest/reports/$SYMBOL"
+          printf '%s' "$CT_PASS" | tr -d '\r\n' > backtest/ctrader.pwd
+          chmod 600 backtest/ctrader.pwd
+
+          BOT=(
+            --TradeLabel="CDS_Q3_${SYMBOL}"
+            --AllowedSymbolPrefix=AUTO
+            --DebugLogging=false
+            --MinTicksPerBar=12
+            --ImbalanceTrigger=0.20
+            --SignalScoreThreshold=0.62
+            --HtfEmaPeriod=50
+            --MomentumLookback=3
+            --AtrPeriod=14
+            --MaxSpreadPips=1.5
+            --MaxSpreadAtrRatio=0.35
+            --SessionStartHourUtc=6
+            --SessionEndHourUtc=17
+            --RiskMode=FixedMoneyRisk
+            --FixedMoneyRisk=1.0
+            --MaxLots=0.05
+            --StopAtrMultiplier=1.0
+            --BaseRiskReward=1.25
+            --UseHardActualLossCap=true
+            --MaxActualLossMoney=1.0
+            --MaxDailyLossMoney=3.0
+            --MaxDailyTrades=8
+            --LossCooldownMinutes=5
+            --UseBreakeven=true
+            --BreakevenAtR=0.8
+          )
+
+          run_bt () {
+            local tag="$1" start="$2" end="$3" spread="$4"
+            docker run --rm \
+              -v "$PWD/backtest:/work" \
+              -e "CTID=$CTID" -e "ACCOUNT=$ACCOUNT" -e "PWD-FILE=/work/ctrader.pwd" \
+              ghcr.io/spotware/ctrader-console:5.9.11 \
+              backtest /work/CDScalper_Forex_M1_Q3.algo \
+              --environment-variables \
+              --symbol="$SYMBOL" --period="$PERIOD" \
+              --start="$start" --end="$end" --balance="$STARTING_BALANCE" \
+              --commission="$COMMISSION_PER_MILLION" --spread="$spread" --data-mode=ticks \
+              "${BOT[@]}" \
+              --report="/work/reports/$SYMBOL/${SYMBOL}-${tag}.html" \
+              --report-json="/work/reports/$SYMBOL/${SYMBOL}-${tag}.json" \
+              --exit-on-stop
+          }
+
+          run_bt IS_1Y "$IS_START" "$IS_END" "$BASE_SPREAD"
+          run_bt OOS_1Y "$OOS_START" "$OOS_END" "$BASE_SPREAD"
+          run_bt FULL_2Y "$FULL_START" "$OOS_END" "$BASE_SPREAD"
+          run_bt RECENT_6M "$RECENT_6M_START" "$OOS_END" "$BASE_SPREAD"
+          run_bt OOS_STRESS_1P5X "$OOS_START" "$OOS_END" "$STRESS_SPREAD"
+          rm -f backtest/ctrader.pwd
+      - name: Upload Q3 reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: CDScalper_Q3_${{ matrix.symbol }}_reports
+          path: backtest/reports/${{ matrix.symbol }}/*
+          retention-days: 14
