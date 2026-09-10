@@ -2,6 +2,7 @@
 import argparse
 import json
 import math
+import re
 import sys
 from pathlib import Path
 
@@ -29,7 +30,7 @@ def load_metrics(path):
 
     trades = int(get_all(stats, "totalTrades", 0) or 0)
     wins = int(get_all(stats, "winningTrades", 0) or 0)
-    metrics = {
+    return {
         "symbol": main.get("symbol"),
         "period": main.get("period"),
         "testingPeriod": main.get("testingPeriod", {}).get("formatted"),
@@ -57,24 +58,59 @@ def load_metrics(path):
         "spread": main.get("spread"),
         "commissionModel": main.get("commissions"),
     }
-    return metrics
 
 
-def environment_checks(m):
+def read_optional_text(path):
+    if not path:
+        return ""
+    p = Path(path)
+    if not p.exists():
+        return ""
+    return p.read_text(encoding="utf-8", errors="replace")
+
+
+def log_confirms_spread(log_text, expected_spread):
+    if not log_text or expected_spread is None:
+        return False
+    expected = f"{expected_spread:g}"
+    patterns = [
+        rf"--spread(?:=|\s+)[\"']?{re.escape(expected)}(?:0*)\b",
+        rf"\bSpread\s*[=:]\s*{re.escape(expected)}(?:0*)\b",
+        rf"\bspread\s*[=:]\s*{re.escape(expected)}(?:0*)\b",
+    ]
+    return any(re.search(pattern, log_text, flags=re.IGNORECASE) for pattern in patterns)
+
+
+def spread_check(m, expected_spread, execution_log_text):
+    spread = m.get("spread")
+    if isinstance(spread, dict) and spread:
+        return (
+            str(spread.get("type", "")).lower() == "fixed"
+            and abs(finite_float(spread.get("value")) - expected_spread) <= 0.0001
+        ), "report_metadata"
+
+    if log_confirms_spread(execution_log_text, expected_spread):
+        return True, "execution_log_fallback"
+
+    return False, "missing_spread_evidence"
+
+
+def environment_checks(m, expected_spread=0.43, execution_log_text=""):
     commission = m.get("commissionModel") or {}
-    spread = m.get("spread") or {}
     data_type = str(m.get("dataType") or "").lower()
-    return {
+    spread_ok, spread_source = spread_check(m, expected_spread, execution_log_text)
+    checks = {
         "symbol_EURUSD": m.get("symbol") == "EURUSD",
         "period_M1": str(m.get("period") or "").lower() == "m1",
         "tick_data": "tick" in data_type,
         "leverage_500": abs(m.get("accountLeverage", 0) - 500.0) <= 0.01,
         "starting_capital_30": abs(m.get("startingCapital", 0) - 30.0) <= 0.001,
-        "spread_fixed_0_43": str(spread.get("type", "")).lower() == "fixed" and abs(finite_float(spread.get("value")) - 0.43) <= 0.0001,
+        "spread_fixed_0_43": spread_ok,
         "commission_type_usd_per_million": str(commission.get("type", "")).lower() == "usdpermillionusdvolume",
         "commission_value_35": abs(finite_float(commission.get("value")) - 35.0) <= 0.001,
         "commission_not_auto": commission.get("applyCommissionAutomatically") is False,
     }
+    return checks, spread_source
 
 
 def strategy_gate(m, profile):
@@ -130,10 +166,13 @@ def main():
     parser.add_argument("--profile", choices=["control", "is", "oos", "full", "stress15"], default="control")
     parser.add_argument("--out")
     parser.add_argument("--fail-on-gate", action="store_true")
+    parser.add_argument("--expected-spread", type=float, default=0.43)
+    parser.add_argument("--execution-log", help="Execution log used only when cTrader JSON omits main.spread")
     args = parser.parse_args()
 
     m = load_metrics(args.report)
-    env = environment_checks(m)
+    execution_log_text = read_optional_text(args.execution_log)
+    env, spread_evidence_source = environment_checks(m, args.expected_spread, execution_log_text)
     strategy = strategy_gate(m, args.profile)
     env_pass = all(env.values())
     strategy_pass = all(strategy.values()) if args.profile != "control" else True
@@ -142,6 +181,7 @@ def main():
         "profile": args.profile,
         "environment": env,
         "environmentPass": env_pass,
+        "spreadEvidenceSource": spread_evidence_source,
         "metrics": m,
         "strategyGate": strategy,
         "strategyPass": strategy_pass,
