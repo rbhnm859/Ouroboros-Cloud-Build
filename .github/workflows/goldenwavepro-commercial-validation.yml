@@ -1,0 +1,189 @@
+name: GoldenWavePro Commercial Validation
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/goldenwavepro-commercial-validation.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: goldenwavepro-commercial-validation
+  cancel-in-progress: true
+
+jobs:
+  backtest:
+    name: XAUUSD M15 ${{ matrix.window }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - window: 1Y
+            start: '11/09/2025'
+            end: '10/09/2026'
+            min_trades: 40
+            min_growth: 20.0
+            growth_name: ROI
+          - window: 3Y
+            start: '11/09/2023'
+            end: '10/09/2026'
+            min_trades: 120
+            min_growth: 15.0
+            growth_name: CAGR
+
+    steps:
+      - name: Pull official cTrader CLI
+        run: docker pull ghcr.io/spotware/ctrader-console:5.9.11
+
+      - name: Recreate GoldenWavePro source
+        run: |
+          mkdir -p src/GoldenWavePro backtest/cache backtest/reports backtest/bin
+          python3 - <<'PYCODE'
+          from pathlib import Path
+          import base64, gzip
+          Path('src/GoldenWavePro/GoldenWavePro.cs').write_bytes(gzip.decompress(base64.b64decode('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')))
+          Path('src/GoldenWavePro/GoldenWavePro.csproj').write_bytes(gzip.decompress(base64.b64decode('H4sIALUeo2oC/2WQsU7DMBCG9z6F5bFSbViYHEsdaJWBqKIBZmNfIxPHjs6XVrw9DpFKVdbvPt3/36kDpi+wxI6ur/iLt5hyOpFonltRENcrxlRxRkD63mOaxpkU1hrsgHZoBrgk7HUEehIPSt7zxa6HMXjr6S372GXtfDafAZS844vcTCHM4z/tShZhG7rUlAC9T8FB/DBnKBWVvPK5tPzXWtUEw+0NB2N708ErnAAhWmB1tGFyUHHbonGAYjtRGgwBZ++A2adY8Uex3qw5k0vIzcrfxPmXevUDQ6J78lYBAAA=')))
+          PYCODE
+
+      - name: Build GoldenWavePro cBot
+        run: |
+          docker run --rm --entrypoint sh -v "$PWD:/repo" -w /repo \
+            ghcr.io/spotware/ctrader-console:5.9.11 -c \
+            'dotnet restore src/GoldenWavePro/GoldenWavePro.csproj && dotnet build src/GoldenWavePro/GoldenWavePro.csproj --configuration Release --no-restore -p:AlgoPublish=False -p:IncludeSource=True'
+          ALGO="$(find src/GoldenWavePro -type f -name '*.algo' -print -quit)"
+          test -n "$ALGO" || { echo 'No .algo produced'; exit 1; }
+          cp "$ALGO" backtest/bin/GoldenWavePro.algo
+
+      - name: Create cTrader password file
+        env:
+          CTRADER_PASSWORD: ${{ secrets.CTRADER_PASSWORD }}
+        run: |
+          test -n "${CTRADER_PASSWORD:-}" || { echo 'Missing CTRADER_PASSWORD'; exit 1; }
+          printf '%s' "$CTRADER_PASSWORD" > backtest/ctrader.pwd
+          chmod 600 backtest/ctrader.pwd
+
+      - name: Backtest XAUUSD M15 ${{ matrix.window }}
+        env:
+          CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+          CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+        run: |
+          test -n "${CTRADER_CTID:-}" || { echo 'Missing CTRADER_CTID'; exit 1; }
+          test -n "${CTRADER_ACCOUNT:-}" || { echo 'Missing CTRADER_ACCOUNT'; exit 1; }
+          docker run --rm \
+            -v "$PWD/backtest:/work" \
+            -e "CTID=$CTRADER_CTID" \
+            -e 'PWD-FILE=/work/ctrader.pwd' \
+            -e "ACCOUNT=$CTRADER_ACCOUNT" \
+            ghcr.io/spotware/ctrader-console:5.9.11 \
+            backtest /work/bin/GoldenWavePro.algo \
+            --environment-variables --exit-on-stop \
+            --symbol=XAUUSD \
+            --period=m15 \
+            --start="${{ matrix.start }}" \
+            --end="${{ matrix.end }}" \
+            --balance=10000 \
+            --data-mode=m1 \
+            --data-dir=/work/cache \
+            --report="/work/reports/XAUUSD-M15-${{ matrix.window }}.html" \
+            --report-json="/work/reports/XAUUSD-M15-${{ matrix.window }}.json"
+
+      - name: Commercial performance scorecard
+        if: success()
+        env:
+          WINDOW: ${{ matrix.window }}
+          MIN_TRADES: ${{ matrix.min_trades }}
+          MIN_GROWTH: ${{ matrix.min_growth }}
+          GROWTH_NAME: ${{ matrix.growth_name }}
+        run: |
+          python3 - <<'PYCODE'
+          from pathlib import Path
+          import json, os, re
+          window = os.environ['WINDOW']
+          min_trades = int(os.environ['MIN_TRADES'])
+          min_growth = float(os.environ['MIN_GROWTH'])
+          growth_name = os.environ['GROWTH_NAME']
+          balance = 10000.0
+          years = 1.0 if window == '1Y' else 3.0
+          report = Path(f'backtest/reports/XAUUSD-M15-{window}.json')
+          data = json.loads(report.read_text())
+          flat = {}
+          def flatten(value):
+              if isinstance(value, dict):
+                  for key, child in value.items():
+                      flat.setdefault(re.sub(r'[^a-z0-9]', '', key.lower()), child)
+                      flatten(child)
+              elif isinstance(value, list):
+                  for child in value:
+                      flatten(child)
+          flatten(data)
+          def raw(*names):
+              for name in names:
+                  value = flat.get(re.sub(r'[^a-z0-9]', '', name.lower()))
+                  if value not in (None, '') and not isinstance(value, (dict, list)):
+                      return value
+              return ''
+          def number(*names, default=0.0):
+              value = raw(*names)
+              try:
+                  return float(str(value).replace('%','').replace(',',''))
+              except (TypeError, ValueError):
+                  return default
+          trades = int(number('TotalTrades', 'Trades', 'TotalPositions'))
+          wins = int(number('WinningTrades', 'WinningPositions', 'Wins'))
+          net = number('NetProfit', 'NetProfitAmount')
+          pf = number('ProfitFactor')
+          dd = number('MaxEquityDrawdownPercentages', 'MaxEquityDrawdownPercentage', 'MaxDrawdownPercentages', 'MaxDrawdownPercentage')
+          win_rate = number('WinRate', 'WinningTradesPercentages', default=(100.0*wins/trades if trades else 0.0))
+          roi = 100.0 * net / balance
+          ending = balance + net
+          cagr = ((ending / balance) ** (1.0 / years) - 1.0) * 100.0 if ending > 0 else -100.0
+          growth = roi if growth_name == 'ROI' else cagr
+          efficiency = (growth / dd) if dd > 0 else (999.0 if growth > 0 else 0.0)
+          gates = {
+              'positive_net_profit': net > 0,
+              'profit_factor_>=_1.50': pf >= 1.50,
+              'max_drawdown_<=_15%': 0 <= dd <= 15.0,
+              f'{growth_name}_>=_{min_growth:.1f}%': growth >= min_growth,
+              f'trades_>=_{min_trades}': trades >= min_trades,
+              'return_to_drawdown_>=_1.50': efficiency >= 1.50,
+          }
+          passed = all(gates.values())
+          lines = [
+              f'# GoldenWavePro — XAUUSD M15 {window}', '',
+              f'- Trades: {trades}', f'- Wins: {wins}', f'- Win rate: {win_rate:.2f}%',
+              f'- Net profit: ${net:.2f}', f'- ROI: {roi:.2f}%', f'- CAGR: {cagr:.2f}%',
+              f'- Profit factor: {pf:.3f}', f'- Max equity drawdown: {dd:.2f}%',
+              f'- {growth_name}/MDD: {efficiency:.2f}', '', '## Internal commercial gates']
+          for name, ok in gates.items():
+              lines.append(f'- {"PASS" if ok else "FAIL"}: {name}')
+          lines += ['', f'**PERFORMANCE OVERALL: {"PASS" if passed else "FAIL"}**']
+          summary = '\n'.join(lines) + '\n'
+          Path(f'backtest/reports/XAUUSD-M15-{window}-scorecard.md').write_text(summary)
+          print(summary)
+          with Path(os.environ['GITHUB_STEP_SUMMARY']).open('a') as output:
+              output.write(summary)
+          if not passed:
+              raise SystemExit(2)
+          PYCODE
+
+      - name: Remove credentials
+        if: always()
+        run: rm -f backtest/ctrader.pwd
+
+      - name: Upload validation evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: GoldenWavePro-Commercial-${{ matrix.window }}
+          path: |
+            backtest/bin/GoldenWavePro.algo
+            backtest/reports/XAUUSD-M15-${{ matrix.window }}.html
+            backtest/reports/XAUUSD-M15-${{ matrix.window }}.json
+            backtest/reports/XAUUSD-M15-${{ matrix.window }}-scorecard.md
+          if-no-files-found: warn
+          retention-days: 30
