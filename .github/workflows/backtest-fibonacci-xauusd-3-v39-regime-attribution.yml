@@ -1,0 +1,249 @@
+name: Fibonacci XAUUSD 3 - v3.9 Regime Attribution
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [fibonacci-xauusd-v3-hybrid]
+    paths:
+      - '.github/workflows/backtest-fibonacci-xauusd-3-v39-regime-attribution.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Patch diagnostic telemetry only
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('FibonacciHarmonicSniperUltimate/versions/xauusd_3/src/FibonacciXAUUSD3.cs')
+          s=p.read_text()
+          s=s.replace('Print("VERSION xauusd_3 v3.6.0-safety-hardening");','Print("VERSION xauusd_3 v3.9.0-regime-attribution-diagnostic");',1)
+
+          old='''            double m5Score = M5RulesNeeded * 5.0;\n            double finalScore = a.PreScore + m5Score;\n            Print("[M5 CONFIRM] {0} {1} pre={2:F1} rules={3}/4 M5={4:F1}/20 final={5:F1}", a.Tag, a.Direction, a.PreScore, rules, m5Score, finalScore);\n            if (finalScore < FinalScoreMin)\n                return false;\n            return TryExecute(a, finalScore, index, rules);\n        }\n\n        private bool TryExecute(ArmedSetup a, double finalScore, int m5Index, int confirmRules)\n'''
+          new='''            double m5Score = M5RulesNeeded * 5.0;
+            double finalScore = a.PreScore + m5Score;
+            string ruleMask = (engulfing ? "E" : "-") + (rejection ? "R" : "-") + (microBreak ? "B" : "-") + (momentum ? "M" : "-");
+            Print("[M5 CONFIRM] {0} {1} pre={2:F1} rules={3}/4 mask={4} M5={5:F1}/20 final={6:F1}", a.Tag, a.Direction, a.PreScore, rules, ruleMask, m5Score, finalScore);
+            if (finalScore < FinalScoreMin)
+                return false;
+            return TryExecute(a, finalScore, index, rules, ruleMask);
+        }
+
+        private bool TryExecute(ArmedSetup a, double finalScore, int m5Index, int confirmRules, string ruleMask)
+'''
+          assert s.count(old)==1, 'TryConfirm/TryExecute anchor changed'
+          s=s.replace(old,new,1)
+
+          old='''                string session = SessionName(Server.Time.Hour);\n                string comment = a.Tag + "|" + finalScore.ToString("F1") + "|M5R" + confirmRules;\n                TradeResult result = ExecuteMarketOrder(a.Direction, SymbolName, volume, BotLabel, slPips, tpPips, comment);\n'''
+          new='''                string session = SessionName(Server.Time.Hour);
+                double diagAtrRatio, diagSpreadAtr, diagSlopeAtr, diagPriceAtr;
+                GetDirectionalH1Diagnostics(a.Direction, out diagAtrRatio, out diagSpreadAtr, out diagSlopeAtr, out diagPriceAtr);
+                double impulseAtr = Math.Abs(a.Target - a.StopAnchor) / Math.Max(StopFib * a.M15Atr, Symbol.PipSize);
+                string comment = a.Tag + "|" + finalScore.ToString("F1") + "|M5R" + confirmRules + "|" + ruleMask
+                    + "|A" + diagAtrRatio.ToString("F2") + "|S" + diagSpreadAtr.ToString("F2")
+                    + "|L" + diagSlopeAtr.ToString("F2") + "|P" + diagPriceAtr.ToString("F2")
+                    + "|I" + impulseAtr.ToString("F2");
+                TradeResult result = ExecuteMarketOrder(a.Direction, SymbolName, volume, BotLabel, slPips, tpPips, comment);
+'''
+          assert s.count(old)==1, 'comment anchor changed'
+          s=s.replace(old,new,1)
+
+          anchor='''        private double H1AtrExpansionRatio()\n        {\n'''
+          helper='''        private void GetDirectionalH1Diagnostics(TradeType direction, out double atrRatio, out double emaSpreadAtr, out double emaSlopeAtr, out double priceEmaAtr)
+        {
+            atrRatio = 0.0;
+            emaSpreadAtr = 0.0;
+            emaSlopeAtr = 0.0;
+            priceEmaAtr = 0.0;
+            if (_h1 == null || _h1.Count < 220) return;
+            int i = _h1.Count - 2;
+            double atr14 = Atr(_h1, i, 14);
+            double atr50 = Atr(_h1, i, 50);
+            if (atr14 <= Symbol.PipSize) return;
+            double ema50 = Ema(_h1, i, 50);
+            double ema50Prev = Ema(_h1, i - 4, 50);
+            double ema200 = Ema(_h1, i, 200);
+            double close = _h1.ClosePrices[i];
+            double sign = direction == TradeType.Buy ? 1.0 : -1.0;
+            atrRatio = atr50 > Symbol.PipSize ? atr14 / atr50 : 0.0;
+            emaSpreadAtr = sign * (ema50 - ema200) / atr14;
+            emaSlopeAtr = sign * (ema50 - ema50Prev) / atr14;
+            priceEmaAtr = sign * (close - ema50) / atr14;
+        }
+
+        private double H1AtrExpansionRatio()
+        {
+'''
+          assert s.count(anchor)==1, 'H1 helper anchor changed'
+          s=s.replace(anchor,helper,1)
+          p.write_text(s)
+          PY
+          SRC='FibonacciHarmonicSniperUltimate/versions/xauusd_3/src/FibonacciXAUUSD3.cs'
+          grep -q 'v3.9.0-regime-attribution-diagnostic' "$SRC"
+          grep -q 'GetDirectionalH1Diagnostics' "$SRC"
+          grep -q 'ruleMask' "$SRC"
+          grep -q 'diagSpreadAtr' "$SRC"
+
+      - run: docker pull ghcr.io/spotware/ctrader-console:5.9.11
+      - name: Build diagnostic algo
+        shell: bash
+        run: |
+          set -euo pipefail
+          ROOT='FibonacciHarmonicSniperUltimate/versions/xauusd_3'
+          docker run --rm --entrypoint sh -v "$PWD:/repo" -w /repo ghcr.io/spotware/ctrader-console:5.9.11 -c "dotnet restore $ROOT/FibonacciXAUUSD3.csproj && dotnet build $ROOT/FibonacciXAUUSD3.csproj -c Release --no-restore -p:AlgoPublish=False -p:IncludeSource=True"
+          mkdir -p package
+          cp "$(find "$ROOT" -type f -name '*.algo' -print -quit)" package/FibonacciXAUUSD3-v3.9-RegimeDiagnostic.algo
+          cp "$ROOT/src/FibonacciXAUUSD3.cs" package/FibonacciXAUUSD3-v3.9.cs
+          sha256sum package/FibonacciXAUUSD3-v3.9-RegimeDiagnostic.algo > package/algo.sha256
+      - uses: actions/upload-artifact@v4
+        with:
+          name: xauusd_3-v39-regime-build
+          path: package/
+          retention-days: 30
+
+  backtest:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        case:
+          - { name: 'old-h1-standard', start: '09/09/2024', end: '09/03/2025', spread: '17.42', commission: '35' }
+          - { name: 'old-h1-harsh', start: '09/09/2024', end: '09/03/2025', spread: '30', commission: '50' }
+          - { name: 'old-h2-standard', start: '09/03/2025', end: '09/09/2025', spread: '17.42', commission: '35' }
+          - { name: 'old-h2-harsh', start: '09/03/2025', end: '09/09/2025', spread: '30', commission: '50' }
+          - { name: 'recent-1y-standard', start: '09/09/2025', end: '09/09/2026', spread: '17.42', commission: '35' }
+          - { name: 'recent-1y-harsh', start: '09/09/2025', end: '09/09/2026', spread: '30', commission: '50' }
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: xauusd_3-v39-regime-build
+          path: work
+      - run: docker pull ghcr.io/spotware/ctrader-console:5.9.11
+      - name: Credentials
+        env:
+          CTRADER_PASSWORD: ${{ secrets.CTRADER_PASSWORD }}
+        run: |
+          test -n "${CTRADER_PASSWORD:-}"
+          printf '%s' "$CTRADER_PASSWORD" > work/ctrader.pwd
+      - name: Backtest ${{ matrix.case.name }}
+        env:
+          CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+          CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p work/reports work/cache
+          NAME='${{ matrix.case.name }}'
+          docker run --rm -v "$PWD/work:/work" -e "CTID=$CTRADER_CTID" -e 'PWD-FILE=/work/ctrader.pwd' -e "ACCOUNT=$CTRADER_ACCOUNT" ghcr.io/spotware/ctrader-console:5.9.11 backtest /work/FibonacciXAUUSD3-v3.9-RegimeDiagnostic.algo --environment-variables --exit-on-stop --symbol=XAUUSD --period=m5 --start='${{ matrix.case.start }}' --end='${{ matrix.case.end }}' --balance=10000 --data-mode=m1 --data-dir=/work/cache --commission='${{ matrix.case.commission }}' --spread='${{ matrix.case.spread }}' --RiskPercent=0.50 --MaxDailyLossPercent=3 --MinimumRiskReward=1.5 --PreScoreMin=42 --FinalScoreMin=60 --M5PreScoreFloor=50 --M5RulesNeeded=2 --MinImpulseAtr=1.2 --MinStopAtr=0.20 --MaxAllowedRR=8 --BuyH1MinScore=18 --BlockLondonEntries=true --RequireH1AtrExpansion=true --H1AtrExpansionMin=1.15 --report="/work/reports/${NAME}.html" --report-json="/work/reports/${NAME}.json" 2>&1 | tee "work/reports/${NAME}.log"
+          test -s "work/reports/${NAME}.json"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: xauusd_3-v39-case-${{ matrix.case.name }}
+          path: work/reports/
+          retention-days: 30
+
+  aggregate:
+    needs: backtest
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: xauusd_3-v39-case-*
+          path: reports
+          merge-multiple: true
+      - name: Aggregate regime attribution
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json, re, math
+          from collections import defaultdict
+          from pathlib import Path
+
+          rx=re.compile(r'\|M5R(?P<r>[1-4])\|(?P<mask>[ERBM-]{4})\|A(?P<a>-?[0-9.]+)\|S(?P<s>-?[0-9.]+)\|L(?P<l>-?[0-9.]+)\|P(?P<p>-?[0-9.]+)\|I(?P<i>-?[0-9.]+)')
+          files=sorted(Path('reports').glob('*.json'))
+          assert len(files)==6, [str(x) for x in files]
+          out=['# XAUUSD3 v3.9 Cross-Regime Feature Attribution','',
+               'Diagnostic only: trade decisions are unchanged from v3.6 safety-hardening. Positive directional S/L/P means aligned with trade direction.','',
+               '| Case | Trades | Net | ROI % | PF | DD % | Parsed |','|---|---:|---:|---:|---:|---:|---:|']
+          rows=[]
+          for f in files:
+              d=json.loads(f.read_text())
+              hist=d['history']['items']
+              parsed=[]
+              for t in hist:
+                  c=t.get('comment') or ''
+                  m=rx.search(c)
+                  if not m: continue
+                  parsed.append({
+                    'case':f.stem,'net':float(t.get('net',t.get('netProfit',0.0))),
+                    'direction':t.get('direction',''),'entryTime':t.get('entryTime',0),
+                    'rules':int(m.group('r')),'mask':m.group('mask'),
+                    'A':float(m.group('a')),'S':float(m.group('s')),'L':float(m.group('l')),
+                    'P':float(m.group('p')),'I':float(m.group('i'))})
+              rows.extend(parsed)
+              ts=d['tradeStatistics']; main=d['main']; eq=d['equity']
+              out.append(f"| {f.stem} | {int(ts['totalTrades']['all'])} | {float(main['netProfit']):.2f} | {float(main['roi']):.2f} | {float(ts['profitFactor']['all']):.2f} | {float(eq['maxEquityDrawdownPercent']):.2f} | {len(parsed)} |")
+
+          def stats(xs):
+              if not xs: return (0,0,0.0,0.0)
+              net=sum(x['net'] for x in xs); wins=sum(x['net']>0 for x in xs)
+              gp=sum(max(0,x['net']) for x in xs); gl=sum(max(0,-x['net']) for x in xs)
+              pf=gp/gl if gl else (999.0 if gp else 0.0)
+              return len(xs),wins,net,pf
+
+          out += ['', '## Winner / loser feature means', '',
+                  '| Case | Side | N | A ATR14/50 | S EMA50-200 / ATR | L EMA50 slope / ATR | P Price-EMA50 / ATR | I M15 impulse / ATR |',
+                  '|---|---|---:|---:|---:|---:|---:|---:|']
+          for case in sorted(set(x['case'] for x in rows)):
+              for side,cond in [('Win',lambda x:x['net']>0),('Loss',lambda x:x['net']<=0)]:
+                  xs=[x for x in rows if x['case']==case and cond(x)]
+                  if not xs: continue
+                  means=[sum(x[k] for x in xs)/len(xs) for k in ['A','S','L','P','I']]
+                  out.append(f'| {case} | {side} | {len(xs)} | {means[0]:.3f} | {means[1]:.3f} | {means[2]:.3f} | {means[3]:.3f} | {means[4]:.3f} |')
+
+          filters=[
+            ('S>0',lambda x:x['S']>0),('S>=0.25',lambda x:x['S']>=0.25),('S>=0.50',lambda x:x['S']>=0.50),
+            ('L>0',lambda x:x['L']>0),('L>=0.05',lambda x:x['L']>=0.05),
+            ('P>0',lambda x:x['P']>0),('P>=0.25',lambda x:x['P']>=0.25),
+            ('S>0 & L>0',lambda x:x['S']>0 and x['L']>0),
+            ('S>=0.25 & L>0',lambda x:x['S']>=0.25 and x['L']>0),
+            ('S>0 & P>0',lambda x:x['S']>0 and x['P']>0),
+          ]
+          out += ['', '## Diagnostic retention tests (not exact counterfactual backtests)', '',
+                  '| Filter | Case | Kept | Wins | Net of kept | PF of kept |',
+                  '|---|---|---:|---:|---:|---:|']
+          for name,fn in filters:
+              for case in sorted(set(x['case'] for x in rows)):
+                  xs=[x for x in rows if x['case']==case and fn(x)]
+                  n,w,net,pf=stats(xs)
+                  out.append(f'| {name} | {case} | {n} | {w} | {net:.2f} | {pf:.2f} |')
+
+          out += ['', '## Rule-mask attribution', '', '| Case | Mask | Trades | Wins | Net | PF |','|---|---|---:|---:|---:|---:|']
+          for case in sorted(set(x['case'] for x in rows)):
+              for mask in sorted(set(x['mask'] for x in rows if x['case']==case)):
+                  xs=[x for x in rows if x['case']==case and x['mask']==mask]
+                  n,w,net,pf=stats(xs)
+                  out.append(f'| {case} | {mask} | {n} | {w} | {net:.2f} | {pf:.2f} |')
+
+          Path('V39_REGIME_ATTRIBUTION_SUMMARY.md').write_text('\n'.join(out)+'\n')
+          Path('V39_REGIME_TRADES.json').write_text(json.dumps(rows,indent=2))
+          print('\n'.join(out))
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: xauusd_3-v39-regime-attribution-summary
+          path: |
+            V39_REGIME_ATTRIBUTION_SUMMARY.md
+            V39_REGIME_TRADES.json
+          retention-days: 30
