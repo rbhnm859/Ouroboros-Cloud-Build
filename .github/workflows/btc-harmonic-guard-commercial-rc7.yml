@@ -1,0 +1,186 @@
+name: BTC Harmonic Guard Commercial RC7 Final Arbitration
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ btc-store-commercial-rc7-final-arbitration ]
+    paths:
+      - '.github/scripts/commercial_rc7_transform.py'
+      - '.github/scripts/commercial_rc7_verify.py'
+      - '.github/policies/commercial_rc7_policy.json'
+      - '.github/workflows/btc-harmonic-guard-commercial-rc7.yml'
+      - '.github/scripts/commercial_rc6_transform.py'
+      - '.github/scripts/commercial_rc4_parity_fix.py'
+      - '.github/scripts/commercial_rc4_transform.py'
+      - '.github/scripts/commercial_rc3a_transform.py'
+      - 'FibonacciHarmonicSniperUltimate/monthly-growth-v2/**'
+      - 'FibonacciHarmonicSniperUltimate/monthly-growth-v3/**'
+      - 'FibonacciHarmonicSniperUltimate/store-commercial-rc3a/**'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: btc-harmonic-guard-commercial-rc7
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 210
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '6.0.x'
+
+      - name: Preflight RC7 final architecture
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s FibonacciHarmonicSniperUltimate/monthly-growth-v2/growth2_validation.sh
+          test -s FibonacciHarmonicSniperUltimate/monthly-growth-v2/growth2_transform.py
+          test -s FibonacciHarmonicSniperUltimate/monthly-growth-v3/growth3_transform.py
+          test -s .github/scripts/commercial_rc3a_transform.py
+          test -s .github/scripts/commercial_rc4_transform.py
+          test -s .github/scripts/commercial_rc4_parity_fix.py
+          test -s .github/scripts/commercial_rc6_transform.py
+          test -s .github/scripts/commercial_rc7_transform.py
+          test -s .github/scripts/commercial_rc7_verify.py
+          test -s .github/policies/commercial_rc7_policy.json
+          python3 -m py_compile \
+            .github/scripts/commercial_rc3a_transform.py \
+            .github/scripts/commercial_rc4_transform.py \
+            .github/scripts/commercial_rc4_parity_fix.py \
+            .github/scripts/commercial_rc6_transform.py \
+            .github/scripts/commercial_rc7_transform.py \
+            .github/scripts/commercial_rc7_verify.py
+          bash -n FibonacciHarmonicSniperUltimate/monthly-growth-v2/growth2_validation.sh
+          python3 - <<'PY'
+          import json
+          p=json.load(open('.github/policies/commercial_rc7_policy.json'))
+          assert p['policy_version']=='RC7A-2026-09-10'
+          assert p['candidate_count']==1
+          imm=p['immutable']
+          assert imm['round22_control'] is True
+          assert imm['h1_buy_alpha'] is True
+          assert imm['growth3_live'] is False
+          assert imm['m30_abcd_live'] is False
+          assert imm['single_execute_market_order_boundary'] is True
+          assert imm['base_risk_parameters_unchanged'] is True
+          assert imm['frozen_windows_unchanged'] is True
+          assert imm['commercial_gates_unchanged'] is True
+          assert float(p['policy']['h1_buy']['risk_multiplier'])==1.0
+          assert 0 < float(p['policy']['h1_sell']['risk_multiplier']) <= 0.35
+          assert 0 < float(p['policy']['m30_reciprocal_abcd_buy']['risk_multiplier']) <= 0.35
+          assert 0 < float(p['policy']['m30_reciprocal_abcd_sell']['risk_multiplier']) <= 0.75
+          assert p['policy']['m30_abcd']['decision']=='SHADOW'
+          assert float(p['policy']['m30_abcd']['risk_multiplier'])==0.0
+          assert p['policy']['growth3']['decision']=='SHADOW'
+          assert float(p['policy']['growth3']['risk_multiplier'])==0.0
+          d=p['architecture']['m30_deferred_intent']
+          assert d['pattern']=='Reciprocal ABCD'
+          assert d['eligible_block_reason']=='OPEN_POSITION'
+          assert d['round21_bypass_deferred'] is False
+          assert int(d['ttl_m30_bars'])==4
+          print('[PREFLIGHT] RC7 one-pass policy/arbitration architecture locked')
+          PY
+
+      - name: Install RC7 transform
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp FibonacciHarmonicSniperUltimate/monthly-growth-v2/growth2_transform.py /tmp/growth2_transform.py
+          cp .github/scripts/commercial_rc7_transform.py FibonacciHarmonicSniperUltimate/monthly-growth-v2/growth2_transform.py
+          echo '[TRANSFORM] RC7 installed'
+
+      - name: Run full frozen validation with watchdog
+        env:
+          CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+          CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+          CTRADER_PASSWORD: ${{ secrets.CTRADER_PASSWORD }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p work
+          LOG=work/commercial-rc7-validation-console.log
+          : > "$LOG"
+          heartbeat(){
+            while true; do
+              echo "[HEARTBEAT] $(date -u +%FT%TZ) RC7 alive" | tee -a "$LOG"
+              find work -maxdepth 2 -type f \( -name 'report.*' -o -name '*.json' -o -name '*.algo' \) -printf '[ARTIFACT] %s %p\n' 2>/dev/null | tail -30 | tee -a "$LOG" || true
+              sleep 300
+            done
+          }
+          heartbeat & HB=$!
+          trap 'kill $HB 2>/dev/null || true' EXIT INT TERM
+          set +e
+          timeout --signal=TERM --kill-after=60s 10800s \
+            bash FibonacciHarmonicSniperUltimate/monthly-growth-v2/growth2_validation.sh \
+            2>&1 | tee -a "$LOG"
+          rc=${PIPESTATUS[0]}
+          set -e
+          if [ "$rc" -ne 0 ]; then
+            echo "[VALIDATION ENGINEERING FAIL] rc=$rc" | tee -a "$LOG"
+            exit "$rc"
+          fi
+          echo '[VALIDATION DONE]' | tee -a "$LOG"
+
+      - name: RC7 independent structural and commercial verifier
+        if: success()
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 .github/scripts/commercial_rc7_verify.py work | tee work/commercial-rc7-gate-console.log
+
+      - name: Emit RC7 promotion state
+        if: success()
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json, pathlib
+          p=pathlib.Path('work/Commercial-RC7-Gate.json')
+          g=json.loads(p.read_text())
+          if g.get('commercial_freeze_eligible') is True:
+              pathlib.Path('work/RC7-COMMERCIAL-FREEZE-ELIGIBLE.txt').write_text(
+                  'commercial_freeze_eligible=true\npolicy_version='+g['policy_version']+'\n')
+              print('[RC7 PROMOTION] PASS: commercial_freeze_eligible=true')
+          else:
+              print('[RC7 PROMOTION] REJECT: valid one-pass experiment; do not brute-force parameters')
+          PY
+
+      - name: Remove credentials
+        if: always()
+        shell: bash
+        run: rm -f work/ctrader.pwd
+
+      - name: Upload RC7 evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: BTC-Harmonic-Guard-Commercial-RC7
+          retention-days: 30
+          if-no-files-found: warn
+          path: |
+            .github/policies/commercial_rc7_policy.json
+            work/commercial-rc7-validation-console.log
+            work/commercial-rc7-gate-console.log
+            work/Commercial-RC7-Gate.json
+            work/RC7-COMMERCIAL-FREEZE-ELIGIBLE.txt
+            work/build/*
+            work/g2/*
+            work/control-3y/report.*
+            work/control-1y/report.*
+            work/strict-3y/report.*
+            work/balanced-3y/report.*
+            work/moderate-3y/report.*
+            work/recent-a/report.*
+            work/recent-b/report.*
+            work/y1/report.*
+            work/y2/report.*
+            work/y3/report.*
+            work/harsh-3y/report.*
+            work/harsh-y3/report.*
+            work/Growth2-*.json
