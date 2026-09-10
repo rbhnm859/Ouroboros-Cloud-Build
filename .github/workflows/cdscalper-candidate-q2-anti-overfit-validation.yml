@@ -196,7 +196,7 @@ jobs:
               --start="$start" --end="$end" --balance="$STARTING_BALANCE" \
               --commission="$COMMISSION_PER_MILLION" \
               --commission-type=UsdPerMillionUsdVolume \
-              --spread="$spread" --precise-conversion \
+              --spread="$spread" \
               --data-mode=ticks --data-dir="/work/cache/$SYMBOL" \
               "${BOT[@]}" \
               --report="/work/reports/$SYMBOL/${SYMBOL}-${tag}.html" \
