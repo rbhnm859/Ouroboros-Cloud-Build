@@ -8,6 +8,7 @@ on:
       - '.github/policies/commercial_rc7_policy.json'
       - '.github/policies/commercial_rc7_abcd_whitelist_audit.json'
       - '.github/scripts/commercial_rc7_transform.py'
+      - '.github/scripts/commercial_rc7_parity_fix.py'
       - '.github/scripts/commercial_rc7_verify.py'
       - '.github/scripts/commercial_rc6_transform.py'
       - '.github/scripts/commercial_rc6_verify.py'
@@ -49,6 +50,7 @@ jobs:
           test -s .github/scripts/commercial_rc4_parity_fix.py
           test -s .github/scripts/commercial_rc6_transform.py
           test -s .github/scripts/commercial_rc7_transform.py
+          test -s .github/scripts/commercial_rc7_parity_fix.py
           test -s .github/scripts/commercial_rc7_verify.py
           test -s .github/policies/commercial_rc7_policy.json
           test -s .github/policies/commercial_rc7_abcd_whitelist_audit.json
@@ -58,6 +60,7 @@ jobs:
             .github/scripts/commercial_rc4_parity_fix.py \
             .github/scripts/commercial_rc6_transform.py \
             .github/scripts/commercial_rc7_transform.py \
+            .github/scripts/commercial_rc7_parity_fix.py \
             .github/scripts/commercial_rc7_verify.py
           bash -n FibonacciHarmonicSniperUltimate/monthly-growth-v2/growth2_validation.sh
           python3 - <<'PY'
@@ -77,18 +80,18 @@ jobs:
           assert p['policy']['arbitration']['deferred_m30_ttl_minutes']==90
           assert p['policy']['arbitration']['deferred_m30_max_age_bars']==3
           assert p['policy']['arbitration']['deferred_execution_blackout_first_minutes_of_hour']==2
-          print('[RC7B PREFLIGHT] RC6B rejected; RC6C single candidate locked')
+          print('[RC7B PREFLIGHT] RC6B rejected; RC6C single candidate locked; control parity wrapper present')
           PY
 
-      - name: Install RC7B transform chain
+      - name: Install RC7B transform chain with frozen control isolation
         shell: bash
         run: |
           set -euo pipefail
           cp FibonacciHarmonicSniperUltimate/monthly-growth-v2/growth2_transform.py /tmp/growth2_transform.py
           test -s /tmp/growth2_transform.py
-          cp .github/scripts/commercial_rc7_transform.py FibonacciHarmonicSniperUltimate/monthly-growth-v2/growth2_transform.py
+          cp .github/scripts/commercial_rc7_parity_fix.py FibonacciHarmonicSniperUltimate/monthly-growth-v2/growth2_transform.py
           python3 -m py_compile /tmp/growth2_transform.py FibonacciHarmonicSniperUltimate/monthly-growth-v2/growth2_transform.py
-          echo '[RC7B TRANSFORM] original Growth2 baseline preserved; RC6C arbitration/deferred-intent overlay installed'
+          echo '[RC7B TRANSFORM] original Growth2 baseline preserved; RC6C overlay installed with Round22 control isolation'
 
       - name: Run full frozen validation with watchdog
         env:
@@ -161,6 +164,7 @@ jobs:
             .github/policies/commercial_rc7_policy.json
             .github/policies/commercial_rc7_abcd_whitelist_audit.json
             .github/scripts/commercial_rc7_transform.py
+            .github/scripts/commercial_rc7_parity_fix.py
             .github/scripts/commercial_rc7_verify.py
             work/commercial-rc7-validation-console.log
             work/commercial-rc7-gate-console.log
