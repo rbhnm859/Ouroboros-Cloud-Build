@@ -1,0 +1,89 @@
+name: HarmonyBot XAUUSD Fast Open 1Y-3Y
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/backtest-harmonybot-xauusd-fast-open.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: harmonybot-xauusd-fast-open
+  cancel-in-progress: true
+
+jobs:
+  backtest:
+    name: FAST XAUUSD ${{ matrix.period }} ${{ matrix.window }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { period: m15, window: 1Y, start: '10/09/2025', end: '10/09/2026' }
+          - { period: h1,  window: 1Y, start: '10/09/2025', end: '10/09/2026' }
+          - { period: m15, window: 3Y, start: '10/09/2023', end: '10/09/2026' }
+          - { period: h1,  window: 3Y, start: '10/09/2023', end: '10/09/2026' }
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '6.0.x'
+      - name: Build HarmonyBot
+        run: |
+          mkdir -p backtest-fast/reports
+          dotnet restore HarmonyBot-Mobile/HarmonyBot.csproj
+          dotnet build HarmonyBot-Mobile/HarmonyBot.csproj --configuration Release --no-restore -p:AlgoPublish=False -p:IncludeSource=True
+          ALGO="$(find HarmonyBot-Mobile -type f -name '*.algo' -print -quit)"
+          test -n "$ALGO"
+          cp "$ALGO" backtest-fast/HarmonyBot-Mobile.algo
+      - name: Pull cTrader CLI
+        run: docker pull ghcr.io/spotware/ctrader-console:5.9.11
+      - name: Credentials
+        env:
+          CTRADER_PASSWORD: ${{ secrets.CTRADER_PASSWORD }}
+        run: |
+          test -n "${CTRADER_PASSWORD:-}" || exit 1
+          printf '%s' "$CTRADER_PASSWORD" > backtest-fast/ctrader.pwd
+          chmod 600 backtest-fast/ctrader.pwd
+      - name: Fast open-price backtest
+        env:
+          CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+          CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+        run: |
+          test -n "${CTRADER_CTID:-}" || exit 1
+          test -n "${CTRADER_ACCOUNT:-}" || exit 1
+          echo "::add-mask::$CTRADER_CTID"
+          echo "::add-mask::$CTRADER_ACCOUNT"
+          OUT="XAUUSD-${{ matrix.period }}-${{ matrix.window }}-open"
+          docker run --rm \
+            -v "$PWD/backtest-fast:/work" \
+            -e "CTID=$CTRADER_CTID" \
+            -e 'PWD-FILE=/work/ctrader.pwd' \
+            -e "ACCOUNT=$CTRADER_ACCOUNT" \
+            ghcr.io/spotware/ctrader-console:5.9.11 \
+            backtest /work/HarmonyBot-Mobile.algo \
+            --environment-variables \
+            --symbol=XAUUSD \
+            --period=${{ matrix.period }} \
+            --start='${{ matrix.start }}' \
+            --end='${{ matrix.end }}' \
+            --balance=100 \
+            --data-mode=open \
+            --report="/work/reports/${OUT}.html" \
+            --report-json="/work/reports/${OUT}.json"
+      - name: Remove credentials
+        if: always()
+        run: rm -f backtest-fast/ctrader.pwd
+      - name: Upload report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: HarmonyBot-FAST-XAUUSD-${{ matrix.period }}-${{ matrix.window }}
+          path: backtest-fast/reports/*
+          if-no-files-found: warn
+          retention-days: 30
