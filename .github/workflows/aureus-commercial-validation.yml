@@ -8,6 +8,12 @@ on:
     paths:
       - 'Aureus-Harmonic-Gold-Pro/**'
       - '.github/workflows/aureus-commercial-validation.yml'
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'Aureus-Harmonic-Gold-Pro/**'
+      - '.github/workflows/aureus-commercial-validation.yml'
 
 permissions:
   contents: read
@@ -101,7 +107,7 @@ jobs:
         run: |
           python3 - <<'PYCODE'
           from pathlib import Path
-          import json, math, os, re
+          import json, os, re
 
           window = os.environ['WINDOW']
           min_trades = int(os.environ['MIN_TRADES'])
