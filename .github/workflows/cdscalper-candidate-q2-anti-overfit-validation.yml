@@ -1,0 +1,221 @@
+name: Backtest CDScalper Candidate Q2 Dynamic Risk RR Anti-Overfit
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [cds-eurusd-v1]
+    paths:
+      - '.github/workflows/cdscalper-candidate-q2-anti-overfit-validation.yml'
+      - 'CumulativeDeltaScalper-EURUSD-v1/src/**'
+
+permissions:
+  contents: read
+
+env:
+  STARTING_BALANCE: '30'
+  PERIOD: 'm1'
+  COMMISSION_PER_MILLION: '35'
+  IS_START: '09/09/2024'
+  IS_END: '09/08/2025'
+  OOS_START: '09/09/2025'
+  OOS_END: '09/09/2026'
+  FULL_START: '09/09/2024'
+  RECENT_6M_START: '03/09/2026'
+
+jobs:
+  build-algo:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: cds-eurusd-v1
+      - name: Setup .NET SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '7.0.x'
+      - name: Build Candidate Q2 .algo
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $root='CumulativeDeltaScalper-EURUSD-v1'
+          $project=Join-Path $root 'CumulativeDeltaScalper_EURUSD_v1.csproj'
+          $out=Join-Path $root 'candidate-q2-out'
+          New-Item -ItemType Directory -Force -Path $out | Out-Null
+          dotnet restore $project
+          dotnet build $project -c Release -p:AlgoName=CumulativeDeltaScalper_EURUSD_v1 -p:AlgoBuild=true -p:AlgoPublish=false -p:IncludeSource=true
+          $algos=Get-ChildItem -Path $root -Recurse -Filter '*.algo' -ErrorAction SilentlyContinue
+          if(-not $algos){ throw 'No .algo generated' }
+          $selected=$algos | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+          Copy-Item $selected.FullName (Join-Path $out 'CumulativeDeltaScalper_Candidate_Q2.algo') -Force
+          Get-FileHash -Algorithm SHA256 (Join-Path $out 'CumulativeDeltaScalper_Candidate_Q2.algo') | Format-List
+      - name: Upload Candidate Q2 .algo
+        uses: actions/upload-artifact@v4
+        with:
+          name: CDScalper_Candidate_Q2_algo
+          path: CumulativeDeltaScalper-EURUSD-v1/candidate-q2-out/CumulativeDeltaScalper_Candidate_Q2.algo
+          retention-days: 14
+
+  validate-symbol:
+    needs: build-algo
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - symbol: EURUSD
+            spread: '0.43'
+            stress_spread: '0.65'
+          - symbol: GBPUSD
+            spread: '0.73'
+            stress_spread: '1.10'
+          - symbol: USDJPY
+            spread: '0.35'
+            stress_spread: '0.53'
+          - symbol: AUDUSD
+            spread: '0.55'
+            stress_spread: '0.83'
+    env:
+      CTID: ${{ secrets.CTRADER_CTID }}
+      ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+      CT_PASS: ${{ secrets.CTRADER_PASSWORD }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: cds-eurusd-v1
+      - name: Download Candidate Q2 .algo
+        uses: actions/download-artifact@v4
+        with:
+          name: CDScalper_Candidate_Q2_algo
+          path: backtest
+      - name: Run locked-parameter IS OOS realistic-cost tick validation
+        shell: bash
+        env:
+          SYMBOL: ${{ matrix.symbol }}
+          BASE_SPREAD: ${{ matrix.spread }}
+          STRESS_SPREAD: ${{ matrix.stress_spread }}
+        run: |
+          set -euo pipefail
+          mkdir -p "backtest/reports/$SYMBOL" "backtest/cache/$SYMBOL"
+          printf '%s' "$CT_PASS" | tr -d '\r\n' > backtest/ctrader.pwd
+          chmod 600 backtest/ctrader.pwd
+
+          BOT=(
+            --TradeLabel="CDS_Q2_${SYMBOL}"
+            --AllowedSymbolPrefix=AUTO
+            --DebugLogging=false
+            --SummaryLogging=true
+            --DeltaThreshold=125
+            --MinConfirmations=3
+            --UseBarDeltaFallback=true
+            --FallbackBelowTickDelta=2
+            --BarDeltaPointMultiplier=1.6
+            --UseSessionFilter=true
+            --OverlapOnly=true
+            --SessionStartHour=14
+            --SessionStartMinute=0
+            --SessionEndHour=14
+            --SessionEndMinute=54
+            --UseSessionQualityFilter=false
+            --UseWeekdayFilter=true
+            --TradeMonday=true
+            --TradeTuesday=true
+            --TradeWednesday=true
+            --TradeThursday=false
+            --TradeFriday=true
+            --UseHtfEmaFilter=true
+            --HtfTimeFrameName=Minute15
+            --EmaSlopeBars=3
+            --AdxThreshold=16
+            --UseNormalizedAtrFilter=true
+            --MinAtrPips=0.5
+            --MaxAtrPips=10.5
+            --UseNormalizedSpreadFilter=true
+            --MaxSpreadPips=1.8
+            --MaxSpreadAtrRatio=0.50
+            --SpreadAvgMultiplier=1.8
+            --SpreadHistorySize=30
+            --FixedMoneyRisk=1.00
+            --AutoScaleFixedRisk=true
+            --RiskReferenceBalance=100
+            --MinFixedMoneyRisk=0.05
+            --MaxLotSize=0.05
+            --SlAtrMultiplier=0.8
+            --UseAdaptiveRiskReward=true
+            --BasePlannedRiskReward=1.25
+            --HighQualityRiskReward=1.80
+            --HighQualityConfirmations=4
+            --HighQualityDeltaMultiple=1.35
+            --RiskBudgetBufferPercent=15
+            --UseRunnerExit=false
+            --UseBreakeven=true
+            --UseRiskMultipleBreakeven=true
+            --BreakevenAtR=0.75
+            --BreakevenPips=0.8
+            --AdverseDeltaExit=true
+            --AdverseDeltaCooldownSeconds=5
+            --UseHardActualLossCap=true
+            --MaxActualTradeLossMoney=1.0
+            --SkipIfMinVolumeRiskTooHigh=true
+            --DailyProfitTargetMoney=0
+            --UseDailyProfitLock=true
+            --DailyProfitLockStartMoney=0.90
+            --DailyProfitGivebackPercent=45
+            --DailyProfitLockFloorMoney=0.30
+            --CloseOnDailyProfitLock=true
+            --MaxDailyTrades=5
+            --MaxDailyLossPercent=3.5
+            --MaxDailyLossMoney=1.0
+            --MaxConsecutiveLosses=2
+            --MinSecondsBetweenTrades=600
+            --LossCooldownMinutes=45
+            --MaxDailyEquityDrawdownMoney=1.0
+            --MaxFloatingLossMoney=1.0
+            --MaxEquityDrawdownPercent=15
+            --CloseOnEquityGuard=true
+            --MaxTradeSeconds=1800
+            --UseStrictShortFilter=true
+            --ShortDeltaBonus=20
+            --ShortAdxBonus=2
+            --ShortRequireSpreadBelowAverage=true
+          )
+
+          run_bt () {
+            local tag="$1" start="$2" end="$3" spread="$4"
+            echo "=== Q2 $SYMBOL $tag | $start -> $end | spread=$spread | commission=$COMMISSION_PER_MILLION/million ==="
+            docker run --rm \
+              -v "$PWD/backtest:/work" \
+              -e "CTID=$CTID" -e "ACCOUNT=$ACCOUNT" -e "PWD-FILE=/work/ctrader.pwd" \
+              ghcr.io/spotware/ctrader-console:5.9.11 \
+              backtest /work/CumulativeDeltaScalper_Candidate_Q2.algo \
+              --environment-variables \
+              --symbol="$SYMBOL" --period="$PERIOD" \
+              --start="$start" --end="$end" --balance="$STARTING_BALANCE" \
+              --commission="$COMMISSION_PER_MILLION" \
+              --commission-type=UsdPerMillionUsdVolume \
+              --spread="$spread" --precise-conversion \
+              --data-mode=ticks --data-dir="/work/cache/$SYMBOL" \
+              "${BOT[@]}" \
+              --report="/work/reports/$SYMBOL/${SYMBOL}-${tag}.html" \
+              --report-json="/work/reports/$SYMBOL/${SYMBOL}-${tag}.json" \
+              --exit-on-stop 2>&1 | tee "backtest/reports/$SYMBOL/${SYMBOL}-${tag}.log"
+          }
+
+          # Locked ex-ante parameters: no tuning between these windows.
+          run_bt IS_1Y "$IS_START" "$IS_END" "$BASE_SPREAD"
+          run_bt OOS_1Y "$OOS_START" "$OOS_END" "$BASE_SPREAD"
+          run_bt FULL_2Y "$FULL_START" "$OOS_END" "$BASE_SPREAD"
+          run_bt RECENT_6M "$RECENT_6M_START" "$OOS_END" "$BASE_SPREAD"
+          run_bt OOS_STRESS_1P5X "$OOS_START" "$OOS_END" "$STRESS_SPREAD"
+
+          rm -f backtest/ctrader.pwd
+      - name: Upload Candidate Q2 symbol reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: CDScalper_Candidate_Q2_${{ matrix.symbol }}_reports
+          path: backtest/reports/${{ matrix.symbol }}/*
+          retention-days: 14
