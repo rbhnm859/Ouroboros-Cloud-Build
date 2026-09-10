@@ -1,0 +1,85 @@
+name: BTC Harmonic Guard Growth v3.2 Weak Regime
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ btc-growth-v32-weak-regime-repair ]
+    paths:
+      - 'FibonacciHarmonicSniperUltimate/monthly-growth-v3/**'
+      - '.github/workflows/btc-harmonic-guard-growth-v32.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: btc-harmonic-guard-growth-v32
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 210
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '6.0.x'
+      - name: Preflight v3.2
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m py_compile FibonacciHarmonicSniperUltimate/monthly-growth-v3/growth3_transform.py
+          python3 -m py_compile FibonacciHarmonicSniperUltimate/monthly-growth-v3/growth32_transform.py
+          bash -n FibonacciHarmonicSniperUltimate/monthly-growth-v2/growth2_validation.sh
+      - name: Install v3.2 transform into frozen validation harness
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp FibonacciHarmonicSniperUltimate/monthly-growth-v2/growth2_transform.py /tmp/growth2_transform.py
+          cp FibonacciHarmonicSniperUltimate/monthly-growth-v3/growth32_transform.py FibonacciHarmonicSniperUltimate/monthly-growth-v2/growth2_transform.py
+      - name: Run frozen-window validation with watchdog
+        env:
+          CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+          CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+          CTRADER_PASSWORD: ${{ secrets.CTRADER_PASSWORD }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p work
+          LOG=work/growth32-validation-console.log
+          : > "$LOG"
+          heartbeat(){ while true; do echo "[HEARTBEAT] $(date -u +%FT%TZ) v3.2 alive" | tee -a "$LOG"; find work -maxdepth 2 -type f \( -name 'report.*' -o -name '*.json' -o -name '*.algo' \) -printf '[ARTIFACT] %s %p\n' 2>/dev/null | tail -20 | tee -a "$LOG" || true; sleep 300; done; }
+          heartbeat & HB=$!
+          trap 'kill $HB 2>/dev/null || true' EXIT INT TERM
+          set +e
+          timeout --signal=TERM --kill-after=60s 10800s bash FibonacciHarmonicSniperUltimate/monthly-growth-v2/growth2_validation.sh 2>&1 | tee -a "$LOG"
+          rc=${PIPESTATUS[0]}
+          set -e
+          exit "$rc"
+      - name: Remove credentials
+        if: always()
+        run: rm -f work/ctrader.pwd
+      - name: Upload v3.2 validation
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: BTC-Harmonic-Guard-Growth-v3.2
+          retention-days: 30
+          if-no-files-found: warn
+          path: |
+            work/growth32-validation-console.log
+            work/build/*
+            work/g2/*
+            work/control-3y/report.*
+            work/control-1y/report.*
+            work/strict-3y/report.*
+            work/balanced-3y/report.*
+            work/moderate-3y/report.*
+            work/recent-a/report.*
+            work/recent-b/report.*
+            work/y1/report.*
+            work/y2/report.*
+            work/y3/report.*
+            work/harsh-3y/report.*
+            work/harsh-y3/report.*
+            work/Growth2-*.json
