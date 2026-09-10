@@ -1,0 +1,77 @@
+name: Backtest Original K EURUSD 1Y 3Y
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  SYMBOL: EURUSD
+  PERIOD: m1
+  BALANCE: '30'
+  SPREAD: '0.43'
+  COMMISSION: '35'
+  CTRADER_IMAGE: ghcr.io/spotware/ctrader-console:latest
+
+jobs:
+  original_k_backtest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: 1Y
+            start: '11/09/2025 00:00'
+            end: '10/09/2026 23:59'
+          - label: 3Y
+            start: '11/09/2023 00:00'
+            end: '10/09/2026 23:59'
+    env:
+      CTID: ${{ secrets.CTRADER_CTID }}
+      ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+      CT_PASS: ${{ secrets.CTRADER_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve Original K source package and build exact K
+        shell: bash
+        run: |
+          set -euo pipefail
+          dotnet build CumulativeDeltaScalper-EURUSD-v1/CumulativeDeltaScalper_EURUSD_v1.csproj -c Release -p:AlgoBuild=true
+          ALGO="$(find CumulativeDeltaScalper-EURUSD-v1 -type f -name '*.algo' -print | head -1)"
+          test -n "$ALGO"
+          mkdir -p backtest/reports backtest/cache/EURUSD
+          cp "$ALGO" backtest/ORIGINAL_K.algo
+          sha256sum backtest/ORIGINAL_K.algo | tee backtest/reports/ORIGINAL_K.sha256.txt
+
+      - name: Pin cTrader Console image
+        id: cli
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker pull "$CTRADER_IMAGE"
+          DIGEST="$(docker inspect --format='{{index .RepoDigests 0}}' "$CTRADER_IMAGE")"
+          echo "digest=$DIGEST" >> "$GITHUB_OUTPUT"
+          printf '%s\n' "$DIGEST" > backtest/reports/ctrader-image-digest.txt
+
+      - name: Run Original K ${{ matrix.label }} server-tick backtest
+        shell: bash
+        run: |
+          set -euo pipefail
+          printf '%s' "$CT_PASS" | tr -d '\r\n' > backtest/ctrader.pwd
+          chmod 600 backtest/ctrader.pwd
+          LOG="backtest/reports/ORIGINAL_K_${{ matrix.label }}.log"
+          docker run --rm -v "$PWD/backtest:/work" -e "CTID=$CTID" -e "ACCOUNT=$ACCOUNT" -e "PWD-FILE=/work/ctrader.pwd" "${{ steps.cli.outputs.digest }}" backtest /work/ORIGINAL_K.algo --environment-variables --symbol="$SYMBOL" --period="$PERIOD" --start="${{ matrix.start }}" --end="${{ matrix.end }}" --balance="$BALANCE" --data-mode=ticks --data-dir=/work/cache/EURUSD --spread="$SPREAD" --commission="$COMMISSION" --ExpectedLeverage=500 --report="/work/reports/ORIGINAL_K_${{ matrix.label }}.html" --report-json="/work/reports/ORIGINAL_K_${{ matrix.label }}.json" --exit-on-stop 2>&1 | tee "$LOG"
+          rm -f backtest/ctrader.pwd
+          test -f "backtest/reports/ORIGINAL_K_${{ matrix.label }}.json"
+
+      - name: Upload Original K ${{ matrix.label }} report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ORIGINAL_K_EURUSD_M1_${{ matrix.label }}_BACKTEST
+          path: backtest/reports/*
+          if-no-files-found: warn
+          retention-days: 30
