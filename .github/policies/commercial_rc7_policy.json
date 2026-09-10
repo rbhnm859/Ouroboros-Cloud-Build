@@ -1,8 +1,8 @@
 {
-  "policy_version": "RC7A-2026-09-10",
+  "policy_version": "RC7B-2026-09-10",
   "candidate_count": 1,
   "research_mode": "single_evidence_based_candidate_no_bruteforce",
-  "objective": "repair RC6 near-miss commercial gates without changing alpha, base risk, frozen windows, or promotion thresholds",
+  "objective": "repair RC6 near-miss commercial gates by fixing single-position path dependence, without changing alpha, base risk, frozen windows, or promotion thresholds",
   "immutable": {
     "round22_control": true,
     "h1_buy_alpha": true,
@@ -17,11 +17,19 @@
     "commercial_gates_unchanged": true
   },
   "rc6_observed": {
-    "three_year": {"trades":247,"roi_pct":23.75,"pf":1.39,"max_equity_dd_pct":14.18},
-    "recent": {"trades":94,"roi_pct":30.72,"pf":2.28,"max_equity_dd_pct":3.84},
+    "three_year": {"trades":247,"roi_pct":23.75,"pf":1.39,"max_equity_dd_pct":14.1776},
+    "recent": {"trades":94,"roi_pct":30.72,"pf":2.28,"max_equity_dd_pct":3.8432},
     "worst_year": {"roi_pct":-1.96,"pf":0.89},
-    "harsh_three_year": {"roi_pct":-1.17,"pf":0.98},
-    "harsh_recent": {"pf":1.39,"max_equity_dd_pct":3.86}
+    "harsh_three_year": {"roi_pct":-1.17,"pf":0.98,"max_equity_dd_pct":13.1866},
+    "harsh_recent": {"roi_pct":9.80,"pf":1.39,"max_equity_dd_pct":3.8630},
+    "lane_evidence": {
+      "three_year_h1_pf":1.4716,
+      "three_year_m30_pf":1.1251,
+      "recent_h1_pf":2.5754,
+      "recent_m30_pf":1.60,
+      "harsh_three_year_h1_net":222.71,
+      "harsh_three_year_m30_net":-339.22
+    }
   },
   "formal_gaps": {
     "three_year_trades": 3,
@@ -31,18 +39,36 @@
     "harsh_three_year_pf": 0.02
   },
   "policy": {
-    "h1_buy": {"decision":"LIVE_CORE","risk_multiplier":1.0,"reason":"RC6 protected core; do not dilute strongest stable alpha"},
-    "h1_sell": {"decision":"LIVE_SATELLITE","risk_multiplier":0.35,"reason":"retain RC6 reduction; no new alpha filtering"},
-    "m30_reciprocal_abcd_buy": {"decision":"LIVE_SATELLITE","risk_multiplier":0.35,"reason":"retain RC6 reduction; preserve trade count and path diversity"},
-    "m30_reciprocal_abcd_sell": {"decision":"LIVE_SATELLITE","risk_multiplier":0.75,"reason":"retain RC6 profitable satellite exposure"},
-    "m30_abcd": {"decision":"SHADOW","risk_multiplier":0.0,"reason":"proven negative cross-period attribution"},
-    "growth3": {"decision":"SHADOW","risk_multiplier":0.0,"reason":"negative direct attribution"},
-    "harsh_repair": {
-      "decision":"REDUCTION_ONLY_COST_STRESS_GUARD",
-      "spread_to_stop_soft":0.03,
-      "spread_to_stop_medium":0.06,
-      "spread_to_stop_hard":0.10,
-      "note":"RC7 may only reduce or shadow economically fragile executions; it may not increase risk or loosen alpha. Trade-count recovery must come from avoiding path-blocking weak executions, not adding unvalidated patterns."
+    "priority_order": ["H1_CORE", "M30_RECIPROCAL_SATELLITE", "SHADOW_ONLY"],
+    "h1_buy": {"decision":"LIVE_CORE","risk_multiplier":1.0,"reason":"protected strongest stable core alpha"},
+    "h1_sell": {"decision":"LIVE_SATELLITE","risk_multiplier":0.35,"reason":"retain RC6 down-only exposure isolation"},
+    "m30_reciprocal_abcd_buy": {"decision":"LIVE_SATELLITE","risk_multiplier":0.35,"reason":"retain RC6 reduction and path diversity"},
+    "m30_reciprocal_abcd_sell": {"decision":"LIVE_SATELLITE","risk_multiplier":0.75,"reason":"retain positive standard/recent satellite exposure"},
+    "m30_abcd": {"decision":"SHADOW","risk_multiplier":0.0,"reason":"negative cross-period attribution"},
+    "growth3": {"decision":"SHADOW","risk_multiplier":0.0,"reason":"negative direct attribution; context only"},
+    "arbitration": {
+      "h1_core_preempts_open_m30_satellite": true,
+      "defer_m30_when_only_blocker_is_open_position": true,
+      "deferred_m30_ttl_minutes": 90,
+      "deferred_m30_max_age_bars": 3,
+      "deferred_execution_blackout_first_minutes_of_hour": 2,
+      "revalidate_confirmation_before_deferred_execution": true,
+      "revalidate_invalidation_price_before_deferred_execution": true,
+      "replace_pending_rule": "newer_signal_index_then_higher_score",
+      "reason": "RC6 showed H1 materially stronger than M30 and large M30 OPEN_POSITION blocking counts; fix resource conflict instead of adding/loosening alpha"
+    },
+    "risk_governor": {
+      "mode":"reduction_only",
+      "keep_rc6_lane_health":true,
+      "keep_rc6_portfolio_health":true,
+      "keep_rc6_cost_factor":true,
+      "no_new_cost_threshold_tuning":true,
+      "reason":"RC6 harsh attribution showed low spread/SL bins were not monotonically safer; avoid cost curve-fitting"
+    },
+    "counterfactual_ledger": {
+      "enabled": true,
+      "events": ["QUEUE","REPLACE","EXPIRE","INVALIDATE","REVALIDATION_FAIL","H1_PREEMPT_M30","DEFERRED_EXECUTE"],
+      "live_shadow_orders": false
     }
   }
 }
