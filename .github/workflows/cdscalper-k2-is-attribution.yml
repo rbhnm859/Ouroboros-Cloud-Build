@@ -1,0 +1,133 @@
+name: Diagnose CDScalper K2 IS Attribution
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [cds-k2-commercial-research]
+    paths:
+      - '.github/workflows/cdscalper-k2-is-attribution.yml'
+
+permissions:
+  contents: read
+
+env:
+  SYMBOL: EURUSD
+  PERIOD: m1
+  BALANCE: '30'
+  BASE_SPREAD: '0.43'
+  COMMISSION: '35'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: cds-k2-commercial-research
+          fetch-depth: 0
+      - name: Verify Original K immutable and build K2
+        shell: bash
+        run: |
+          set -euo pipefail
+          ORIGINAL='CumulativeDeltaScalper-EURUSD-v1/src/CumulativeDeltaScalper_EURUSD_v1.cs'
+          BASE='ca6d78774eb7f772d32e19e537a9584a5cfc5400'
+          test "$(git rev-parse "$BASE:$ORIGINAL")" = "$(git hash-object "$ORIGINAL")"
+          dotnet build CumulativeDeltaScalper-EURUSD-v1/k2/CumulativeDeltaScalper_EURUSD_K2.csproj -c Release -p:AlgoBuild=true
+          mkdir -p package
+          find CumulativeDeltaScalper-EURUSD-v1/k2 -type f -name '*.algo' -print -exec cp {} package/ \;
+          test -n "$(find package -name '*.algo' -print -quit)"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: CDScalper_K2_ATTR_package
+          path: package/*.algo
+          retention-days: 30
+
+  attribution:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { tag: BASE_COST20_BEON_ADVON, cost_ratio: '2.0', be: 'true', adverse: 'true' }
+          - { tag: RELAX_COST10_BEON_ADVON, cost_ratio: '1.0', be: 'true', adverse: 'true' }
+          - { tag: COST20_BEOFF_ADVON, cost_ratio: '2.0', be: 'false', adverse: 'true' }
+          - { tag: COST20_BEON_ADVOFF, cost_ratio: '2.0', be: 'true', adverse: 'false' }
+    env:
+      CTID: ${{ secrets.CTRADER_CTID }}
+      ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+      CT_PASS: ${{ secrets.CTRADER_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: cds-k2-commercial-research
+      - uses: actions/download-artifact@v4
+        with:
+          name: CDScalper_K2_ATTR_package
+          path: package
+      - name: Run single-factor IS attribution
+        shell: bash
+        env:
+          TAG: ${{ matrix.tag }}
+          COST_RATIO: ${{ matrix.cost_ratio }}
+          USE_BE: ${{ matrix.be }}
+          USE_ADV: ${{ matrix.adverse }}
+        run: |
+          set -euo pipefail
+          ALGO="$(find package -type f -name '*.algo' -print -quit)"
+          test -n "$ALGO"
+          mkdir -p backtest/reports backtest/cache/EURUSD
+          cp "$ALGO" backtest/
+          printf '%s' "$CT_PASS" | tr -d '\r\n' > backtest/ctrader.pwd
+          chmod 600 backtest/ctrader.pwd
+          docker run --rm \
+            -v "$PWD/backtest:/work" \
+            -e "CTID=$CTID" -e "ACCOUNT=$ACCOUNT" -e "PWD-FILE=/work/ctrader.pwd" \
+            ghcr.io/spotware/ctrader-console:5.9.11 \
+            backtest "/work/$(basename "$ALGO")" \
+            --environment-variables \
+            --symbol="$SYMBOL" --period="$PERIOD" \
+            --start='09/09/2024' --end='09/08/2025' --balance="$BALANCE" \
+            --data-mode=m1 --data-dir=/work/cache/EURUSD \
+            --spread="$BASE_SPREAD" --commission="$COMMISSION" \
+            --DeltaThreshold=125 --MinConfirmations=3 \
+            --UseBarDeltaFallback=true --FallbackBelowTickDelta=2 --BarDeltaPointMultiplier=1.6 \
+            --UseSessionFilter=true --SessionStartHour=14 --SessionStartMinute=0 --SessionEndHour=14 --SessionEndMinute=54 \
+            --TradeMonday=true --TradeTuesday=true --TradeWednesday=true --TradeThursday=false --TradeFriday=true \
+            --HtfTimeFrameName=Minute15 --EmaSlopeBars=3 --AdxThreshold=16 \
+            --MinAtr=0.00005 --MaxAtr=0.00105 --MaxSpreadPoints=18 --SpreadAvgMultiplier=1.8 \
+            --MinimumExpectedMoveToCostRatio="$COST_RATIO" --CommissionUsdPerMillion=35 --CommissionIsPerSide=true --ExecutionSafetyBufferPips=0.2 \
+            --RiskMode=FixedMoneyRisk --FixedMoneyRisk=1.0 --AutoScaleFixedRisk=true --RiskReferenceBalance=100 --MinFixedMoneyRisk=0.05 --MaxLotSize=0.05 \
+            --SlAtrMultiplier=0.8 --TpAtrMultiplier=1.0 \
+            --MaxDailyTrades=3 --MaxDailyLossPercent=4 --MaxDailyLossMoney=0.55 --DailyProfitTargetMoney=1.10 \
+            --MaxConsecutiveLosses=2 --MinSecondsBetweenTrades=900 --LossCooldownMinutes=45 \
+            --MaxDailyEquityDrawdownMoney=0.75 --MaxFloatingLossMoney=0.90 --MaxEquityDrawdownPercent=12 --CloseOnEquityGuard=true \
+            --MaxTradeSeconds=1800 --UseBreakeven="$USE_BE" --BreakevenTriggerAtr=0.5 --BreakevenCostBufferPips=0.2 --AdverseDeltaExit="$USE_ADV" \
+            --report="/work/reports/${TAG}.html" --report-json="/work/reports/${TAG}.json" --exit-on-stop 2>&1 | tee "/work/reports/${TAG}.log"
+          rm -f backtest/ctrader.pwd
+      - name: Extract exit diagnostics from runtime log
+        if: always()
+        shell: bash
+        env:
+          TAG: ${{ matrix.tag }}
+        run: |
+          set +e
+          LOG="backtest/reports/${TAG}.log"
+          {
+            echo "tag=${TAG}"
+            echo "manual_close_reasons:"
+            grep -E 'CLOSE (ADVERSE_DELTA_CLOSED_BAR|TIME_EXIT|FLOATING_LOSS_GUARD|DAILY_EQUITY_DD_GUARD|ACCOUNT_EQUITY_DD_GUARD)' "$LOG" | sed -E 's/.*CLOSE //' | sort | uniq -c || true
+            echo "cost_gate_skips=$(grep -c 'SKIP cost_gate_ratio_' "$LOG" || true)"
+            echo "opens=$(grep -c 'OPEN ' "$LOG" || true)"
+          } > "backtest/reports/${TAG}-attribution.txt"
+          cat "backtest/reports/${TAG}-attribution.txt"
+      - name: Upload attribution report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: CDScalper_K2_ATTR_${{ matrix.tag }}
+          path: backtest/reports/*
+          if-no-files-found: warn
+          retention-days: 30
