@@ -1,0 +1,117 @@
+name: Validate CDScalper K Commercial Final
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [cds-k-commercial-final-candidate]
+    paths:
+      - '.github/workflows/cdscalper-k-commercial-final-validation.yml'
+      - 'CumulativeDeltaScalper-K-Commercial-Final/**'
+
+permissions:
+  contents: read
+
+env:
+  SYMBOL: EURUSD
+  PERIOD: m1
+  STARTING_BALANCE: '30'
+  COMMISSION_PER_MILLION: '35'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: cds-k-commercial-final-candidate
+      - name: Build K Commercial Final
+        shell: bash
+        run: |
+          set -euo pipefail
+          dotnet build CumulativeDeltaScalper-K-Commercial-Final/CumulativeDeltaScalper_K_Commercial_Final.csproj -c Release -p:AlgoBuild=true
+          mkdir -p out
+          find CumulativeDeltaScalper-K-Commercial-Final -type f -name '*.algo' -print -exec cp {} out/ \;
+          test -n "$(find out -maxdepth 1 -name '*.algo' -print -quit)"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: CDScalper_K_COMM_FINAL_algo
+          path: out/*.algo
+          retention-days: 30
+
+  validate:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      max-parallel: 6
+      matrix:
+        include:
+          - { tag: IS_1Y, start: '2024-09-09', end: '2025-09-08', spread: '0.43' }
+          - { tag: OOS_1Y, start: '2025-09-09', end: '2026-09-09', spread: '0.43' }
+          - { tag: FULL_2Y, start: '2024-09-09', end: '2026-09-09', spread: '0.43' }
+          - { tag: RECENT_6M, start: '2026-03-09', end: '2026-09-09', spread: '0.43' }
+          - { tag: OOS_STRESS_1P5X, start: '2025-09-09', end: '2026-09-09', spread: '0.65' }
+          - { tag: FULL_STRESS_1P5X, start: '2024-09-09', end: '2026-09-09', spread: '0.65' }
+    env:
+      CTID: ${{ secrets.CTRADER_CTID }}
+      ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+      CT_PASS: ${{ secrets.CTRADER_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: cds-k-commercial-final-candidate
+      - uses: actions/download-artifact@v4
+        with:
+          name: CDScalper_K_COMM_FINAL_algo
+          path: backtest
+      - name: Run K Commercial Final validation
+        shell: bash
+        env:
+          TAG: ${{ matrix.tag }}
+          START_DATE: ${{ matrix.start }}
+          END_DATE: ${{ matrix.end }}
+          CASE_SPREAD: ${{ matrix.spread }}
+        run: |
+          set -euo pipefail
+          ALGO="$(find backtest -type f -name '*.algo' -print -quit)"
+          test -n "$ALGO"
+          mkdir -p backtest/reports backtest/cache/EURUSD
+          printf '%s' "$CT_PASS" | tr -d '\r\n' > backtest/ctrader.pwd
+          chmod 600 backtest/ctrader.pwd
+          timeout --signal=TERM --kill-after=60s 110m docker run --rm \
+            -v "$PWD/backtest:/work" \
+            -e "CTID=$CTID" -e "ACCOUNT=$ACCOUNT" -e "PWD-FILE=/work/ctrader.pwd" \
+            ghcr.io/spotware/ctrader-console:5.9.11 \
+            backtest "/work/$(basename "$ALGO")" \
+            --environment-variables \
+            --symbol="$SYMBOL" --period="$PERIOD" \
+            --start="$START_DATE" --end="$END_DATE" --balance="$STARTING_BALANCE" \
+            --commission="$COMMISSION_PER_MILLION" --spread="$CASE_SPREAD" \
+            --data-mode=m1 --data-dir=/work/cache/EURUSD \
+            --WindowSize=10 --DeltaThreshold=125 --MinConfirmations=3 \
+            --UseBarDeltaFallback=true --FallbackBelowTickDelta=2 --BarDeltaPointMultiplier=1.6 \
+            --SessionStartHour=14 --SessionStartMinute=0 --SessionEndHour=14 --SessionEndMinute=54 \
+            --TradeMonday=true --TradeTuesday=true --TradeWednesday=true --TradeThursday=false --TradeFriday=true \
+            --EmaSlopeBars=3 --AdxThreshold=16 --MinAtr=0.00005 --MaxAtr=0.00105 \
+            --MaxSpreadPoints=15 --SpreadAvgMultiplier=1.6 \
+            --RiskMode=FixedMoneyRisk --FixedMoneyRisk=0.90 --AutoScaleFixedRisk=true --RiskReferenceBalance=100 --MinFixedMoneyRisk=0.05 \
+            --MaxLotSize=0.03 --HardMaxLossMoney=1.00 --SlAtrMultiplier=0.8 --TpAtrMultiplier=0.4 \
+            --MaxDailyTrades=3 --MaxDailyLossPercent=3.5 --MaxDailyLossMoney=0.50 --DailyProfitTargetMoney=1.00 \
+            --MaxConsecutiveLosses=2 --MinSecondsBetweenTrades=900 --LossCooldownMinutes=60 \
+            --MaxDailyEquityDrawdownMoney=0.65 --MaxFloatingLossMoney=0.80 --MaxEquityDrawdownPercent=12 \
+            --MaxTradeSeconds=1800 --UseBreakeven=true --BreakevenPips=0.8 --AdverseDeltaExit=true \
+            --DebugLogging=false \
+            --report="/work/reports/EURUSD-M1-K-COMM-FINAL-${TAG}.html" \
+            --report-json="/work/reports/EURUSD-M1-K-COMM-FINAL-${TAG}.json" \
+            --exit-on-stop
+          rm -f backtest/ctrader.pwd
+      - name: Upload report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: CDScalper_K_COMM_FINAL_${{ matrix.tag }}
+          path: backtest/reports/*
+          if-no-files-found: warn
+          retention-days: 30
