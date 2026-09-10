@@ -9,6 +9,9 @@ on:
       - '.github/workflows/build-harmonybot-mobile.yml'
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -21,8 +24,20 @@ jobs:
         with:
           dotnet-version: '6.0.x'
 
-      - name: Build cTrader ALGO
-        run: dotnet build HarmonyBot-Mobile/HarmonyBot.csproj --configuration Release -p:AlgoPublish=False -p:IncludeSource=True
+      - name: Restore uploaded source
+        shell: bash
+        run: |
+          base64 -d HarmonyBot-Mobile/HarmonyBot.cs.gz.b64 | gzip -d > HarmonyBot-Mobile/HarmonyBot.cs
+          test -s HarmonyBot-Mobile/HarmonyBot.cs
+          echo "Restored source: $(wc -c < HarmonyBot-Mobile/HarmonyBot.cs) bytes"
+
+      - name: Build real cTrader ALGO
+        shell: bash
+        run: |
+          dotnet restore HarmonyBot-Mobile/HarmonyBot.csproj
+          dotnet build HarmonyBot-Mobile/HarmonyBot.csproj --configuration Release --no-restore -p:AlgoPublish=false -p:IncludeSource=true
+          echo 'Generated ALGO files:'
+          find HarmonyBot-Mobile -type f -name '*.algo' -print
 
       - name: Collect ALGO
         shell: bash
