@@ -1,0 +1,143 @@
+name: BTC Harmonic Guard Commercial RC5 ABCD Quarantine
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ btc-store-commercial-rc5-abcd-quarantine ]
+    paths:
+      - '.github/scripts/commercial_rc5_transform.py'
+      - '.github/workflows/btc-harmonic-guard-commercial-rc5.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: btc-harmonic-guard-commercial-rc5
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 210
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '6.0.x'
+
+      - name: Preflight RC5
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s FibonacciHarmonicSniperUltimate/monthly-growth-v2/growth2_validation.sh
+          test -s FibonacciHarmonicSniperUltimate/monthly-growth-v2/growth2_transform.py
+          test -s .github/scripts/commercial_rc3a_transform.py
+          test -s .github/scripts/commercial_rc4_transform.py
+          test -s .github/scripts/commercial_rc5_transform.py
+          python3 -m py_compile .github/scripts/commercial_rc4_transform.py .github/scripts/commercial_rc5_transform.py
+          bash -n FibonacciHarmonicSniperUltimate/monthly-growth-v2/growth2_validation.sh
+
+      - name: Install RC5 transform
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp FibonacciHarmonicSniperUltimate/monthly-growth-v2/growth2_transform.py /tmp/growth2_transform.py
+          cp .github/scripts/commercial_rc5_transform.py FibonacciHarmonicSniperUltimate/monthly-growth-v2/growth2_transform.py
+
+      - name: Run full frozen validation
+        env:
+          CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+          CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+          CTRADER_PASSWORD: ${{ secrets.CTRADER_PASSWORD }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p work
+          LOG=work/commercial-rc5-validation-console.log
+          : > "$LOG"
+          heartbeat(){ while true; do echo "[HEARTBEAT] $(date -u +%FT%TZ) RC5 alive" | tee -a "$LOG"; sleep 300; done; }
+          heartbeat & HB=$!
+          trap 'kill $HB 2>/dev/null || true' EXIT INT TERM
+          set +e
+          timeout --signal=TERM --kill-after=60s 10800s bash FibonacciHarmonicSniperUltimate/monthly-growth-v2/growth2_validation.sh 2>&1 | tee -a "$LOG"
+          rc=${PIPESTATUS[0]}
+          set -e
+          if [ "$rc" -ne 0 ]; then exit "$rc"; fi
+
+      - name: RC5 commercial gate
+        if: success()
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json, pathlib
+          base=pathlib.Path('work/g2')
+          cs=[p for p in base.glob('*.cs') if p.name!='BTC-Harmonic-Guard.cs']
+          direct=sum(p.read_text().count('ExecuteMarketOrder(') for p in cs)
+          central=(base/'Commercial.IntentExecution.cs').read_text().count('ExecuteMarketOrder(')
+          generated=(base/'BTC-Harmonic-Guard-Growth2.cs').read_text()
+          arch=(base/'Growth3.Architecture.cs').read_text()
+          structural=(direct==1 and central==1 and generated.count('ExecuteMarketOrder(')==0 and '[GROWTH3 SHADOW]' in arch and '[M30 ABCD SHADOW]' in generated)
+          s=json.loads(pathlib.Path('work/Growth2-Final-Summary.json').read_text())
+          annual=s['annual']; full=s['selected_3y']; recent=s['recent']; h3=s['harsh_3y']; hr=s['harsh_recent']
+          positive_years=sum(v['roi']>0 for v in annual.values())
+          worst_pf=min(v['pf'] for v in annual.values()); worst_roi=min(v['roi'] for v in annual.values())
+          def attrib(path,pred):
+              d=json.loads(pathlib.Path(path).read_text()); rows=[x for x in d['history']['items'] if pred(x)]
+              gp=sum(x.get('net',0) for x in rows if x.get('net',0)>0); gl=-sum(x.get('net',0) for x in rows if x.get('net',0)<0)
+              return {'trades':len(rows),'net':round(sum(x.get('net',0) for x in rows),2),'pf':round(gp/gl,4) if gl else (99.0 if gp else 0.0)}
+          is_abcd=lambda x:(x.get('comment') or '').upper() in ('M30|ABCD','R21M30|ABCD')
+          is_growth=lambda x:(x.get('comment') or '').upper().startswith(('GROWTH2|','GROWTH3|'))
+          abcd3=attrib('work/moderate-3y/report.json',is_abcd); abcdr=attrib('work/recent-a/report.json',is_abcd)
+          g3=attrib('work/moderate-3y/report.json',is_growth); gr=attrib('work/recent-a/report.json',is_growth)
+          gates={
+            'single_execution_boundary':structural,
+            '3y_trades_ge_250':full['trades']>=250,
+            '3y_pf_ge_1_40':full['pf']>=1.40,
+            '3y_dd_le_18':full['dd']<=18,
+            'recent_pf_ge_1_80':recent['pf']>=1.80,
+            'recent_dd_le_6':recent['dd']<=6,
+            'positive_years_ge_2':positive_years>=2,
+            'worst_year_pf_ge_0_90':worst_pf>=0.90,
+            'worst_year_roi_ge_minus_3':worst_roi>=-3,
+            'harsh3y_roi_nonnegative':h3['roi']>=0,
+            'harsh3y_pf_ge_1':h3['pf']>=1,
+            'harsh_recent_pf_ge_1_35':hr['pf']>=1.35,
+            'harsh_recent_dd_le_6_8':hr['dd']<=6.8,
+            'growth3_shadow_no_live_trades':g3['trades']==0 and gr['trades']==0,
+            'm30_abcd_quarantined_no_live_trades':abcd3['trades']==0 and abcdr['trades']==0,
+          }
+          out={'status':'PASS' if all(gates.values()) else 'REJECT','commercial_freeze_eligible':all(gates.values()),'candidate':'Commercial RC5 ABCD Quarantine','architecture':{'direct_execute_market_order_calls':direct,'central_execute_market_order_calls':central,'growth3_shadow_only':g3['trades']==0 and gr['trades']==0,'m30_abcd_shadow_only':abcd3['trades']==0 and abcdr['trades']==0},'attribution':{'m30_abcd_3y':abcd3,'m30_abcd_recent':abcdr,'growth3_3y':g3,'growth3_recent':gr},'gates':gates,'summary':s}
+          pathlib.Path('work/Commercial-RC5-Gate.json').write_text(json.dumps(out,indent=2))
+          print(json.dumps(out,indent=2))
+          PY
+
+      - name: Remove credentials
+        if: always()
+        run: rm -f work/ctrader.pwd
+
+      - name: Upload RC5 evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: BTC-Harmonic-Guard-Commercial-RC5
+          retention-days: 30
+          if-no-files-found: warn
+          path: |
+            work/commercial-rc5-validation-console.log
+            work/Commercial-RC5-Gate.json
+            work/build/*
+            work/g2/*
+            work/control-3y/report.*
+            work/control-1y/report.*
+            work/strict-3y/report.*
+            work/balanced-3y/report.*
+            work/moderate-3y/report.*
+            work/recent-a/report.*
+            work/recent-b/report.*
+            work/y1/report.*
+            work/y2/report.*
+            work/y3/report.*
+            work/harsh-3y/report.*
+            work/harsh-y3/report.*
+            work/Growth2-*.json
