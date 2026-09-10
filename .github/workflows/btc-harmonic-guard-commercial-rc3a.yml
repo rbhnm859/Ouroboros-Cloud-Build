@@ -1,0 +1,135 @@
+name: BTC Harmonic Guard Commercial RC3A Architecture Parity
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ btc-store-commercial-rc3a-architecture-parity ]
+    paths:
+      - '.github/scripts/commercial_rc3a_transform_wrapper.py'
+      - '.github/workflows/btc-harmonic-guard-commercial-rc3a.yml'
+      - 'FibonacciHarmonicSniperUltimate/store-commercial-rc1/**'
+      - 'FibonacciHarmonicSniperUltimate/monthly-growth-v3/**'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: btc-harmonic-guard-commercial-rc3a
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 210
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '6.0.x'
+
+      - name: Preflight RC3A harness
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s FibonacciHarmonicSniperUltimate/monthly-growth-v2/growth2_validation.sh
+          test -s FibonacciHarmonicSniperUltimate/monthly-growth-v2/growth2_transform.py
+          test -s FibonacciHarmonicSniperUltimate/monthly-growth-v3/growth3_transform.py
+          test -s FibonacciHarmonicSniperUltimate/store-commercial-rc1/commercial_rc1_transform.py
+          test -s .github/scripts/commercial_rc1_transform_wrapper.py
+          test -s .github/scripts/commercial_rc3a_transform_wrapper.py
+          python3 -m py_compile .github/scripts/commercial_rc3a_transform_wrapper.py
+          bash -n FibonacciHarmonicSniperUltimate/monthly-growth-v2/growth2_validation.sh
+          echo '[PREFLIGHT] RC3A harness OK'
+
+      - name: Install RC3A transform wrapper
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp FibonacciHarmonicSniperUltimate/monthly-growth-v2/growth2_transform.py /tmp/growth2_transform.py
+          cp .github/scripts/commercial_rc3a_transform_wrapper.py FibonacciHarmonicSniperUltimate/monthly-growth-v2/growth2_transform.py
+          echo '[TRANSFORM] RC3A wrapper installed'
+
+      - name: Run frozen validation with watchdog
+        env:
+          CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+          CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+          CTRADER_PASSWORD: ${{ secrets.CTRADER_PASSWORD }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p work
+          LOG=work/commercial-rc3a-validation-console.log
+          : > "$LOG"
+          heartbeat(){ while true; do echo "[HEARTBEAT] $(date -u +%FT%TZ) RC3A alive" | tee -a "$LOG"; find work -maxdepth 2 -type f \( -name 'report.*' -o -name '*.json' -o -name '*.algo' \) -printf '[ARTIFACT] %s %p\n' 2>/dev/null | tail -20 | tee -a "$LOG" || true; sleep 300; done; }
+          heartbeat & HB=$!
+          trap 'kill $HB 2>/dev/null || true' EXIT INT TERM
+          set +e
+          timeout --signal=TERM --kill-after=60s 10800s bash FibonacciHarmonicSniperUltimate/monthly-growth-v2/growth2_validation.sh 2>&1 | tee -a "$LOG"
+          rc=${PIPESTATUS[0]}
+          set -e
+          if [ "$rc" -ne 0 ]; then echo "[VALIDATION FAIL] rc=$rc" | tee -a "$LOG"; exit "$rc"; fi
+          echo '[VALIDATION DONE]' | tee -a "$LOG"
+
+      - name: RC3A architecture parity gate
+        if: success()
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json, hashlib, pathlib
+          base=pathlib.Path('work/g2')
+          src=list(base.glob('*.cs'))
+          direct=sum(p.read_text().count('ExecuteMarketOrder(') for p in src)
+          central=(base/'Commercial.Portfolio.cs').read_text().count('ExecuteMarketOrder(') if (base/'Commercial.Portfolio.cs').exists() else 0
+          def h(path):
+              d=json.loads(path.read_text()); rows=d['history']['items']
+              keys=['symbol','direction','net','entryTime','closeTime','entryPrice','closePrice','volume','label','comment','pips']
+              canon=[{k:r.get(k) for k in keys} for r in rows]
+              raw=json.dumps(canon,sort_keys=True,separators=(',',':')).encode()
+              return hashlib.sha256(raw).hexdigest(),len(rows)
+          ref3='d4de294000b815ffaabe7bbf86d52896f4666ffe41a430a921db5c023a23cef9'
+          refr='8121349256573124d8ce6f5945529f14fa1d86e603c4b5d5852ac163ffa3a1f0'
+          a3,n3=h(pathlib.Path('work/moderate-3y/report.json'))
+          ar,nr=h(pathlib.Path('work/recent-a/report.json'))
+          summary=json.loads(pathlib.Path('work/Growth2-Final-Summary.json').read_text())
+          gates={
+            'single_execution_boundary': direct==1 and central==1,
+            'growth3_v31_3y_trade_hash_match': a3==ref3,
+            'growth3_v31_recent_trade_hash_match': ar==refr,
+            'growth3_v31_3y_trade_count_255': n3==255,
+            'growth3_v31_recent_trade_count_98': nr==98,
+          }
+          out={'status':'PASS' if all(gates.values()) else 'REJECT','architecture_parity':all(gates.values()),'candidate':'Commercial RC3A Architecture Parity','reference_run':34442250855,'reference_commit':'237f8972edbc08d8d915a9fadc9c8e54b356323d','reference_hashes':{'moderate_3y':ref3,'recent_a':refr},'actual_hashes':{'moderate_3y':a3,'recent_a':ar},'gates':gates,'summary':summary}
+          pathlib.Path('work/Commercial-RC3A-Parity.json').write_text(json.dumps(out,indent=2))
+          print(json.dumps(out,indent=2))
+          if not all(gates.values()): raise SystemExit('RC3A architecture parity mismatch')
+          PY
+
+      - name: Remove credentials
+        if: always()
+        run: rm -f work/ctrader.pwd
+
+      - name: Upload RC3A evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: BTC-Harmonic-Guard-Commercial-RC3A
+          retention-days: 30
+          if-no-files-found: warn
+          path: |
+            work/commercial-rc3a-validation-console.log
+            work/Commercial-RC3A-Parity.json
+            work/build/*
+            work/g2/*
+            work/control-3y/report.*
+            work/control-1y/report.*
+            work/strict-3y/report.*
+            work/balanced-3y/report.*
+            work/moderate-3y/report.*
+            work/recent-a/report.*
+            work/recent-b/report.*
+            work/y1/report.*
+            work/y2/report.*
+            work/harsh-3y/report.*
+            work/harsh-y3/report.*
+            work/Growth2-*.json
