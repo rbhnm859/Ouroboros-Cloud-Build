@@ -2,53 +2,188 @@ name: Validate CDScalper K3 Corrected Commercial
 
 on:
   workflow_dispatch:
+  push:
+    branches: [cds-k3-flow-first-entry-research]
+    paths:
+      - 'CumulativeDeltaScalper-EURUSD-v1/k3/**'
+      - '.github/workflows/cdscalper-k3-corrected-commercial-validation.yml'
+
+permissions:
+  contents: read
+
+env:
+  SYMBOL: EURUSD
+  PERIOD: m1
+  BALANCE: '30'
+  BASE_SPREAD: '0.43'
+  COMMISSION: '35'
+  COMMISSION_TYPE: UsdPerMillionUsdVolume
+  IS_START: '09/09/2024 00:00'
+  IS_END: '08/09/2025 23:59'
 
 jobs:
-  preflight:
-    runs-on: windows-latest
+  audit_build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
-      - name: Verify immutable Original K lineage
+        with:
+          ref: cds-k3-flow-first-entry-research
+          fetch-depth: 0
+
+      - name: Verify immutable Original K and K3 engineering invariants
         shell: bash
         run: |
+          set -euo pipefail
           BASE='ca6d78774eb7f772d32e19e537a9584a5cfc5400'
           ORIGINAL='CumulativeDeltaScalper-EURUSD-v1/src/CumulativeDeltaScalper_EURUSD_v1.cs'
-          git cat-file -e "$BASE:$ORIGINAL"
-          echo "Original K lineage present at $BASE"
-      - name: Validate K3 specification and banned techniques
-        shell: bash
-        run: |
-          test -f 'CumulativeDeltaScalper-EURUSD-v1/k3/docs/IMPLEMENTATION_SPEC.md'
-          echo 'K3 preflight specification present.'
-      - name: Record corrected promotion contract
-        shell: bash
-        run: |
-          cat <<'EOF'
-          Symbol=EURUSD
-          Period=m1
-          DataMode=ticks
-          InitialBalance=30 USD
-          TargetLeverage=500
-          Spread=0.43 pips
-          Commission=35
-          CommissionType=UsdPerMillionUsdVolume
-          IS=09/09/2024 00:00 -> 08/09/2025 23:59 UTC
-          OOS=09/09/2025 00:00 -> 09/09/2026 23:59 UTC
-          FULL=09/09/2024 00:00 -> 09/09/2026 23:59 UTC
-          EOF
+          K3='CumulativeDeltaScalper-EURUSD-v1/k3/src/CumulativeDeltaScalper_EURUSD_K3.cs'
+          K3PROJ='CumulativeDeltaScalper-EURUSD-v1/k3/CumulativeDeltaScalper_EURUSD_K3.csproj'
 
-  implementation-gate:
-    needs: preflight
+          test "$(git rev-parse "$BASE:$ORIGINAL")" = "$(git hash-object "$ORIGINAL")"
+          grep -q 'AccessRights = AccessRights.None' "$K3"
+          grep -q '<TargetFramework>net6.0</TargetFramework>' "$K3PROJ"
+          grep -q 'CheckSignalFlowFirst' "$K3"
+          grep -q 'entry_flow_not_persistent' "$K3"
+          grep -q 'entry_price_rejected_flow' "$K3"
+          grep -q 'RequiredContextConfirmations = 2' "$K3"
+          grep -q 'Bars.ClosePrices.Count - 2' "$K3"
+          grep -q 'ExecuteMarketOrder' "$K3"
+          grep -q 'ModifyPosition' "$K3"
+          grep -q 'VolumeForFixedRisk' "$K3"
+          grep -q 'NormalizeVolumeInUnits' "$K3"
+          grep -q 'MinStopLossDistance' "$K3"
+          grep -q 'MinTakeProfitDistance' "$K3"
+          grep -q 'Account.PreciseLeverage' "$K3"
+
+          if grep -Eiq '\b(Grid|Martingale|DCA|Recovery|Loss Averaging|Hedging|Fibonacci|RSI|MACD|Bollinger|Machine Learning|ML)\b' "$K3"; then
+            echo 'Forbidden strategy keyword found in K3 source.'
+            exit 1
+          fi
+          echo 'Original K immutable; K3 Flow-First invariants verified.'
+
+      - name: Verify cTrader CLI commercial cost semantics
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p audit
+          docker run --rm ghcr.io/spotware/ctrader-console:5.9.11 backtest --help > audit/backtest-help.txt 2>&1
+          grep -q -- '--commission-type' audit/backtest-help.txt
+          grep -q -- '--spread' audit/backtest-help.txt
+          grep -q -- '--data-mode' audit/backtest-help.txt
+          grep -Ei 'commission-type|commission|spread|data-mode' audit/backtest-help.txt > audit/cost-data-semantics.txt
+          cat audit/cost-data-semantics.txt
+
+      - name: Build Original K, K2 and K3 release algos
+        shell: bash
+        run: |
+          set -euo pipefail
+          dotnet build CumulativeDeltaScalper-EURUSD-v1/CumulativeDeltaScalper_EURUSD_v1.csproj -c Release -p:AlgoBuild=true
+          dotnet build CumulativeDeltaScalper-EURUSD-v1/k2/CumulativeDeltaScalper_EURUSD_K2.csproj -c Release -p:AlgoBuild=true
+          dotnet build CumulativeDeltaScalper-EURUSD-v1/k3/CumulativeDeltaScalper_EURUSD_K3.csproj -c Release -p:AlgoBuild=true
+          mkdir -p package/original package/k2 package/k3
+          find CumulativeDeltaScalper-EURUSD-v1 -type f -name 'CumulativeDeltaScalper_EURUSD_v1.algo' -print -exec cp {} package/original/ \;
+          find CumulativeDeltaScalper-EURUSD-v1/k2 -type f -name 'CumulativeDeltaScalper_EURUSD_K2.algo' -print -exec cp {} package/k2/ \;
+          find CumulativeDeltaScalper-EURUSD-v1/k3 -type f -name 'CumulativeDeltaScalper_EURUSD_K3.algo' -print -exec cp {} package/k3/ \;
+          test -n "$(find package/original -name '*.algo' -print -quit)"
+          test -n "$(find package/k2 -name '*.algo' -print -quit)"
+          test -n "$(find package/k3 -name '*.algo' -print -quit)"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: CDScalper_K3_corrected_IS_package
+          path: |
+            package/**/*.algo
+            audit/*
+            CumulativeDeltaScalper-EURUSD-v1/k3/presets/*.json
+            CumulativeDeltaScalper-EURUSD-v1/k3/docs/*.md
+          retention-days: 30
+
+  corrected_is:
+    needs: audit_build
     runs-on: ubuntu-latest
+    timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      matrix:
+        case: [ORIGINAL_K, K2_CONTROL, K3_FLOW_FIRST]
+    env:
+      CTID: ${{ secrets.CTRADER_CTID }}
+      ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+      CT_PASS: ${{ secrets.CTRADER_PASSWORD }}
     steps:
       - uses: actions/checkout@v4
-      - name: Require K3 implementation before performance validation
+        with:
+          ref: cds-k3-flow-first-entry-research
+      - uses: actions/download-artifact@v4
+        with:
+          name: CDScalper_K3_corrected_IS_package
+          path: package
+
+      - name: Run corrected tick-data IS control
         shell: bash
+        env:
+          CASE: ${{ matrix.case }}
         run: |
-          SRC='CumulativeDeltaScalper-EURUSD-v1/k3/src/CumulativeDeltaScalper_EURUSD_K3.cs'
-          PROJ='CumulativeDeltaScalper-EURUSD-v1/k3/CumulativeDeltaScalper_EURUSD_K3.csproj'
-          test -f "$SRC" || { echo 'K3 source not implemented yet'; exit 1; }
-          test -f "$PROJ" || { echo 'K3 project not implemented yet'; exit 1; }
-          grep -q 'AccessRights.None' "$SRC"
-          grep -q 'net6.0' "$PROJ"
-          echo 'K3 source/project present; performance jobs may be added only after implementation audit.'
+          set -euo pipefail
+          mkdir -p backtest/reports backtest/cache/EURUSD
+          printf '%s' "$CT_PASS" | tr -d '\r\n' > backtest/ctrader.pwd
+          chmod 600 backtest/ctrader.pwd
+
+          COMMON=(
+            --environment-variables
+            --symbol="$SYMBOL" --period="$PERIOD"
+            --start="$IS_START" --end="$IS_END" --balance="$BALANCE"
+            --data-mode=ticks --data-dir=/work/cache/EURUSD
+            --spread="$BASE_SPREAD" --commission="$COMMISSION" --commission-type="$COMMISSION_TYPE"
+            --UseBarDeltaFallback=true --FallbackBelowTickDelta=2 --BarDeltaPointMultiplier=1.6
+            --UseSessionFilter=true --SessionStartHour=14 --SessionStartMinute=0 --SessionEndHour=14 --SessionEndMinute=54
+            --TradeMonday=true --TradeTuesday=true --TradeWednesday=true --TradeThursday=false --TradeFriday=true
+            --HtfTimeFrameName=Minute15 --EmaSlopeBars=3 --AdxThreshold=16
+            --MinAtr=0.00005 --MaxAtr=0.00105 --MaxSpreadPoints=18 --SpreadAvgMultiplier=1.8
+            --RiskMode=FixedMoneyRisk --FixedMoneyRisk=1.0 --AutoScaleFixedRisk=true --RiskReferenceBalance=100 --MinFixedMoneyRisk=0.05 --MaxLotSize=0.05
+            --SlAtrMultiplier=0.8
+            --MaxDailyTrades=3 --MaxDailyLossPercent=4 --MaxDailyLossMoney=0.55 --DailyProfitTargetMoney=1.10
+            --MaxConsecutiveLosses=2 --MinSecondsBetweenTrades=900 --LossCooldownMinutes=45
+            --MaxDailyEquityDrawdownMoney=0.75 --MaxFloatingLossMoney=0.90 --MaxEquityDrawdownPercent=12 --CloseOnEquityGuard=true
+            --MaxTradeSeconds=1800 --AdverseDeltaExit=true
+          )
+
+          if [ "$CASE" = 'ORIGINAL_K' ]; then
+            ALGO="$(find package -type f -name 'CumulativeDeltaScalper_EURUSD_v1.algo' -print -quit)"
+            EXTRA=(--DeltaThreshold=125 --MinConfirmations=3 --TpAtrMultiplier=0.4 --UseBreakeven=true --BreakevenPips=1.0)
+          elif [ "$CASE" = 'K2_CONTROL' ]; then
+            ALGO="$(find package -type f -name 'CumulativeDeltaScalper_EURUSD_K2.algo' -print -quit)"
+            EXTRA=(--DeltaThreshold=125 --MinConfirmations=3 --MinimumExpectedMoveToCostRatio=2.0 --CommissionUsdPerMillion=35 --CommissionIsPerSide=true --ExecutionSafetyBufferPips=0.2 --TpAtrMultiplier=1.0 --UseBreakeven=true --BreakevenTriggerAtr=0.5 --BreakevenCostBufferPips=0.2)
+          else
+            ALGO="$(find package -type f -name 'CumulativeDeltaScalper_EURUSD_K3.algo' -print -quit)"
+            EXTRA=(--DeltaThreshold=125 --MinimumExpectedMoveToCostRatio=1.0 --CommissionUsdPerMillion=35 --CommissionIsPerSide=true --ExecutionSafetyBufferPips=0.2 --TpAtrMultiplier=1.0 --UseBreakeven=true --BreakevenTriggerAtr=0.5 --BreakevenCostBufferPips=0.2 --ExpectedLeverage=500)
+          fi
+
+          test -n "$ALGO"
+          cp "$ALGO" backtest/
+
+          set +e
+          docker run --rm \
+            -v "$PWD/backtest:/work" \
+            -e "CTID=$CTID" -e "ACCOUNT=$ACCOUNT" -e "PWD-FILE=/work/ctrader.pwd" \
+            ghcr.io/spotware/ctrader-console:5.9.11 \
+            backtest "/work/$(basename "$ALGO")" \
+            "${COMMON[@]}" "${EXTRA[@]}" \
+            --report="/work/reports/${CASE}.html" \
+            --report-json="/work/reports/${CASE}.json" \
+            --exit-on-stop 2>&1 | tee "backtest/reports/${CASE}.log"
+          EXIT=${PIPESTATUS[0]}
+          set -e
+          rm -f backtest/ctrader.pwd
+          echo "$EXIT" > "backtest/reports/${CASE}.exitcode.txt"
+          test -f "backtest/reports/${CASE}.json"
+
+      - name: Upload corrected IS report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: CDScalper_K3_CORRECTED_IS_${{ matrix.case }}
+          path: backtest/reports/*
+          if-no-files-found: warn
+          retention-days: 30
