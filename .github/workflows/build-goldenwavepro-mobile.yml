@@ -1,0 +1,49 @@
+name: Build GoldenWavePro Mobile
+
+on:
+  push:
+    branches:
+      - goldenwavepro-mobile-build-20260911
+    paths:
+      - 'GoldenWavePro-Mobile/**'
+      - '.github/workflows/build-goldenwavepro-mobile.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET 6
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '6.0.x'
+
+      - name: Restore
+        run: dotnet restore GoldenWavePro-Mobile/GoldenWaveProMobile.csproj
+
+      - name: Build cTrader .algo
+        run: dotnet build GoldenWavePro-Mobile/GoldenWaveProMobile.csproj --configuration Release -p:IncludeSource=True -p:AlgoPublish=False
+
+      - name: Locate .algo
+        run: |
+          find GoldenWavePro-Mobile -type f -name '*.algo' -print
+          test -n "$(find GoldenWavePro-Mobile -type f -name '*.algo' -print -quit)"
+
+      - name: Collect artifact
+        run: |
+          mkdir -p dist
+          cp "$(find GoldenWavePro-Mobile -type f -name '*.algo' -print -quit)" dist/GoldenWaveProRiskEngineMobile.algo
+
+      - name: Upload .algo
+        uses: actions/upload-artifact@v4
+        with:
+          name: GoldenWaveProRiskEngineMobile-algo
+          path: dist/GoldenWaveProRiskEngineMobile.algo
+          if-no-files-found: error
