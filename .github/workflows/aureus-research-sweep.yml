@@ -1,0 +1,155 @@
+name: Aureus Harmonic Gold Pro - Research Sweep
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/aureus-research-sweep.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: aureus-research-sweep
+  cancel-in-progress: true
+
+jobs:
+  sweep:
+    name: IS ${{ matrix.id }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      max-parallel: 6
+      matrix:
+        include:
+          - id: P3_S82_R15
+            pivot: 3
+            score: 82
+            rr: 1.50
+            tol: 5
+          - id: P3_S78_R15
+            pivot: 3
+            score: 78
+            rr: 1.50
+            tol: 5
+          - id: P4_S82_R15
+            pivot: 4
+            score: 82
+            rr: 1.50
+            tol: 5
+          - id: P4_S78_R15
+            pivot: 4
+            score: 78
+            rr: 1.50
+            tol: 5
+          - id: P3_S78_R175_T7
+            pivot: 3
+            score: 78
+            rr: 1.75
+            tol: 7
+          - id: P2_S75_R15
+            pivot: 2
+            score: 75
+            rr: 1.50
+            tol: 5
+
+    steps:
+      - name: Checkout candidate branch
+        uses: actions/checkout@v4
+
+      - name: Pull official cTrader CLI
+        run: docker pull ghcr.io/spotware/ctrader-console:5.9.11
+
+      - name: Build Aureus cBot
+        run: |
+          mkdir -p sweep/cache sweep/reports sweep/bin
+          docker run --rm --entrypoint sh -v "$PWD:/repo" -w /repo \
+            ghcr.io/spotware/ctrader-console:5.9.11 -c \
+            'dotnet restore Aureus-Harmonic-Gold-Pro/src/AureusHarmonicGoldPro.csproj && dotnet build Aureus-Harmonic-Gold-Pro/src/AureusHarmonicGoldPro.csproj --configuration Release --no-restore -p:AlgoPublish=False -p:IncludeSource=True'
+          ALGO="$(find Aureus-Harmonic-Gold-Pro/src -type f -name '*.algo' -print -quit)"
+          test -n "$ALGO"
+          cp "$ALGO" sweep/bin/AureusHarmonicGoldPro.algo
+
+      - name: Create cTrader password file
+        env:
+          CTRADER_PASSWORD: ${{ secrets.CTRADER_PASSWORD }}
+        run: |
+          test -n "${CTRADER_PASSWORD:-}"
+          printf '%s' "$CTRADER_PASSWORD" > sweep/ctrader.pwd
+          chmod 600 sweep/ctrader.pwd
+
+      - name: Backtest prior-year in-sample
+        env:
+          CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+          CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+        run: |
+          test -n "${CTRADER_CTID:-}"
+          test -n "${CTRADER_ACCOUNT:-}"
+          docker run --rm \
+            -v "$PWD/sweep:/work" \
+            -e "CTID=$CTRADER_CTID" \
+            -e 'PWD-FILE=/work/ctrader.pwd' \
+            -e "ACCOUNT=$CTRADER_ACCOUNT" \
+            ghcr.io/spotware/ctrader-console:5.9.11 \
+            backtest /work/bin/AureusHarmonicGoldPro.algo \
+            --environment-variables --exit-on-stop \
+            --symbol=XAUUSD --period=m15 \
+            --start='11/09/2024' --end='10/09/2025' \
+            --balance=10000 --data-mode=m1 --data-dir=/work/cache \
+            --PivotLeft=${{ matrix.pivot }} --PivotRight=${{ matrix.pivot }} \
+            --MinPatternScore=${{ matrix.score }} \
+            --MinimumRiskReward=${{ matrix.rr }} \
+            --RatioTolerancePercent=${{ matrix.tol }} \
+            --RequireHigherTimeframeAgreement=false \
+            --report="/work/reports/${{ matrix.id }}.html" \
+            --report-json="/work/reports/${{ matrix.id }}.json"
+
+      - name: Extract metrics
+        if: success()
+        env:
+          ID: ${{ matrix.id }}
+        run: |
+          python3 - <<'PYCODE'
+          from pathlib import Path
+          import json, os
+          ident=os.environ['ID']
+          d=json.loads(Path(f'sweep/reports/{ident}.json').read_text())
+          main=d.get('main',{})
+          stats=d.get('tradeStatistics',{})
+          equity=d.get('equity',{})
+          def allv(name, default=0):
+              v=stats.get(name, default)
+              return v.get('all', default) if isinstance(v,dict) else v
+          trades=int(allv('totalTrades',0) or 0)
+          wins=int(allv('winningTrades',0) or 0)
+          net=float(main.get('netProfit',0) or 0)
+          roi=float(main.get('roi',0) or 0)
+          pf=float(allv('profitFactor',0) or 0)
+          dd=float(equity.get('maxEquityDrawdownPercent',0) or 0)
+          wr=100*wins/trades if trades else 0
+          text=(f'# {ident}\n\n'
+                f'- Trades: {trades}\n- Wins: {wins}\n- Win rate: {wr:.2f}%\n'
+                f'- Net profit: ${net:.2f}\n- ROI: {roi:.2f}%\n'
+                f'- Profit factor: {pf:.3f}\n- Max equity DD: {dd:.2f}%\n')
+          Path(f'sweep/reports/{ident}-metrics.md').write_text(text)
+          print(text)
+          with Path(os.environ['GITHUB_STEP_SUMMARY']).open('a') as f: f.write(text)
+          PYCODE
+
+      - name: Remove credentials
+        if: always()
+        run: rm -f sweep/ctrader.pwd
+
+      - name: Upload research result
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Aureus-Research-${{ matrix.id }}
+          path: |
+            sweep/reports/${{ matrix.id }}.json
+            sweep/reports/${{ matrix.id }}.html
+            sweep/reports/${{ matrix.id }}-metrics.md
+          if-no-files-found: warn
+          retention-days: 14
