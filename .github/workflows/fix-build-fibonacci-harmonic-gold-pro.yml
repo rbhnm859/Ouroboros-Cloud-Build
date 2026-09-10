@@ -1,0 +1,69 @@
+name: Fix and Build Fibonacci Harmonic Gold Pro
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - harmonic-gold-pro-v1
+    paths:
+      - '.github/workflows/fix-build-fibonacci-harmonic-gold-pro.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Apply compile compatibility patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          sed -i '/^[[:space:]]*Name = "Fibonacci Harmonic Gold Pro",[[:space:]]*$/d' FibonacciHarmonicGoldPro-v1/src/FibonacciHarmonicGoldPro.cs
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add FibonacciHarmonicGoldPro-v1/src/FibonacciHarmonicGoldPro.cs
+          if ! git diff --cached --quiet; then
+            git commit -m 'fix cTrader RobotAttribute compatibility [skip ci]'
+            git push origin HEAD:harmonic-gold-pro-v1
+          fi
+
+      - name: Setup .NET 6
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '6.0.x'
+
+      - name: Restore
+        run: dotnet restore FibonacciHarmonicGoldPro-v1/src/FibonacciHarmonicGoldPro.csproj
+
+      - name: Build Release
+        run: |
+          dotnet build FibonacciHarmonicGoldPro-v1/src/FibonacciHarmonicGoldPro.csproj \
+            --configuration Release \
+            --no-restore \
+            -p:AlgoPublish=False \
+            -p:IncludeSource=True
+
+      - name: Collect .algo
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          ALGO="$(find FibonacciHarmonicGoldPro-v1/src -type f -name '*.algo' | head -n 1 || true)"
+          if [ -z "$ALGO" ]; then
+            echo 'No .algo was generated.'
+            find FibonacciHarmonicGoldPro-v1/src -maxdepth 7 -type f | sort
+            exit 1
+          fi
+          cp "$ALGO" dist/FibonacciHarmonicGoldPro-v1.0.0.algo
+          ls -lh dist/FibonacciHarmonicGoldPro-v1.0.0.algo
+
+      - name: Upload .algo
+        uses: actions/upload-artifact@v4
+        with:
+          name: FibonacciHarmonicGoldPro-v1.0.0-MobileCloud
+          path: dist/FibonacciHarmonicGoldPro-v1.0.0.algo
+          if-no-files-found: error
