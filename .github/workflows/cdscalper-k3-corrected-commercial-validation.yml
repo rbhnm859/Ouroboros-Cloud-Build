@@ -108,13 +108,19 @@ jobs:
           dotnet build CumulativeDeltaScalper-EURUSD-v1/CumulativeDeltaScalper_EURUSD_v1.csproj -c Release -p:AlgoBuild=true
           dotnet build CumulativeDeltaScalper-EURUSD-v1/k2/CumulativeDeltaScalper_EURUSD_K2.csproj -c Release -p:AlgoBuild=true
           dotnet build CumulativeDeltaScalper-EURUSD-v1/k3/CumulativeDeltaScalper_EURUSD_K3.csproj -c Release -p:AlgoBuild=true
+
+          ORIGINAL_ALGO="$(find CumulativeDeltaScalper-EURUSD-v1/bin/Release/net6.0 -maxdepth 1 -type f -name '*.algo' -print -quit)"
+          K2_ALGO="$(find CumulativeDeltaScalper-EURUSD-v1/k2/bin/Release/net6.0 -maxdepth 1 -type f -name '*.algo' -print -quit)"
+          K3_ALGO="$(find CumulativeDeltaScalper-EURUSD-v1/k3/bin/Release/net6.0 -maxdepth 1 -type f -name '*.algo' -print -quit)"
+          test -n "$ORIGINAL_ALGO"
+          test -n "$K2_ALGO"
+          test -n "$K3_ALGO"
+
           mkdir -p package/original package/k2 package/k3
-          find CumulativeDeltaScalper-EURUSD-v1 -type f -name 'CumulativeDeltaScalper_EURUSD_v1.algo' -print -exec cp {} package/original/ \;
-          find CumulativeDeltaScalper-EURUSD-v1/k2 -type f -name 'CumulativeDeltaScalper_EURUSD_K2.algo' -print -exec cp {} package/k2/ \;
-          find CumulativeDeltaScalper-EURUSD-v1/k3 -type f -name 'CumulativeDeltaScalper_EURUSD_K3.algo' -print -exec cp {} package/k3/ \;
-          test -n "$(find package/original -name '*.algo' -print -quit)"
-          test -n "$(find package/k2 -name '*.algo' -print -quit)"
-          test -n "$(find package/k3 -name '*.algo' -print -quit)"
+          cp "$ORIGINAL_ALGO" package/original/ORIGINAL_K.algo
+          cp "$K2_ALGO" package/k2/K2_CONTROL.algo
+          cp "$K3_ALGO" package/k3/K3_FLOW_FIRST.algo
+          sha256sum package/original/ORIGINAL_K.algo package/k2/K2_CONTROL.algo package/k3/K3_FLOW_FIRST.algo | tee audit/algo-sha256.txt
 
       - uses: actions/upload-artifact@v4
         with:
@@ -179,17 +185,17 @@ jobs:
           )
 
           if [ "$CASE" = 'ORIGINAL_K' ]; then
-            ALGO="$(find package -type f -name 'CumulativeDeltaScalper_EURUSD_v1.algo' -print -quit)"
+            ALGO='package/original/ORIGINAL_K.algo'
             EXTRA=(--DeltaThreshold=125 --MinConfirmations=3 --TpAtrMultiplier=0.4 --UseBreakeven=true --BreakevenPips=1.0)
           elif [ "$CASE" = 'K2_CONTROL' ]; then
-            ALGO="$(find package -type f -name 'CumulativeDeltaScalper_EURUSD_K2.algo' -print -quit)"
+            ALGO='package/k2/K2_CONTROL.algo'
             EXTRA=(--DeltaThreshold=125 --MinConfirmations=3 --MinimumExpectedMoveToCostRatio=2.0 --CommissionUsdPerMillion=35 --CommissionIsPerSide=true --ExecutionSafetyBufferPips=0.2 --TpAtrMultiplier=1.0 --UseBreakeven=true --BreakevenTriggerAtr=0.5 --BreakevenCostBufferPips=0.2)
           else
-            ALGO="$(find package -type f -name 'CumulativeDeltaScalper_EURUSD_K3.algo' -print -quit)"
+            ALGO='package/k3/K3_FLOW_FIRST.algo'
             EXTRA=(--DeltaThreshold=125 --MinimumExpectedMoveToCostRatio=1.0 --CommissionUsdPerMillion=35 --CommissionIsPerSide=true --ExecutionSafetyBufferPips=0.2 --TpAtrMultiplier=1.0 --UseBreakeven=true --BreakevenTriggerAtr=0.5 --BreakevenCostBufferPips=0.2 --ExpectedLeverage=500)
           fi
 
-          test -n "$ALGO"
+          test -f "$ALGO"
           cp "$ALGO" backtest/
           printf '%s\n' "$CTRADER_IMAGE" > "backtest/reports/${CASE}.image.txt"
 
