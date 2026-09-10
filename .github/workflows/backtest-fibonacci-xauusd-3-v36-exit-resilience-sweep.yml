@@ -34,3 +34,5 @@ jobs:
           name: xauusd_3-v36-tp-robustness-validation
           path: FibonacciHarmonicSniperUltimate/versions/xauusd_3/validation-v36-tp/
           retention-days: 60
+
+# 2026-09-10: explicit trigger after launcher hardening; strategy logic unchanged.
