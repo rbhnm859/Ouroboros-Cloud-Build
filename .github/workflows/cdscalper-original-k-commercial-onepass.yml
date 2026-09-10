@@ -26,12 +26,19 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: cds-k-commercial-onepass-validation
-      - name: Static commercial engineering audit
+          fetch-depth: 0
+      - name: Verify Original K core and engineering invariants
         shell: bash
         run: |
           set -euo pipefail
           SRC='CumulativeDeltaScalper-EURUSD-v1/src/CumulativeDeltaScalper_EURUSD_v1.cs'
+          BASE_SHA='ca6d78774eb7f772d32e19e537a9584a5cfc5400'
           test -f "$SRC"
+          git cat-file -e "${BASE_SHA}:${SRC}"
+          BASE_BLOB="$(git rev-parse "${BASE_SHA}:${SRC}")"
+          CUR_BLOB="$(git hash-object "$SRC")"
+          echo "Original K base blob=$BASE_BLOB current blob=$CUR_BLOB"
+          test "$BASE_BLOB" = "$CUR_BLOB"
           grep -q 'AccessRights = AccessRights.None' "$SRC"
           grep -q 'ExecuteMarketOrder' "$SRC"
           grep -q 'ModifyPosition' "$SRC"
@@ -43,10 +50,7 @@ jobs:
           grep -q 'Bars.ClosePrices.Count - 2' "$SRC"
           grep -q '_lastProcessedBarTime' "$SRC"
           grep -q 'Symbol.Spread / Symbol.TickSize' "$SRC"
-          if grep -Eqi 'Fibonacci|RSI|MACD|Bollinger|MachineLearning|Martingale|DCA|Recovery|LossAveraging' "$SRC"; then
-            echo 'Forbidden-added-strategy keyword detected in Original K source'; exit 1;
-          fi
-          echo 'Static audit checks passed. Original K source left unchanged.'
+          echo 'Original K source hash and engineering invariants verified.'
       - name: Build Original Candidate K
         shell: bash
         run: |
@@ -55,13 +59,14 @@ jobs:
           mkdir -p out
           find CumulativeDeltaScalper-EURUSD-v1 -type f -name '*.algo' -print -exec cp {} out/ \;
           test -n "$(find out -maxdepth 1 -name '*.algo' -print -quit)"
-      - name: Capture cTrader CLI spread/commission help
+      - name: Capture cTrader CLI cost-model help
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p audit
           docker run --rm ghcr.io/spotware/ctrader-console:5.9.11 backtest --help > audit/ctrader-backtest-help.txt 2>&1 || true
-          grep -Ei 'spread|commission|leverage' audit/ctrader-backtest-help.txt || true
+          grep -Ei 'spread|commission|leverage' audit/ctrader-backtest-help.txt > audit/cost-model-lines.txt || true
+          cat audit/cost-model-lines.txt || true
       - uses: actions/upload-artifact@v4
         with:
           name: CDScalper_ORIGINAL_K_ONEPASS_algo_and_audit
