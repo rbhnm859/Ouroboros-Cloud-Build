@@ -10,6 +10,6 @@
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="src/FibonacciXAUUSD3V37.cs" />
-    <PackageReference Include="cTrader.Automate" Version="1.*-*" />
+    <PackageReference Include="cTrader.Automate" Version="1.0.19" />
   </ItemGroup>
 </Project>
