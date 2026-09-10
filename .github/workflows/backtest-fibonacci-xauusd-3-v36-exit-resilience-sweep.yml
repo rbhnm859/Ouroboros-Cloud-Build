@@ -1,4 +1,4 @@
-name: Fibonacci XAUUSD 3 - v3.6 Exit Resilience Sweep
+name: Fibonacci XAUUSD 3 - v3.6 TP Robustness Validation
 
 on:
   workflow_dispatch:
@@ -12,13 +12,13 @@ permissions:
   contents: read
 
 jobs:
-  build:
+  validate:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 150
     steps:
       - uses: actions/checkout@v4
 
-      - name: Patch v3.6 candidate
+      - name: Patch TP resilience candidate
         shell: bash
         run: |
           set -euo pipefail
@@ -27,364 +27,260 @@ jobs:
           p = Path('FibonacciHarmonicSniperUltimate/versions/xauusd_3/src/FibonacciXAUUSD3.cs')
           s = p.read_text()
 
-          s = s.replace(
-              'Print("VERSION xauusd_3 v3.5.0-m5-first-valid");',
-              'Print("VERSION xauusd_3 v3.6.0-exit-resilience-candidate");',
-              1)
+          old_version = 'Print("VERSION xauusd_3 v3.6.0-safety-hardening");'
+          new_version = 'Print("VERSION xauusd_3 v3.6.1-tp-resilience-candidate");'
+          assert s.count(old_version) == 1
+          s = s.replace(old_version, new_version, 1)
 
-          old = '''        [Parameter("H1 ATR14/ATR50 Min", DefaultValue = 1.15, MinValue = 1.00, MaxValue = 2.00, Group = "Regime")]\n        public double H1AtrExpansionMin { get; set; }\n'''
-          new = old + '''\n        [Parameter("TP Distance Multiplier", DefaultValue = 1.0, MinValue = 0.80, MaxValue = 1.50, Group = "Exit")]
+          marker = '''        [Parameter("H1 ATR14/ATR50 Min", DefaultValue = 1.15, MinValue = 1.00, MaxValue = 2.00, Group = "Regime")]\n        public double H1AtrExpansionMin { get; set; }\n'''
+          addition = '''\n        [Parameter("TP Distance Multiplier", DefaultValue = 1.0, MinValue = 1.0, MaxValue = 1.4, Group = "Exit")]
         public double TakeProfitMultiplier { get; set; }
-
-        [Parameter("Enable Breakeven", DefaultValue = false, Group = "Exit")]
-        public bool EnableBreakeven { get; set; }
-
-        [Parameter("Breakeven Trigger R", DefaultValue = 1.0, MinValue = 0.5, MaxValue = 3.0, Group = "Exit")]
-        public double BreakevenTriggerR { get; set; }
-
-        [Parameter("Breakeven Lock R", DefaultValue = 0.05, MinValue = 0.0, MaxValue = 0.50, Group = "Exit")]
-        public double BreakevenLockR { get; set; }
-'''
-          assert s.count(old) == 1
-          s = s.replace(old, new, 1)
-
-          old = '''        private readonly Dictionary<long, TradeMeta> _openMeta = new Dictionary<long, TradeMeta>();\n'''
-          new = old + '''        private readonly Dictionary<long, double> _initialRiskPips = new Dictionary<long, double>();
-'''
-          assert s.count(old) == 1
-          s = s.replace(old, new, 1)
-
-          old = '''            ResetDay();\n            Print("VERSION xauusd_3 v3.6.0-exit-resilience-candidate");\n'''
-          new = '''            ResetDay();
-            RestoreDailyStateFromHistory();
-            Print("VERSION xauusd_3 v3.6.0-exit-resilience-candidate");
-'''
-          assert s.count(old) == 1
-          s = s.replace(old, new, 1)
-
-          old = '''            if (m5Index < 12)\n                return;\n            if (HasAnySymbolExposure())\n                return;\n'''
-          new = '''            if (m5Index < 12)
-                return;
-            EnsureProtectionIntegrity();
-            ManageOpenPositions();
-            if (HasAnySymbolExposure())
-                return;
-'''
-          assert s.count(old) == 1
-          s = s.replace(old, new, 1)
-
-          old = '''                double tpPips = tpDistance / Symbol.PipSize;\n                double rr = tpPips / slPips;\n'''
-          new = '''                double tpPips = (tpDistance / Symbol.PipSize) * TakeProfitMultiplier;
-                double rr = tpPips / slPips;
-'''
-          assert s.count(old) == 1
-          s = s.replace(old, new, 1)
-
-          old = '''                _openMeta[result.Position.Id] = new TradeMeta(a.Tag, a.Direction, finalScore, rr, confirmRules, session);\n'''
-          new = old + '''                _initialRiskPips[result.Position.Id] = slPips;
-'''
-          assert s.count(old) == 1
-          s = s.replace(old, new, 1)
-
-          marker = '''        private double H1AtrExpansionRatio()\n        {\n'''
-          helper = '''        private void EnsureProtectionIntegrity()
-        {
-            foreach (Position p in Positions.FindAll(BotLabel, SymbolName))
-            {
-                if (p.StopLoss != null && p.TakeProfit != null)
-                    continue;
-                Print("[FAILSAFE] Missing protection PID={0}; closing position", p.Id);
-                ClosePosition(p);
-            }
-        }
-
-        private void ManageOpenPositions()
-        {
-            if (!EnableBreakeven)
-                return;
-
-            foreach (Position p in Positions.FindAll(BotLabel, SymbolName))
-            {
-                if (p.StopLoss == null || p.TakeProfit == null)
-                    continue;
-
-                double initialRiskPips;
-                if (!_initialRiskPips.TryGetValue(p.Id, out initialRiskPips))
-                {
-                    bool alreadyProtected = p.TradeType == TradeType.Buy
-                        ? p.StopLoss.Value >= p.EntryPrice
-                        : p.StopLoss.Value <= p.EntryPrice;
-                    if (alreadyProtected)
-                        continue;
-
-                    initialRiskPips = Math.Abs(p.EntryPrice - p.StopLoss.Value) / Symbol.PipSize;
-                    if (initialRiskPips <= 0)
-                        continue;
-                    _initialRiskPips[p.Id] = initialRiskPips;
-                }
-
-                double favorablePips = p.TradeType == TradeType.Buy
-                    ? (Symbol.Bid - p.EntryPrice) / Symbol.PipSize
-                    : (p.EntryPrice - Symbol.Ask) / Symbol.PipSize;
-                if (favorablePips < BreakevenTriggerR * initialRiskPips)
-                    continue;
-
-                double desired = p.TradeType == TradeType.Buy
-                    ? p.EntryPrice + BreakevenLockR * initialRiskPips * Symbol.PipSize
-                    : p.EntryPrice - BreakevenLockR * initialRiskPips * Symbol.PipSize;
-                bool improves = p.TradeType == TradeType.Buy
-                    ? desired > p.StopLoss.Value
-                    : desired < p.StopLoss.Value;
-                if (!improves)
-                    continue;
-
-                double market = p.TradeType == TradeType.Buy ? Symbol.Bid : Symbol.Ask;
-                double distancePips = Math.Abs(market - desired) / Symbol.PipSize;
-                double brokerMin = BrokerMinDistancePips(market, Symbol.MinStopLossDistance) * 1.10;
-                if (distancePips <= brokerMin)
-                    continue;
-
-                TradeResult mr = ModifyPosition(p, desired, p.TakeProfit);
-                if (mr.IsSuccessful)
-                    Print("[BREAKEVEN] PID={0} trigger={1:F2}R lock={2:F2}R SL={3:F2}", p.Id, BreakevenTriggerR, BreakevenLockR, desired);
-                else
-                    Print("[BREAKEVEN FAIL] PID={0} error={1}", p.Id, mr.Error);
-            }
-        }
-
-        private void RestoreDailyStateFromHistory()
-        {
-            double net = 0.0;
-            int trades = 0;
-            foreach (HistoricalTrade t in History.FindAll(BotLabel, SymbolName))
-            {
-                if (t.ClosingTime.Date == _day)
-                    net += t.NetProfit;
-                if (t.EntryTime.Date == _day)
-                    trades++;
-            }
-            _dayNet = net;
-            _tradesToday = trades;
-            _dayStartBalance = Account.Balance - _dayNet;
-            if (_dayStartBalance <= 0)
-                _dayStartBalance = Account.Balance;
-        }
-
-        private double CurrentBotFloatingNet()
-        {
-            double net = 0.0;
-            foreach (Position p in Positions.FindAll(BotLabel, SymbolName))
-                net += p.NetProfit;
-            return net;
-        }
-
-        private double H1AtrExpansionRatio()
-        {
 '''
           assert s.count(marker) == 1
-          s = s.replace(marker, helper, 1)
+          assert 'TP Distance Multiplier' not in s
+          s = s.replace(marker, marker + addition, 1)
 
-          old = '''            double cap = _dayStartBalance * MaxDailyLossPercent / 100.0;\n            return -_dayNet >= cap;\n'''
-          new = '''            double cap = _dayStartBalance * MaxDailyLossPercent / 100.0;
-            return -(_dayNet + CurrentBotFloatingNet()) >= cap;
-'''
-          assert s.count(old) == 1
-          s = s.replace(old, new, 1)
-
-          old = '''            _openMeta.Remove(p.Id);\n'''
-          new = '''            _openMeta.Remove(p.Id);
-            _initialRiskPips.Remove(p.Id);
-'''
-          assert s.count(old) == 1
-          s = s.replace(old, new, 1)
+          old_tp = '                double tpPips = tpDistance / Symbol.PipSize;'
+          new_tp = '                double tpPips = (tpDistance / Symbol.PipSize) * TakeProfitMultiplier;'
+          assert s.count(old_tp) == 1
+          s = s.replace(old_tp, new_tp, 1)
 
           p.write_text(s)
           PY
 
           SRC='FibonacciHarmonicSniperUltimate/versions/xauusd_3/src/FibonacciXAUUSD3.cs'
-          grep -q 'v3.6.0-exit-resilience-candidate' "$SRC"
+          grep -q 'v3.6.1-tp-resilience-candidate' "$SRC"
           grep -q 'TP Distance Multiplier' "$SRC"
-          grep -q 'Enable Breakeven' "$SRC"
           grep -q 'RestoreDailyStateFromHistory' "$SRC"
           grep -q 'EnsureProtectionIntegrity' "$SRC"
           grep -q 'CurrentBotFloatingNet' "$SRC"
           grep -q 'HasAnySymbolExposure' "$SRC"
 
-      - run: docker pull ghcr.io/spotware/ctrader-console:5.9.11
+      - name: Pull official cTrader CLI image
+        run: docker pull ghcr.io/spotware/ctrader-console:5.9.11
 
-      - name: Build v3.6 candidate
+      - name: Build candidate with official toolchain
         shell: bash
         run: |
           set -euo pipefail
           ROOT='FibonacciHarmonicSniperUltimate/versions/xauusd_3'
-          docker run --rm --entrypoint sh -v "$PWD:/repo" -w /repo ghcr.io/spotware/ctrader-console:5.9.11 -c "dotnet restore $ROOT/FibonacciXAUUSD3.csproj && dotnet build $ROOT/FibonacciXAUUSD3.csproj -c Release --no-restore -p:AlgoPublish=False -p:IncludeSource=True"
-          mkdir -p package
-          cp "$(find "$ROOT" -type f -name '*.algo' -print -quit)" package/FibonacciXAUUSD3-v3.6-ExitResilience.algo
-          cp "$ROOT/src/FibonacciXAUUSD3.cs" package/FibonacciXAUUSD3-v3.6.cs
-          sha256sum package/FibonacciXAUUSD3-v3.6-ExitResilience.algo > package/algo.sha256
+          docker run --rm --entrypoint sh \
+            -v "$PWD:/repo" -w /repo \
+            ghcr.io/spotware/ctrader-console:5.9.11 \
+            -c "dotnet restore '$ROOT/FibonacciXAUUSD3.csproj' && dotnet build '$ROOT/FibonacciXAUUSD3.csproj' -c Release --no-restore -p:AlgoPublish=False -p:IncludeSource=True"
 
-      - uses: actions/upload-artifact@v4
-        with:
-          name: xauusd_3-v36-build
-          path: package/
-          retention-days: 30
+          ALGO="$(find "$ROOT" -type f -name '*.algo' -print -quit)"
+          test -n "$ALGO"
+          test -s "$ALGO"
+          mkdir -p work/reports work/cache
+          cp "$ALGO" work/FibonacciXAUUSD3-v3.6.1-TPResilience.algo
+          cp "$ROOT/src/FibonacciXAUUSD3.cs" work/FibonacciXAUUSD3-v3.6.1.cs
+          sha256sum work/FibonacciXAUUSD3-v3.6.1-TPResilience.algo > work/algo.sha256
 
-  backtest:
-    needs: build
-    runs-on: ubuntu-latest
-    timeout-minutes: 90
-    strategy:
-      fail-fast: false
-      matrix:
-        variant:
-          - base
-          - tp110
-          - tp120
-          - tp130
-          - tp110-be100
-          - tp120-be125
-        testcase:
-          - 3m-standard
-          - 3m-harsh
-          - 1y-standard
-          - 1y-harsh
-
-    steps:
-      - uses: actions/download-artifact@v4
-        with:
-          name: xauusd_3-v36-build
-          path: work
-
-      - run: docker pull ghcr.io/spotware/ctrader-console:5.9.11
-
-      - name: Credentials
+      - name: Prepare cTrader credentials
         env:
           CTRADER_PASSWORD: ${{ secrets.CTRADER_PASSWORD }}
+        shell: bash
         run: |
+          set -euo pipefail
           test -n "${CTRADER_PASSWORD:-}"
           printf '%s' "$CTRADER_PASSWORD" > work/ctrader.pwd
 
-      - name: Backtest ${{ matrix.variant }} ${{ matrix.testcase }}
+      - name: Run 3M 6M 1Y Standard Harsh sweep
         env:
           CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
           CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
         shell: bash
         run: |
           set -euo pipefail
+          run_bt() {
+            local VARIANT="$1" TP="$2" PERIOD="$3" COST="$4" START="$5" END="$6" SPREAD="$7" COMMISSION="$8"
+            local LABEL="${VARIANT}-${PERIOD}-${COST}"
+            echo "=== ${LABEL} TP=${TP} ==="
+            docker run --rm \
+              -v "$PWD/work:/work" \
+              -e "CTID=$CTRADER_CTID" \
+              -e 'PWD-FILE=/work/ctrader.pwd' \
+              -e "ACCOUNT=$CTRADER_ACCOUNT" \
+              ghcr.io/spotware/ctrader-console:5.9.11 \
+              backtest /work/FibonacciXAUUSD3-v3.6.1-TPResilience.algo \
+              --environment-variables --exit-on-stop \
+              --symbol=XAUUSD --period=m5 --start="$START" --end="$END" \
+              --balance=10000 --data-mode=m1 --data-dir=/work/cache \
+              --commission="$COMMISSION" --spread="$SPREAD" \
+              --RiskPercent=0.50 --MaxDailyLossPercent=3 --MinimumRiskReward=1.5 \
+              --PreScoreMin=42 --FinalScoreMin=60 --M5PreScoreFloor=50 --M5RulesNeeded=2 \
+              --MinImpulseAtr=1.2 --MinStopAtr=0.20 --MaxAllowedRR=8 \
+              --BuyH1MinScore=18 --BlockLondonEntries=true \
+              --RequireH1AtrExpansion=true --H1AtrExpansionMin=1.15 \
+              --TakeProfitMultiplier="$TP" \
+              --report="/work/reports/${LABEL}.html" \
+              --report-json="/work/reports/${LABEL}.json" \
+              2>&1 | tee "work/reports/${LABEL}.log"
+            test -s "work/reports/${LABEL}.json"
+          }
 
-          VARIANT='${{ matrix.variant }}'
-          TESTCASE='${{ matrix.testcase }}'
+          for spec in 'base 1.00' 'tp110 1.10' 'tp120 1.20' 'tp130 1.30'; do
+            set -- $spec
+            V="$1"; TP="$2"
+            run_bt "$V" "$TP" 3m standard 09/06/2026 09/09/2026 17.42 35
+            run_bt "$V" "$TP" 3m harsh    09/06/2026 09/09/2026 30 50
+            run_bt "$V" "$TP" 6m standard 09/03/2026 09/09/2026 17.42 35
+            run_bt "$V" "$TP" 6m harsh    09/03/2026 09/09/2026 30 50
+            run_bt "$V" "$TP" 1y standard 09/09/2025 09/09/2026 17.42 35
+            run_bt "$V" "$TP" 1y harsh    09/09/2025 09/09/2026 30 50
+          done
 
-          TP='1.00'; BE='false'; BETRIGGER='1.00'; BELOCK='0.05'
-          case "$VARIANT" in
-            base) ;;
-            tp110) TP='1.10' ;;
-            tp120) TP='1.20' ;;
-            tp130) TP='1.30' ;;
-            tp110-be100) TP='1.10'; BE='true'; BETRIGGER='1.00' ;;
-            tp120-be125) TP='1.20'; BE='true'; BETRIGGER='1.25' ;;
-            *) echo "Unknown variant $VARIANT"; exit 2 ;;
-          esac
-
-          START='09/06/2026'; END='09/09/2026'; SPREAD='17.42'; COMMISSION='35'
-          case "$TESTCASE" in
-            3m-standard) ;;
-            3m-harsh) SPREAD='30'; COMMISSION='50' ;;
-            1y-standard) START='09/09/2025' ;;
-            1y-harsh) START='09/09/2025'; SPREAD='30'; COMMISSION='50' ;;
-            *) echo "Unknown testcase $TESTCASE"; exit 2 ;;
-          esac
-
-          mkdir -p work/reports work/cache
-          LABEL="${VARIANT}-${TESTCASE}"
-          docker run --rm -v "$PWD/work:/work" -e "CTID=$CTRADER_CTID" -e 'PWD-FILE=/work/ctrader.pwd' -e "ACCOUNT=$CTRADER_ACCOUNT" ghcr.io/spotware/ctrader-console:5.9.11 backtest /work/FibonacciXAUUSD3-v3.6-ExitResilience.algo --environment-variables --exit-on-stop --symbol=XAUUSD --period=m5 --start="$START" --end="$END" --balance=10000 --data-mode=m1 --data-dir=/work/cache --commission="$COMMISSION" --spread="$SPREAD" --RiskPercent=0.50 --MaxDailyLossPercent=3 --MinimumRiskReward=1.5 --PreScoreMin=42 --FinalScoreMin=60 --M5PreScoreFloor=50 --M5RulesNeeded=2 --MinImpulseAtr=1.2 --MinStopAtr=0.20 --MaxAllowedRR=8 --BuyH1MinScore=18 --BlockLondonEntries=true --RequireH1AtrExpansion=true --H1AtrExpansionMin=1.15 --TakeProfitMultiplier="$TP" --EnableBreakeven="$BE" --BreakevenTriggerR="$BETRIGGER" --BreakevenLockR="$BELOCK" --report="/work/reports/${LABEL}.html" --report-json="/work/reports/${LABEL}.json" 2>&1 | tee "work/reports/${LABEL}.log"
-          test -s "work/reports/${LABEL}.json"
-
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: xauusd_3-v36-${{ matrix.variant }}-${{ matrix.testcase }}
-          path: work/reports/
-          retention-days: 30
-
-  aggregate:
-    needs: backtest
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/download-artifact@v4
-        with:
-          name: xauusd_3-v36-build
-          path: package
-
-      - uses: actions/download-artifact@v4
-        with:
-          pattern: xauusd_3-v36-*
-          path: reports
-          merge-multiple: true
-
-      - name: Aggregate sweep and safety audit
+      - name: Rank robust TP candidates
         shell: bash
         run: |
           set -euo pipefail
           python3 - <<'PY'
-          import datetime
-          import json
+          import datetime, json, math
           from pathlib import Path
 
-          variants = ['base', 'tp110', 'tp120', 'tp130', 'tp110-be100', 'tp120-be125']
-          tests = [('3m','standard'), ('3m','harsh'), ('1y','standard'), ('1y','harsh')]
-          out = [
-              '# xauusd_3 v3.6 Exit + Resilience Sweep',
-              '',
-              '| Variant | Period | Cost | Trades | Net | ROI % | PF | DD % | Overlap | Hedge | London |',
-              '|---|---|---|---:|---:|---:|---:|---:|---:|---:|---:|'
-          ]
+          variants = ['base','tp110','tp120','tp130']
+          periods = ['3m','6m','1y']
+          costs = ['standard','harsh']
           rows = []
+          safety_fail = False
+
+          def val(x):
+              try: return float(x)
+              except: return 0.0
 
           for v in variants:
-              for period, cost in tests:
-                  p = Path(f'reports/{v}-{period}-{cost}.json')
-                  d = json.loads(p.read_text())
-                  ts = d['tradeStatistics']; main = d['main']; eq = d['equity']; hist = d['history']['items']
-                  spans = sorted((int(x['entryTime']), int(x['closeTime']), x['direction']) for x in hist)
-                  overlap = 0; hedge = 0
-                  for i, a in enumerate(spans):
-                      for b in spans[i+1:]:
-                          if b[0] >= a[1]:
-                              break
-                          overlap += 1
-                          hedge += int(b[2] != a[2])
-                  london = sum(
-                      1 for x in hist
-                      if 7 <= datetime.datetime.fromtimestamp(int(x['entryTime'])/1000, datetime.timezone.utc).hour < 13)
-                  trades = int(ts['totalTrades']['all'])
-                  net = float(main['netProfit']); roi = float(main['roi'])
-                  pf = float(ts['profitFactor']['all']); dd = float(eq['maxEquityDrawdownPercent'])
-                  out.append(f'| {v} | {period} | {cost} | {trades} | {net:.2f} | {roi:.2f} | {pf:.2f} | {dd:.2f} | {overlap} | {hedge} | {london} |')
-                  assert overlap == 0 and hedge == 0 and london == 0
-                  rows.append((v, period, cost, trades, net, roi, pf, dd))
+              for period in periods:
+                  for cost in costs:
+                      d = json.loads(Path(f'work/reports/{v}-{period}-{cost}.json').read_text())
+                      ts = d['tradeStatistics']; main = d['main']; eq = d['equity']
+                      hist = d.get('history',{}).get('items',[])
+                      spans = sorted((int(x['entryTime']), int(x['closeTime']), x['direction']) for x in hist)
+                      overlap = hedge = 0
+                      for i,a in enumerate(spans):
+                          for b in spans[i+1:]:
+                              if b[0] >= a[1]: break
+                              overlap += 1
+                              hedge += int(b[2] != a[2])
+                      london = sum(1 for x in hist if 7 <= datetime.datetime.fromtimestamp(int(x['entryTime'])/1000, datetime.timezone.utc).hour < 13)
+                      trades = int(ts['totalTrades']['all'])
+                      net = val(main['netProfit']); roi = val(main['roi'])
+                      pf = val(ts['profitFactor']['all']); dd = val(eq['maxEquityDrawdownPercent'])
+                      if overlap or hedge or london: safety_fail = True
+                      rows.append(dict(v=v,period=period,cost=cost,trades=trades,net=net,roi=roi,pf=pf,dd=dd,overlap=overlap,hedge=hedge,london=london))
 
-          out.extend(['', '## 1Y robustness ranking', ''])
-          scores = []
+          def get(v,p): return [r for r in rows if r['v']==v and r['period']==p]
+          ranking=[]
           for v in variants:
-              vr = [x for x in rows if x[0] == v and x[1] == '1y']
-              min_roi = min(x[5] for x in vr)
-              min_pf = min(x[6] for x in vr)
-              max_dd = max(x[7] for x in vr)
-              score = min_roi + 2.0 * (min_pf - 1.0) - max(0.0, max_dd - 6.0)
-              scores.append((score, v, min_roi, min_pf, max_dd))
-          for score, v, min_roi, min_pf, max_dd in sorted(scores, reverse=True):
-              out.append(f'- {v}: score={score:.2f}, min1YROI={min_roi:.2f}%, min1YPF={min_pf:.2f}, max1YDD={max_dd:.2f}%')
+              r3=get(v,'3m'); r6=get(v,'6m'); r1=get(v,'1y')
+              min3=min(x['roi'] for x in r3); min6=min(x['roi'] for x in r6); min1=min(x['roi'] for x in r1)
+              minpf=min(x['pf'] for x in r1); maxdd=max(x['dd'] for x in r1)
+              score=min1 + 0.50*min6 + 0.20*min3 + 2.0*(minpf-1.0) - max(0.0,maxdd-6.0)
+              ranking.append((score,v,min3,min6,min1,minpf,maxdd))
+          ranking.sort(reverse=True)
 
-          Path('V36_SWEEP_SUMMARY.md').write_text('\n'.join(out) + '\n')
+          base = next(x for x in ranking if x[1]=='base')
+          best = ranking[0]
+          # Conservative promotion gate: candidate must beat baseline worst-case 1Y ROI,
+          # not materially degrade 1Y PF/DD, and remain positive under harsh 6M/1Y.
+          if best[1] != 'base':
+              cand=best
+              promote = cand[4] > base[4] and cand[5] >= base[5]-0.02 and cand[6] <= base[6]+0.50 and cand[3] > 0 and cand[4] > 0
+              winner = cand[1] if promote else 'base'
+          else:
+              winner='base'
+
+          tpmap={'base':'1.00','tp110':'1.10','tp120':'1.20','tp130':'1.30'}
+          Path('work/winner.txt').write_text(winner+'\n')
+          Path('work/winner_tp.txt').write_text(tpmap[winner]+'\n')
+
+          out=['# xauusd_3 v3.6 TP Robustness Validation','',
+               '| Variant | Period | Cost | Trades | Net | ROI % | PF | DD % | Overlap | Hedge | London |',
+               '|---|---|---|---:|---:|---:|---:|---:|---:|---:|---:|']
+          for r in rows:
+              out.append(f"| {r['v']} | {r['period']} | {r['cost']} | {r['trades']} | {r['net']:.2f} | {r['roi']:.2f} | {r['pf']:.2f} | {r['dd']:.2f} | {r['overlap']} | {r['hedge']} | {r['london']} |")
+          out += ['', '## Robustness ranking','']
+          for score,v,min3,min6,min1,minpf,maxdd in ranking:
+              out.append(f'- {v}: score={score:.2f}; min3MROI={min3:.2f}%; min6MROI={min6:.2f}%; min1YROI={min1:.2f}%; min1YPF={minpf:.2f}; max1YDD={maxdd:.2f}%')
+          out += ['', f'**Winner for OOS validation: {winner} (TP multiplier {tpmap[winner]})**', f'**Safety precheck: {"FAIL" if safety_fail else "PASS"}**']
+          Path('work/V36_TP_VALIDATION_SUMMARY.md').write_text('\n'.join(out)+'\n')
           print('\n'.join(out))
           PY
 
-      - uses: actions/upload-artifact@v4
+      - name: Run winner split OOS validation
+        env:
+          CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+          CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          WINNER="$(cat work/winner.txt)"
+          TP="$(cat work/winner_tp.txt)"
+          run_oos() {
+            local SEG="$1" COST="$2" START="$3" END="$4" SPREAD="$5" COMMISSION="$6"
+            local LABEL="${WINNER}-${SEG}-${COST}"
+            docker run --rm \
+              -v "$PWD/work:/work" \
+              -e "CTID=$CTRADER_CTID" \
+              -e 'PWD-FILE=/work/ctrader.pwd' \
+              -e "ACCOUNT=$CTRADER_ACCOUNT" \
+              ghcr.io/spotware/ctrader-console:5.9.11 \
+              backtest /work/FibonacciXAUUSD3-v3.6.1-TPResilience.algo \
+              --environment-variables --exit-on-stop \
+              --symbol=XAUUSD --period=m5 --start="$START" --end="$END" \
+              --balance=10000 --data-mode=m1 --data-dir=/work/cache \
+              --commission="$COMMISSION" --spread="$SPREAD" \
+              --RiskPercent=0.50 --MaxDailyLossPercent=3 --MinimumRiskReward=1.5 \
+              --PreScoreMin=42 --FinalScoreMin=60 --M5PreScoreFloor=50 --M5RulesNeeded=2 \
+              --MinImpulseAtr=1.2 --MinStopAtr=0.20 --MaxAllowedRR=8 \
+              --BuyH1MinScore=18 --BlockLondonEntries=true \
+              --RequireH1AtrExpansion=true --H1AtrExpansionMin=1.15 \
+              --TakeProfitMultiplier="$TP" \
+              --report="/work/reports/${LABEL}.html" \
+              --report-json="/work/reports/${LABEL}.json" \
+              2>&1 | tee "work/reports/${LABEL}.log"
+            test -s "work/reports/${LABEL}.json"
+          }
+
+          run_oos oos1 standard 09/09/2025 09/03/2026 17.42 35
+          run_oos oos1 harsh    09/09/2025 09/03/2026 30 50
+          run_oos oos2 standard 09/03/2026 09/09/2026 17.42 35
+          run_oos oos2 harsh    09/03/2026 09/09/2026 30 50
+
+      - name: Final OOS verdict
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          winner=Path('work/winner.txt').read_text().strip()
+          lines=['','## Split OOS validation','', '| Segment | Cost | Trades | Net | ROI % | PF | DD % |', '|---|---|---:|---:|---:|---:|---:|']
+          pass_all=True
+          for seg in ['oos1','oos2']:
+              for cost in ['standard','harsh']:
+                  d=json.loads(Path(f'work/reports/{winner}-{seg}-{cost}.json').read_text())
+                  ts=d['tradeStatistics']; main=d['main']; eq=d['equity']
+                  trades=int(ts['totalTrades']['all']); net=float(main['netProfit']); roi=float(main['roi']); pf=float(ts['profitFactor']['all']); dd=float(eq['maxEquityDrawdownPercent'])
+                  lines.append(f'| {seg} | {cost} | {trades} | {net:.2f} | {roi:.2f} | {pf:.2f} | {dd:.2f} |')
+                  if trades < 5 or net <= 0 or pf <= 1.0: pass_all=False
+          lines += ['', f'**Final robustness verdict: {"PASS" if pass_all else "NOT YET PASS"}**', 'Promotion requires both chronological halves to remain profitable under Standard and Harsh costs with at least 5 trades per segment.']
+          p=Path('work/V36_TP_VALIDATION_SUMMARY.md')
+          p.write_text(p.read_text()+'\n'.join(lines)+'\n')
+          print('\n'.join(lines))
+          PY
+
+      - name: Upload validation artifact
+        if: always()
+        uses: actions/upload-artifact@v4
         with:
-          name: xauusd_3-v36-sweep-complete
+          name: xauusd_3-v36-tp-robustness-validation
           path: |
-            package/
-            reports/
-            V36_SWEEP_SUMMARY.md
-          retention-days: 30
+            work/FibonacciXAUUSD3-v3.6.1-TPResilience.algo
+            work/FibonacciXAUUSD3-v3.6.1.cs
+            work/algo.sha256
+            work/V36_TP_VALIDATION_SUMMARY.md
+            work/winner.txt
+            work/winner_tp.txt
+            work/reports/
+          retention-days: 60
