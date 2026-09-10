@@ -1,0 +1,45 @@
+name: Build HarmonyBot Mobile
+
+on:
+  push:
+    branches:
+      - build-harmonybot-mobile-20260911
+    paths:
+      - 'HarmonyBot-Mobile/**'
+      - '.github/workflows/build-harmonybot-mobile.yml'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET 6
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '6.0.x'
+
+      - name: Build cTrader ALGO
+        run: dotnet build HarmonyBot-Mobile/HarmonyBot.csproj --configuration Release -p:AlgoPublish=False -p:IncludeSource=True
+
+      - name: Collect ALGO
+        shell: bash
+        run: |
+          mkdir -p dist
+          ALGO_FILE=$(find HarmonyBot-Mobile -type f -name '*.algo' | head -n 1)
+          if [ -z "$ALGO_FILE" ]; then
+            echo 'No .algo file was produced.'
+            find HarmonyBot-Mobile -maxdepth 6 -type f | sort
+            exit 1
+          fi
+          cp "$ALGO_FILE" dist/HarmonyBot-Mobile.algo
+          ls -lh dist/HarmonyBot-Mobile.algo
+
+      - name: Upload mobile-ready ALGO
+        uses: actions/upload-artifact@v4
+        with:
+          name: HarmonyBot-Mobile-algo
+          path: dist/HarmonyBot-Mobile.algo
+          if-no-files-found: error
