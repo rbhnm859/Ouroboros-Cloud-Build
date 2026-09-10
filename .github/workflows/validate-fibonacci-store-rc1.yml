@@ -55,8 +55,10 @@ jobs:
       - name: Checkout branch
         uses: actions/checkout@v4
 
-      - name: Pull official cTrader CLI
-        run: docker pull ghcr.io/spotware/ctrader-console:5.9.11
+      - name: Pull current official cTrader CLI
+        run: |
+          docker pull ghcr.io/spotware/ctrader-console:latest
+          docker run --rm --entrypoint sh ghcr.io/spotware/ctrader-console:latest -c 'dotnet --info && ctrader-cli --version || true'
 
       - name: Prepare store RC1 with trading enabled for backtest
         run: |
@@ -83,7 +85,7 @@ jobs:
         run: |
           mkdir -p backtest/cache backtest/reports
           docker run --rm --entrypoint sh -v "$PWD:/repo" -w /repo \
-            ghcr.io/spotware/ctrader-console:5.9.11 -c \
+            ghcr.io/spotware/ctrader-console:latest -c \
             'dotnet restore fibonacci-store-test/FibonacciHarmonicSniperUltimate/FibonacciHarmonicSniperUltimate.csproj && dotnet build fibonacci-store-test/FibonacciHarmonicSniperUltimate/FibonacciHarmonicSniperUltimate.csproj --configuration Release --no-restore -p:AlgoPublish=False -p:IncludeSource=True'
 
           ALGO="$(find fibonacci-store-test -type f -name '*.algo' -print -quit)"
@@ -125,7 +127,7 @@ jobs:
             -e "CTID=$CTRADER_CTID" \
             -e 'PWD-FILE=/work/ctrader.pwd' \
             -e "ACCOUNT=$CTRADER_ACCOUNT" \
-            ghcr.io/spotware/ctrader-console:5.9.11 \
+            ghcr.io/spotware/ctrader-console:latest \
             backtest /work/FibonacciHarmonicSniperUltimate-v0.4.0-store-rc1.algo \
             --environment-variables --exit-on-stop \
             --symbol=${{ matrix.symbol }} \
@@ -149,7 +151,7 @@ jobs:
           python3 - <<'PYCODE'
           from pathlib import Path
           from datetime import datetime
-          import json, math, os
+          import json, os
 
           report = Path('backtest/reports/${{ matrix.id }}.json')
           if not report.exists():
