@@ -1,0 +1,60 @@
+name: BTC Harmonic Guard Monthly Growth v2
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ btc-store-v1-hardening-monthly-growth ]
+    paths:
+      - 'FibonacciHarmonicSniperUltimate/monthly-growth-v2/**'
+      - '.github/workflows/btc-harmonic-guard-monthly-growth-v2.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: btc-harmonic-guard-monthly-growth-v2
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '6.0.x'
+      - name: Run Growth2 subordinate M30 validation
+        env:
+          CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+          CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+          CTRADER_PASSWORD: ${{ secrets.CTRADER_PASSWORD }}
+        run: bash FibonacciHarmonicSniperUltimate/monthly-growth-v2/growth2_validation.sh
+      - name: Remove credentials
+        if: always()
+        run: rm -f work/ctrader.pwd
+      - name: Upload Growth2 validation
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: BTC-Harmonic-Guard-Monthly-Growth-v2
+          retention-days: 30
+          path: |
+            work/build/*
+            work/g2/*.cs
+            work/g2/*.csproj
+            work/control-3y/report.*
+            work/control-1y/report.*
+            work/strict-3y/report.*
+            work/balanced-3y/report.*
+            work/moderate-3y/report.*
+            work/recent-a/report.*
+            work/recent-b/report.*
+            work/y1/report.*
+            work/y2/report.*
+            work/harsh-3y/report.*
+            work/harsh-y3/report.*
+            work/Growth2-Control-Parity.json
+            work/Growth2-3Y-Screen.json
+            work/Growth2-Recent-Screen.json
+            work/Growth2-Final-Summary.json
