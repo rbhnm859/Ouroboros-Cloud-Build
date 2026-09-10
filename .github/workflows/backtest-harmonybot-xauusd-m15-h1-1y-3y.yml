@@ -26,20 +26,20 @@ jobs:
         include:
           - period: m15
             window: 1Y
-            start: '10/09/2025'
-            end: '10/09/2026'
+            start: '11/09/2025'
+            end: '11/09/2026'
           - period: h1
             window: 1Y
-            start: '10/09/2025'
-            end: '10/09/2026'
+            start: '11/09/2025'
+            end: '11/09/2026'
           - period: m15
             window: 3Y
-            start: '10/09/2023'
-            end: '10/09/2026'
+            start: '11/09/2023'
+            end: '11/09/2026'
           - period: h1
             window: 3Y
-            start: '10/09/2023'
-            end: '10/09/2026'
+            start: '11/09/2023'
+            end: '11/09/2026'
 
     steps:
       - name: Checkout repository
