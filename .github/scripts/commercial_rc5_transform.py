@@ -42,3 +42,5 @@ if 'Growth2Enabled && m.Definition.Name.Equals("ABCD"' not in text or '[M30 ABCD
 if '[GROWTH3 SHADOW]' not in arch.read_text():
     raise SystemExit('RC5 Growth3 shadow isolation missing')
 print('Commercial RC5 generated: RC4 architecture preserved; M30 ABCD quarantined candidate-only; direct orders=1')
+
+# validation-trigger: 2026-09-10 RC5
