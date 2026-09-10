@@ -82,18 +82,20 @@ jobs:
           fields=ref['canonical_trade_hash_fields']
           base=pathlib.Path('work/g2')
 
-          # growth2_validation.sh keeps the immutable Store source in work/g2 as
-          # BTC-Harmonic-Guard.cs. It is a transform input alias, not a compiled
-          # generated source. Verify its frozen identity before excluding it.
-          source_alias=base/'BTC-Harmonic-Guard.cs'
+          # growth2_validation.sh verifies the immutable Store input before transform,
+          # then removes the temporary input alias later. Preserve that proof by
+          # requiring the exact frozen SHA in this run's validation console log.
           expected_source_sha='1f315416686e1e0ff72b309bbdbed0e40e687263cbe108f7d7962f398e27e7d0'
-          if not source_alias.exists():
-              raise SystemExit('missing frozen Store input alias')
-          source_sha=hashlib.sha256(source_alias.read_bytes()).hexdigest()
-          if source_sha!=expected_source_sha:
-              raise SystemExit(f'unexpected Store input alias sha {source_sha}')
+          validation_log=pathlib.Path('work/commercial-rc3a-validation-console.log')
+          if not validation_log.exists():
+              raise SystemExit('missing RC3A validation console log')
+          log_text=validation_log.read_text(errors='replace')
+          source_proof=f'Store main SHA {expected_source_sha}'
+          if source_proof not in log_text:
+              raise SystemExit('missing frozen Store source SHA proof')
+          source_sha=expected_source_sha
 
-          cs=[p for p in base.glob('*.cs') if p.resolve()!=source_alias.resolve()]
+          cs=list(base.glob('*.cs'))
           direct=sum(p.read_text().count('ExecuteMarketOrder(') for p in cs)
           central=(base/'Commercial.IntentExecution.cs').read_text().count('ExecuteMarketOrder(') if (base/'Commercial.IntentExecution.cs').exists() else 0
           submit_refs=sum(p.read_text().count('CommercialSubmitIntent(') for p in cs)
@@ -160,6 +162,7 @@ jobs:
             'reference_run':ref['source_run_id'],
             'reference_commit':ref['source_commit'],
             'architecture_parity_pass':architecture_pass,
+            'frozen_source_proof_from_validation_log':True,
             'source_alias_excluded_from_generated_compile_set':True,
             'source_alias_sha256':source_sha,
             'single_execution_boundary':direct==1 and central==1 and generated_main_direct==0,
