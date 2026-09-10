@@ -45,21 +45,26 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Pull official cTrader CLI
-        run: docker pull ghcr.io/spotware/ctrader-console:5.9.11
+      - name: Setup current .NET 6 SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '6.0.x'
 
-      - name: Build HarmonyBot
+      - name: Build HarmonyBot mobile algo
         run: |
           mkdir -p backtest/cache backtest/reports
-          docker run --rm --entrypoint sh -v "$PWD:/repo" -w /repo \
-            ghcr.io/spotware/ctrader-console:5.9.11 -c \
-            'dotnet restore HarmonyBot-Mobile/HarmonyBot.csproj && dotnet build HarmonyBot-Mobile/HarmonyBot.csproj --configuration Release --no-restore -p:AlgoPublish=False -p:IncludeSource=True'
+          dotnet restore HarmonyBot-Mobile/HarmonyBot.csproj
+          dotnet build HarmonyBot-Mobile/HarmonyBot.csproj --configuration Release --no-restore -p:AlgoPublish=False -p:IncludeSource=True
           ALGO="$(find HarmonyBot-Mobile -type f -name '*.algo' -print -quit)"
           if [ -z "$ALGO" ]; then
             echo 'Build completed but no .algo was found'
             exit 1
           fi
           cp "$ALGO" backtest/HarmonyBot-Mobile.algo
+          test -s backtest/HarmonyBot-Mobile.algo
+
+      - name: Pull official cTrader CLI
+        run: docker pull ghcr.io/spotware/ctrader-console:5.9.11
 
       - name: Create cTrader password file
         env:
@@ -79,7 +84,6 @@ jobs:
           echo "::add-mask::$CTRADER_CTID"
           echo "::add-mask::$CTRADER_ACCOUNT"
           OUT="XAUUSD-${{ matrix.period }}-${{ matrix.window }}"
-          echo "Running $OUT from ${{ matrix.start }} to ${{ matrix.end }}; starting balance USD 100; server M1 data"
           docker run --rm \
             -v "$PWD/backtest:/work" \
             -e "CTID=$CTRADER_CTID" \
@@ -136,8 +140,7 @@ jobs:
               'max_equity_drawdown_percent':get('MaxEquityDrawdownPercentages','MaxEquityDrawdownPercentage','MaxDrawdownPercentages','MaxDrawdownPercentage'),
               'ending_balance':get('EndingBalance','Balance'),
           }
-          q=Path(f'backtest/reports/XAUUSD-{period}-{window}-summary.json')
-          q.write_text(json.dumps(out,ensure_ascii=False,indent=2))
+          Path(f'backtest/reports/XAUUSD-{period}-{window}-summary.json').write_text(json.dumps(out,ensure_ascii=False,indent=2))
           print(json.dumps(out,ensure_ascii=False,indent=2))
           PYCODE
 
