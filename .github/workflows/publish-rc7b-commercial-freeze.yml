@@ -1,0 +1,81 @@
+name: Publish RC7B Commercial Freeze
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ btc-store-commercial-rc7b-frozen ]
+    paths:
+      - '.github/workflows/publish-rc7b-commercial-freeze.yml'
+
+permissions:
+  contents: write
+  actions: read
+
+concurrency:
+  group: publish-rc7b-commercial-freeze
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: btc-store-commercial-rc7b-frozen
+          fetch-depth: 1
+
+      - name: Download validated RC7B evidence artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: BTC-Harmonic-Guard-Commercial-RC7B
+          repository: rbhnm859/Ouroboros-Cloud-Build
+          run-id: 34487265573
+          github-token: ${{ github.token }}
+          path: /tmp/rc7b
+
+      - name: Verify commercial gate and mobile binary
+        shell: bash
+        run: |
+          set -euo pipefail
+          GATE=/tmp/rc7b/work/Commercial-RC7-Gate.json
+          SRC=/tmp/rc7b/work/build/BTC-Harmonic-Guard-Growth2.algo
+          test -s "$GATE"
+          test -s "$SRC"
+          python3 - <<'PY'
+          import json
+          p='/tmp/rc7b/work/Commercial-RC7-Gate.json'
+          g=json.load(open(p))
+          assert g['status']=='PASS'
+          assert g['engineering_status']=='PASS'
+          assert g['commercial_freeze_eligible'] is True
+          assert not g['failed_formal_gates']
+          assert all(g['formal_commercial_gates'].values())
+          assert all(g['engineering_gates'].values())
+          assert g['architecture']['direct_execute_market_order_calls']==1
+          print('[FREEZE] Commercial gate independently confirmed PASS')
+          PY
+          echo 'be97fde0489c2392300deb4543d2dc3d00a50fc20d3d54ff4a2a6ef48a8ac31d  /tmp/rc7b/work/build/BTC-Harmonic-Guard-Growth2.algo' | sha256sum -c -
+
+      - name: Publish frozen Mobile Cloud algo
+        shell: bash
+        run: |
+          set -euo pipefail
+          DEST='FibonacciHarmonicSniperUltimate/commercial-freeze/RC7B/BTC-Harmonic-Guard-RC7B-Commercial-Mobile.algo'
+          mkdir -p "$(dirname "$DEST")"
+          cp /tmp/rc7b/work/build/BTC-Harmonic-Guard-Growth2.algo "$DEST"
+          test "$(stat -c '%s' "$DEST")" = '83982'
+          echo 'be97fde0489c2392300deb4543d2dc3d00a50fc20d3d54ff4a2a6ef48a8ac31d  '"$DEST" | sha256sum -c -
+
+      - name: Commit immutable binary publication
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add FibonacciHarmonicSniperUltimate/commercial-freeze/RC7B/BTC-Harmonic-Guard-RC7B-Commercial-Mobile.algo
+          if git diff --cached --quiet; then
+            echo '[FREEZE] Binary already published; no commit required.'
+            exit 0
+          fi
+          git commit -m 'freeze(commercial): publish RC7B mobile algo'
+          git push origin HEAD:btc-store-commercial-rc7b-frozen
