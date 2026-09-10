@@ -1,0 +1,124 @@
+name: Fibonacci XAUUSD 3 - v3.8 Rule-Mask Aggregate Recovery
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [fibonacci-xauusd-v3-hybrid]
+    paths:
+      - '.github/workflows/aggregate-fibonacci-xauusd-3-v38-rulemask-history-fixed.yml'
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  aggregate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Download completed v3.8 historical artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: xauusd_3-v38-old-*
+          path: reports
+          merge-multiple: true
+          run-id: 34421591209
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Aggregate rule-mask attribution
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json, re
+          from collections import defaultdict
+          from pathlib import Path
+
+          files = sorted(Path('reports').glob('*.json'))
+          assert len(files) == 4, [str(x) for x in files]
+
+          out = [
+              '# XAUUSD3 v3.8 Historical M5 Rule-Mask Diagnostic',
+              '',
+              'Recovered from completed backtests in Actions run 34421591209. Strategy decisions are unchanged; this workflow only fixes report aggregation for the cTrader JSON schema.',
+              '',
+              '| Case | Trades | Net | ROI % | PF | DD % | R2 Net | R3 Net | R4 Net |',
+              '|---|---:|---:|---:|---:|---:|---:|---:|---:|'
+          ]
+
+          masks = defaultdict(lambda: [0, 0, 0.0, 0.0, 0.0])
+          bycase = {}
+
+          for f in files:
+              label = f.stem
+              d = json.loads(f.read_text())
+              hist = d['history']['items']
+              ts = d['tradeStatistics']
+              main = d['main']
+              eq = d['equity']
+              buckets = defaultdict(float)
+
+              for t in hist:
+                  c = t.get('comment') or ''
+                  m = re.search(r'\|M5R([234])\|([ERBM-]{4})\|D([0-9.]+)', c)
+                  if not m:
+                      continue
+                  rule_count = 'R' + m.group(1)
+                  mask = m.group(2)
+                  net = float(t.get('net', t.get('netProfit', 0.0)))
+                  buckets[rule_count] += net
+                  key = (label, mask, rule_count)
+                  a = masks[key]
+                  a[0] += 1
+                  a[1] += int(net > 0)
+                  a[2] += net
+                  if net > 0:
+                      a[3] += net
+                  elif net < 0:
+                      a[4] += -net
+
+              trades = int(ts['totalTrades']['all'])
+              net = float(main['netProfit'])
+              roi = float(main['roi'])
+              pf = float(ts['profitFactor']['all'])
+              dd = float(eq['maxEquityDrawdownPercent'])
+              bycase[label] = (trades, net, roi, pf, dd, buckets)
+              out.append(f'| {label} | {trades} | {net:.2f} | {roi:.2f} | {pf:.2f} | {dd:.2f} | {buckets["R2"]:.2f} | {buckets["R3"]:.2f} | {buckets["R4"]:.2f} |')
+
+          out += [
+              '',
+              '## Executed-trade rule masks',
+              '',
+              '| Case | Mask | RuleCount | Trades | Wins | WR % | Net | PF |',
+              '|---|---|---|---:|---:|---:|---:|---:|'
+          ]
+
+          for (case_name, mask, rule_count), a in sorted(masks.items()):
+              trades, wins, net, gp, gl = a
+              pf = gp / gl if gl > 0 else (999.0 if gp > 0 else 0.0)
+              wr = 100.0 * wins / trades if trades else 0.0
+              out.append(f'| {case_name} | {mask} | {rule_count} | {trades} | {wins} | {wr:.1f} | {net:.2f} | {pf:.2f} |')
+
+          std = [bycase[k][5]['R3'] for k in ('old-h1-standard', 'old-h2-standard')]
+          harsh = [bycase[k][5]['R3'] for k in ('old-h1-harsh', 'old-h2-harsh')]
+          out += [
+              '',
+              '## Hypothesis check',
+              '',
+              f'- R3 old-history Standard halves: {std[0]:.2f}, {std[1]:.2f}',
+              f'- R3 old-history Harsh halves: {harsh[0]:.2f}, {harsh[1]:.2f}',
+              f'- R3 negative in both old Standard halves: {all(x < 0 for x in std)}',
+              f'- R3 negative in both old Harsh halves: {all(x < 0 for x in harsh)}',
+              '- No strategy promotion is performed by this recovery workflow.'
+          ]
+
+          Path('V38_M5_RULEMASK_HISTORY_SUMMARY.md').write_text('\n'.join(out) + '\n')
+          print('\n'.join(out))
+          PY
+
+      - name: Upload recovered summary
+        uses: actions/upload-artifact@v4
+        with:
+          name: xauusd_3-v38-rulemask-summary-fixed
+          path: V38_M5_RULEMASK_HISTORY_SUMMARY.md
+          retention-days: 30
