@@ -1,0 +1,6 @@
+{
+  "Bot Label": "CDScalper_EURUSD_K5",
+  "Debug Logging": true,
+  "Allowed Symbol Prefix": "EURUSD",
+  "Expected Leverage": 500.0
+}
