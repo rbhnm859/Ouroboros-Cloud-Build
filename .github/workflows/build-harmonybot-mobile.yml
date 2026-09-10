@@ -12,6 +12,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: harmonybot-mobile-xauusd-validation
+  cancel-in-progress: true
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -57,30 +61,9 @@ jobs:
 
   backtest:
     needs: build
-    name: XAUUSD ${{ matrix.period }} ${{ matrix.window }}
+    name: XAUUSD M15-H1 1Y-3Y shared-cache
     runs-on: ubuntu-latest
     timeout-minutes: 120
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - period: m15
-            window: 1Y
-            start: '11/09/2025'
-            end: '11/09/2026'
-          - period: h1
-            window: 1Y
-            start: '11/09/2025'
-            end: '11/09/2026'
-          - period: m15
-            window: 3Y
-            start: '11/09/2023'
-            end: '11/09/2026'
-          - period: h1
-            window: 3Y
-            start: '11/09/2023'
-            end: '11/09/2026'
-
     steps:
       - name: Download HarmonyBot .algo
         uses: actions/download-artifact@v4
@@ -99,7 +82,7 @@ jobs:
           printf '%s' "$CTRADER_PASSWORD" > backtest/ctrader.pwd
           chmod 600 backtest/ctrader.pwd
 
-      - name: Backtest XAUUSD
+      - name: Backtest four XAUUSD windows
         env:
           CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
           CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
@@ -109,79 +92,105 @@ jobs:
           echo "::add-mask::$CTRADER_CTID"
           echo "::add-mask::$CTRADER_ACCOUNT"
           mkdir -p backtest/cache backtest/reports
-          OUT="XAUUSD-${{ matrix.period }}-${{ matrix.window }}"
-          docker run --rm \
-            -v "$PWD/backtest:/work" \
-            -e "CTID=$CTRADER_CTID" \
-            -e 'PWD-FILE=/work/ctrader.pwd' \
-            -e "ACCOUNT=$CTRADER_ACCOUNT" \
-            ghcr.io/spotware/ctrader-console:5.9.11 \
-            backtest /work/HarmonyBot-Mobile.algo \
-            --environment-variables \
-            --symbol=XAUUSD \
-            --period=${{ matrix.period }} \
-            --start='${{ matrix.start }}' \
-            --end='${{ matrix.end }}' \
-            --balance=100 \
-            --data-mode=m1 \
-            --data-dir=/work/cache \
-            --report="/work/reports/${OUT}.html" \
-            --report-json="/work/reports/${OUT}.json"
 
-      - name: Create compact metrics summary
+          run_bt() {
+            PERIOD="$1"
+            WINDOW="$2"
+            START="$3"
+            END="$4"
+            OUT="XAUUSD-${PERIOD}-${WINDOW}"
+            echo "===== START ${OUT}: ${START} -> ${END} ====="
+            docker run --rm \
+              -v "$PWD/backtest:/work" \
+              -e "CTID=$CTRADER_CTID" \
+              -e 'PWD-FILE=/work/ctrader.pwd' \
+              -e "ACCOUNT=$CTRADER_ACCOUNT" \
+              ghcr.io/spotware/ctrader-console:5.9.11 \
+              backtest /work/HarmonyBot-Mobile.algo \
+              --environment-variables \
+              --symbol=XAUUSD \
+              --period="$PERIOD" \
+              --start="$START" \
+              --end="$END" \
+              --balance=100 \
+              --data-mode=m1 \
+              --data-dir=/work/cache \
+              --report="/work/reports/${OUT}.html" \
+              --report-json="/work/reports/${OUT}.json"
+            test -s "backtest/reports/${OUT}.json"
+            echo "===== DONE ${OUT} ====="
+          }
+
+          # Run the widest windows first so later tests can reuse the downloaded M1 history.
+          run_bt m15 3Y '10/09/2023' '10/09/2026'
+          run_bt h1  3Y '10/09/2023' '10/09/2026'
+          run_bt m15 1Y '10/09/2025' '10/09/2026'
+          run_bt h1  1Y '10/09/2025' '10/09/2026'
+
+      - name: Create comparison summary
         if: success()
         run: |
           python3 - <<'PYCODE'
           from pathlib import Path
           import json, re
-          period='${{ matrix.period }}'
-          window='${{ matrix.window }}'
-          p=Path(f'backtest/reports/XAUUSD-{period}-{window}.json')
-          d=json.loads(p.read_text())
-          flat={}
-          def walk(x):
-              if isinstance(x,dict):
+
+          specs = [
+              ('m15','3Y','10/09/2023','10/09/2026'),
+              ('h1','3Y','10/09/2023','10/09/2026'),
+              ('m15','1Y','10/09/2025','10/09/2026'),
+              ('h1','1Y','10/09/2025','10/09/2026'),
+          ]
+
+          def flatten(x, out):
+              if isinstance(x, dict):
                   for k,v in x.items():
                       key=re.sub(r'[^a-z0-9]','',k.lower())
-                      if key not in flat and not isinstance(v,(dict,list)):
-                          flat[key]=v
-                      walk(v)
+                      if key not in out and not isinstance(v,(dict,list)):
+                          out[key]=v
+                      flatten(v,out)
               elif isinstance(x,list):
-                  for v in x: walk(v)
-          walk(d)
-          def get(*names):
+                  for v in x: flatten(v,out)
+
+          def pick(flat,*names):
               for n in names:
                   v=flat.get(re.sub(r'[^a-z0-9]','',n.lower()))
-                  if v not in (None,''): return v
+                  if v not in (None,''):
+                      return v
               return ''
-          out={
-              'symbol':'XAUUSD','period':period,'window':window,
-              'start':'${{ matrix.start }}','end':'${{ matrix.end }}','starting_balance':100,
-              'total_trades':get('TotalTrades','Trades'),
-              'winning_trades':get('WinningTrades','WinningPositions','Wins'),
-              'losing_trades':get('LosingTrades','LosingPositions','Losses'),
-              'win_rate':get('WinRate','WinningTradesPercentages'),
-              'net_profit':get('NetProfit','NetProfitAmount'),
-              'profit_factor':get('ProfitFactor'),
-              'max_equity_drawdown_percent':get('MaxEquityDrawdownPercentages','MaxEquityDrawdownPercentage','MaxDrawdownPercentages','MaxDrawdownPercentage'),
-              'ending_balance':get('EndingBalance','Balance'),
-          }
-          Path(f'backtest/reports/XAUUSD-{period}-{window}-summary.json').write_text(json.dumps(out,ensure_ascii=False,indent=2))
-          print(json.dumps(out,ensure_ascii=False,indent=2))
+
+          rows=[]
+          for period,window,start,end in specs:
+              p=Path(f'backtest/reports/XAUUSD-{period}-{window}.json')
+              d=json.loads(p.read_text())
+              flat={}; flatten(d,flat)
+              row={
+                  'symbol':'XAUUSD','period':period,'window':window,
+                  'start':start,'end':end,'starting_balance':100,
+                  'total_trades':pick(flat,'TotalTrades','Trades'),
+                  'winning_trades':pick(flat,'WinningTrades','WinningPositions','Wins'),
+                  'losing_trades':pick(flat,'LosingTrades','LosingPositions','Losses'),
+                  'win_rate':pick(flat,'WinRate','WinningTradesPercentages'),
+                  'net_profit':pick(flat,'NetProfit','NetProfitAmount'),
+                  'profit_factor':pick(flat,'ProfitFactor'),
+                  'max_equity_drawdown_percent':pick(flat,'MaxEquityDrawdownPercentages','MaxEquityDrawdownPercentage','MaxDrawdownPercentages','MaxDrawdownPercentage'),
+                  'ending_balance':pick(flat,'EndingBalance','Balance'),
+              }
+              rows.append(row)
+              Path(f'backtest/reports/XAUUSD-{period}-{window}-summary.json').write_text(json.dumps(row,ensure_ascii=False,indent=2))
+
+          Path('backtest/reports/comparison-summary.json').write_text(json.dumps(rows,ensure_ascii=False,indent=2))
+          print(json.dumps(rows,ensure_ascii=False,indent=2))
           PYCODE
 
       - name: Remove credentials
         if: always()
         run: rm -f backtest/ctrader.pwd
 
-      - name: Upload reports
+      - name: Upload all backtest reports
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: HarmonyBot-XAUUSD-${{ matrix.period }}-${{ matrix.window }}
-          path: |
-            backtest/reports/XAUUSD-${{ matrix.period }}-${{ matrix.window }}.html
-            backtest/reports/XAUUSD-${{ matrix.period }}-${{ matrix.window }}.json
-            backtest/reports/XAUUSD-${{ matrix.period }}-${{ matrix.window }}-summary.json
+          name: HarmonyBot-XAUUSD-M15-H1-1Y-3Y
+          path: backtest/reports/
           if-no-files-found: warn
           retention-days: 30
