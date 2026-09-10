@@ -1,0 +1,86 @@
+name: HarmonyBot XAUUSD Gate Diagnostic
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/diagnose-harmonybot-xauusd-gates.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    name: Diagnose ${{ matrix.period }} 1Y
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        period: [m15, h1]
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '6.0.x'
+
+      - name: Create instrumented diagnostic build
+        run: |
+          rm -rf HarmonyBot-Diagnostic
+          mkdir -p HarmonyBot-Diagnostic
+          cp HarmonyBot-Mobile/HarmonyBot.cs HarmonyBot-Diagnostic/HarmonyBot.cs
+          cp HarmonyBot-Mobile/HarmonyBot.csproj HarmonyBot-Diagnostic/HarmonyBot.csproj
+          python3 - <<'PYCODE'
+          from pathlib import Path
+          p=Path('HarmonyBot-Diagnostic/HarmonyBot.cs')
+          s=p.read_text()
+          needle='        private readonly Dictionary<long, DateTime> _lastSlModifyTime = new Dictionary<long, DateTime>();\n'
+          insert=needle+'''\n        private long _diagBars;\n        private long _diagNoPattern;\n        private long _diagMtfRejected;\n        private long _diagDirectionRejected;\n        private long _diagGeometryRejected;\n        private long _diagVolumeRejected;\n        private long _diagOrderAttempted;\n        private long _diagOrderSucceeded;\n'''
+          if needle not in s: raise SystemExit('field anchor missing')
+          s=s.replace(needle,insert,1)
+          s=s.replace('                Signal signal;\n                bool found = _detector.TryDetect(_signalBars, signalIndex, atrNow, _symbol, out signal);\n                if (!found || signal == null) return;\n\n                if (!PassMtfFilter(signal.Direction)) return;\n                if (CountOpenPositionsInDirection(signal.Direction) >= MaxSameDirectionTrades) return;\n\n                double slPips, tpPips;\n                if (!ValidateOrderGeometryAndReprice(signal, out slPips, out tpPips)) return;\n\n                double volumeInUnits = CalculateVolumeByRisk(slPips);\n                if (volumeInUnits <= 0) return;\n', '''                _diagBars++;\n                Signal signal;\n                bool found = _detector.TryDetect(_signalBars, signalIndex, atrNow, _symbol, out signal);\n                if (!found || signal == null) { _diagNoPattern++; return; }\n\n                if (!PassMtfFilter(signal.Direction)) { _diagMtfRejected++; return; }\n                if (CountOpenPositionsInDirection(signal.Direction) >= MaxSameDirectionTrades) { _diagDirectionRejected++; return; }\n\n                double slPips, tpPips;\n                if (!ValidateOrderGeometryAndReprice(signal, out slPips, out tpPips)) { _diagGeometryRejected++; return; }\n\n                double volumeInUnits = CalculateVolumeByRisk(slPips);\n                if (volumeInUnits <= 0) { _diagVolumeRejected++; return; }\n                _diagOrderAttempted++;\n''',1)
+          s=s.replace('                    _lastTradeTime = Server.Time;\n                    Print("[TRADE]', '                    _diagOrderSucceeded++;\n                    _lastTradeTime = Server.Time;\n                    Print("[TRADE]',1)
+          anchor='            EnsureServerSideProtectionBeforeStop();\n'
+          repl=anchor+'''            Print("[DIAG] Symbol={0} TF={1} IsLive={2} Broker={3} Leverage={4} MinVol={5} StepVol={6} MaxVol={7} LotSize={8} PipSize={9} PipValue={10}", SymbolName, Bars.TimeFrame, Account.IsLive, Account.BrokerName, Account.PreciseLeverage, _symbol.VolumeInUnitsMin, _symbol.VolumeInUnitsStep, _symbol.VolumeInUnitsMax, _symbol.LotSize, _symbol.PipSize, _symbol.PipValue);\n            Print("[DIAG-GATES] BarsAtDetector={0} NoPattern={1} MTFRejected={2} DirectionRejected={3} GeometryRejected={4} VolumeRejected={5} OrderAttempted={6} OrderSucceeded={7}", _diagBars, _diagNoPattern, _diagMtfRejected, _diagDirectionRejected, _diagGeometryRejected, _diagVolumeRejected, _diagOrderAttempted, _diagOrderSucceeded);\n'''
+          if anchor not in s: raise SystemExit('OnStop anchor missing')
+          s=s.replace(anchor,repl,1)
+          p.write_text(s)
+          PYCODE
+          dotnet restore HarmonyBot-Diagnostic/HarmonyBot.csproj
+          dotnet build HarmonyBot-Diagnostic/HarmonyBot.csproj -c Release --no-restore -p:AlgoPublish=False -p:IncludeSource=True
+          mkdir -p diag
+          ALGO="$(find HarmonyBot-Diagnostic -type f -name '*.algo' -print -quit)"
+          test -n "$ALGO"
+          cp "$ALGO" diag/HarmonyBot-Diagnostic.algo
+
+      - name: Pull cTrader CLI
+        run: docker pull ghcr.io/spotware/ctrader-console:5.9.11
+
+      - name: Run diagnostic
+        env:
+          CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+          CTRADER_PASSWORD: ${{ secrets.CTRADER_PASSWORD }}
+          CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+        run: |
+          test -n "${CTRADER_CTID:-}" && test -n "${CTRADER_PASSWORD:-}" && test -n "${CTRADER_ACCOUNT:-}"
+          printf '%s' "$CTRADER_PASSWORD" > diag/ctrader.pwd
+          echo "::add-mask::$CTRADER_CTID"
+          echo "::add-mask::$CTRADER_ACCOUNT"
+          docker run --rm \
+            -v "$PWD/diag:/work" \
+            -e "CTID=$CTRADER_CTID" \
+            -e 'PWD-FILE=/work/ctrader.pwd' \
+            -e "ACCOUNT=$CTRADER_ACCOUNT" \
+            ghcr.io/spotware/ctrader-console:5.9.11 \
+            backtest /work/HarmonyBot-Diagnostic.algo \
+            --environment-variables \
+            --symbol=XAUUSD \
+            --period=${{ matrix.period }} \
+            --start='10/09/2025' \
+            --end='10/09/2026' \
+            --balance=100 \
+            --data-mode=open \
+            --report-json="/work/diag-${{ matrix.period }}.json"
+          rm -f diag/ctrader.pwd
