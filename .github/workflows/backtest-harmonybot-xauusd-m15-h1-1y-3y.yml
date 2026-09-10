@@ -1,0 +1,158 @@
+name: HarmonyBot XAUUSD M15-H1 1Y-3Y Backtest
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/backtest-harmonybot-xauusd-m15-h1-1y-3y.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: harmonybot-xauusd-m15-h1-1y-3y
+  cancel-in-progress: true
+
+jobs:
+  backtest:
+    name: XAUUSD ${{ matrix.period }} ${{ matrix.window }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - period: m15
+            window: 1Y
+            start: '10/09/2025'
+            end: '10/09/2026'
+          - period: h1
+            window: 1Y
+            start: '10/09/2025'
+            end: '10/09/2026'
+          - period: m15
+            window: 3Y
+            start: '10/09/2023'
+            end: '10/09/2026'
+          - period: h1
+            window: 3Y
+            start: '10/09/2023'
+            end: '10/09/2026'
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Pull official cTrader CLI
+        run: docker pull ghcr.io/spotware/ctrader-console:5.9.11
+
+      - name: Build HarmonyBot
+        run: |
+          mkdir -p backtest/cache backtest/reports
+          docker run --rm --entrypoint sh -v "$PWD:/repo" -w /repo \
+            ghcr.io/spotware/ctrader-console:5.9.11 -c \
+            'dotnet restore HarmonyBot-Mobile/HarmonyBot.csproj && dotnet build HarmonyBot-Mobile/HarmonyBot.csproj --configuration Release --no-restore -p:AlgoPublish=False -p:IncludeSource=True'
+          ALGO="$(find HarmonyBot-Mobile -type f -name '*.algo' -print -quit)"
+          if [ -z "$ALGO" ]; then
+            echo 'Build completed but no .algo was found'
+            exit 1
+          fi
+          cp "$ALGO" backtest/HarmonyBot-Mobile.algo
+
+      - name: Create cTrader password file
+        env:
+          CTRADER_PASSWORD: ${{ secrets.CTRADER_PASSWORD }}
+        run: |
+          test -n "${CTRADER_PASSWORD:-}" || { echo 'Missing CTRADER_PASSWORD'; exit 1; }
+          printf '%s' "$CTRADER_PASSWORD" > backtest/ctrader.pwd
+          chmod 600 backtest/ctrader.pwd
+
+      - name: Backtest XAUUSD
+        env:
+          CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+          CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+        run: |
+          test -n "${CTRADER_CTID:-}" || { echo 'Missing CTRADER_CTID'; exit 1; }
+          test -n "${CTRADER_ACCOUNT:-}" || { echo 'Missing CTRADER_ACCOUNT'; exit 1; }
+          echo "::add-mask::$CTRADER_CTID"
+          echo "::add-mask::$CTRADER_ACCOUNT"
+          OUT="XAUUSD-${{ matrix.period }}-${{ matrix.window }}"
+          echo "Running $OUT from ${{ matrix.start }} to ${{ matrix.end }}; starting balance USD 100; server M1 data"
+          docker run --rm \
+            -v "$PWD/backtest:/work" \
+            -e "CTID=$CTRADER_CTID" \
+            -e 'PWD-FILE=/work/ctrader.pwd' \
+            -e "ACCOUNT=$CTRADER_ACCOUNT" \
+            ghcr.io/spotware/ctrader-console:5.9.11 \
+            backtest /work/HarmonyBot-Mobile.algo \
+            --environment-variables \
+            --symbol=XAUUSD \
+            --period=${{ matrix.period }} \
+            --start='${{ matrix.start }}' \
+            --end='${{ matrix.end }}' \
+            --balance=100 \
+            --data-mode=m1 \
+            --data-dir=/work/cache \
+            --report="/work/reports/${OUT}.html" \
+            --report-json="/work/reports/${OUT}.json"
+
+      - name: Create compact metrics summary
+        if: success()
+        run: |
+          python3 - <<'PYCODE'
+          from pathlib import Path
+          import json, re
+          period='${{ matrix.period }}'
+          window='${{ matrix.window }}'
+          p=Path(f'backtest/reports/XAUUSD-{period}-{window}.json')
+          d=json.loads(p.read_text())
+          flat={}
+          def walk(x):
+              if isinstance(x,dict):
+                  for k,v in x.items():
+                      key=re.sub(r'[^a-z0-9]','',k.lower())
+                      if key not in flat and not isinstance(v,(dict,list)):
+                          flat[key]=v
+                      walk(v)
+              elif isinstance(x,list):
+                  for v in x: walk(v)
+          walk(d)
+          def get(*names):
+              for n in names:
+                  v=flat.get(re.sub(r'[^a-z0-9]','',n.lower()))
+                  if v not in (None,''): return v
+              return ''
+          out={
+              'symbol':'XAUUSD','period':period,'window':window,
+              'start':'${{ matrix.start }}','end':'${{ matrix.end }}','starting_balance':100,
+              'total_trades':get('TotalTrades','Trades'),
+              'winning_trades':get('WinningTrades','WinningPositions','Wins'),
+              'losing_trades':get('LosingTrades','LosingPositions','Losses'),
+              'win_rate':get('WinRate','WinningTradesPercentages'),
+              'net_profit':get('NetProfit','NetProfitAmount'),
+              'profit_factor':get('ProfitFactor'),
+              'max_equity_drawdown_percent':get('MaxEquityDrawdownPercentages','MaxEquityDrawdownPercentage','MaxDrawdownPercentages','MaxDrawdownPercentage'),
+              'ending_balance':get('EndingBalance','Balance'),
+          }
+          q=Path(f'backtest/reports/XAUUSD-{period}-{window}-summary.json')
+          q.write_text(json.dumps(out,ensure_ascii=False,indent=2))
+          print(json.dumps(out,ensure_ascii=False,indent=2))
+          PYCODE
+
+      - name: Remove credentials
+        if: always()
+        run: rm -f backtest/ctrader.pwd
+
+      - name: Upload reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: HarmonyBot-XAUUSD-${{ matrix.period }}-${{ matrix.window }}
+          path: |
+            backtest/reports/XAUUSD-${{ matrix.period }}-${{ matrix.window }}.html
+            backtest/reports/XAUUSD-${{ matrix.period }}-${{ matrix.window }}.json
+            backtest/reports/XAUUSD-${{ matrix.period }}-${{ matrix.window }}-summary.json
+          if-no-files-found: warn
+          retention-days: 30
