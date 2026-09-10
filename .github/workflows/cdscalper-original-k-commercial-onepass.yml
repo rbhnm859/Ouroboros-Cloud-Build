@@ -1,0 +1,155 @@
+name: Validate Original Candidate K One-Pass Commercial
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [cds-k-commercial-onepass-validation]
+    paths:
+      - '.github/workflows/cdscalper-original-k-commercial-onepass.yml'
+
+permissions:
+  contents: read
+
+env:
+  SYMBOL: EURUSD
+  PERIOD: m1
+  STARTING_BALANCE: '30'
+  BASE_SPREAD: '0.43'
+  STRESS_SPREAD: '0.65'
+  COMMISSION: '35'
+
+jobs:
+  audit_build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: cds-k-commercial-onepass-validation
+      - name: Static commercial engineering audit
+        shell: bash
+        run: |
+          set -euo pipefail
+          SRC='CumulativeDeltaScalper-EURUSD-v1/src/CumulativeDeltaScalper_EURUSD_v1.cs'
+          test -f "$SRC"
+          grep -q 'AccessRights = AccessRights.None' "$SRC"
+          grep -q 'ExecuteMarketOrder' "$SRC"
+          grep -q 'ModifyPosition' "$SRC"
+          grep -q 'NormalizeVolumeInUnits' "$SRC"
+          grep -q 'VolumeForFixedRisk' "$SRC"
+          grep -q 'MinStopLossDistance' "$SRC"
+          grep -q 'MinTakeProfitDistance' "$SRC"
+          grep -q 'HasOpenPosition' "$SRC"
+          grep -q 'Bars.ClosePrices.Count - 2' "$SRC"
+          grep -q '_lastProcessedBarTime' "$SRC"
+          grep -q 'Symbol.Spread / Symbol.TickSize' "$SRC"
+          if grep -Eqi 'Fibonacci|RSI|MACD|Bollinger|MachineLearning|Martingale|DCA|Recovery|LossAveraging' "$SRC"; then
+            echo 'Forbidden-added-strategy keyword detected in Original K source'; exit 1;
+          fi
+          echo 'Static audit checks passed. Original K source left unchanged.'
+      - name: Build Original Candidate K
+        shell: bash
+        run: |
+          set -euo pipefail
+          dotnet build CumulativeDeltaScalper-EURUSD-v1/CumulativeDeltaScalper_EURUSD_v1.csproj -c Release -p:AlgoBuild=true
+          mkdir -p out
+          find CumulativeDeltaScalper-EURUSD-v1 -type f -name '*.algo' -print -exec cp {} out/ \;
+          test -n "$(find out -maxdepth 1 -name '*.algo' -print -quit)"
+      - name: Capture cTrader CLI spread/commission help
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p audit
+          docker run --rm ghcr.io/spotware/ctrader-console:5.9.11 backtest --help > audit/ctrader-backtest-help.txt 2>&1 || true
+          grep -Ei 'spread|commission|leverage' audit/ctrader-backtest-help.txt || true
+      - uses: actions/upload-artifact@v4
+        with:
+          name: CDScalper_ORIGINAL_K_ONEPASS_algo_and_audit
+          path: |
+            out/*.algo
+            audit/*
+          retention-days: 30
+
+  validate:
+    needs: audit_build
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      max-parallel: 6
+      matrix:
+        include:
+          - { tag: TP06_IS_1Y, tp: '0.6', start: '09/09/2024', end: '09/08/2025', spread: '0.43' }
+          - { tag: TP06_OOS_1Y, tp: '0.6', start: '09/09/2025', end: '09/09/2026', spread: '0.43' }
+          - { tag: TP06_FULL_2Y, tp: '0.6', start: '09/09/2024', end: '09/09/2026', spread: '0.43' }
+          - { tag: TP06_STRESS_2Y, tp: '0.6', start: '09/09/2024', end: '09/09/2026', spread: '0.65' }
+          - { tag: TP08_IS_1Y, tp: '0.8', start: '09/09/2024', end: '09/08/2025', spread: '0.43' }
+          - { tag: TP08_OOS_1Y, tp: '0.8', start: '09/09/2025', end: '09/09/2026', spread: '0.43' }
+          - { tag: TP08_FULL_2Y, tp: '0.8', start: '09/09/2024', end: '09/09/2026', spread: '0.43' }
+          - { tag: TP08_STRESS_2Y, tp: '0.8', start: '09/09/2024', end: '09/09/2026', spread: '0.65' }
+          - { tag: TP10_IS_1Y, tp: '1.0', start: '09/09/2024', end: '09/08/2025', spread: '0.43' }
+          - { tag: TP10_OOS_1Y, tp: '1.0', start: '09/09/2025', end: '09/09/2026', spread: '0.43' }
+          - { tag: TP10_FULL_2Y, tp: '1.0', start: '09/09/2024', end: '09/09/2026', spread: '0.43' }
+          - { tag: TP10_STRESS_2Y, tp: '1.0', start: '09/09/2024', end: '09/09/2026', spread: '0.65' }
+    env:
+      CTID: ${{ secrets.CTRADER_CTID }}
+      ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+      CT_PASS: ${{ secrets.CTRADER_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: cds-k-commercial-onepass-validation
+      - uses: actions/download-artifact@v4
+        with:
+          name: CDScalper_ORIGINAL_K_ONEPASS_algo_and_audit
+          path: package
+      - name: Run locked Original K matrix case
+        shell: bash
+        env:
+          TAG: ${{ matrix.tag }}
+          TP: ${{ matrix.tp }}
+          START_DATE: ${{ matrix.start }}
+          END_DATE: ${{ matrix.end }}
+          CASE_SPREAD: ${{ matrix.spread }}
+        run: |
+          set -euo pipefail
+          ALGO="$(find package -type f -name '*.algo' -print -quit)"
+          test -n "$ALGO"
+          mkdir -p backtest/reports backtest/cache/EURUSD
+          cp "$ALGO" backtest/
+          printf '%s' "$CT_PASS" | tr -d '\r\n' > backtest/ctrader.pwd
+          chmod 600 backtest/ctrader.pwd
+          docker run --rm \
+            -v "$PWD/backtest:/work" \
+            -e "CTID=$CTID" -e "ACCOUNT=$ACCOUNT" -e "PWD-FILE=/work/ctrader.pwd" \
+            ghcr.io/spotware/ctrader-console:5.9.11 \
+            backtest "/work/$(basename "$ALGO")" \
+            --environment-variables \
+            --symbol="$SYMBOL" --period="$PERIOD" \
+            --start="$START_DATE" --end="$END_DATE" --balance="$STARTING_BALANCE" \
+            --data-mode=m1 --data-dir=/work/cache/EURUSD \
+            --spread="$CASE_SPREAD" --commission="$COMMISSION" \
+            --DeltaThreshold=125 --MinConfirmations=3 \
+            --UseBarDeltaFallback=true --FallbackBelowTickDelta=2 --BarDeltaPointMultiplier=1.6 \
+            --UseSessionFilter=true --OverlapOnly=true \
+            --SessionStartHour=14 --SessionStartMinute=0 --SessionEndHour=14 --SessionEndMinute=54 \
+            --UseWeekdayFilter=true --TradeMonday=true --TradeTuesday=true --TradeWednesday=true --TradeThursday=false --TradeFriday=true \
+            --UseHtfEmaFilter=true --HtfTimeFrameName=Minute15 --EmaSlopeBars=3 --AdxThreshold=16 \
+            --MinAtr=0.00005 --MaxAtr=0.00105 --MaxSpreadPoints=18 --SpreadAvgMultiplier=1.8 \
+            --RiskMode=FixedMoneyRisk --FixedMoneyRisk=1.0 --AutoScaleFixedRisk=true --RiskReferenceBalance=100 --MinFixedMoneyRisk=0.05 \
+            --MaxLotSize=0.05 --SlAtrMultiplier=0.8 --TpAtrMultiplier="$TP" \
+            --MaxDailyTrades=3 --MaxDailyLossPercent=4.0 --MaxDailyLossMoney=0.55 --DailyProfitTargetMoney=1.10 \
+            --MaxConsecutiveLosses=2 --MinSecondsBetweenTrades=900 --LossCooldownMinutes=45 \
+            --MaxDailyEquityDrawdownMoney=0.75 --MaxFloatingLossMoney=0.90 \
+            --MaxEquityDrawdownPercent=12 --CloseOnEquityGuard=true \
+            --MaxTradeSeconds=1800 --UseBreakeven=true --BreakevenPips=1.0 --AdverseDeltaExit=true \
+            --report="/work/reports/${TAG}.html" --report-json="/work/reports/${TAG}.json" --exit-on-stop
+          rm -f backtest/ctrader.pwd
+      - name: Upload case report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: CDScalper_K_ONEPASS_${{ matrix.tag }}
+          path: backtest/reports/*
+          if-no-files-found: warn
+          retention-days: 30
