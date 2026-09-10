@@ -47,7 +47,13 @@ jobs:
           assert p['immutable']['growth3_live'] is False
           print('[RC7 POLICY] locked: no risk increase, no alpha loosening, no gate/window changes')
           PY
+          # RC6 transform chain requires the original Growth2 transform at this exact path.
+          # Preserve it before replacing the harness entrypoint with the RC6/RC7 engine.
+          cp FibonacciHarmonicSniperUltimate/monthly-growth-v2/growth2_transform.py /tmp/growth2_transform.py
+          test -s /tmp/growth2_transform.py
           cp .github/scripts/commercial_rc6_transform.py FibonacciHarmonicSniperUltimate/monthly-growth-v2/growth2_transform.py
+          python3 -m py_compile /tmp/growth2_transform.py FibonacciHarmonicSniperUltimate/monthly-growth-v2/growth2_transform.py
+          echo '[RC7 TRANSFORM] original Growth2 baseline preserved; RC6 policy engine installed'
       - name: Run full frozen validation with watchdog
         env:
           CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
