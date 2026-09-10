@@ -113,7 +113,7 @@ namespace cAlgo.Robots
             Positions.Closed += OnPositionClosed;
             RestoreRuntimeState();
 
-            Debug("started; RESEARCH ONLY; completed M5 impulse -> completed M1 pullback -> later completed M1 reclaim; completed M15 EMA context; delta has no decision role; structural SL + 1.80R TP; BE/trailing/adverse-delta off");
+            Debug("started; RESEARCH ONLY; completed M5 impulse -> completed M1 pullback -> later completed M1 reclaim; completed M15 EMA context; delta has no decision role; structural SL + 1.80R TP; BE/trailing/adverse-delta off; symbol-wide no-hedge guard on");
         }
 
         protected override void OnStop()
@@ -148,7 +148,7 @@ namespace cAlgo.Robots
 
             EvaluateNewCompletedM5Impulse();
 
-            if (GetOpenPosition() != null)
+            if (HasAnySymbolPosition())
                 return;
 
             ProcessActiveSetup();
@@ -158,6 +158,11 @@ namespace cAlgo.Robots
         {
             string allowed = string.IsNullOrWhiteSpace(AllowedSymbolPrefix) ? "EURUSD" : AllowedSymbolPrefix.Trim().ToUpperInvariant();
             return SymbolName.ToUpperInvariant().StartsWith(allowed);
+        }
+
+        private bool HasAnySymbolPosition()
+        {
+            return Positions.Any(x => x.SymbolName == SymbolName);
         }
 
         private int ClosedM1Index()
@@ -390,6 +395,7 @@ namespace cAlgo.Robots
         {
             reason = string.Empty;
 
+            if (HasAnySymbolPosition()) { reason = "guard_symbol_position_exists"; return false; }
             if (!IsWeekday()) { reason = "guard_weekend"; return false; }
             if (!IsInSession()) { reason = "guard_outside_session"; return false; }
             if (_dailyTradeCount >= MaxDailyTrades) { reason = "guard_max_daily_trades"; return false; }
@@ -417,6 +423,12 @@ namespace cAlgo.Robots
 
         private void OpenTrade(int direction, double pullbackExtreme)
         {
+            if (HasAnySymbolPosition())
+            {
+                Skip("guard_symbol_position_exists");
+                return;
+            }
+
             double atr = ClosedM1Atr();
             if (atr <= 0)
             {
