@@ -1,0 +1,257 @@
+name: Fibonacci Store RC1 Validation
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - fibonacci-store-v0.4.0-rc1
+    paths:
+      - '.github/workflows/validate-fibonacci-store-rc1.yml'
+      - 'FibonacciHarmonicSniperUltimate/versions/v0.4.0-store-rc1/**'
+  pull_request:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/validate-fibonacci-store-rc1.yml'
+      - 'FibonacciHarmonicSniperUltimate/versions/v0.4.0-store-rc1/**'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fibonacci-store-rc1-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    name: ${{ matrix.id }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        include:
+          - id: xau-m15-dev
+            symbol: XAUUSD
+            period: m15
+            start: '01/01/2024 00:00'
+            end: '31/12/2025 23:59'
+            min_trades: 60
+          - id: xau-m15-recent
+            symbol: XAUUSD
+            period: m15
+            start: '01/01/2026 00:00'
+            end: '09/09/2026 23:59'
+            min_trades: 25
+          - id: xau-h1-recent
+            symbol: XAUUSD
+            period: h1
+            start: '01/01/2026 00:00'
+            end: '09/09/2026 23:59'
+            min_trades: 15
+
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@v4
+
+      - name: Pull official cTrader CLI
+        run: docker pull ghcr.io/spotware/ctrader-console:5.9.11
+
+      - name: Prepare store RC1 with trading enabled for backtest
+        run: |
+          python3 - <<'PYCODE'
+          from pathlib import Path
+          import shutil
+
+          src = Path('FibonacciHarmonicSniperUltimate/versions/v0.4.0-store-rc1')
+          dst = Path('fibonacci-store-test/FibonacciHarmonicSniperUltimate')
+          if dst.exists():
+              shutil.rmtree(dst)
+          shutil.copytree(src, dst)
+
+          p = dst / 'FibonacciHarmonicSniperUltimate.cs'
+          text = p.read_text()
+          old = '[Parameter("Trading Enabled", DefaultValue = false'
+          new = '[Parameter("Trading Enabled", DefaultValue = true'
+          if old not in text:
+              raise SystemExit('Trading Enabled parameter not found')
+          p.write_text(text.replace(old, new, 1))
+          PYCODE
+
+      - name: Build cBot
+        run: |
+          mkdir -p backtest/cache backtest/reports
+          docker run --rm --entrypoint sh -v "$PWD:/repo" -w /repo \
+            ghcr.io/spotware/ctrader-console:5.9.11 -c \
+            'dotnet restore fibonacci-store-test/FibonacciHarmonicSniperUltimate/FibonacciHarmonicSniperUltimate.csproj && dotnet build fibonacci-store-test/FibonacciHarmonicSniperUltimate/FibonacciHarmonicSniperUltimate.csproj --configuration Release --no-restore -p:AlgoPublish=False -p:IncludeSource=True'
+
+          ALGO="$(find fibonacci-store-test -type f -name '*.algo' -print -quit)"
+          if [ -z "$ALGO" ]; then
+            echo 'Build succeeded but no .algo was found'
+            find fibonacci-store-test -maxdepth 8 -type f -print
+            exit 1
+          fi
+          cp "$ALGO" backtest/FibonacciHarmonicSniperUltimate-v0.4.0-store-rc1.algo
+
+      - name: Upload compiled RC1
+        if: matrix.id == 'xau-m15-recent'
+        uses: actions/upload-artifact@v4
+        with:
+          name: FibonacciHarmonicSniperUltimate-v0.4.0-store-rc1
+          path: backtest/FibonacciHarmonicSniperUltimate-v0.4.0-store-rc1.algo
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Create cTrader password file
+        env:
+          CTRADER_PASSWORD: ${{ secrets.CTRADER_PASSWORD }}
+        run: |
+          test -n "${CTRADER_PASSWORD:-}" || { echo 'Missing CTRADER_PASSWORD'; exit 1; }
+          printf '%s' "$CTRADER_PASSWORD" > backtest/ctrader.pwd
+          chmod 600 backtest/ctrader.pwd
+
+      - name: Backtest ${{ matrix.id }}
+        env:
+          CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+          CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+        run: |
+          test -n "${CTRADER_CTID:-}" || { echo 'Missing CTRADER_CTID'; exit 1; }
+          test -n "${CTRADER_ACCOUNT:-}" || { echo 'Missing CTRADER_ACCOUNT'; exit 1; }
+
+          set +e
+          timeout --signal=TERM --kill-after=30s 25m docker run --rm \
+            -v "$PWD/backtest:/work" \
+            -e "CTID=$CTRADER_CTID" \
+            -e 'PWD-FILE=/work/ctrader.pwd' \
+            -e "ACCOUNT=$CTRADER_ACCOUNT" \
+            ghcr.io/spotware/ctrader-console:5.9.11 \
+            backtest /work/FibonacciHarmonicSniperUltimate-v0.4.0-store-rc1.algo \
+            --environment-variables --exit-on-stop \
+            --symbol=${{ matrix.symbol }} \
+            --period=${{ matrix.period }} \
+            --start="${{ matrix.start }}" \
+            --end="${{ matrix.end }}" \
+            --balance=10000 \
+            --spread=30 --commission=35 \
+            --data-mode=m1 \
+            --data-dir=/work/cache \
+            --report=/work/reports/${{ matrix.id }}.html \
+            --report-json=/work/reports/${{ matrix.id }}.json
+          rc=$?
+          set -e
+          echo "CLI exit code: $rc"
+          exit "$rc"
+
+      - name: Build Store-readiness metrics
+        if: always()
+        run: |
+          python3 - <<'PYCODE'
+          from pathlib import Path
+          from datetime import datetime
+          import json, math, os
+
+          report = Path('backtest/reports/${{ matrix.id }}.json')
+          if not report.exists():
+              raise SystemExit('No JSON backtest report produced')
+
+          d = json.loads(report.read_text())
+          main = d.get('main', {})
+          equity = d.get('equity', {})
+          stats = d.get('tradeStatistics', {})
+          history = d.get('history', {}).get('items', [])
+
+          def num(obj, *keys, default=0.0):
+              for k in keys:
+                  if isinstance(obj, dict) and k in obj and obj[k] is not None:
+                      try:
+                          return float(obj[k])
+                      except Exception:
+                          pass
+              return float(default)
+
+          nets = []
+          for item in history:
+              if isinstance(item, dict):
+                  value = item.get('netProfit', item.get('NetProfit'))
+                  if value is not None:
+                      try:
+                          nets.append(float(value))
+                      except Exception:
+                          pass
+
+          total = int(num(stats.get('totalTrades', {}), 'all', default=len(nets))) if isinstance(stats.get('totalTrades'), dict) else len(nets)
+          if total == 0 and nets:
+              total = len(nets)
+          wins = sum(1 for x in nets if x > 0)
+          losses = sum(1 for x in nets if x < 0)
+          net = num(main, 'netProfit', default=sum(nets))
+          roi = num(main, 'roi', default=net / 10000.0 * 100.0)
+          max_dd = num(equity, 'maxEquityDrawdownPercent', 'maxDrawdownPercent')
+          gross_profit = sum(x for x in nets if x > 0)
+          gross_loss = -sum(x for x in nets if x < 0)
+          profit_factor = gross_profit / gross_loss if gross_loss > 0 else (999.0 if gross_profit > 0 else 0.0)
+          win_rate = wins / len(nets) * 100.0 if nets else 0.0
+
+          start = datetime.strptime('${{ matrix.start }}', '%d/%m/%Y %H:%M')
+          end = datetime.strptime('${{ matrix.end }}', '%d/%m/%Y %H:%M')
+          days = max(1.0, (end - start).total_seconds() / 86400.0)
+          monthly_compound = None
+          if roi > -100.0:
+              monthly_compound = ((1.0 + roi / 100.0) ** (30.4375 / days) - 1.0) * 100.0
+
+          visible_roi_gate = monthly_compound is not None and monthly_compound >= 7.0
+          quality_gate = (
+              visible_roi_gate and
+              profit_factor >= 1.30 and
+              max_dd <= 15.0 and
+              total >= int('${{ matrix.min_trades }}') and
+              net > 0
+          )
+
+          result = {
+              'version': 'v0.4.0-store-rc1',
+              'case': '${{ matrix.id }}',
+              'symbol': '${{ matrix.symbol }}',
+              'chart_period': '${{ matrix.period }}',
+              'from': '${{ matrix.start }}',
+              'to': '${{ matrix.end }}',
+              'initial_balance': 10000,
+              'spread_pips_assumption': 30,
+              'commission_usd_per_million_assumption': 35,
+              'total_trades': total,
+              'wins_from_history': wins,
+              'losses_from_history': losses,
+              'win_rate_percent': win_rate,
+              'net_profit': net,
+              'roi_percent': roi,
+              'compounded_monthly_roi_percent': monthly_compound,
+              'profit_factor_from_history': profit_factor,
+              'max_equity_drawdown_percent': max_dd,
+              'ctrader_store_monthly_roi_visibility_gate_7pct': visible_roi_gate,
+              'internal_promotion_gate': quality_gate,
+              'note': 'Development evidence only. Costs are explicit assumptions until broker-specific report metadata is verified.'
+          }
+
+          out = json.dumps(result, indent=2)
+          Path('backtest/reports/${{ matrix.id }}-summary.json').write_text(out)
+          with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as f:
+              f.write('```json\n' + out + '\n```\n')
+          print(out)
+          PYCODE
+
+      - name: Remove credentials
+        if: always()
+        run: rm -f backtest/ctrader.pwd
+
+      - name: Upload reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Fibonacci-Store-RC1-${{ matrix.id }}-Reports
+          path: |
+            backtest/reports/${{ matrix.id }}.html
+            backtest/reports/${{ matrix.id }}.json
+            backtest/reports/${{ matrix.id }}-summary.json
+          if-no-files-found: warn
+          retention-days: 30
