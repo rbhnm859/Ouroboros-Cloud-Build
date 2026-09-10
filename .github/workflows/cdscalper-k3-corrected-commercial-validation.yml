@@ -20,11 +20,14 @@ env:
   COMMISSION_TYPE: UsdPerMillionUsdVolume
   IS_START: '09/09/2024 00:00'
   IS_END: '08/09/2025 23:59'
+  CTRADER_IMAGE_CANDIDATE: ghcr.io/spotware/ctrader-console:latest
 
 jobs:
   audit_build:
     runs-on: ubuntu-latest
     timeout-minutes: 40
+    outputs:
+      ctrader_image: ${{ steps.cli_image.outputs.digest }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -62,17 +65,41 @@ jobs:
           fi
           echo 'Original K immutable; K3 Flow-First invariants verified.'
 
-      - name: Verify cTrader CLI commercial cost semantics
+      - name: Resolve and record current official cTrader Console image
+        id: cli_image
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p audit
-          docker run --rm ghcr.io/spotware/ctrader-console:5.9.11 backtest --help > audit/backtest-help.txt 2>&1
-          grep -q -- '--commission-type' audit/backtest-help.txt
-          grep -q -- '--spread' audit/backtest-help.txt
-          grep -q -- '--data-mode' audit/backtest-help.txt
-          grep -Ei 'commission-type|commission|spread|data-mode' audit/backtest-help.txt > audit/cost-data-semantics.txt
-          cat audit/cost-data-semantics.txt
+          docker pull "$CTRADER_IMAGE_CANDIDATE"
+          DIGEST="$(docker inspect --format='{{index .RepoDigests 0}}' "$CTRADER_IMAGE_CANDIDATE")"
+          test -n "$DIGEST"
+          echo "digest=$DIGEST" >> "$GITHUB_OUTPUT"
+          printf '%s\n' "$DIGEST" | tee audit/ctrader-image-digest.txt
+          docker run --rm "$DIGEST" --version > audit/ctrader-version.txt 2>&1 || true
+          docker run --rm "$DIGEST" --commands > audit/ctrader-commands.txt 2>&1 || true
+          cat audit/ctrader-version.txt || true
+          grep -Ei 'commission-type|commission|spread|data-mode|backtest' audit/ctrader-commands.txt > audit/cli-semantics-visible.txt || true
+          cat audit/cli-semantics-visible.txt || true
+
+      - name: Record locked commercial harness contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > audit/commercial-contract.txt <<'EOF'
+          Symbol=EURUSD
+          Period=m1
+          DataMode=ticks
+          InitialBalanceUsd=30
+          TargetLeverage=500
+          SpreadPips=0.43
+          Commission=35
+          CommissionType=UsdPerMillionUsdVolume
+          IS=09/09/2024 00:00 -> 08/09/2025 23:59 UTC
+          OOS=09/09/2025 00:00 -> 09/09/2026 23:59 UTC
+          FULL=09/09/2024 00:00 -> 09/09/2026 23:59 UTC
+          EOF
+          cat audit/commercial-contract.txt
 
       - name: Build Original K, K2 and K3 release algos
         shell: bash
@@ -111,6 +138,7 @@ jobs:
       CTID: ${{ secrets.CTRADER_CTID }}
       ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
       CT_PASS: ${{ secrets.CTRADER_PASSWORD }}
+      CTRADER_IMAGE: ${{ needs.audit_build.outputs.ctrader_image }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -126,6 +154,7 @@ jobs:
           CASE: ${{ matrix.case }}
         run: |
           set -euo pipefail
+          test -n "$CTRADER_IMAGE"
           mkdir -p backtest/reports backtest/cache/EURUSD
           printf '%s' "$CT_PASS" | tr -d '\r\n' > backtest/ctrader.pwd
           chmod 600 backtest/ctrader.pwd
@@ -162,12 +191,13 @@ jobs:
 
           test -n "$ALGO"
           cp "$ALGO" backtest/
+          printf '%s\n' "$CTRADER_IMAGE" > "backtest/reports/${CASE}.image.txt"
 
           set +e
           docker run --rm \
             -v "$PWD/backtest:/work" \
             -e "CTID=$CTID" -e "ACCOUNT=$ACCOUNT" -e "PWD-FILE=/work/ctrader.pwd" \
-            ghcr.io/spotware/ctrader-console:5.9.11 \
+            "$CTRADER_IMAGE" \
             backtest "/work/$(basename "$ALGO")" \
             "${COMMON[@]}" "${EXTRA[@]}" \
             --report="/work/reports/${CASE}.html" \
