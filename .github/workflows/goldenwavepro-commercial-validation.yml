@@ -37,8 +37,10 @@ jobs:
             growth_name: CAGR
 
     steps:
-      - name: Pull official cTrader CLI
-        run: docker pull ghcr.io/spotware/ctrader-console:5.9.11
+      - name: Setup .NET 6
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '6.0.x'
 
       - name: Recreate GoldenWavePro source
         run: |
@@ -52,12 +54,14 @@ jobs:
 
       - name: Build GoldenWavePro cBot
         run: |
-          docker run --rm --entrypoint sh -v "$PWD:/repo" -w /repo \
-            ghcr.io/spotware/ctrader-console:5.9.11 -c \
-            'dotnet restore src/GoldenWavePro/GoldenWavePro.csproj && dotnet build src/GoldenWavePro/GoldenWavePro.csproj --configuration Release --no-restore -p:AlgoPublish=False -p:IncludeSource=True'
+          dotnet restore src/GoldenWavePro/GoldenWavePro.csproj
+          dotnet build src/GoldenWavePro/GoldenWavePro.csproj --configuration Release --no-restore -p:AlgoPublish=False -p:IncludeSource=True
           ALGO="$(find src/GoldenWavePro -type f -name '*.algo' -print -quit)"
           test -n "$ALGO" || { echo 'No .algo produced'; exit 1; }
           cp "$ALGO" backtest/bin/GoldenWavePro.algo
+
+      - name: Pull official cTrader CLI
+        run: docker pull ghcr.io/spotware/ctrader-console:5.9.11
 
       - name: Create cTrader password file
         env:
