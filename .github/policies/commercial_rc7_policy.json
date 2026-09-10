@@ -1,0 +1,131 @@
+{
+  "policy_version": "RC7A-2026-09-10",
+  "candidate_count": 1,
+  "research_mode": "single_evidence_based_architecture_no_bruteforce",
+  "immutable": {
+    "round22_control": true,
+    "h1_buy_alpha": true,
+    "growth3_live": false,
+    "m30_abcd_live": false,
+    "max_open_positions": 1,
+    "single_execute_market_order_boundary": true,
+    "base_risk_parameters_unchanged": true,
+    "frozen_windows_unchanged": true,
+    "commercial_gates_unchanged": true
+  },
+  "architecture": {
+    "pipeline": "Signal/Alpha -> Portfolio Decision -> Risk -> Execution -> Position Management -> Safety",
+    "deterministic_arbitration": true,
+    "h1_priority": true,
+    "m30_deferred_intent": {
+      "enabled": true,
+      "pattern": "Reciprocal ABCD",
+      "eligible_block_reason": "OPEN_POSITION",
+      "round21_bypass_deferred": false,
+      "ttl_m30_bars": 4,
+      "replacement_rule": "higher_final_score_only; tie_keeps_existing",
+      "revalidation": [
+        "no_open_position",
+        "shared_limits",
+        "h1_health",
+        "m30_confirmation",
+        "m30_trend_alignment",
+        "signal_not_consumed"
+      ]
+    },
+    "shadow_counterfactual_ledger": {
+      "enabled": true,
+      "patterns": ["ABCD", "Growth3"],
+      "m30_horizon_bars": 4,
+      "same_bar_tp_sl": "AMBIGUOUS"
+    }
+  },
+  "policy": {
+    "h1_buy": {
+      "decision": "LIVE_CORE",
+      "risk_multiplier": 1.0,
+      "reason": "protected_core_alpha"
+    },
+    "h1_sell": {
+      "decision": "LIVE_SATELLITE",
+      "risk_multiplier": 0.20,
+      "reason": "rc6_y2_and_harsh_underperformance_down_only_isolation"
+    },
+    "m30_reciprocal_abcd_buy": {
+      "decision": "LIVE_SATELLITE",
+      "risk_multiplier": 0.35,
+      "reason": "rc6_normal_neutral_recent_positive_keep_existing_exposure"
+    },
+    "m30_reciprocal_abcd_sell": {
+      "decision": "LIVE_SATELLITE",
+      "risk_multiplier": 0.50,
+      "reason": "rc6_recent_and_y2_positive_but_harsh_negative_down_only_isolation"
+    },
+    "m30_abcd": {
+      "decision": "SHADOW",
+      "risk_multiplier": 0.0,
+      "reason": "no_simple_abcd_subset_stable_across_3y_recent_harsh"
+    },
+    "growth3": {
+      "decision": "SHADOW",
+      "risk_multiplier": 0.0,
+      "reason": "negative_direct_attribution_keep_context_only"
+    }
+  },
+  "evidence": {
+    "rc6_run_id": 34479273787,
+    "rc6_artifact_id": 10153407128,
+    "rc6_3y": {
+      "trades": 247,
+      "roi_pct": 23.75,
+      "pf": 1.39,
+      "max_equity_dd_pct": 14.177598850278223
+    },
+    "rc6_recent": {
+      "trades": 94,
+      "roi_pct": 30.72,
+      "pf": 2.28,
+      "max_equity_dd_pct": 3.8432458314611444
+    },
+    "rc6_y2": {
+      "roi_pct": -1.96,
+      "pf": 0.89
+    },
+    "rc6_harsh_3y": {
+      "roi_pct": -1.17,
+      "pf": 0.98,
+      "max_equity_dd_pct": 13.186645672694668
+    },
+    "rc6_lane_attribution": {
+      "3y": {
+        "h1_buy": {"trades": 69, "net": 2039.76, "pf": 1.5939},
+        "h1_sell": {"trades": 68, "net": 142.84, "pf": 1.1196},
+        "m30_buy": {"trades": 52, "net": 0.44, "pf": 1.0010},
+        "m30_sell": {"trades": 58, "net": 191.55, "pf": 1.1784}
+      },
+      "harsh_3y": {
+        "h1_buy": {"trades": 70, "net": 354.44, "pf": 1.1126},
+        "h1_sell": {"trades": 68, "net": -131.73, "pf": 0.8912},
+        "m30_buy": {"trades": 44, "net": -125.50, "pf": 0.6648},
+        "m30_sell": {"trades": 56, "net": -213.72, "pf": 0.7691}
+      },
+      "y2": {
+        "h1_buy": {"trades": 23, "net": -162.27, "pf": 0.8861},
+        "h1_sell": {"trades": 19, "net": -212.91, "pf": 0.4399},
+        "m30_buy": {"trades": 5, "net": 5.23, "pf": 1.1557},
+        "m30_sell": {"trades": 5, "net": 173.96, "pf": 71.4292}
+      }
+    },
+    "analytical_prebacktest_hypothesis": {
+      "method": "linear gross-profit/gross-loss exposure calibration using RC6 realized lane attribution; not a backtest parameter search",
+      "expected_if_path_and_rounding_were_unchanged": {
+        "3y_pf": 1.4250,
+        "harsh_3y_pf": 1.0023,
+        "y2_pf": 0.9030,
+        "recent_pf": 2.4647
+      },
+      "warning": "these are first-order hypotheses only; RC7 must pass frozen validation because position path, broker volume rounding and deferred intents can change realized results"
+    },
+    "abcd_research_conclusion": "RC4 ABCD aggregate was negative in 3Y, Recent and Harsh. Simple score/session/direction subsets did not remain robust across all validation slices, so RC7 does not reopen ABCD live execution."
+  }
+}
