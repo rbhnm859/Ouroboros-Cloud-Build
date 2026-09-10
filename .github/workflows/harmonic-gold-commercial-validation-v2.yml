@@ -1,0 +1,267 @@
+name: Harmonic Gold Pro - Commercial Validation v2
+
+on:
+  push:
+    branches:
+      - harmonic-gold-pro-v1
+    paths:
+      - 'FibonacciHarmonicGoldPro-v1/**'
+      - '.github/workflows/harmonic-gold-commercial-validation-v2.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: harmonic-gold-commercial-validation-v2
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build candidate with current Automate package
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup .NET 8 SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Build Release .algo
+        run: |
+          set -euo pipefail
+          dotnet --version
+          mkdir -p validation/build
+          dotnet restore FibonacciHarmonicGoldPro-v1/src/FibonacciHarmonicGoldPro.csproj
+          dotnet build FibonacciHarmonicGoldPro-v1/src/FibonacciHarmonicGoldPro.csproj --configuration Release --no-restore -p:AlgoPublish=False -p:IncludeSource=True
+          ALGO="$(find FibonacciHarmonicGoldPro-v1/src -type f -name '*.algo' -print -quit)"
+          test -n "$ALGO" || { echo 'No .algo produced'; exit 1; }
+          cp "$ALGO" validation/build/FibonacciHarmonicGoldPro-v1.0.0.algo
+          sha256sum validation/build/FibonacciHarmonicGoldPro-v1.0.0.algo | tee validation/build/SHA256.txt
+      - name: Upload candidate
+        uses: actions/upload-artifact@v4
+        with:
+          name: FHGP-v2-candidate
+          path: validation/build/
+          retention-days: 30
+
+  validate:
+    name: ${{ matrix.case_name }}
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      max-parallel: 3
+      matrix:
+        include:
+          - case_name: recent-1m-ticks
+            start: '10/08/2026'
+            end: '10/09/2026'
+            mode: ticks
+            commission: account
+            spread: account
+            role: diagnostic
+          - case_name: recent-1y-oos-m1
+            start: '10/09/2025'
+            end: '10/09/2026'
+            mode: m1
+            commission: account
+            spread: account
+            role: oos
+          - case_name: robustness-3y-m1
+            start: '10/09/2023'
+            end: '10/09/2026'
+            mode: m1
+            commission: account
+            spread: account
+            role: robustness
+          - case_name: is-2y-m1
+            start: '10/09/2023'
+            end: '09/09/2025'
+            mode: m1
+            commission: account
+            spread: account
+            role: is
+          - case_name: stress-1y-m1
+            start: '10/09/2025'
+            end: '10/09/2026'
+            mode: m1
+            commission: '50'
+            spread: '20'
+            role: stress
+          - case_name: severe-stress-1y-m1
+            start: '10/09/2025'
+            end: '10/09/2026'
+            mode: m1
+            commission: '70'
+            spread: '30'
+            role: severe-stress
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download compiled candidate
+        uses: actions/download-artifact@v4
+        with:
+          name: FHGP-v2-candidate
+          path: validation/work
+      - name: Pull official cTrader CLI
+        run: |
+          docker pull ghcr.io/spotware/ctrader-console:latest
+          docker run --rm ghcr.io/spotware/ctrader-console:latest --version
+      - name: Prepare credentials
+        env:
+          CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+          CTRADER_PASSWORD: ${{ secrets.CTRADER_PASSWORD }}
+          CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+        run: |
+          set -euo pipefail
+          test -n "${CTRADER_CTID:-}" || { echo 'Missing CTRADER_CTID'; exit 1; }
+          test -n "${CTRADER_PASSWORD:-}" || { echo 'Missing CTRADER_PASSWORD'; exit 1; }
+          test -n "${CTRADER_ACCOUNT:-}" || { echo 'Missing CTRADER_ACCOUNT'; exit 1; }
+          printf '%s' "$CTRADER_PASSWORD" > validation/work/ctrader.pwd
+          chmod 600 validation/work/ctrader.pwd
+      - name: Backtest XAUUSD M15
+        env:
+          CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+          CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+          CASE_NAME: ${{ matrix.case_name }}
+          START_DATE: ${{ matrix.start }}
+          END_DATE: ${{ matrix.end }}
+          DATA_MODE: ${{ matrix.mode }}
+          COMMISSION: ${{ matrix.commission }}
+          SPREAD: ${{ matrix.spread }}
+        run: |
+          set -euo pipefail
+          mkdir -p validation/work/cache validation/work/reports
+          COMMON=(docker run --rm
+            -v "$PWD/validation/work:/work"
+            -e "CTID=$CTRADER_CTID"
+            -e 'PWD-FILE=/work/ctrader.pwd'
+            -e "ACCOUNT=$CTRADER_ACCOUNT"
+            ghcr.io/spotware/ctrader-console:latest
+            backtest /work/FibonacciHarmonicGoldPro-v1.0.0.algo
+            --environment-variables --exit-on-stop
+            --symbol=XAUUSD --period=m15
+            --start="$START_DATE" --end="$END_DATE"
+            --balance=10000 --data-mode="$DATA_MODE" --data-dir=/work/cache
+            --report="/work/reports/${CASE_NAME}.html"
+            --report-json="/work/reports/${CASE_NAME}.json")
+          if [ "$COMMISSION" = 'account' ]; then
+            "${COMMON[@]}"
+          else
+            "${COMMON[@]}" --commission="$COMMISSION" --commission-type=UsdPerMillionUsdVolume --spread="$SPREAD"
+          fi
+      - name: Summarise report
+        if: success()
+        env:
+          CASE_NAME: ${{ matrix.case_name }}
+          ROLE: ${{ matrix.role }}
+          START_DATE: ${{ matrix.start }}
+          END_DATE: ${{ matrix.end }}
+          DATA_MODE: ${{ matrix.mode }}
+          COMMISSION: ${{ matrix.commission }}
+          SPREAD: ${{ matrix.spread }}
+        run: |
+          python3 - <<'PYCODE'
+          from pathlib import Path
+          import json, os, re
+          case=os.environ['CASE_NAME']
+          data=json.loads(Path(f'validation/work/reports/{case}.json').read_text())
+          flat={}
+          def walk(v):
+              if isinstance(v,dict):
+                  for k,c in v.items():
+                      key=re.sub(r'[^a-z0-9]','',str(k).lower())
+                      if key not in flat and not isinstance(c,(dict,list)): flat[key]=c
+                      walk(c)
+              elif isinstance(v,list):
+                  for c in v: walk(c)
+          walk(data)
+          def n(*names,default=0.0):
+              for name in names:
+                  key=re.sub(r'[^a-z0-9]','',name.lower())
+                  if key in flat:
+                      try:return float(str(flat[key]).replace('%','').replace(',',''))
+                      except:pass
+              return default
+          trades=int(n('TotalTrades','Trades','TotalPositions'))
+          wins=int(n('WinningTrades','WinningPositions','Wins'))
+          net=n('NetProfit','NetProfitAmount')
+          pf=n('ProfitFactor')
+          dd=n('MaxEquityDrawdownPercentages','MaxEquityDrawdownPercentage','MaxDrawdownPercentages','MaxDrawdownPercentage')
+          sharpe=n('SharpeRatio','Sharpe')
+          sortino=n('SortinoRatio','Sortino')
+          winrate=n('WinRate','WinningTradesPercentages',default=(wins/trades*100 if trades else 0))
+          roi=net/10000*100
+          if trades==0: verdict='NO_TRADES'
+          elif net<=0 or pf<1: verdict='NEGATIVE_EXPECTANCY'
+          elif pf>=1.5 and dd<=20: verdict='COMMERCIAL_GATE_PASS'
+          else: verdict='RESEARCH_ONLY'
+          s={'case':case,'role':os.environ['ROLE'],'start':os.environ['START_DATE'],'end':os.environ['END_DATE'],'data_mode':os.environ['DATA_MODE'],'commission':os.environ['COMMISSION'],'spread':os.environ['SPREAD'],'trades':trades,'wins':wins,'win_rate_pct':round(winrate,3),'net_profit':round(net,2),'roi_pct':round(roi,3),'profit_factor':round(pf,3),'max_drawdown_pct':round(dd,3),'sharpe':round(sharpe,3),'sortino':round(sortino,3),'verdict':verdict}
+          Path(f'validation/work/reports/{case}-summary.json').write_text(json.dumps(s,indent=2))
+          md=f'''# {case}\n\n- Role: {s['role']}\n- Period: {s['start']} to {s['end']}\n- Data mode: {s['data_mode']}\n- Trades: {trades}\n- Win rate: {winrate:.2f}%\n- Net profit: ${net:.2f}\n- ROI: {roi:.2f}%\n- Profit factor: {pf:.3f}\n- Max drawdown: {dd:.2f}%\n- Sharpe: {sharpe:.3f}\n- Sortino: {sortino:.3f}\n- Verdict: **{verdict}**\n'''
+          Path(f'validation/work/reports/{case}-summary.md').write_text(md)
+          print(md)
+          with Path(os.environ['GITHUB_STEP_SUMMARY']).open('a') as f:f.write(md)
+          PYCODE
+      - name: Remove credentials
+        if: always()
+        run: rm -f validation/work/ctrader.pwd
+      - name: Upload case report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: FHGP-v2-${{ matrix.case_name }}
+          path: validation/work/reports/
+          if-no-files-found: warn
+          retention-days: 30
+
+  assess:
+    name: Commercial gate assessment
+    needs: validate
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download summaries
+        uses: actions/download-artifact@v4
+        with:
+          pattern: FHGP-v2-*
+          path: validation/all
+          merge-multiple: true
+      - name: Build commercial assessment
+        run: |
+          python3 - <<'PYCODE'
+          from pathlib import Path
+          import json, os
+          rows={}
+          for p in Path('validation/all').glob('*-summary.json'):
+              s=json.loads(p.read_text()); rows[s['case']]=s
+          reasons=[]
+          def gate(case,mintr,pf,dd):
+              s=rows.get(case)
+              if not s: reasons.append(f'{case}: missing report'); return False
+              ok=True
+              if s['trades']<mintr: reasons.append(f'{case}: {s["trades"]} trades < {mintr}'); ok=False
+              if s['net_profit']<=0: reasons.append(f'{case}: net profit <= 0'); ok=False
+              if s['profit_factor']<pf: reasons.append(f'{case}: PF {s["profit_factor"]} < {pf}'); ok=False
+              if s['max_drawdown_pct']>dd: reasons.append(f'{case}: DD {s["max_drawdown_pct"]}% > {dd}%'); ok=False
+              return ok
+          ok1=gate('recent-1y-oos-m1',30,1.5,20)
+          ok3=gate('robustness-3y-m1',75,1.5,20)
+          oks=gate('stress-1y-m1',30,1.2,25)
+          status='PASS_TO_WALK_FORWARD' if ok1 and ok3 and oks else 'NOT_COMMERCIAL_READY'
+          lines=['# Fibonacci Harmonic Gold Pro - Commercial Assessment','',f'Overall status: **{status}**','', '| Case | Trades | Win rate | Net | ROI | PF | Max DD | Verdict |','|---|---:|---:|---:|---:|---:|---:|---|']
+          for k in sorted(rows):
+              s=rows[k]; lines.append(f'| {k} | {s["trades"]} | {s["win_rate_pct"]:.2f}% | ${s["net_profit"]:.2f} | {s["roi_pct"]:.2f}% | {s["profit_factor"]:.3f} | {s["max_drawdown_pct"]:.2f}% | {s["verdict"]} |')
+          lines+=['','## Gate findings']+[f'- {x}' for x in reasons] if reasons else ['','## Gate findings','- Baseline gates passed. Proceed to walk-forward, parameter perturbation and Monte Carlo validation.']
+          text='\n'.join(lines)+'\n'; Path('validation/COMMERCIAL_ASSESSMENT.md').write_text(text); Path('validation/COMMERCIAL_ASSESSMENT.json').write_text(json.dumps({'status':status,'reasons':reasons,'cases':rows},indent=2)); print(text)
+          with Path(os.environ['GITHUB_STEP_SUMMARY']).open('a') as f:f.write(text)
+          PYCODE
+      - name: Upload assessment
+        uses: actions/upload-artifact@v4
+        with:
+          name: FHGP-v2-commercial-assessment
+          path: |
+            validation/COMMERCIAL_ASSESSMENT.md
+            validation/COMMERCIAL_ASSESSMENT.json
+          retention-days: 30
