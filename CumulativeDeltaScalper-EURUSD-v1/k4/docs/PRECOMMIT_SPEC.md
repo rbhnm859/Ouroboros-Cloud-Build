@@ -21,21 +21,42 @@ For SHORT the rules are exactly symmetric.
 
 No threshold-cross requirement is used in K4. DeltaThreshold=125 from K/K2/K3 is not used as an entry trigger.
 
+## Locked inherited mechanics
+These are fixed before the first K4 IS test and are not optimizer surfaces:
+- Delta window: 10 completed M1 bars.
+- Tick-direction delta fallback: enabled only when absolute tick delta <=2.
+- Candle-body/range fallback multiplier: 1.6, inherited unchanged from the audited K3 lineage.
+- Session: 14:00 through 14:54 UTC.
+- Weekdays: Monday, Tuesday, Wednesday and Friday enabled; Thursday disabled.
+- ATR(14) admissible range: 0.00005 through 0.00105.
+- Dynamic spread guard: MaxSpreadPoints=18 and SpreadAvgMultiplier=1.8.
+- M15 EMA period: 50; slope lookback: 3 completed M15 bars.
+- M15 ADX period: 14; threshold: 16.
+- Breakout lookback: exactly 5 prior completed M1 bars.
+- Signal-bar close-location threshold: exactly top/bottom 30% of its range.
+- Delta vote: cumulative sign agrees and at least 2 of the last 3 completed M1 delta bars agree.
+
 ## Fixed risk/exit architecture
 - One position maximum per symbol/label.
 - No opposite concurrent position.
 - Mandatory entry-time SL/TP.
 - SL = 0.8 ATR(14) from the just-completed M1 bar.
 - TP = 1.2 ATR(14), fixed for the first K4 test; no TP sweep before first IS result.
+- Fixed-money risk lineage remains unchanged: FixedMoneyRisk=1.0, AutoScaleFixedRisk=true, RiskReferenceBalance=100, MinFixedMoneyRisk=0.05, MaxLotSize=0.05.
 - Breakeven is not used as an edge generator. Initial K4 research keeps it disabled to avoid clipping the new price-impulse hypothesis; hard account/daily/floating-loss protection remains enabled.
 - No trailing stop in the initial candidate.
 - No averaging, recovery or re-entry layering.
 - Maximum one trade per completed M1 bar.
+- MaxDailyTrades=3, MaxDailyLossPercent=4, MaxDailyLossMoney=0.55, DailyProfitTargetMoney=1.10.
+- MaxConsecutiveLosses=2, MinSecondsBetweenTrades=900, LossCooldownMinutes=45.
+- MaxDailyEquityDrawdownMoney=0.75, MaxFloatingLossMoney=0.90, MaxEquityDrawdownPercent=12, CloseOnEquityGuard=true.
+- MaxTradeSeconds=1800.
 
 ## Cost handling
 - Runtime cost telemetry remains mandatory.
 - Spread is evaluated in broker units and commercial validation uses fixed 0.43 pip.
 - Commission is 35 USD per million USD volume.
+- Execution safety buffer remains 0.2 pip for cost estimation.
 - Economic floor is a safety condition only: expected TP distance / estimated round-trip cost must be >=1.0. It is not an optimizer or ranking score.
 
 ## Locked research environment
