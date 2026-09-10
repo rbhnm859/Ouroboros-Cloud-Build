@@ -1,0 +1,46 @@
+name: Build GoldenWavePro Mobile
+
+on:
+  push:
+    branches:
+      - build-goldenwavepro-mobile-20260911-0649
+    paths:
+      - 'GoldenWavePro-Mobile/**'
+      - '.github/workflows/build-goldenwavepro-mobile-20260911.yml'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Restore
+        run: dotnet restore GoldenWavePro-Mobile/GoldenWaveProMobile.csproj
+
+      - name: Build .algo
+        run: dotnet build GoldenWavePro-Mobile/GoldenWaveProMobile.csproj -c Release --no-restore -p:AlgoPublish=false -p:IncludeSource=false
+
+      - name: Locate .algo
+        run: find GoldenWavePro-Mobile -type f -name '*.algo' -print
+
+      - name: Stage artifact
+        run: |
+          mkdir -p artifact
+          ALGO="$(find GoldenWavePro-Mobile -type f -name '*.algo' | head -n 1)"
+          test -n "$ALGO"
+          cp "$ALGO" artifact/GoldenWaveProMobile.algo
+
+      - name: Upload .algo
+        uses: actions/upload-artifact@v4
+        with:
+          name: GoldenWaveProMobile-algo
+          path: artifact/GoldenWaveProMobile.algo
+          if-no-files-found: error
