@@ -11,8 +11,9 @@ This result follows the pre-committed deep-research validation protocol. K3 is *
 - Branch: `cds-k3-flow-first-entry-research`
 - Corrected validation run: `34481887898`
 - Tested source commit: `a66f9d3ad650052f53f854aca9c9fe769fcba439`
-- K3 artifact: `CDScalper_K3_CORRECTED_IS_K3_FLOW_FIRST` (artifact `10154347343`)
+- Original K artifact: `CDScalper_K3_CORRECTED_IS_ORIGINAL_K` (artifact `10154474294`)
 - K2 control artifact: `CDScalper_K3_CORRECTED_IS_K2_CONTROL` (artifact `10154331018`)
+- K3 artifact: `CDScalper_K3_CORRECTED_IS_K3_FLOW_FIRST` (artifact `10154347343`)
 
 ## Corrected test contract
 
@@ -26,63 +27,58 @@ This result follows the pre-committed deep-research validation protocol. K3 is *
 - Commission: 35 USD per million USD volume (confirmed in report metadata)
 - Original hard equity/risk protections retained
 
-Note: cTrader 5.9.11 report JSON serializes `main.spread` as null even though the executed CLI command and cBot runtime show `Spread=0.43` and approximately four EURUSD tick-points at signal time. This is a report-metadata limitation and is recorded separately from strategy gate evaluation.
+cTrader Console 5.9.11 serializes `main.spread` as null in these JSON reports even though the executed CLI command records `--spread=0.43`, the runtime parameter table records `Spread=0.43`, and K3 runtime signal logs show approximately four EURUSD tick-points at execution checks. Therefore this is recorded as a report-metadata limitation rather than evidence that spread was omitted.
 
-## K3 corrected IS metrics
+## Three-way corrected IS comparison
 
-| Metric | K3 Flow-First | IS research requirement |
-|---|---:|---:|
-| ROI | -3.10% | > 0 |
-| Net profit | -$0.93 | > 0 / positive expectancy |
-| Profit Factor | 0.44 | approach 1.15–1.20; promotion gate >=1.15 |
-| Trades | 8 | >=50 |
-| Win rate | 25.00% | informational |
-| Average trade | -$0.12 | >0 |
-| Max equity DD | 5.02% | <=15% |
-| Largest win | +$0.47 | informational |
-| Largest loss | -$0.52 | >=-$1.00 |
-| Commission | -$0.64 | realistic cost included |
-| Long PF | 0.16 | informational |
-| Short PF | 0.00 in report aggregate | informational |
+| Metric | Original K | K2 control | K3 Flow-First | K3 IS requirement |
+|---|---:|---:|---:|---:|
+| ROI | -6.03% | -4.20% | -3.10% | >0 |
+| Net profit | -$1.81 | -$1.26 | -$0.93 | positive |
+| Profit Factor | 0.31 | 0.62 | 0.44 | >=1.15 for research promotion |
+| Trades | 20 | 14 | 8 | >=50 |
+| Win rate | 40.00% | 35.71% | 25.00% | informational |
+| Average trade | -$0.09 | -$0.09 | -$0.12 | >0 |
+| Max equity DD | 6.83% | 8.75% | 5.02% | <=15% |
+| Largest win | +$0.20 | +$0.63 | +$0.47 | informational |
+| Largest loss | -$0.57 | -$0.59 | -$0.52 | >=-$1.00 |
+| Commission | -$1.60 | -$1.12 | -$0.64 | realistic cost included |
 
-K3 passes only the drawdown and largest-loss risk constraints. It fails ROI, PF, trade-count and post-cost expectancy requirements.
+### K3 directional metrics
 
-## Same-harness K2 control
+- Long PF: 0.16
+- Long net: -$1.40
+- Short aggregate PF: 0.00 as serialized by the report
+- Short net: +$0.47
 
-| Metric | K2 control | K3 Flow-First |
-|---|---:|---:|
-| ROI | -4.20% | -3.10% |
-| Net | -$1.26 | -$0.93 |
-| PF | 0.62 | 0.44 |
-| Trades | 14 | 8 |
-| Win rate | 35.71% | 25.00% |
-| Average trade | -$0.09 | -$0.12 |
-| Max equity DD | 8.75% | 5.02% |
-| Largest win | +$0.63 | +$0.47 |
-| Largest loss | -$0.59 | -$0.52 |
-| Commission | -$1.12 | -$0.64 |
+The eight-trade sample is too small to justify direction-specific threshold tuning. Disabling one side would be parameter mining and is not permitted under the pre-committed protocol.
 
-Flow-First reduced activity, absolute net loss and drawdown, but did **not** create positive post-cost edge. Profit Factor, win rate, average trade and opportunity count deteriorated relative to K2.
+## Interpretation
+
+K2 improves on Original K in the corrected tick-data environment, but it remains materially unprofitable. K3 Flow-First reduces activity, absolute net loss, commission paid and drawdown versus both earlier controls, but it does **not** create a positive post-cost trading edge. Compared with K2, K3 has lower PF, lower win rate, worse average trade and fewer opportunities.
+
+The K3 result is not near the research threshold: PF is 0.44, average trade is negative, ROI is negative, and only eight trades occurred versus the required minimum of 50.
 
 ## Protocol decision
 
-The deep-research stop rule stated that if corrected tick-data K3 IS does not at least approach PF 1.15–1.20 with positive expectancy and sufficient trades, the family must be stopped instead of continuing IS parameter search or tuning on OOS.
+The deep-research stop rule requires the family to stop if corrected tick-data K3 IS does not at least approach PF 1.15–1.20 with positive expectancy and sufficient trades. K3 fails this condition materially.
 
-K3 produced PF 0.44, negative expectancy and only eight trades. This is materially below the stop threshold. Therefore:
+Therefore:
 
-- Do not create `FREEZE_MANIFEST.json`.
-- Do not run OOS.
-- Do not run FULL 2Y as promotion evidence.
-- Do not run cost stress / robustness / Monte Carlo as promotion evidence.
-- Do not create or label any K3 `.algo` as Commercial / Store / Release.
-- Do not retune Delta, ADX, session, weekdays or direction thresholds on this OOS window.
-- Preserve Original K, K2 and K3 research artifacts for auditability.
+- Do **not** create `FREEZE_MANIFEST.json`.
+- Do **not** run OOS.
+- Do **not** run FULL 2Y as promotion evidence.
+- Do **not** run cost stress / robustness / Monte Carlo as promotion evidence.
+- Do **not** create or label any K3 `.algo` as Commercial / Store / Release.
+- Do **not** retune Delta, ADX, session, weekdays, long/short thresholds or other entry parameters using this OOS window.
+- Preserve Original K, K2 and K3 sources, workflows, reports and artifacts for auditability.
 
-## Engineering follow-up (non-promotion)
+## Engineering follow-up allowed by the report
 
-Two auditability improvements remain valid engineering work but must not be represented as strategy optimization or commercial rescue:
+The following may be done only as engineering/auditability work, not as an attempt to rescue this failed K3 through parameter fitting:
 
-1. Make the full signal-audit telemetry explicit for every threshold-cross candidate: timestamp, direction, previous/cumulative delta, last-three delta values, price acceptance, HTF EMA, EMA slope, ADX, spread, ATR, estimated cost, decision and skip reason.
-2. Review HTF context values for strict closed-bar determinism before any future *new* hypothesis is proposed; current K3 uses live `LastValue` for HTF EMA/ADX context at the M1 OnBar event.
+1. Add full threshold-cross signal telemetry: timestamp, direction, previous/cumulative delta, last-three delta values, price acceptance, HTF EMA, EMA slope, ADX, spread, ATR, estimated cost, decision and skip reason.
+2. Review HTF context for strict closed-bar determinism; current K3 uses live `LastValue` values for HTF EMA/ADX at the M1 `OnBar` event.
+3. Correct the report parser so cTrader 5.9.11's missing `main.spread` field does not create a false environment failure when CLI/runtime evidence confirms the locked spread setting.
 
-Any future commercial attempt must be a **new pre-committed architecture hypothesis**, not parameter mining of this failed K3.
+Any later commercial attempt must be a **new, separately pre-committed architecture hypothesis**. It must restart at corrected IS and may not be justified by OOS tuning of this failed K3.
