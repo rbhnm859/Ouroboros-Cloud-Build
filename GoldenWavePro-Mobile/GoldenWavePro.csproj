@@ -3,6 +3,7 @@
     <TargetFramework>net6.0</TargetFramework>
     <ImplicitUsings>disable</ImplicitUsings>
     <Nullable>disable</Nullable>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
     <RootNamespace>cAlgo.Robots</RootNamespace>
     <AssemblyName>GoldenWavePro_Mobile</AssemblyName>
     <AlgoName>GoldenWavePro_Mobile</AlgoName>
@@ -11,6 +12,7 @@
     <IncludeSource>true</IncludeSource>
   </PropertyGroup>
   <ItemGroup>
+    <Compile Include="GoldenWavePro.Fixed.cs" />
     <PackageReference Include="cTrader.Automate" Version="1.0.19" />
   </ItemGroup>
 </Project>
