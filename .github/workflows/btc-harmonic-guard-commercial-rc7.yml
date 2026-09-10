@@ -1,0 +1,116 @@
+name: BTC Harmonic Guard Commercial RC7 Harsh Repair
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ btc-store-commercial-rc7-harsh-repair ]
+    paths:
+      - '.github/policies/commercial_rc7_policy.json'
+      - '.github/workflows/btc-harmonic-guard-commercial-rc7.yml'
+      - '.github/scripts/commercial_rc6_transform.py'
+      - '.github/scripts/commercial_rc6_verify.py'
+      - '.github/scripts/commercial_rc4_parity_fix.py'
+      - '.github/scripts/commercial_rc4_transform.py'
+      - '.github/scripts/commercial_rc3a_transform.py'
+      - 'FibonacciHarmonicSniperUltimate/monthly-growth-v2/**'
+      - 'FibonacciHarmonicSniperUltimate/monthly-growth-v3/**'
+      - 'FibonacciHarmonicSniperUltimate/store-commercial-rc3a/**'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: btc-harmonic-guard-commercial-rc7
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 210
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '6.0.x'
+      - name: Lock RC7 policy and install proven RC6 execution engine
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          p=json.load(open('.github/policies/commercial_rc7_policy.json'))
+          assert p['policy_version']=='RC7A-2026-09-10'
+          assert p['candidate_count']==1
+          for k in ('round22_control','h1_buy_alpha','h1_sell_alpha','m30_reciprocal_alpha','single_execute_market_order_boundary','base_risk_parameters_unchanged','frozen_windows_unchanged','commercial_gates_unchanged'):
+              assert p['immutable'][k] is True
+          assert p['immutable']['m30_abcd_live'] is False
+          assert p['immutable']['growth3_live'] is False
+          print('[RC7 POLICY] locked: no risk increase, no alpha loosening, no gate/window changes')
+          PY
+          cp .github/scripts/commercial_rc6_transform.py FibonacciHarmonicSniperUltimate/monthly-growth-v2/growth2_transform.py
+      - name: Run full frozen validation with watchdog
+        env:
+          CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+          CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+          CTRADER_PASSWORD: ${{ secrets.CTRADER_PASSWORD }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p work
+          LOG=work/commercial-rc7-validation-console.log
+          : > "$LOG"
+          heartbeat(){ while true; do echo "[HEARTBEAT] $(date -u +%FT%TZ) RC7 alive" | tee -a "$LOG"; sleep 300; done; }
+          heartbeat & HB=$!
+          trap 'kill $HB 2>/dev/null || true' EXIT INT TERM
+          set +e
+          timeout --signal=TERM --kill-after=60s 10800s bash FibonacciHarmonicSniperUltimate/monthly-growth-v2/growth2_validation.sh 2>&1 | tee -a "$LOG"
+          rc=${PIPESTATUS[0]}
+          set -e
+          [ "$rc" -eq 0 ] || exit "$rc"
+      - name: Independent commercial verifier
+        if: success()
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 .github/scripts/commercial_rc6_verify.py work | tee work/commercial-rc7-gate-console.log
+          cp work/Commercial-RC6-Gate.json work/Commercial-RC7-Gate.json
+          python3 - <<'PY'
+          import json
+          p='work/Commercial-RC7-Gate.json'
+          g=json.load(open(p))
+          g['policy_version']='RC7A-2026-09-10'
+          g['candidate']='RC7 harsh-repair validation using frozen RC6 execution engine'
+          open(p,'w').write(json.dumps(g,indent=2))
+          print('[RC7 PROMOTION]', 'PASS' if g.get('commercial_freeze_eligible') is True else 'REJECT')
+          PY
+      - name: Remove credentials
+        if: always()
+        shell: bash
+        run: rm -f work/ctrader.pwd
+      - name: Upload RC7 evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: BTC-Harmonic-Guard-Commercial-RC7
+          retention-days: 30
+          if-no-files-found: warn
+          path: |
+            .github/policies/commercial_rc7_policy.json
+            work/commercial-rc7-validation-console.log
+            work/commercial-rc7-gate-console.log
+            work/Commercial-RC7-Gate.json
+            work/build/*
+            work/g2/*
+            work/control-3y/report.*
+            work/control-1y/report.*
+            work/strict-3y/report.*
+            work/balanced-3y/report.*
+            work/moderate-3y/report.*
+            work/recent-a/report.*
+            work/recent-b/report.*
+            work/y1/report.*
+            work/y2/report.*
+            work/y3/report.*
+            work/harsh-3y/report.*
+            work/harsh-y3/report.*
+            work/Growth2-*.json
