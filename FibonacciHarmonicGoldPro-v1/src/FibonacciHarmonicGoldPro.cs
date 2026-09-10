@@ -8,7 +8,6 @@ using cAlgo.API.Internals;
 namespace cAlgo.Robots
 {
     [Robot(
-        Name = "Fibonacci Harmonic Gold Pro",
         TimeZone = TimeZones.UTC,
         AccessRights = AccessRights.None,
         DefaultSymbolName = "XAUUSD",
