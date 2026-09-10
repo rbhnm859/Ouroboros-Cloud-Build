@@ -18,32 +18,100 @@ concurrency:
 jobs:
   validate:
     runs-on: ubuntu-latest
-    timeout-minutes: 300
+    timeout-minutes: 210
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '6.0.x'
-      - name: Install Growth3 transform into frozen Growth2 harness
+
+      - name: Preflight validation harness
+        shell: bash
         run: |
+          set -euo pipefail
+          test -s FibonacciHarmonicSniperUltimate/monthly-growth-v2/growth2_validation.sh
+          test -s FibonacciHarmonicSniperUltimate/monthly-growth-v2/growth2_transform.py
+          test -s FibonacciHarmonicSniperUltimate/monthly-growth-v3/growth3_transform.py
+          python3 -m py_compile FibonacciHarmonicSniperUltimate/monthly-growth-v3/growth3_transform.py
+          bash -n FibonacciHarmonicSniperUltimate/monthly-growth-v2/growth2_validation.sh
+          df -h .
+          free -h
+          echo '[PREFLIGHT] Growth3 validation harness OK'
+
+      - name: Install Growth3 transform into frozen Growth2 harness
+        shell: bash
+        run: |
+          set -euo pipefail
           cp FibonacciHarmonicSniperUltimate/monthly-growth-v2/growth2_transform.py /tmp/growth2_transform.py
           cp FibonacciHarmonicSniperUltimate/monthly-growth-v3/growth3_transform.py FibonacciHarmonicSniperUltimate/monthly-growth-v2/growth2_transform.py
-      - name: Run Growth3 frozen-window validation
+          python3 -m py_compile FibonacciHarmonicSniperUltimate/monthly-growth-v2/growth2_transform.py
+          echo '[TRANSFORM] Growth3 installed and syntax checked'
+
+      - name: Run Growth3 frozen-window validation with watchdog
         env:
           CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
           CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
           CTRADER_PASSWORD: ${{ secrets.CTRADER_PASSWORD }}
-        run: bash FibonacciHarmonicSniperUltimate/monthly-growth-v2/growth2_validation.sh
+        shell: bash
+        run: |
+          set -euo pipefail
+          LOG=work/growth3-validation-console.log
+          mkdir -p work
+          : > "$LOG"
+
+          heartbeat() {
+            while true; do
+              echo "[HEARTBEAT] $(date -u +%FT%TZ) validation alive" | tee -a "$LOG"
+              find work -maxdepth 2 -type f \( -name 'report.*' -o -name '*.json' -o -name '*.algo' \) -printf '[ARTIFACT] %TY-%Tm-%TdT%TH:%TM:%TS %s %p\n' 2>/dev/null | tail -20 | tee -a "$LOG" || true
+              sleep 300
+            done
+          }
+
+          heartbeat &
+          HB_PID=$!
+          cleanup() { kill "$HB_PID" 2>/dev/null || true; }
+          trap cleanup EXIT INT TERM
+
+          echo "[START] $(date -u +%FT%TZ) Growth3 validation" | tee -a "$LOG"
+          set +e
+          timeout --signal=TERM --kill-after=60s 10800s bash FibonacciHarmonicSniperUltimate/monthly-growth-v2/growth2_validation.sh 2>&1 | tee -a "$LOG"
+          rc=${PIPESTATUS[0]}
+          set -e
+
+          if [ "$rc" -eq 124 ] || [ "$rc" -eq 137 ]; then
+            echo "[WATCHDOG] Validation exceeded 180 minutes and was terminated; preserving partial reports." | tee -a "$LOG"
+            exit 124
+          fi
+          if [ "$rc" -ne 0 ]; then
+            echo "[FAIL] Validation exited rc=$rc; preserving diagnostics and partial reports." | tee -a "$LOG"
+            exit "$rc"
+          fi
+          echo "[DONE] $(date -u +%FT%TZ) Growth3 validation completed" | tee -a "$LOG"
+
+      - name: Diagnostic snapshot
+        if: always()
+        shell: bash
+        run: |
+          echo '=== process snapshot ==='
+          ps auxww | grep -E 'ctrader|dotnet|growth|python' | grep -v grep || true
+          echo '=== generated outputs ==='
+          find work -maxdepth 3 -type f -printf '%TY-%Tm-%Td %TH:%TM:%TS %s %p\n' 2>/dev/null | sort | tail -150 || true
+          echo '=== disk ==='
+          df -h . || true
+
       - name: Remove credentials
         if: always()
         run: rm -f work/ctrader.pwd
+
       - name: Upload Growth3 validation
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: BTC-Harmonic-Guard-Monthly-Growth-v3
           retention-days: 30
+          if-no-files-found: warn
           path: |
+            work/growth3-validation-console.log
             work/build/*
             work/g2/*.cs
             work/g2/*.csproj
@@ -56,6 +124,7 @@ jobs:
             work/recent-b/report.*
             work/y1/report.*
             work/y2/report.*
+            work/y3/report.*
             work/harsh-3y/report.*
             work/harsh-y3/report.*
             work/Growth2-Control-Parity.json
