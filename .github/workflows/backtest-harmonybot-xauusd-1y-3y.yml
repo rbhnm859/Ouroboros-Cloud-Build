@@ -1,0 +1,97 @@
+name: Backtest HarmonyBot XAUUSD 1Y 3Y
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/backtest-harmonybot-xauusd-1y-3y.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: harmonybot-xauusd-1y-3y
+  cancel-in-progress: true
+
+jobs:
+  backtest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: 1Y
+            start: '11/09/2025'
+            end: '11/09/2026'
+          - label: 3Y
+            start: '11/09/2023'
+            end: '11/09/2026'
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Pull official cTrader CLI
+        run: docker pull ghcr.io/spotware/ctrader-console:5.9.11
+
+      - name: Build HarmonyBot
+        run: |
+          mkdir -p backtest/cache backtest/reports
+          docker run --rm --entrypoint sh -v "$PWD:/repo" -w /repo \
+            ghcr.io/spotware/ctrader-console:5.9.11 -c \
+            'dotnet restore HarmonyBot-Mobile/HarmonyBot.csproj && dotnet build HarmonyBot-Mobile/HarmonyBot.csproj --configuration Release --no-restore -p:AlgoPublish=False -p:IncludeSource=True'
+          ALGO="$(find HarmonyBot-Mobile -type f -name '*.algo' -print -quit)"
+          test -n "$ALGO"
+          cp "$ALGO" backtest/HarmonyBot-Mobile.algo
+
+      - name: Create cTrader password file
+        env:
+          CTRADER_PASSWORD: ${{ secrets.CTRADER_PASSWORD }}
+        run: |
+          test -n "${CTRADER_PASSWORD:-}" || { echo 'Missing CTRADER_PASSWORD'; exit 1; }
+          printf '%s' "$CTRADER_PASSWORD" > backtest/ctrader.pwd
+          chmod 600 backtest/ctrader.pwd
+
+      - name: Backtest HarmonyBot XAUUSD M15 ${{ matrix.label }}
+        env:
+          CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+          CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+        run: |
+          test -n "${CTRADER_CTID:-}" || { echo 'Missing CTRADER_CTID'; exit 1; }
+          test -n "${CTRADER_ACCOUNT:-}" || { echo 'Missing CTRADER_ACCOUNT'; exit 1; }
+          docker run --rm \
+            -v "$PWD/backtest:/work" \
+            -e "CTID=$CTRADER_CTID" \
+            -e 'PWD-FILE=/work/ctrader.pwd' \
+            -e "ACCOUNT=$CTRADER_ACCOUNT" \
+            ghcr.io/spotware/ctrader-console:5.9.11 \
+            backtest /work/HarmonyBot-Mobile.algo \
+            --environment-variables --exit-on-stop \
+            --symbol=XAUUSD \
+            --period=m15 \
+            --start="${{ matrix.start }}" \
+            --end="${{ matrix.end }}" \
+            --balance=100 \
+            --data-mode=m1 \
+            --data-dir=/work/cache \
+            --SymbolName=XAUUSD \
+            --report="/work/reports/HarmonyBot-XAUUSD-M15-${{ matrix.label }}.html" \
+            --report-json="/work/reports/HarmonyBot-XAUUSD-M15-${{ matrix.label }}.json"
+
+      - name: Remove credentials
+        if: always()
+        run: rm -f backtest/ctrader.pwd
+
+      - name: Upload reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: HarmonyBot-XAUUSD-M15-${{ matrix.label }}-Reports
+          path: |
+            backtest/reports/HarmonyBot-XAUUSD-M15-${{ matrix.label }}.html
+            backtest/reports/HarmonyBot-XAUUSD-M15-${{ matrix.label }}.json
+          if-no-files-found: warn
+          retention-days: 30
