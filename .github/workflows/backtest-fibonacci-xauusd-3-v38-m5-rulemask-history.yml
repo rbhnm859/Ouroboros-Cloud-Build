@@ -1,0 +1,206 @@
+name: Fibonacci XAUUSD 3 - v3.8 M5 Rule-Mask Historical Diagnostic
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [fibonacci-xauusd-v3-hybrid]
+    paths:
+      - '.github/workflows/backtest-fibonacci-xauusd-3-v38-m5-rulemask-history.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: xauusd3-v38-m5-rulemask-history
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fibonacci-xauusd-v3-hybrid
+      - name: Add diagnostic-only M5 rule mask
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('FibonacciHarmonicSniperUltimate/versions/xauusd_3/src/FibonacciXAUUSD3.cs')
+          s=p.read_text()
+          assert 'v3.6.0-safety-hardening' in s
+
+          old='''            double m5Score = M5RulesNeeded * 5.0;\n            double finalScore = a.PreScore + m5Score;\n            Print("[M5 CONFIRM] {0} {1} pre={2:F1} rules={3}/4 M5={4:F1}/20 final={5:F1}", a.Tag, a.Direction, a.PreScore, rules, m5Score, finalScore);\n            if (finalScore < FinalScoreMin)\n                return false;\n            return TryExecute(a, finalScore, index, rules);\n'''
+          new='''            double m5Score = M5RulesNeeded * 5.0;\n            double finalScore = a.PreScore + m5Score;\n            string ruleMask = (engulfing ? "E" : "-") + (rejection ? "R" : "-") + (microBreak ? "B" : "-") + (momentum ? "M" : "-");\n            Print("[M5 CONFIRM] {0} {1} pre={2:F1} rules={3}/4 mask={4} distATR={5:F3} M5={6:F1}/20 final={7:F1}", a.Tag, a.Direction, a.PreScore, rules, ruleMask, distanceAtr, m5Score, finalScore);\n            if (finalScore < FinalScoreMin)\n                return false;\n            return TryExecute(a, finalScore, index, rules, ruleMask, distanceAtr);\n'''
+          assert s.count(old)==1
+          s=s.replace(old,new,1)
+
+          old='''        private bool TryExecute(ArmedSetup a, double finalScore, int m5Index, int confirmRules)\n'''
+          new='''        private bool TryExecute(ArmedSetup a, double finalScore, int m5Index, int confirmRules, string ruleMask, double entryDistanceAtr)\n'''
+          assert s.count(old)==1
+          s=s.replace(old,new,1)
+
+          old='''                string comment = a.Tag + "|" + finalScore.ToString("F1") + "|M5R" + confirmRules;\n'''
+          new='''                string comment = a.Tag + "|" + finalScore.ToString("F1") + "|M5R" + confirmRules + "|" + ruleMask + "|D" + entryDistanceAtr.ToString("F2");\n'''
+          assert s.count(old)==1
+          s=s.replace(old,new,1)
+
+          # Diagnostic only: no thresholds, execution, risk or exit rules are changed.
+          assert 'M5RulesNeeded * 5.0' in s
+          assert 'ruleMask' in s and 'entryDistanceAtr' in s
+          p.write_text(s)
+          PY
+          git diff --check
+          git diff -- FibonacciHarmonicSniperUltimate/versions/xauusd_3/src/FibonacciXAUUSD3.cs
+
+      - name: Build diagnostic algo with official cTrader CLI
+        shell: bash
+        run: |
+          set -euo pipefail
+          ROOT='FibonacciHarmonicSniperUltimate/versions/xauusd_3'
+          docker pull ghcr.io/spotware/ctrader-console:5.9.11
+          docker run --rm --entrypoint sh -v "$PWD:/repo" -w /repo ghcr.io/spotware/ctrader-console:5.9.11 -c "rm -rf $ROOT/bin $ROOT/obj && dotnet restore $ROOT/FibonacciXAUUSD3.csproj && dotnet build $ROOT/FibonacciXAUUSD3.csproj -c Release --no-restore -p:AlgoPublish=False -p:IncludeSource=True"
+          mkdir -p package
+          ALGO="$(find "$ROOT" -type f -name '*.algo' -print -quit)"
+          test -n "$ALGO" -a -s "$ALGO"
+          cp "$ALGO" package/FibonacciXAUUSD3-v3.8-M5-Diagnostic.algo
+          cp "$ROOT/src/FibonacciXAUUSD3.cs" package/FibonacciXAUUSD3-v3.8-M5-Diagnostic.cs
+          sha256sum package/FibonacciXAUUSD3-v3.8-M5-Diagnostic.* > package/SHA256SUMS.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: xauusd_3-v38-diagnostic-build
+          path: package/
+          retention-days: 14
+
+  backtest:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    strategy:
+      fail-fast: false
+      matrix:
+        case:
+          - { name: 'old-h1-standard', start: '09/09/2024', end: '09/03/2025', spread: '17.42', commission: '35' }
+          - { name: 'old-h1-harsh',    start: '09/09/2024', end: '09/03/2025', spread: '30',    commission: '50' }
+          - { name: 'old-h2-standard', start: '09/03/2025', end: '09/09/2025', spread: '17.42', commission: '35' }
+          - { name: 'old-h2-harsh',    start: '09/03/2025', end: '09/09/2025', spread: '30',    commission: '50' }
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: xauusd_3-v38-diagnostic-build
+          path: work/package
+      - run: docker pull ghcr.io/spotware/ctrader-console:5.9.11
+      - name: Credentials
+        env:
+          CTRADER_PASSWORD: ${{ secrets.CTRADER_PASSWORD }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${CTRADER_PASSWORD:-}"
+          printf '%s' "$CTRADER_PASSWORD" > work/ctrader.pwd
+      - name: Backtest ${{ matrix.case.name }}
+        env:
+          CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+          CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p work/reports work/cache
+          test -n "${CTRADER_CTID:-}" && test -n "${CTRADER_ACCOUNT:-}"
+          LABEL='${{ matrix.case.name }}'
+          docker run --rm -v "$PWD/work:/work" \
+            -e "CTID=$CTRADER_CTID" -e 'PWD-FILE=/work/ctrader.pwd' -e "ACCOUNT=$CTRADER_ACCOUNT" \
+            ghcr.io/spotware/ctrader-console:5.9.11 \
+            backtest /work/package/FibonacciXAUUSD3-v3.8-M5-Diagnostic.algo \
+            --environment-variables --exit-on-stop --symbol=XAUUSD --period=m5 \
+            --start='${{ matrix.case.start }}' --end='${{ matrix.case.end }}' --balance=10000 \
+            --data-mode=m1 --data-dir=/work/cache \
+            --commission='${{ matrix.case.commission }}' --spread='${{ matrix.case.spread }}' \
+            --RiskPercent=0.50 --MaxDailyLossPercent=3 --MinimumRiskReward=1.5 \
+            --PreScoreMin=42 --FinalScoreMin=60 --M5PreScoreFloor=50 --M5RulesNeeded=2 \
+            --MinImpulseAtr=1.2 --MinStopAtr=0.20 --MaxAllowedRR=8 \
+            --BuyH1MinScore=18 --BlockLondonEntries=true --RequireH1AtrExpansion=true --H1AtrExpansionMin=1.15 \
+            --report="/work/reports/${LABEL}.html" --report-json="/work/reports/${LABEL}.json" \
+            2>&1 | tee "work/reports/${LABEL}.log"
+          test -s "work/reports/${LABEL}.json"
+          rm -f work/ctrader.pwd
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: xauusd_3-v38-${{ matrix.case.name }}
+          path: work/reports/
+          retention-days: 14
+
+  aggregate:
+    needs: backtest
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: xauusd_3-v38-old-*
+          path: reports
+          merge-multiple: true
+      - name: Aggregate rule-mask attribution
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json, re
+          from collections import defaultdict
+          from pathlib import Path
+
+          files=sorted(Path('reports').glob('*.json'))
+          assert len(files)==4, [str(x) for x in files]
+          out=['# XAUUSD3 v3.8 Historical M5 Rule-Mask Diagnostic','',
+               'Diagnostic-only build: trade decisions and risk settings are identical to v3.6 safety-hardening; only trade comments/logs carry the M5 rule mask and entry distance.', '',
+               '| Case | Trades | Net | ROI % | PF | DD % | R2 Net | R3 Net | R4 Net |',
+               '|---|---:|---:|---:|---:|---:|---:|---:|---:|']
+          masks=defaultdict(lambda: [0,0,0.0,0.0,0.0])  # trades,wins,net,gross+,gross-
+          bycase={}
+          for f in files:
+              label=f.stem
+              d=json.loads(f.read_text())
+              hist=d['history']['items']; ts=d['tradeStatistics']; main=d['main']; eq=d['equity']
+              buckets=defaultdict(float)
+              for t in hist:
+                  c=t.get('comment') or ''
+                  m=re.search(r'\|M5R([234])\|([ERBM-]{4})\|D([0-9.]+)',c)
+                  if not m: continue
+                  r='R'+m.group(1); mask=m.group(2); net=float(t['netProfit'])
+                  buckets[r]+=net
+                  k=(label,mask,r)
+                  a=masks[k]; a[0]+=1; a[1]+=int(net>0); a[2]+=net
+                  if net>0:a[3]+=net
+                  elif net<0:a[4]+=-net
+              trades=int(ts['totalTrades']['all']); net=float(main['netProfit']); roi=float(main['roi']); pf=float(ts['profitFactor']['all']); dd=float(eq['maxEquityDrawdownPercent'])
+              bycase[label]=(trades,net,roi,pf,dd,buckets)
+              out.append(f'| {label} | {trades} | {net:.2f} | {roi:.2f} | {pf:.2f} | {dd:.2f} | {buckets["R2"]:.2f} | {buckets["R3"]:.2f} | {buckets["R4"]:.2f} |')
+
+          out += ['', '## Executed-trade rule masks', '',
+                  '| Case | Mask | RuleCount | Trades | Wins | WR % | Net | PF |',
+                  '|---|---|---|---:|---:|---:|---:|---:|']
+          for (case,mask,r),a in sorted(masks.items()):
+              trades,wins,net,gp,gl=a; pf=(gp/gl if gl>0 else (999.0 if gp>0 else 0.0)); wr=100*wins/trades if trades else 0
+              out.append(f'| {case} | {mask} | {r} | {trades} | {wins} | {wr:.1f} | {net:.2f} | {pf:.2f} |')
+
+          # Cross-half consistency for R3 is the primary diagnostic hypothesis, not a promotion rule.
+          std=[bycase[k][5]['R3'] for k in ('old-h1-standard','old-h2-standard')]
+          harsh=[bycase[k][5]['R3'] for k in ('old-h1-harsh','old-h2-harsh')]
+          out += ['', '## Hypothesis check', '',
+                  f'- R3 old-history Standard halves: {std[0]:.2f}, {std[1]:.2f}',
+                  f'- R3 old-history Harsh halves: {harsh[0]:.2f}, {harsh[1]:.2f}',
+                  f'- R3 negative in both old Standard halves: {all(x<0 for x in std)}',
+                  f'- R3 negative in both old Harsh halves: {all(x<0 for x in harsh)}',
+                  '- No strategy promotion is performed by this workflow.']
+          Path('V38_M5_RULEMASK_HISTORY_SUMMARY.md').write_text('\n'.join(out)+'\n')
+          print('\n'.join(out))
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: xauusd_3-v38-m5-rulemask-history-complete
+          path: |
+            reports/
+            V38_M5_RULEMASK_HISTORY_SUMMARY.md
+          retention-days: 14
