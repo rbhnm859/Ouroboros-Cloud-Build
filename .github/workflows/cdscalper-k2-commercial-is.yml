@@ -1,0 +1,144 @@
+name: Validate CDScalper K2 Commercial IS
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [cds-k2-commercial-research]
+    paths:
+      - 'CumulativeDeltaScalper-EURUSD-v1/k2/**'
+      - '.github/workflows/cdscalper-k2-commercial-is.yml'
+
+permissions:
+  contents: read
+
+env:
+  SYMBOL: EURUSD
+  PERIOD: m1
+  BALANCE: '30'
+  BASE_SPREAD: '0.43'
+  COMMISSION: '35'
+
+jobs:
+  audit_build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: cds-k2-commercial-research
+          fetch-depth: 0
+      - name: Verify Original K preservation and K2 constraints
+        shell: bash
+        run: |
+          set -euo pipefail
+          ORIGINAL='CumulativeDeltaScalper-EURUSD-v1/src/CumulativeDeltaScalper_EURUSD_v1.cs'
+          K2='CumulativeDeltaScalper-EURUSD-v1/k2/src/CumulativeDeltaScalper_EURUSD_K2.cs'
+          BASE='ca6d78774eb7f772d32e19e537a9584a5cfc5400'
+          test "$(git rev-parse "$BASE:$ORIGINAL")" = "$(git hash-object "$ORIGINAL")"
+          grep -q 'AccessRights = AccessRights.None' "$K2"
+          grep -q 'ExecuteMarketOrder' "$K2"
+          grep -q 'ModifyPosition' "$K2"
+          grep -q 'VolumeForFixedRisk' "$K2"
+          grep -q 'NormalizeVolumeInUnits' "$K2"
+          grep -q 'MinStopLossDistance' "$K2"
+          grep -q 'MinTakeProfitDistance' "$K2"
+          grep -q 'Bars.ClosePrices.Count - 2' "$K2"
+          grep -q 'MinimumExpectedMoveToCostRatio' "$K2"
+          grep -q 'BreakevenTriggerAtr' "$K2"
+          grep -q 'IsConfirmedClosedBarAdverse' "$K2"
+          echo 'Original K preserved; K2 engineering invariants present.'
+      - name: Build K2 Release algo
+        shell: bash
+        run: |
+          set -euo pipefail
+          dotnet build CumulativeDeltaScalper-EURUSD-v1/k2/CumulativeDeltaScalper_EURUSD_K2.csproj -c Release -p:AlgoBuild=true
+          mkdir -p package
+          find CumulativeDeltaScalper-EURUSD-v1/k2 -type f -name '*.algo' -print -exec cp {} package/ \;
+          test -n "$(find package -name '*.algo' -print -quit)"
+      - name: Capture CLI cost semantics
+        shell: bash
+        run: |
+          mkdir -p audit
+          docker run --rm ghcr.io/spotware/ctrader-console:5.9.11 backtest --help > audit/backtest-help.txt 2>&1 || true
+          grep -Ei 'spread|commission|leverage' audit/backtest-help.txt > audit/cost-semantics.txt || true
+          cat audit/cost-semantics.txt || true
+      - uses: actions/upload-artifact@v4
+        with:
+          name: CDScalper_K2_IS_package_audit
+          path: |
+            package/*.algo
+            audit/*
+            CumulativeDeltaScalper-EURUSD-v1/k2/presets/*.json
+            CumulativeDeltaScalper-EURUSD-v1/k2/docs/*.md
+          retention-days: 30
+
+  is_matrix:
+    needs: audit_build
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { tag: K2_TP08_COST20, tp: '0.8', cost_ratio: '2.0', be_atr: '0.5' }
+          - { tag: K2_TP10_COST20, tp: '1.0', cost_ratio: '2.0', be_atr: '0.5' }
+    env:
+      CTID: ${{ secrets.CTRADER_CTID }}
+      ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+      CT_PASS: ${{ secrets.CTRADER_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: cds-k2-commercial-research
+      - uses: actions/download-artifact@v4
+        with:
+          name: CDScalper_K2_IS_package_audit
+          path: package
+      - name: Run bounded IS candidate
+        shell: bash
+        env:
+          TAG: ${{ matrix.tag }}
+          TP: ${{ matrix.tp }}
+          COST_RATIO: ${{ matrix.cost_ratio }}
+          BE_ATR: ${{ matrix.be_atr }}
+        run: |
+          set -euo pipefail
+          ALGO="$(find package -type f -name '*.algo' -print -quit)"
+          test -n "$ALGO"
+          mkdir -p backtest/reports backtest/cache/EURUSD
+          cp "$ALGO" backtest/
+          printf '%s' "$CT_PASS" | tr -d '\r\n' > backtest/ctrader.pwd
+          chmod 600 backtest/ctrader.pwd
+          docker run --rm \
+            -v "$PWD/backtest:/work" \
+            -e "CTID=$CTID" -e "ACCOUNT=$ACCOUNT" -e "PWD-FILE=/work/ctrader.pwd" \
+            ghcr.io/spotware/ctrader-console:5.9.11 \
+            backtest "/work/$(basename "$ALGO")" \
+            --environment-variables \
+            --symbol="$SYMBOL" --period="$PERIOD" \
+            --start='09/09/2024' --end='09/08/2025' --balance="$BALANCE" \
+            --data-mode=m1 --data-dir=/work/cache/EURUSD \
+            --spread="$BASE_SPREAD" --commission="$COMMISSION" \
+            --DeltaThreshold=125 --MinConfirmations=3 \
+            --UseBarDeltaFallback=true --FallbackBelowTickDelta=2 --BarDeltaPointMultiplier=1.6 \
+            --UseSessionFilter=true --SessionStartHour=14 --SessionStartMinute=0 --SessionEndHour=14 --SessionEndMinute=54 \
+            --TradeMonday=true --TradeTuesday=true --TradeWednesday=true --TradeThursday=false --TradeFriday=true \
+            --HtfTimeFrameName=Minute15 --EmaSlopeBars=3 --AdxThreshold=16 \
+            --MinAtr=0.00005 --MaxAtr=0.00105 --MaxSpreadPoints=18 --SpreadAvgMultiplier=1.8 \
+            --MinimumExpectedMoveToCostRatio="$COST_RATIO" --CommissionUsdPerMillion=35 --CommissionIsPerSide=true --ExecutionSafetyBufferPips=0.2 \
+            --RiskMode=FixedMoneyRisk --FixedMoneyRisk=1.0 --AutoScaleFixedRisk=true --RiskReferenceBalance=100 --MinFixedMoneyRisk=0.05 --MaxLotSize=0.05 \
+            --SlAtrMultiplier=0.8 --TpAtrMultiplier="$TP" \
+            --MaxDailyTrades=3 --MaxDailyLossPercent=4 --MaxDailyLossMoney=0.55 --DailyProfitTargetMoney=1.10 \
+            --MaxConsecutiveLosses=2 --MinSecondsBetweenTrades=900 --LossCooldownMinutes=45 \
+            --MaxDailyEquityDrawdownMoney=0.75 --MaxFloatingLossMoney=0.90 --MaxEquityDrawdownPercent=12 --CloseOnEquityGuard=true \
+            --MaxTradeSeconds=1800 --UseBreakeven=true --BreakevenTriggerAtr="$BE_ATR" --BreakevenCostBufferPips=0.2 --AdverseDeltaExit=true \
+            --report="/work/reports/${TAG}.html" --report-json="/work/reports/${TAG}.json" --exit-on-stop
+          rm -f backtest/ctrader.pwd
+      - name: Upload IS report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: CDScalper_K2_IS_${{ matrix.tag }}
+          path: backtest/reports/*
+          if-no-files-found: warn
+          retention-days: 30
