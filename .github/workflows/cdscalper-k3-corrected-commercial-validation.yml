@@ -81,8 +81,6 @@ jobs:
           docker run --rm "$DIGEST" --version > audit/ctrader-version.txt 2>&1 || true
           docker run --rm "$DIGEST" --commands > audit/ctrader-commands.txt 2>&1 || true
           cat audit/ctrader-version.txt || true
-          grep -Ei 'commission-type|commission|spread|data-mode|backtest' audit/ctrader-commands.txt > audit/cli-semantics-visible.txt || true
-          cat audit/cli-semantics-visible.txt || true
 
       - name: Record locked commercial harness contract
         shell: bash
@@ -96,7 +94,7 @@ jobs:
           TargetLeverage=500
           SpreadPips=0.43
           Commission=35
-          CommissionType=UsdPerMillionUsdVolume
+          RequiredReportCommissionType=UsdPerMillionUsdVolume
           IS=09/09/2024 00:00 -> 08/09/2025 23:59 UTC
           OOS=09/09/2025 00:00 -> 09/09/2026 23:59 UTC
           FULL=09/09/2024 00:00 -> 09/09/2026 23:59 UTC
@@ -155,7 +153,7 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           name: CDScalper_K3_corrected_IS_package
-          path: package
+          path: .
 
       - name: Run corrected tick-data IS control
         shell: bash
@@ -173,7 +171,7 @@ jobs:
             --symbol="$SYMBOL" --period="$PERIOD"
             --start="$IS_START" --end="$IS_END" --balance="$BALANCE"
             --data-mode=ticks --data-dir=/work/cache/EURUSD
-            --spread="$BASE_SPREAD" --commission="$COMMISSION" --commission-type="$COMMISSION_TYPE"
+            --spread="$BASE_SPREAD" --commission="$COMMISSION"
             --UseBarDeltaFallback=true --FallbackBelowTickDelta=2 --BarDeltaPointMultiplier=1.6
             --UseSessionFilter=true --SessionStartHour=14 --SessionStartMinute=0 --SessionEndHour=14 --SessionEndMinute=54
             --TradeMonday=true --TradeTuesday=true --TradeWednesday=true --TradeThursday=false --TradeFriday=true
@@ -216,6 +214,7 @@ jobs:
           set -e
           rm -f backtest/ctrader.pwd
           echo "$EXIT" > "backtest/reports/${CASE}.exitcode.txt"
+          test "$EXIT" -eq 0
           test -f "backtest/reports/${CASE}.json"
 
       - name: Evaluate environment and IS research gate
