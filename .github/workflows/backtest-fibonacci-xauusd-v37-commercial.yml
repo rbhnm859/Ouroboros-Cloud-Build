@@ -1,0 +1,36 @@
+name: Fibonacci XAUUSD v3.7 Harmonic Commercial Validation
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - fibonacci-xauusd-v3-hybrid
+    paths:
+      - '.github/workflows/backtest-fibonacci-xauusd-v37-commercial.yml'
+      - 'FibonacciHarmonicSniperUltimate/versions/xauusd_3/v37/**'
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 330
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run v3.7 harmonic commercial validator
+        shell: bash
+        env:
+          CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+          CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+          CTRADER_PASSWORD: ${{ secrets.CTRADER_PASSWORD }}
+        run: bash FibonacciHarmonicSniperUltimate/versions/xauusd_3/v37/tools/v37_commercial_validate.sh
+
+      - name: Upload v3.7 validation package
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: xauusd_3-v37-harmonic-commercial-validation
+          path: FibonacciHarmonicSniperUltimate/versions/xauusd_3/v37/validation-v37-commercial/
+          retention-days: 60
