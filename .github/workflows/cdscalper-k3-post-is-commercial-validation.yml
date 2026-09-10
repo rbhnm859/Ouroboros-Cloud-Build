@@ -1,0 +1,254 @@
+name: Validate Frozen CDScalper K3 Commercial
+
+on:
+  push:
+    branches: [cds-k3-flow-first-entry-research]
+    paths:
+      - 'CumulativeDeltaScalper-EURUSD-v1/k3/FREEZE_MANIFEST.json'
+      - '.github/workflows/cdscalper-k3-post-is-commercial-validation.yml'
+      - '.github/scripts/cdscalper_post_validation.py'
+      - '.github/scripts/cdscalper_monte_carlo.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  SYMBOL: EURUSD
+  PERIOD: m1
+  BALANCE: '30'
+  BASE_SPREAD: '0.43'
+  STRESS125_SPREAD: '0.5375'
+  STRESS150_SPREAD: '0.645'
+  COMMISSION: '35'
+  OOS_START: '09/09/2025 00:00'
+  OOS_END: '09/09/2026 23:59'
+  FULL_START: '09/09/2024 00:00'
+  FULL_END: '09/09/2026 23:59'
+  CTRADER_IMAGE_CANDIDATE: ghcr.io/spotware/ctrader-console:latest
+
+jobs:
+  freeze_audit_build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    outputs:
+      ctrader_image: ${{ steps.cli_image.outputs.digest }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - name: Require valid frozen K3 manifest and source hash
+        shell: bash
+        run: |
+          set -euo pipefail
+          MAN='CumulativeDeltaScalper-EURUSD-v1/k3/FREEZE_MANIFEST.json'
+          SRC='CumulativeDeltaScalper-EURUSD-v1/k3/src/CumulativeDeltaScalper_EURUSD_K3.cs'
+          PROJ='CumulativeDeltaScalper-EURUSD-v1/k3/CumulativeDeltaScalper_EURUSD_K3.csproj'
+          test -f "$MAN"
+          test -f "$SRC"
+          test -f "$PROJ"
+          python3 - <<'PY'
+          import hashlib, json
+          from pathlib import Path
+          man=json.loads(Path('CumulativeDeltaScalper-EURUSD-v1/k3/FREEZE_MANIFEST.json').read_text())
+          src=Path('CumulativeDeltaScalper-EURUSD-v1/k3/src/CumulativeDeltaScalper_EURUSD_K3.cs').read_bytes()
+          actual=hashlib.sha256(src).hexdigest()
+          assert man.get('status') == 'FROZEN_AFTER_CORRECTED_IS_PASS', man
+          assert man.get('sourceSha256') == actual, (man.get('sourceSha256'), actual)
+          metrics=man.get('isMetrics') or {}
+          assert metrics.get('roiPercent',0) > 0
+          assert metrics.get('profitFactor',0) >= 1.15
+          assert metrics.get('trades',0) >= 50
+          assert metrics.get('maxEquityDrawdownPercent',999) <= 15
+          assert metrics.get('largestLosingTrade',-999) >= -1.0
+          assert metrics.get('averageTrade',0) > 0
+          print('Freeze manifest accepted:', man.get('sourceCommit'))
+          PY
+          grep -q 'AccessRights = AccessRights.None' "$SRC"
+          grep -q 'CheckSignalFlowFirst' "$SRC"
+          grep -q 'RequiredContextConfirmations = 2' "$SRC"
+          if grep -Eiq '\b(Grid|Martingale|DCA|Recovery|Loss Averaging|Hedging|Fibonacci|RSI|MACD|Bollinger|Machine Learning|ML)\b' "$SRC"; then exit 1; fi
+      - name: Resolve and pin cTrader Console image
+        id: cli_image
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker pull "$CTRADER_IMAGE_CANDIDATE"
+          DIGEST="$(docker inspect --format='{{index .RepoDigests 0}}' "$CTRADER_IMAGE_CANDIDATE")"
+          test -n "$DIGEST"
+          echo "digest=$DIGEST" >> "$GITHUB_OUTPUT"
+          echo "$DIGEST"
+      - name: Build frozen K3
+        shell: bash
+        run: |
+          set -euo pipefail
+          dotnet build CumulativeDeltaScalper-EURUSD-v1/k3/CumulativeDeltaScalper_EURUSD_K3.csproj -c Release -p:AlgoBuild=true
+          ALGO="$(find CumulativeDeltaScalper-EURUSD-v1/k3/bin/Release/net6.0 -maxdepth 1 -type f -name '*.algo' -print -quit)"
+          test -n "$ALGO"
+          mkdir -p package
+          cp "$ALGO" package/K3_FROZEN.algo
+          sha256sum package/K3_FROZEN.algo > package/K3_FROZEN.sha256
+      - uses: actions/upload-artifact@v4
+        with:
+          name: CDScalper_K3_FROZEN_PACKAGE
+          path: package/*
+          retention-days: 30
+
+  primary_validation:
+    needs: freeze_audit_build
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { tag: OOS_BASE, start: '09/09/2025 00:00', end: '09/09/2026 23:59', spread: '0.43', commission: '35', profile: 'oos' }
+          - { tag: FULL_BASE, start: '09/09/2024 00:00', end: '09/09/2026 23:59', spread: '0.43', commission: '35', profile: 'full' }
+          - { tag: FULL_STRESS_125, start: '09/09/2024 00:00', end: '09/09/2026 23:59', spread: '0.5375', commission: '43.75', profile: 'control' }
+          - { tag: FULL_STRESS_150, start: '09/09/2024 00:00', end: '09/09/2026 23:59', spread: '0.645', commission: '52.5', profile: 'stress15' }
+    env:
+      CTID: ${{ secrets.CTRADER_CTID }}
+      ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+      CT_PASS: ${{ secrets.CTRADER_PASSWORD }}
+      CTRADER_IMAGE: ${{ needs.freeze_audit_build.outputs.ctrader_image }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - uses: actions/download-artifact@v4
+        with:
+          name: CDScalper_K3_FROZEN_PACKAGE
+          path: package
+      - name: Run frozen K3 primary case
+        shell: bash
+        env:
+          TAG: ${{ matrix.tag }}
+          START_DATE: ${{ matrix.start }}
+          END_DATE: ${{ matrix.end }}
+          CASE_SPREAD: ${{ matrix.spread }}
+          CASE_COMMISSION: ${{ matrix.commission }}
+        run: |
+          set -euo pipefail
+          ALGO="$(find package -type f -name 'K3_FROZEN.algo' -print -quit)"
+          test -n "$ALGO"
+          mkdir -p bt/reports bt/cache/EURUSD
+          cp "$ALGO" bt/K3_FROZEN.algo
+          printf '%s' "$CT_PASS" | tr -d '\r\n' > bt/ctrader.pwd
+          chmod 600 bt/ctrader.pwd
+          docker run --rm \
+            -v "$PWD/bt:/work" \
+            -e "CTID=$CTID" -e "ACCOUNT=$ACCOUNT" -e "PWD-FILE=/work/ctrader.pwd" \
+            "$CTRADER_IMAGE" backtest /work/K3_FROZEN.algo \
+            --environment-variables --symbol="$SYMBOL" --period="$PERIOD" \
+            --start="$START_DATE" --end="$END_DATE" --balance="$BALANCE" \
+            --data-mode=ticks --data-dir=/work/cache/EURUSD \
+            --spread="$CASE_SPREAD" --commission="$CASE_COMMISSION" \
+            --DeltaThreshold=125 --UseBarDeltaFallback=true --FallbackBelowTickDelta=2 --BarDeltaPointMultiplier=1.6 \
+            --UseSessionFilter=true --SessionStartHour=14 --SessionStartMinute=0 --SessionEndHour=14 --SessionEndMinute=54 \
+            --TradeMonday=true --TradeTuesday=true --TradeWednesday=true --TradeThursday=false --TradeFriday=true \
+            --HtfTimeFrameName=Minute15 --EmaSlopeBars=3 --AdxThreshold=16 \
+            --MinAtr=0.00005 --MaxAtr=0.00105 --MaxSpreadPoints=18 --SpreadAvgMultiplier=1.8 \
+            --MinimumExpectedMoveToCostRatio=1.0 --CommissionUsdPerMillion=35 --CommissionIsPerSide=true --ExecutionSafetyBufferPips=0.2 \
+            --RiskMode=FixedMoneyRisk --FixedMoneyRisk=1.0 --AutoScaleFixedRisk=true --RiskReferenceBalance=100 --MinFixedMoneyRisk=0.05 --MaxLotSize=0.05 \
+            --SlAtrMultiplier=0.8 --TpAtrMultiplier=1.0 \
+            --MaxDailyTrades=3 --MaxDailyLossPercent=4 --MaxDailyLossMoney=0.55 --DailyProfitTargetMoney=1.10 \
+            --MaxConsecutiveLosses=2 --MinSecondsBetweenTrades=900 --LossCooldownMinutes=45 \
+            --MaxDailyEquityDrawdownMoney=0.75 --MaxFloatingLossMoney=0.90 --MaxEquityDrawdownPercent=12 --CloseOnEquityGuard=true \
+            --MaxTradeSeconds=1800 --UseBreakeven=true --BreakevenTriggerAtr=0.5 --BreakevenCostBufferPips=0.2 --AdverseDeltaExit=true --ExpectedLeverage=500 \
+            --report="/work/reports/${TAG}.html" --report-json="/work/reports/${TAG}.json" --exit-on-stop
+          rm -f bt/ctrader.pwd
+      - name: Evaluate primary gate
+        shell: bash
+        env:
+          TAG: ${{ matrix.tag }}
+          PROFILE: ${{ matrix.profile }}
+        run: |
+          set -euo pipefail
+          if [ "$PROFILE" = control ]; then
+            python3 .github/scripts/cdscalper_report_gate.py "bt/reports/${TAG}.json" --profile control --out "bt/reports/${TAG}.gate.json"
+          else
+            python3 .github/scripts/cdscalper_report_gate.py "bt/reports/${TAG}.json" --profile "$PROFILE" --out "bt/reports/${TAG}.gate.json" --fail-on-gate
+          fi
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: CDScalper_K3_${{ matrix.tag }}
+          path: bt/reports/*
+          retention-days: 30
+
+  robustness:
+    needs: freeze_audit_build
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { tag: ROB_TP_090, delta: '125', adx: '16', tp: '0.9', sh: '14', sm: '0', eh: '14', em: '54', thu: 'false' }
+          - { tag: ROB_TP_110, delta: '125', adx: '16', tp: '1.1', sh: '14', sm: '0', eh: '14', em: '54', thu: 'false' }
+          - { tag: ROB_DELTA_112, delta: '112', adx: '16', tp: '1.0', sh: '14', sm: '0', eh: '14', em: '54', thu: 'false' }
+          - { tag: ROB_DELTA_138, delta: '138', adx: '16', tp: '1.0', sh: '14', sm: '0', eh: '14', em: '54', thu: 'false' }
+          - { tag: ROB_ADX_144, delta: '125', adx: '14.4', tp: '1.0', sh: '14', sm: '0', eh: '14', em: '54', thu: 'false' }
+          - { tag: ROB_ADX_176, delta: '125', adx: '17.6', tp: '1.0', sh: '14', sm: '0', eh: '14', em: '54', thu: 'false' }
+          - { tag: ROB_SESSION_EARLY, delta: '125', adx: '16', tp: '1.0', sh: '13', sm: '30', eh: '14', em: '24', thu: 'false' }
+          - { tag: ROB_SESSION_LATE, delta: '125', adx: '16', tp: '1.0', sh: '14', sm: '30', eh: '15', em: '24', thu: 'false' }
+          - { tag: ROB_MON_FRI, delta: '125', adx: '16', tp: '1.0', sh: '14', sm: '0', eh: '14', em: '54', thu: 'true' }
+    env:
+      CTID: ${{ secrets.CTRADER_CTID }}
+      ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+      CT_PASS: ${{ secrets.CTRADER_PASSWORD }}
+      CTRADER_IMAGE: ${{ needs.freeze_audit_build.outputs.ctrader_image }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - uses: actions/download-artifact@v4
+        with:
+          name: CDScalper_K3_FROZEN_PACKAGE
+          path: package
+      - name: Run one-factor neighborhood robustness case
+        shell: bash
+        env:
+          TAG: ${{ matrix.tag }}
+          DELTA: ${{ matrix.delta }}
+          ADX: ${{ matrix.adx }}
+          TP: ${{ matrix.tp }}
+          SH: ${{ matrix.sh }}
+          SM: ${{ matrix.sm }}
+          EH: ${{ matrix.eh }}
+          EM: ${{ matrix.em }}
+          THU: ${{ matrix.thu }}
+        run: |
+          set -euo pipefail
+          ALGO="$(find package -type f -name 'K3_FROZEN.algo' -print -quit)"
+          test -n "$ALGO"
+          mkdir -p bt/reports bt/cache/EURUSD
+          cp "$ALGO" bt/K3_FROZEN.algo
+          printf '%s' "$CT_PASS" | tr -d '\r\n' > bt/ctrader.pwd
+          chmod 600 bt/ctrader.pwd
+          docker run --rm -v "$PWD/bt:/work" \
+            -e "CTID=$CTID" -e "ACCOUNT=$ACCOUNT" -e "PWD-FILE=/work/ctrader.pwd" \
+            "$CTRADER_IMAGE" backtest /work/K3_FROZEN.algo \
+            --environment-variables --symbol="$SYMBOL" --period="$PERIOD" \
+            --start="$FULL_START" --end="$FULL_END" --balance="$BALANCE" \
+            --data-mode=ticks --data-dir=/work/cache/EURUSD --spread="$BASE_SPREAD" --commission="$COMMISSION" \
+            --DeltaThreshold="$DELTA" --UseBarDeltaFallback=true --FallbackBelowTickDelta=2 --BarDeltaPointMultiplier=1.6 \
+            --UseSessionFilter=true --SessionStartHour="$SH" --SessionStartMinute="$SM" --SessionEndHour="$EH" --SessionEndMinute="$EM" \
+            --TradeMonday=true --TradeTuesday=true --TradeWednesday=true --TradeThursday="$THU" --TradeFriday=true \
+            --HtfTimeFrameName=Minute15 --EmaSlopeBars=3 --AdxThreshold="$ADX" \
+            --MinAtr=0.00005 --MaxAtr=0.00105 --MaxSpreadPoints=18 --SpreadAvgMultiplier=1.8 \
+            --MinimumExpectedMoveToCostRatio=1.0 --CommissionUsdPerMillion=35 --CommissionIsPerSide=true --ExecutionSafetyBufferPips=0.2 \
+            --RiskMode=FixedMoneyRisk --FixedMoneyRisk=1.0 --AutoScaleFixedRisk=true --RiskReferenceBalance=100 --MinFixedMoneyRisk=0.05 --MaxLotSize=0.05 \
+            --SlAtrMultiplier=0.8 --TpAtrMultiplier="$TP" --MaxDailyTrades=3 --MaxDailyLossPercent=4 --MaxDailyLossMoney=0.55 --DailyProfitTargetMoney=1.10 \
+            --MaxConsecutiveLosses=2 --MinSecondsBetweenTrades=900 --LossCooldownMinutes=45 \
+            --MaxDailyEquityDrawdownMoney=0.75 --MaxFloatingLossMoney=0.90 --MaxEquityDrawdownPercent=12 --CloseOnEquityGuard=true \
+            --MaxTradeSeconds=1800 --UseBreakeven=true --BreakevenTriggerAtr=0.5 --BreakevenCostBufferPips=0.2 --AdverseDeltaExit=true --ExpectedLeverage=500 \
+            --report="/work/reports/${TAG}.html" --report-json="/work/reports/${TAG}.json" --exit-on-stop
+          rm -f bt/ctrader.pwd
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: CDScalper_K3_${{ matrix.tag }}
+          path: bt/reports/*
+          retention-days: 30
