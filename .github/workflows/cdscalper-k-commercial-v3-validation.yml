@@ -90,7 +90,7 @@ jobs:
             --symbol="$SYMBOL" --period="$PERIOD" \
             --start="$START_DATE" --end="$END_DATE" --balance="$STARTING_BALANCE" \
             --commission="$COMMISSION_PER_MILLION" --spread="$CASE_SPREAD" \
-            --data-mode=tick --data-dir=/work/cache/EURUSD \
+            --data-mode=ticks --data-dir=/work/cache/EURUSD \
             --MinTicksPerBar=20 --ImbalanceTrigger=0.18 --PersistenceBars=3 --MinSameDirectionBars=2 --EntryScoreMin=0.62 \
             --SessionStartHour=12 --SessionStartMinute=30 --SessionEndHour=16 --SessionEndMinute=30 \
             --AdxMinimum=16 --MinAtr=0.00005 --MaxAtr=0.00120 \
