@@ -70,3 +70,4 @@ if 'if (lane=="GROWTH3") return false;' not in portfolio.read_text():
 if 'Growth2Enabled || !TradingEnabled' not in arch.read_text():
     raise SystemExit('RC2 Growth3 submit disable missing')
 print('Commercial RC2 generated: H1/M30 edge preserved; Growth3 alpha disabled; single execution boundary verified')
+# RC2 validation trigger marker: edge-preserve-v1
