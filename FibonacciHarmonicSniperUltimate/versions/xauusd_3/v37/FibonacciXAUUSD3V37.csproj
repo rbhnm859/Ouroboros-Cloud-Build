@@ -3,6 +3,7 @@
     <TargetFramework>net6.0</TargetFramework>
     <ImplicitUsings>disable</ImplicitUsings>
     <Nullable>disable</Nullable>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
     <RootNamespace>cAlgo.Robots</RootNamespace>
     <AlgoName>xauusd_3_v37</AlgoName>
     <AlgoType>Robot</AlgoType>
