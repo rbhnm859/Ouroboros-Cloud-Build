@@ -1,0 +1,25 @@
+{
+  "freeze_version": "RC7B-COMMERCIAL-FREEZE-2026-09-10",
+  "policy_version": "RC7B-2026-09-10",
+  "validated_source_commit": "3279bf0562c01bc0dfa6053a93462ccd383fd179",
+  "workflow_run_id": 34487265573,
+  "workflow_artifact_id": 10156977935,
+  "workflow_artifact_digest": "sha256:f00510bb80043122060fa3e39db969d9843e65b17c8e01514bfbee8bcf73e551",
+  "commercial_freeze_eligible": true,
+  "formal_gate_status": "PASS",
+  "engineering_status": "PASS",
+  "selected_profile": "strict",
+  "selected_3y": {"trades":261,"roi":38.3,"net":3829.86,"pf":1.55,"dd":11.498775243024957,"balance_dd":10.399668701096514},
+  "recent": {"trades":97,"roi":33.46,"monthly_compound_equiv":2.4344232957362433,"net":3346.21,"pf":2.44,"dd":3.8432458314611444},
+  "annual": {
+    "y1":{"trades":100,"roi":8.75,"net":875.22,"pf":1.33,"dd":6.436369941179425},
+    "y2":{"trades":54,"roi":-1.36,"net":-135.68,"pf":0.93,"dd":7.694914516200803},
+    "y3":{"trades":97,"roi":33.46,"net":3346.21,"pf":2.44,"dd":3.8432458314611444}
+  },
+  "harsh_3y":{"trades":255,"roi":2.58,"net":258.4,"pf":1.04,"dd":13.293130670973085},
+  "harsh_recent":{"trades":97,"roi":10.99,"net":1099.18,"pf":1.45,"dd":3.862967258453018},
+  "architecture":{"direct_execute_market_order_calls":1,"central_file":"Commercial.IntentExecution.cs"},
+  "immutable_constraints":{"round22_control_frozen":true,"max_open_positions":1,"hedging":false,"grid":false,"martingale":false,"dca":false,"recovery":false,"loss_averaging":false,"sl_tp_required":true,"single_central_execute_market_order":true,"m30_abcd_live":false,"growth3_live":false},
+  "algo":{"filename":"BTC-Harmonic-Guard-RC7B-Commercial-Mobile.algo","sha256":"be97fde0489c2392300deb4543d2dc3d00a50fc20d3d54ff4a2a6ef48a8ac31d","size_bytes":83982},
+  "notes":["Formal Commercial Gate passed; legacy research screens in Growth2-Final-Summary.json are not the frozen promotion gate.","No further optimization is allowed on this frozen version without creating a new candidate/version."]
+}
