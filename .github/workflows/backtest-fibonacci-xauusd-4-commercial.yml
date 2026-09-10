@@ -1,0 +1,36 @@
+name: Fibonacci XAUUSD 4 - Commercial Validation
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - fibonacci-xauusd-v4-commercial-harmonic
+    paths:
+      - '.github/workflows/backtest-fibonacci-xauusd-4-commercial.yml'
+      - 'FibonacciHarmonicSniperUltimate/versions/xauusd_4/**'
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 330
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run commercial validation
+        shell: bash
+        env:
+          CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+          CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+          CTRADER_PASSWORD: ${{ secrets.CTRADER_PASSWORD }}
+        run: bash FibonacciHarmonicSniperUltimate/versions/xauusd_4/tools/validate-commercial.sh
+
+      - name: Upload commercial validation package
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: xauusd_4-commercial-validation
+          path: FibonacciHarmonicSniperUltimate/versions/xauusd_4/validation-commercial/
+          retention-days: 60
