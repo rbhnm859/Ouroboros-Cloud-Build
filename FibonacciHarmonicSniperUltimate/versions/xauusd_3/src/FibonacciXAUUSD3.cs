@@ -125,7 +125,8 @@ namespace cAlgo.Robots
             _h1 = MarketData.GetBars(TimeFrame.Hour, SymbolName);
             Positions.Closed += OnPositionClosed;
             ResetDay();
-            Print("VERSION xauusd_3 v3.5.0-m5-first-valid");
+            RestoreDailyStateFromHistory();
+            Print("VERSION xauusd_3 v3.6.0-safety-hardening");
             Print("[ARCH] H1 regime + M15 Fibonacci/structure + optional harmonic confluence + M5 execution scoring");
             Print("[SAFETY] account-wide symbol exposure lock + pending-order lock + entry mutex; no hedge/no duplicate");
             Print("[SCORE] H1 20 + M15 Fib 20 + M15 Structure 15 + Harmonic 25 + M5 20");
@@ -157,6 +158,7 @@ namespace cAlgo.Robots
             int m5Index = Bars.Count - 1;
             if (m5Index < 12)
                 return;
+            EnsureProtectionIntegrity();
             if (HasAnySymbolExposure())
                 return;
 
@@ -395,6 +397,45 @@ namespace cAlgo.Robots
             }
         }
 
+        private void EnsureProtectionIntegrity()
+        {
+            foreach (Position p in Positions.FindAll(BotLabel, SymbolName))
+            {
+                if (p.StopLoss != null && p.TakeProfit != null)
+                    continue;
+                Print("[FAILSAFE] Missing protection PID={0}; closing position", p.Id);
+                TradeResult result = ClosePosition(p);
+                if (!result.IsSuccessful)
+                    Print("[FAILSAFE FAIL] PID={0} error={1}", p.Id, result.Error);
+            }
+        }
+
+        private void RestoreDailyStateFromHistory()
+        {
+            double net = 0.0;
+            int trades = 0;
+            foreach (HistoricalTrade t in History.FindAll(BotLabel, SymbolName))
+            {
+                if (t.ClosingTime.Date == _day)
+                    net += t.NetProfit;
+                if (t.EntryTime.Date == _day)
+                    trades++;
+            }
+            _dayNet = net;
+            _tradesToday = trades;
+            _dayStartBalance = Account.Balance - _dayNet;
+            if (_dayStartBalance <= 0)
+                _dayStartBalance = Account.Balance;
+        }
+
+        private double CurrentBotFloatingNet()
+        {
+            double net = 0.0;
+            foreach (Position p in Positions.FindAll(BotLabel, SymbolName))
+                net += p.NetProfit;
+            return net;
+        }
+
         private double H1AtrExpansionRatio()
         {
             int h = _h1.Count - 2;
@@ -560,7 +601,7 @@ namespace cAlgo.Robots
         private bool DailyLossLocked()
         {
             double cap = _dayStartBalance * MaxDailyLossPercent / 100.0;
-            return -_dayNet >= cap;
+            return -(_dayNet + CurrentBotFloatingNet()) >= cap;
         }
 
         private void ResetDay()
