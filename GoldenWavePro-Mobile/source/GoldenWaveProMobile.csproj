@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net6.0</TargetFramework>
+    <EnableDefaultItems>False</EnableDefaultItems>
+    <GenerateAssemblyInfo>False</GenerateAssemblyInfo>
+    <LangVersion>latest</LangVersion>
+    <Configuration Condition=" '$(Configuration)' == '' ">Release</Configuration>
+    <Platform Condition=" '$(Platform)' == '' ">AnyCPU</Platform>
+    <RootNamespace>cAlgo</RootNamespace>
+    <AssemblyName>GoldenWaveProMobile</AssemblyName>
+    <IncludeSource>True</IncludeSource>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="cTrader.Automate" Version="*-*" />
+  </ItemGroup>
+  <ItemGroup>
+    <Compile Include="GoldenWaveProMobile.cs" />
+  </ItemGroup>
+</Project>
