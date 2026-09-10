@@ -7,6 +7,7 @@ on:
     paths:
       - 'CumulativeDeltaScalper-EURUSD-v1/k3/**'
       - '.github/workflows/cdscalper-k3-corrected-commercial-validation.yml'
+      - '.github/scripts/cdscalper_report_gate.py'
 
 permissions:
   contents: read
@@ -31,7 +32,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: cds-k3-flow-first-entry-research
+          ref: ${{ github.sha }}
           fetch-depth: 0
 
       - name: Verify immutable Original K and K3 engineering invariants
@@ -58,6 +59,7 @@ jobs:
           grep -q 'MinStopLossDistance' "$K3"
           grep -q 'MinTakeProfitDistance' "$K3"
           grep -q 'Account.PreciseLeverage' "$K3"
+          test -f '.github/scripts/cdscalper_report_gate.py'
 
           if grep -Eiq '\b(Grid|Martingale|DCA|Recovery|Loss Averaging|Hedging|Fibonacci|RSI|MACD|Bollinger|Machine Learning|ML)\b' "$K3"; then
             echo 'Forbidden strategy keyword found in K3 source.'
@@ -130,6 +132,7 @@ jobs:
             audit/*
             CumulativeDeltaScalper-EURUSD-v1/k3/presets/*.json
             CumulativeDeltaScalper-EURUSD-v1/k3/docs/*.md
+            .github/scripts/cdscalper_report_gate.py
           retention-days: 30
 
   corrected_is:
@@ -148,7 +151,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: cds-k3-flow-first-entry-research
+          ref: ${{ github.sha }}
       - uses: actions/download-artifact@v4
         with:
           name: CDScalper_K3_corrected_IS_package
@@ -214,6 +217,19 @@ jobs:
           rm -f backtest/ctrader.pwd
           echo "$EXIT" > "backtest/reports/${CASE}.exitcode.txt"
           test -f "backtest/reports/${CASE}.json"
+
+      - name: Evaluate environment and IS research gate
+        if: always()
+        shell: bash
+        env:
+          CASE: ${{ matrix.case }}
+        run: |
+          set -euo pipefail
+          REPORT="backtest/reports/${CASE}.json"
+          test -f "$REPORT"
+          PROFILE=control
+          if [ "$CASE" = 'K3_FLOW_FIRST' ]; then PROFILE=is; fi
+          python3 .github/scripts/cdscalper_report_gate.py "$REPORT" --profile "$PROFILE" --out "backtest/reports/${CASE}.gate.json" --fail-on-gate
 
       - name: Upload corrected IS report
         if: always()
