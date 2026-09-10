@@ -1,0 +1,210 @@
+name: Aureus Harmonic Gold Pro - Commercial Validation
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - commercial-harmonic-gold-v1
+    paths:
+      - 'Aureus-Harmonic-Gold-Pro/**'
+      - '.github/workflows/aureus-commercial-validation.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: aureus-harmonic-commercial-validation
+  cancel-in-progress: true
+
+jobs:
+  backtest:
+    name: XAUUSD M15 ${{ matrix.window }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - window: 1Y
+            start: '11/09/2025'
+            end: '10/09/2026'
+            min_trades: 40
+            min_growth: 20.0
+            growth_name: ROI
+          - window: 3Y
+            start: '11/09/2023'
+            end: '10/09/2026'
+            min_trades: 120
+            min_growth: 15.0
+            growth_name: CAGR
+
+    steps:
+      - name: Checkout candidate branch
+        uses: actions/checkout@v4
+
+      - name: Pull official cTrader CLI
+        run: docker pull ghcr.io/spotware/ctrader-console:5.9.11
+
+      - name: Build Aureus cBot
+        run: |
+          mkdir -p backtest/cache backtest/reports backtest/bin
+          docker run --rm --entrypoint sh -v "$PWD:/repo" -w /repo \
+            ghcr.io/spotware/ctrader-console:5.9.11 -c \
+            'dotnet restore Aureus-Harmonic-Gold-Pro/src/AureusHarmonicGoldPro.csproj && dotnet build Aureus-Harmonic-Gold-Pro/src/AureusHarmonicGoldPro.csproj --configuration Release --no-restore -p:AlgoPublish=False -p:IncludeSource=True'
+
+          ALGO="$(find Aureus-Harmonic-Gold-Pro/src -type f -name '*.algo' -print -quit)"
+          test -n "$ALGO" || { echo 'Build completed but no .algo was found'; find Aureus-Harmonic-Gold-Pro/src -maxdepth 8 -type f -print; exit 1; }
+          cp "$ALGO" backtest/bin/AureusHarmonicGoldPro.algo
+
+      - name: Create cTrader password file
+        env:
+          CTRADER_PASSWORD: ${{ secrets.CTRADER_PASSWORD }}
+        run: |
+          test -n "${CTRADER_PASSWORD:-}" || { echo 'Missing CTRADER_PASSWORD'; exit 1; }
+          printf '%s' "$CTRADER_PASSWORD" > backtest/ctrader.pwd
+          chmod 600 backtest/ctrader.pwd
+
+      - name: Backtest XAUUSD M15 ${{ matrix.window }}
+        env:
+          CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+          CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+        run: |
+          test -n "${CTRADER_CTID:-}" || { echo 'Missing CTRADER_CTID'; exit 1; }
+          test -n "${CTRADER_ACCOUNT:-}" || { echo 'Missing CTRADER_ACCOUNT'; exit 1; }
+
+          docker run --rm \
+            -v "$PWD/backtest:/work" \
+            -e "CTID=$CTRADER_CTID" \
+            -e 'PWD-FILE=/work/ctrader.pwd' \
+            -e "ACCOUNT=$CTRADER_ACCOUNT" \
+            ghcr.io/spotware/ctrader-console:5.9.11 \
+            backtest /work/bin/AureusHarmonicGoldPro.algo \
+            --environment-variables --exit-on-stop \
+            --symbol=XAUUSD \
+            --period=m15 \
+            --start="${{ matrix.start }}" \
+            --end="${{ matrix.end }}" \
+            --balance=10000 \
+            --data-mode=m1 \
+            --data-dir=/work/cache \
+            --report="/work/reports/XAUUSD-M15-${{ matrix.window }}.html" \
+            --report-json="/work/reports/XAUUSD-M15-${{ matrix.window }}.json"
+
+      - name: Produce commercial scorecard
+        id: score
+        if: success()
+        env:
+          WINDOW: ${{ matrix.window }}
+          MIN_TRADES: ${{ matrix.min_trades }}
+          MIN_GROWTH: ${{ matrix.min_growth }}
+          GROWTH_NAME: ${{ matrix.growth_name }}
+        run: |
+          python3 - <<'PYCODE'
+          from pathlib import Path
+          import json, math, os, re
+
+          window = os.environ['WINDOW']
+          min_trades = int(os.environ['MIN_TRADES'])
+          min_growth = float(os.environ['MIN_GROWTH'])
+          growth_name = os.environ['GROWTH_NAME']
+          balance = 10000.0
+          years = 1.0 if window == '1Y' else 3.0
+
+          report = Path(f'backtest/reports/XAUUSD-M15-{window}.json')
+          data = json.loads(report.read_text())
+
+          flat = {}
+          def flatten(value):
+              if isinstance(value, dict):
+                  for key, child in value.items():
+                      flat.setdefault(re.sub(r'[^a-z0-9]', '', key.lower()), child)
+                      flatten(child)
+              elif isinstance(value, list):
+                  for child in value:
+                      flatten(child)
+          flatten(data)
+
+          def raw(*names):
+              for name in names:
+                  value = flat.get(re.sub(r'[^a-z0-9]', '', name.lower()))
+                  if value not in (None, '') and not isinstance(value, (dict, list)):
+                      return value
+              return ''
+
+          def number(*names, default=0.0):
+              value = raw(*names)
+              try:
+                  return float(str(value).replace('%','').replace(',',''))
+              except (TypeError, ValueError):
+                  return default
+
+          trades = int(number('TotalTrades', 'Trades', 'TotalPositions'))
+          wins = int(number('WinningTrades', 'WinningPositions', 'Wins'))
+          net = number('NetProfit', 'NetProfitAmount')
+          pf = number('ProfitFactor')
+          dd = number('MaxEquityDrawdownPercentages', 'MaxEquityDrawdownPercentage', 'MaxDrawdownPercentages', 'MaxDrawdownPercentage')
+          win_rate = number('WinRate', 'WinningTradesPercentages', default=(100.0*wins/trades if trades else 0.0))
+          roi = 100.0 * net / balance
+          ending = balance + net
+          cagr = ((ending / balance) ** (1.0 / years) - 1.0) * 100.0 if ending > 0 else -100.0
+          growth = roi if growth_name == 'ROI' else cagr
+          efficiency = (growth / dd) if dd > 0 else (999.0 if growth > 0 else 0.0)
+
+          gates = {
+              'positive_net_profit': net > 0,
+              'profit_factor_>=_1.50': pf >= 1.50,
+              'max_drawdown_<=_15%': dd <= 15.0 and dd >= 0,
+              f'{growth_name}_>=_{min_growth:.1f}%': growth >= min_growth,
+              f'trades_>=_{min_trades}': trades >= min_trades,
+              'return_to_drawdown_>=_1.50': efficiency >= 1.50,
+          }
+          passed = all(gates.values())
+
+          lines = [
+              f'# Aureus Harmonic Gold Pro — XAUUSD M15 {window}',
+              '',
+              f'- Period: {"11/09/2025–10/09/2026" if window == "1Y" else "11/09/2023–10/09/2026"}',
+              '- Data mode: M1',
+              '- Starting balance: $10,000',
+              f'- Trades: {trades}',
+              f'- Wins: {wins}',
+              f'- Win rate: {win_rate:.2f}%',
+              f'- Net profit: ${net:.2f}',
+              f'- ROI: {roi:.2f}%',
+              f'- CAGR: {cagr:.2f}%',
+              f'- Profit factor: {pf:.3f}',
+              f'- Max equity drawdown: {dd:.2f}%',
+              f'- {growth_name}/MDD: {efficiency:.2f}',
+              '',
+              '## Internal commercial research gates',
+          ]
+          for name, ok in gates.items():
+              lines.append(f'- {"PASS" if ok else "FAIL"}: {name}')
+          lines += ['', f'**OVERALL: {"PASS" if passed else "FAIL"}**', '',
+                    '> This is an engineering research gate, not a guarantee of future profitability or an official cTrader Store profitability requirement.']
+
+          summary = '\n'.join(lines) + '\n'
+          Path(f'backtest/reports/XAUUSD-M15-{window}-scorecard.md').write_text(summary)
+          print(summary)
+          with Path(os.environ['GITHUB_STEP_SUMMARY']).open('a') as output:
+              output.write(summary)
+          if not passed:
+              raise SystemExit(2)
+          PYCODE
+
+      - name: Remove credentials
+        if: always()
+        run: rm -f backtest/ctrader.pwd
+
+      - name: Upload cBot and validation reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Aureus-Harmonic-Gold-Pro-${{ matrix.window }}
+          path: |
+            backtest/bin/AureusHarmonicGoldPro.algo
+            backtest/reports/XAUUSD-M15-${{ matrix.window }}.html
+            backtest/reports/XAUUSD-M15-${{ matrix.window }}.json
+            backtest/reports/XAUUSD-M15-${{ matrix.window }}-scorecard.md
+          if-no-files-found: warn
+          retention-days: 30
