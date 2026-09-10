@@ -1,0 +1,148 @@
+name: GoldenWavePro FxPro Live Stress Validation
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/goldenwavepro-fxpro-live-stress.yml'
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: goldenwavepro-fxpro-live-stress
+  cancel-in-progress: true
+
+jobs:
+  stress:
+    name: XAUUSD M15 ${{ matrix.window }} ${{ matrix.scenario }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { window: 1Y, start: '11/09/2025', end: '10/09/2026', scenario: FXPRO_AVG, spread: '17.18' }
+          - { window: 1Y, start: '11/09/2025', end: '10/09/2026', scenario: STRESS_2X, spread: '34.36' }
+          - { window: 1Y, start: '11/09/2025', end: '10/09/2026', scenario: EXTREME_3X, spread: '51.54' }
+          - { window: 3Y, start: '11/09/2023', end: '10/09/2026', scenario: FXPRO_AVG, spread: '17.18' }
+          - { window: 3Y, start: '11/09/2023', end: '10/09/2026', scenario: STRESS_2X, spread: '34.36' }
+          - { window: 3Y, start: '11/09/2023', end: '10/09/2026', scenario: EXTREME_3X, spread: '51.54' }
+
+    steps:
+      - name: Prepare folders
+        run: mkdir -p backtest/bin backtest/cache backtest/reports
+
+      - name: Download compiled GoldenWavePro algo
+        uses: actions/download-artifact@v4
+        with:
+          name: GoldenWavePro-algo
+          path: backtest/bin
+          github-token: ${{ github.token }}
+          run-id: 34530948510
+
+      - name: Verify algo artifact
+        run: |
+          test -f backtest/bin/GoldenWavePro.algo
+          ls -lh backtest/bin/GoldenWavePro.algo
+
+      - name: Pull official cTrader CLI
+        run: docker pull ghcr.io/spotware/ctrader-console:5.9.11
+
+      - name: Create cTrader password file
+        env:
+          CTRADER_PASSWORD: ${{ secrets.CTRADER_PASSWORD }}
+        run: |
+          test -n "${CTRADER_PASSWORD:-}" || { echo 'Missing CTRADER_PASSWORD'; exit 1; }
+          printf '%s' "$CTRADER_PASSWORD" > backtest/ctrader.pwd
+          chmod 600 backtest/ctrader.pwd
+
+      - name: Verify configured account belongs to FxPro
+        env:
+          CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+          CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+        run: |
+          test -n "${CTRADER_CTID:-}" || { echo 'Missing CTRADER_CTID'; exit 1; }
+          test -n "${CTRADER_ACCOUNT:-}" || { echo 'Missing CTRADER_ACCOUNT'; exit 1; }
+          docker run --rm -v "$PWD/backtest:/work" ghcr.io/spotware/ctrader-console:5.9.11 \
+            accounts --ctid="$CTRADER_CTID" --pwd-file=/work/ctrader.pwd --broker=FxPro > backtest/accounts.txt
+          ACCOUNT="$CTRADER_ACCOUNT" python3 - <<'PY'
+          import os,re
+          from pathlib import Path
+          text=Path('backtest/accounts.txt').read_text(errors='replace')
+          acct=os.environ['ACCOUNT']
+          if acct not in text:
+              raise SystemExit('Configured account not found under FxPro')
+          i=text.find(acct); s=text[max(0,i-500):i+700].lower(); c=s.replace(' ','')
+          live=bool(re.search(r'\blive\b',s)) or 'islive":true' in c
+          demo=bool(re.search(r'\bdemo\b',s)) or 'islive":false' in c
+          print('FxPro broker/account binding: VERIFIED')
+          if live and not demo: print('Account type: LIVE verified')
+          elif demo and not live: raise SystemExit('Configured FxPro account is DEMO, not LIVE')
+          else: print('Account type not explicitly exposed; FxPro binding verified')
+          PY
+          rm -f backtest/accounts.txt
+
+      - name: Backtest FxPro XAUUSD M15 ${{ matrix.window }} ${{ matrix.scenario }}
+        env:
+          CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+          CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+        run: |
+          docker run --rm -v "$PWD/backtest:/work" ghcr.io/spotware/ctrader-console:5.9.11 \
+            backtest /work/bin/GoldenWavePro.algo \
+            --ctid="$CTRADER_CTID" --pwd-file=/work/ctrader.pwd --account="$CTRADER_ACCOUNT" --broker=FxPro \
+            --symbol=XAUUSD --period=m15 --start="${{ matrix.start }}" --end="${{ matrix.end }}" \
+            --balance=10000 --commission=35 --commission-type=UsdPerMillionUsdVolume \
+            --spread="${{ matrix.spread }}" --data-mode=m1 --data-dir=/work/cache \
+            --report="/work/reports/XAUUSD-M15-${{ matrix.window }}-${{ matrix.scenario }}.html" \
+            --report-json="/work/reports/XAUUSD-M15-${{ matrix.window }}-${{ matrix.scenario }}.json" --exit-on-stop
+
+      - name: Produce stress scorecard
+        env:
+          WINDOW: ${{ matrix.window }}
+          SCENARIO: ${{ matrix.scenario }}
+          SPREAD: ${{ matrix.spread }}
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import json,os
+          w=os.environ['WINDOW']; s=os.environ['SCENARIO']; sp=float(os.environ['SPREAD'])
+          d=json.loads(Path(f'backtest/reports/XAUUSD-M15-{w}-{s}.json').read_text())
+          m=d.get('main',{}); e=d.get('equity',{}); t=d.get('tradeStatistics',{})
+          def a(k,default=0):
+              v=t.get(k,default); v=v.get('all',default) if isinstance(v,dict) else v
+              try:return float(v)
+              except:return float(default)
+          trades=int(a('totalTrades')); wins=int(a('winningTrades')); losses=int(a('losingTrades'))
+          net=a('netProfit'); pf=a('profitFactor'); comm=a('commissions'); swaps=a('swaps'); avg=a('averageTrade'); maxcl=int(a('maxConsecutiveLosingTrades'))
+          dd=float(e.get('maxEquityDrawdownPercent') or 0); start=float(m.get('startingCapital') or 10000); end=float(m.get('endingBalance') or start+net)
+          roi=100*net/start if start else 0; yrs=1 if w=='1Y' else 3; cagr=((end/start)**(1/yrs)-1)*100 if end>0 else -100; wr=100*wins/trades if trades else 0
+          survival=end>0 and dd<50; commercial=net>0 and pf>=1.5 and dd<=15 and trades>=(40 if w=='1Y' else 120)
+          out='\n'.join([
+            f'# GoldenWavePro FxPro Stress — {w} {s}','',f'- Spread: {sp:.2f} pips', '- Commission: $35 per million USD',
+            f'- Trades: {trades}',f'- Wins/Losses: {wins}/{losses}',f'- Win rate: {wr:.2f}%',f'- Net profit: ${net:.2f}',f'- ROI: {roi:.2f}%',f'- CAGR: {cagr:.2f}%',
+            f'- Profit factor: {pf:.3f}',f'- Max equity drawdown: {dd:.2f}%',f'- Commission total: ${comm:.2f}',f'- Swaps: ${swaps:.2f}',f'- Average trade: ${avg:.2f}',f'- Max consecutive losses: {maxcl}',
+            f'- Survival gate: {"PASS" if survival else "FAIL"}',f'- Commercial quality gate: {"PASS" if commercial else "FAIL"}',''])
+          Path(f'backtest/reports/XAUUSD-M15-{w}-{s}-scorecard.md').write_text(out)
+          print(out)
+          Path(os.environ['GITHUB_STEP_SUMMARY']).open('a').write(out+'\n')
+          PY
+
+      - name: Remove credentials
+        if: always()
+        run: rm -f backtest/ctrader.pwd backtest/accounts.txt
+
+      - name: Upload FxPro stress evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: GoldenWavePro-FxPro-${{ matrix.window }}-${{ matrix.scenario }}
+          path: |
+            backtest/bin/GoldenWavePro.algo
+            backtest/reports/XAUUSD-M15-${{ matrix.window }}-${{ matrix.scenario }}.html
+            backtest/reports/XAUUSD-M15-${{ matrix.window }}-${{ matrix.scenario }}.json
+            backtest/reports/XAUUSD-M15-${{ matrix.window }}-${{ matrix.scenario }}-scorecard.md
+          if-no-files-found: warn
+          retention-days: 30
