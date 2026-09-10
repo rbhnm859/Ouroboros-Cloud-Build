@@ -78,7 +78,7 @@ namespace cAlgo.Robots
         [Parameter("Ratio Tolerance %", DefaultValue = 5.0, MinValue = 1.0, MaxValue = 20.0, Group = "Patterns")]
         public double RatioTolerancePercent { get; set; }
 
-        [Parameter("Require Higher-TF Agreement", DefaultValue = true, Group = "MTF")]
+        [Parameter("Require Higher-TF Agreement", DefaultValue = false, Group = "MTF")]
         public bool RequireHigherTimeframeAgreement { get; set; }
 
         [Parameter("Higher-TF Min Score %", DefaultValue = 80.0, MinValue = 60.0, MaxValue = 100.0, Group = "MTF")]
