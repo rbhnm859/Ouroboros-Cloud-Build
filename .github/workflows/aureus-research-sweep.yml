@@ -1,94 +1,161 @@
-name: Aureus Harmonic Gold Pro - Research Sweep
+name: Aureus Harmonic Gold Pro - Projected PRZ Research
 
 on:
   workflow_dispatch:
   pull_request:
     branches: [main]
     paths:
+      - 'Aureus-Harmonic-Gold-Pro/**'
       - '.github/workflows/aureus-research-sweep.yml'
 
 permissions:
   contents: read
 
 concurrency:
-  group: aureus-research-sweep
+  group: aureus-projected-prz-research
   cancel-in-progress: true
 
 jobs:
-  sweep:
-    name: IS ${{ matrix.id }}
+  research:
+    name: ${{ matrix.window }} ${{ matrix.id }}
     runs-on: ubuntu-latest
     timeout-minutes: 90
     strategy:
       fail-fast: false
-      max-parallel: 6
+      max-parallel: 4
       matrix:
         include:
-          - id: P3_S82_R15
-            pivot: 3
-            score: 82
-            rr: 1.50
-            tol: 5
-          - id: P3_S78_R15
-            pivot: 3
+          - window: R1
+            start: '11/09/2023'
+            end: '10/09/2024'
+            id: ALL_BASE
             score: 78
-            rr: 1.50
-            tol: 5
-          - id: P4_S82_R15
-            pivot: 4
-            score: 82
-            rr: 1.50
-            tol: 5
-          - id: P4_S78_R15
-            pivot: 4
-            score: 78
-            rr: 1.50
-            tol: 5
-          - id: P3_S78_R175_T7
-            pivot: 3
-            score: 78
-            rr: 1.75
             tol: 7
-          - id: P2_S75_R15
-            pivot: 2
-            score: 75
             rr: 1.50
+            gartley: true
+            bat: true
+            butterfly: true
+            crab: true
+            deepcrab: true
+          - window: R1
+            start: '11/09/2023'
+            end: '10/09/2024'
+            id: ALL_STRICT
+            score: 82
             tol: 5
+            rr: 1.50
+            gartley: true
+            bat: true
+            butterfly: true
+            crab: true
+            deepcrab: true
+          - window: R1
+            start: '11/09/2023'
+            end: '10/09/2024'
+            id: CLASSIC3
+            score: 78
+            tol: 7
+            rr: 1.50
+            gartley: true
+            bat: true
+            butterfly: true
+            crab: false
+            deepcrab: false
+          - window: R1
+            start: '11/09/2023'
+            end: '10/09/2024'
+            id: EXTENSION3
+            score: 80
+            tol: 7
+            rr: 1.50
+            gartley: false
+            bat: false
+            butterfly: true
+            crab: true
+            deepcrab: true
+          - window: R2
+            start: '11/09/2024'
+            end: '10/09/2025'
+            id: ALL_BASE
+            score: 78
+            tol: 7
+            rr: 1.50
+            gartley: true
+            bat: true
+            butterfly: true
+            crab: true
+            deepcrab: true
+          - window: R2
+            start: '11/09/2024'
+            end: '10/09/2025'
+            id: ALL_STRICT
+            score: 82
+            tol: 5
+            rr: 1.50
+            gartley: true
+            bat: true
+            butterfly: true
+            crab: true
+            deepcrab: true
+          - window: R2
+            start: '11/09/2024'
+            end: '10/09/2025'
+            id: CLASSIC3
+            score: 78
+            tol: 7
+            rr: 1.50
+            gartley: true
+            bat: true
+            butterfly: true
+            crab: false
+            deepcrab: false
+          - window: R2
+            start: '11/09/2024'
+            end: '10/09/2025'
+            id: EXTENSION3
+            score: 80
+            tol: 7
+            rr: 1.50
+            gartley: false
+            bat: false
+            butterfly: true
+            crab: true
+            deepcrab: true
 
     steps:
-      - name: Checkout candidate branch
+      - name: Checkout candidate
         uses: actions/checkout@v4
 
-      - name: Pull official cTrader CLI
+      - name: Pull cTrader CLI
         run: docker pull ghcr.io/spotware/ctrader-console:5.9.11
 
-      - name: Build Aureus cBot
+      - name: Build cBot
         run: |
-          mkdir -p sweep/cache sweep/reports sweep/bin
+          mkdir -p research/cache research/reports research/bin
           docker run --rm --entrypoint sh -v "$PWD:/repo" -w /repo \
             ghcr.io/spotware/ctrader-console:5.9.11 -c \
             'dotnet restore Aureus-Harmonic-Gold-Pro/src/AureusHarmonicGoldPro.csproj && dotnet build Aureus-Harmonic-Gold-Pro/src/AureusHarmonicGoldPro.csproj --configuration Release --no-restore -p:AlgoPublish=False -p:IncludeSource=True'
           ALGO="$(find Aureus-Harmonic-Gold-Pro/src -type f -name '*.algo' -print -quit)"
-          test -n "$ALGO"
-          cp "$ALGO" sweep/bin/AureusHarmonicGoldPro.algo
+          test -n "$ALGO" || { echo 'No .algo generated'; exit 1; }
+          cp "$ALGO" research/bin/AureusHarmonicGoldPro.algo
 
       - name: Create cTrader password file
         env:
           CTRADER_PASSWORD: ${{ secrets.CTRADER_PASSWORD }}
         run: |
-          test -n "${CTRADER_PASSWORD:-}"
-          printf '%s' "$CTRADER_PASSWORD" > sweep/ctrader.pwd
-          chmod 600 sweep/ctrader.pwd
+          test -n "${CTRADER_PASSWORD:-}" || { echo 'Missing CTRADER_PASSWORD'; exit 1; }
+          printf '%s' "$CTRADER_PASSWORD" > research/ctrader.pwd
+          chmod 600 research/ctrader.pwd
 
-      - name: Backtest prior-year in-sample
+      - name: Backtest research window
         env:
           CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
           CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
         run: |
-          test -n "${CTRADER_CTID:-}"
-          test -n "${CTRADER_ACCOUNT:-}"
+          test -n "${CTRADER_CTID:-}" || { echo 'Missing CTRADER_CTID'; exit 1; }
+          test -n "${CTRADER_ACCOUNT:-}" || { echo 'Missing CTRADER_ACCOUNT'; exit 1; }
           docker run --rm \
-            -v "$PWD/sweep:/work" \
+            -v "$PWD/research:/work" \
             -e "CTID=$CTRADER_CTID" \
             -e 'PWD-FILE=/work/ctrader.pwd' \
             -e "ACCOUNT=$CTRADER_ACCOUNT" \
@@ -96,60 +163,86 @@ jobs:
             backtest /work/bin/AureusHarmonicGoldPro.algo \
             --environment-variables --exit-on-stop \
             --symbol=XAUUSD --period=m15 \
-            --start='11/09/2024' --end='10/09/2025' \
+            --start='${{ matrix.start }}' --end='${{ matrix.end }}' \
             --balance=10000 --data-mode=m1 --data-dir=/work/cache \
-            --PivotLeft=${{ matrix.pivot }} --PivotRight=${{ matrix.pivot }} \
-            --MinPatternScore=${{ matrix.score }} \
-            --MinimumRiskReward=${{ matrix.rr }} \
+            --RiskPercent=0.50 \
+            --MinSetupScore=${{ matrix.score }} \
             --RatioTolerancePercent=${{ matrix.tol }} \
-            --RequireHigherTimeframeAgreement=false \
-            --report="/work/reports/${{ matrix.id }}.html" \
-            --report-json="/work/reports/${{ matrix.id }}.json"
+            --MinimumRiskReward=${{ matrix.rr }} \
+            --TargetAdRetracement=0.382 \
+            --EnableGartley=${{ matrix.gartley }} \
+            --EnableBat=${{ matrix.bat }} \
+            --EnableButterfly=${{ matrix.butterfly }} \
+            --EnableCrab=${{ matrix.crab }} \
+            --EnableDeepCrab=${{ matrix.deepcrab }} \
+            --DebugLogging=false \
+            --report='/work/reports/${{ matrix.window }}-${{ matrix.id }}.html' \
+            --report-json='/work/reports/${{ matrix.window }}-${{ matrix.id }}.json'
 
-      - name: Extract metrics
+      - name: Extract metrics and research gate
         if: success()
         env:
+          WINDOW: ${{ matrix.window }}
           ID: ${{ matrix.id }}
         run: |
           python3 - <<'PYCODE'
           from pathlib import Path
           import json, os
+
+          window=os.environ['WINDOW']
           ident=os.environ['ID']
-          d=json.loads(Path(f'sweep/reports/{ident}.json').read_text())
+          path=Path(f'research/reports/{window}-{ident}.json')
+          d=json.loads(path.read_text())
           main=d.get('main',{})
           stats=d.get('tradeStatistics',{})
           equity=d.get('equity',{})
+
           def allv(name, default=0):
               v=stats.get(name, default)
-              return v.get('all', default) if isinstance(v,dict) else v
+              return v.get('all', default) if isinstance(v, dict) else v
+
           trades=int(allv('totalTrades',0) or 0)
           wins=int(allv('winningTrades',0) or 0)
           net=float(main.get('netProfit',0) or 0)
           roi=float(main.get('roi',0) or 0)
           pf=float(allv('profitFactor',0) or 0)
           dd=float(equity.get('maxEquityDrawdownPercent',0) or 0)
-          wr=100*wins/trades if trades else 0
-          text=(f'# {ident}\n\n'
-                f'- Trades: {trades}\n- Wins: {wins}\n- Win rate: {wr:.2f}%\n'
-                f'- Net profit: ${net:.2f}\n- ROI: {roi:.2f}%\n'
-                f'- Profit factor: {pf:.3f}\n- Max equity DD: {dd:.2f}%\n')
-          Path(f'sweep/reports/{ident}-metrics.md').write_text(text)
+          wr=100.0*wins/trades if trades else 0.0
+
+          gates={
+              'trades>=20': trades >= 20,
+              'net>0': net > 0,
+              'PF>=1.15': pf >= 1.15,
+              'DD<=10%': 0 <= dd <= 10.0,
+          }
+          pass_arch=all(gates.values())
+          lines=[
+              f'# {window} {ident}', '',
+              f'- Trades: {trades}', f'- Wins: {wins}', f'- Win rate: {wr:.2f}%',
+              f'- Net profit: ${net:.2f}', f'- ROI: {roi:.2f}%',
+              f'- Profit factor: {pf:.3f}', f'- Max equity DD: {dd:.2f}%', '',
+              '## Architecture research gate'
+          ]
+          for k,v in gates.items(): lines.append(f'- {"PASS" if v else "FAIL"}: {k}')
+          lines += ['', f'**WINDOW GATE: {"PASS" if pass_arch else "FAIL"}**']
+          text='\n'.join(lines)+'\n'
+          Path(f'research/reports/{window}-{ident}-metrics.md').write_text(text)
           print(text)
           with Path(os.environ['GITHUB_STEP_SUMMARY']).open('a') as f: f.write(text)
           PYCODE
 
       - name: Remove credentials
         if: always()
-        run: rm -f sweep/ctrader.pwd
+        run: rm -f research/ctrader.pwd
 
       - name: Upload research result
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: Aureus-Research-${{ matrix.id }}
+          name: Aureus-PRZ-${{ matrix.window }}-${{ matrix.id }}
           path: |
-            sweep/reports/${{ matrix.id }}.json
-            sweep/reports/${{ matrix.id }}.html
-            sweep/reports/${{ matrix.id }}-metrics.md
+            research/reports/${{ matrix.window }}-${{ matrix.id }}.json
+            research/reports/${{ matrix.window }}-${{ matrix.id }}.html
+            research/reports/${{ matrix.window }}-${{ matrix.id }}-metrics.md
           if-no-files-found: warn
           retention-days: 14
