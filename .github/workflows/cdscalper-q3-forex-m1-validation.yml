@@ -18,28 +18,30 @@ env:
 
 jobs:
   build-algo:
-    runs-on: windows-latest
-    timeout-minutes: 30
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
         with:
           ref: cds-q3-forex-m1-core
-      - uses: actions/setup-dotnet@v4
-        with:
-          dotnet-version: '7.0.x'
-      - name: Build Q3 .algo
-        shell: pwsh
+      - name: Verify preinstalled .NET
+        shell: bash
         run: |
-          $ErrorActionPreference='Stop'
-          $root='CumulativeDeltaScalper-Forex-M1-Q3'
-          $project=Join-Path $root 'CumulativeDeltaScalper_Forex_M1_Q3.csproj'
-          $out=Join-Path $root 'builds'
-          New-Item -ItemType Directory -Force -Path $out | Out-Null
-          dotnet restore $project
-          dotnet build $project -c Release -p:AlgoBuild=true -p:AlgoPublish=false -p:IncludeSource=true
-          $algo=Get-ChildItem -Path $root -Recurse -Filter '*.algo' | Sort-Object LastWriteTime -Descending | Select-Object -First 1
-          if(-not $algo){ throw 'No .algo generated' }
-          Copy-Item $algo.FullName (Join-Path $out 'CDScalper_Forex_M1_Q3.algo') -Force
+          set -euo pipefail
+          dotnet --info
+      - name: Build Q3 .algo
+        shell: bash
+        run: |
+          set -euo pipefail
+          root='CumulativeDeltaScalper-Forex-M1-Q3'
+          project="$root/CumulativeDeltaScalper_Forex_M1_Q3.csproj"
+          out="$root/builds"
+          mkdir -p "$out"
+          dotnet restore "$project"
+          dotnet build "$project" -c Release -p:AlgoBuild=true -p:AlgoPublish=false -p:IncludeSource=true
+          algo=$(find "$root" -type f -name '*.algo' -printf '%T@ %p\n' | sort -nr | head -1 | cut -d' ' -f2-)
+          if [ -z "${algo:-}" ]; then echo 'No .algo generated' >&2; exit 1; fi
+          cp "$algo" "$out/CDScalper_Forex_M1_Q3.algo"
       - uses: actions/upload-artifact@v4
         with:
           name: CDScalper_Forex_M1_Q3_algo
