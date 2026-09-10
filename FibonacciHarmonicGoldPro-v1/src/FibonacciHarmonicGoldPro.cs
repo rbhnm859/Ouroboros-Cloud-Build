@@ -802,7 +802,7 @@ namespace cAlgo.Robots
                     return;
             }
 
-            TradeResult r = ModifyPosition(p, desiredStop, p.TakeProfit, p.HasTrailingStop, StopTriggerMethod.Trade);
+            TradeResult r = p.ModifyStopLossPrice(desiredStop);
             if (r.IsSuccessful)
             {
                 plan.LastStopModifyUtc = Server.Time;
