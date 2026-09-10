@@ -61,7 +61,7 @@ jobs:
 
   backtest:
     needs: build
-    name: XAUUSD M15-H1 1Y-3Y shared-cache
+    name: XAUUSD M15-H1 1Y-3Y shared-cache 10K
     runs-on: ubuntu-latest
     timeout-minutes: 120
     steps:
@@ -98,7 +98,7 @@ jobs:
             WINDOW="$2"
             START="$3"
             END="$4"
-            OUT="XAUUSD-${PERIOD}-${WINDOW}"
+            OUT="XAUUSD-${PERIOD}-${WINDOW}-10K"
             echo "===== START ${OUT}: ${START} -> ${END} ====="
             docker run --rm \
               -v "$PWD/backtest:/work" \
@@ -112,7 +112,7 @@ jobs:
               --period="$PERIOD" \
               --start="$START" \
               --end="$END" \
-              --balance=100 \
+              --balance=10000 \
               --data-mode=m1 \
               --data-dir=/work/cache \
               --report="/work/reports/${OUT}.html" \
@@ -121,7 +121,6 @@ jobs:
             echo "===== DONE ${OUT} ====="
           }
 
-          # Run the widest windows first so later tests can reuse the downloaded M1 history.
           run_bt m15 3Y '10/09/2023' '10/09/2026'
           run_bt h1  3Y '10/09/2023' '10/09/2026'
           run_bt m15 1Y '10/09/2025' '10/09/2026'
@@ -160,12 +159,12 @@ jobs:
 
           rows=[]
           for period,window,start,end in specs:
-              p=Path(f'backtest/reports/XAUUSD-{period}-{window}.json')
+              p=Path(f'backtest/reports/XAUUSD-{period}-{window}-10K.json')
               d=json.loads(p.read_text())
               flat={}; flatten(d,flat)
               row={
                   'symbol':'XAUUSD','period':period,'window':window,
-                  'start':start,'end':end,'starting_balance':100,
+                  'start':start,'end':end,'starting_balance':10000,
                   'total_trades':pick(flat,'TotalTrades','Trades'),
                   'winning_trades':pick(flat,'WinningTrades','WinningPositions','Wins'),
                   'losing_trades':pick(flat,'LosingTrades','LosingPositions','Losses'),
@@ -176,9 +175,9 @@ jobs:
                   'ending_balance':pick(flat,'EndingBalance','Balance'),
               }
               rows.append(row)
-              Path(f'backtest/reports/XAUUSD-{period}-{window}-summary.json').write_text(json.dumps(row,ensure_ascii=False,indent=2))
+              Path(f'backtest/reports/XAUUSD-{period}-{window}-10K-summary.json').write_text(json.dumps(row,ensure_ascii=False,indent=2))
 
-          Path('backtest/reports/comparison-summary.json').write_text(json.dumps(rows,ensure_ascii=False,indent=2))
+          Path('backtest/reports/comparison-summary-10K.json').write_text(json.dumps(rows,ensure_ascii=False,indent=2))
           print(json.dumps(rows,ensure_ascii=False,indent=2))
           PYCODE
 
@@ -190,7 +189,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: HarmonyBot-XAUUSD-M15-H1-1Y-3Y
+          name: HarmonyBot-XAUUSD-M15-H1-1Y-3Y-10K
           path: backtest/reports/
           if-no-files-found: warn
           retention-days: 30
