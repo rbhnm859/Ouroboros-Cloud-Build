@@ -2,6 +2,11 @@ name: Backtest Original K EURUSD 1Y 3Y
 
 on:
   workflow_dispatch:
+  push:
+    branches: [ cds-original-k-1y-3y-backtest ]
+    paths:
+      - '.github/workflows/cdscalper-original-k-1y-3y-backtest.yml'
+      - 'CumulativeDeltaScalper-EURUSD-v1/**'
 
 permissions:
   contents: read
@@ -9,10 +14,10 @@ permissions:
 env:
   SYMBOL: EURUSD
   PERIOD: m1
-  BALANCE: '30'
+  BALANCE: '100'
   SPREAD: '0.43'
   COMMISSION: '35'
-  CTRADER_IMAGE: ghcr.io/spotware/ctrader-console:latest
+  CTRADER_IMAGE: ghcr.io/spotware/ctrader-console:5.9.11
 
 jobs:
   original_k_backtest:
@@ -24,10 +29,10 @@ jobs:
         include:
           - label: 1Y
             start: '11/09/2025 00:00'
-            end: '10/09/2026 23:59'
+            end: '10/09/2026 22:00'
           - label: 3Y
             start: '11/09/2023 00:00'
-            end: '10/09/2026 23:59'
+            end: '10/09/2026 22:00'
     env:
       CTID: ${{ secrets.CTRADER_CTID }}
       ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
@@ -35,7 +40,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Resolve Original K source package and build exact K
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '6.0.x'
+
+      - name: Build exact Original K source
         shell: bash
         run: |
           set -euo pipefail
@@ -56,16 +65,79 @@ jobs:
           echo "digest=$DIGEST" >> "$GITHUB_OUTPUT"
           printf '%s\n' "$DIGEST" > backtest/reports/ctrader-image-digest.txt
 
-      - name: Run Original K ${{ matrix.label }} server-tick backtest
+      - name: Run Original K ${{ matrix.label }} FxPro broker-data backtest
         shell: bash
         run: |
           set -euo pipefail
+          test -n "$CTID"
+          test -n "$ACCOUNT"
+          test -n "$CT_PASS"
           printf '%s' "$CT_PASS" | tr -d '\r\n' > backtest/ctrader.pwd
           chmod 600 backtest/ctrader.pwd
           LOG="backtest/reports/ORIGINAL_K_${{ matrix.label }}.log"
-          docker run --rm -v "$PWD/backtest:/work" -e "CTID=$CTID" -e "ACCOUNT=$ACCOUNT" -e "PWD-FILE=/work/ctrader.pwd" "${{ steps.cli.outputs.digest }}" backtest /work/ORIGINAL_K.algo --environment-variables --symbol="$SYMBOL" --period="$PERIOD" --start="${{ matrix.start }}" --end="${{ matrix.end }}" --balance="$BALANCE" --data-mode=ticks --data-dir=/work/cache/EURUSD --spread="$SPREAD" --commission="$COMMISSION" --ExpectedLeverage=500 --report="/work/reports/ORIGINAL_K_${{ matrix.label }}.html" --report-json="/work/reports/ORIGINAL_K_${{ matrix.label }}.json" --exit-on-stop 2>&1 | tee "$LOG"
+          docker run --rm -v "$PWD/backtest:/work" \
+            -e "CTID=$CTID" -e "ACCOUNT=$ACCOUNT" -e "PWD-FILE=/work/ctrader.pwd" \
+            "${{ steps.cli.outputs.digest }}" \
+            backtest /work/ORIGINAL_K.algo --environment-variables \
+            --symbol="$SYMBOL" --period="$PERIOD" \
+            --start="${{ matrix.start }}" --end="${{ matrix.end }}" \
+            --balance="$BALANCE" --data-mode=m1 --data-dir=/work/cache/EURUSD \
+            --spread="$SPREAD" --commission="$COMMISSION" \
+            --report="/work/reports/ORIGINAL_K_${{ matrix.label }}.html" \
+            --report-json="/work/reports/ORIGINAL_K_${{ matrix.label }}.json" \
+            --exit-on-stop 2>&1 | tee "$LOG"
           rm -f backtest/ctrader.pwd
           test -f "backtest/reports/ORIGINAL_K_${{ matrix.label }}.json"
+
+      - name: Build metric summary
+        if: always()
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json, pathlib, math
+          label='${{ matrix.label }}'
+          p=pathlib.Path(f'backtest/reports/ORIGINAL_K_{label}.json')
+          out={
+            'label':label,
+            'symbol':'EURUSD',
+            'period':'M1',
+            'starting_balance':100,
+            'requested_account_leverage':'1:500 (account-side; cTrader CLI has no backtest leverage override)',
+            'spread_pips':0.43,
+            'commission_usd_per_million':35,
+            'data_mode':'m1 server broker data',
+            'date_start':'${{ matrix.start }}',
+            'date_end':'${{ matrix.end }}',
+            'status':'report_missing' if not p.exists() else 'completed'
+          }
+          if p.exists():
+            d=json.loads(p.read_text(errors='replace'))
+            main=d.get('main') or {}
+            equity=d.get('equity') or {}
+            hist=((d.get('history') or {}).get('items') or [])
+            nets=[]
+            for t in hist:
+              try: nets.append(float(t.get('net',0) or 0))
+              except Exception: pass
+            wins=sum(x>0 for x in nets); losses=sum(x<0 for x in nets)
+            gp=sum(x for x in nets if x>0); gl=-sum(x for x in nets if x<0)
+            total=len(nets)
+            out.update({
+              'net_profit': main.get('netProfit'),
+              'ending_balance': (100 + float(main.get('netProfit') or 0)) if main.get('netProfit') is not None else None,
+              'total_trades': total,
+              'wins': wins,
+              'losses': losses,
+              'win_rate_percent': (wins/total*100 if total else None),
+              'profit_factor': (gp/gl if gl>0 else (math.inf if gp>0 else None)),
+              'max_equity_drawdown_percent': equity.get('maxEquityDrawdownPercent'),
+              'average_trade': (sum(nets)/total if total else None),
+              'largest_win': (max(nets) if nets else None),
+              'largest_loss': (min(nets) if nets else None)
+            })
+          pathlib.Path(f'backtest/reports/ORIGINAL_K_{label}_summary.json').write_text(json.dumps(out,indent=2,ensure_ascii=False))
+          print(json.dumps(out,indent=2,ensure_ascii=False))
+          PY
 
       - name: Upload Original K ${{ matrix.label }} report
         if: always()
