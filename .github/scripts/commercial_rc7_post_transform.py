@@ -8,7 +8,7 @@ if len(sys.argv) != 2:
 out = Path(sys.argv[1]).resolve()
 base = out.parent
 policy = json.loads(Path('.github/policies/commercial_rc7_policy.json').read_text())
-if policy.get('policy_version') != 'RC7A-2026-09-10':
+if policy.get('policy_version') != 'RC7B-2026-09-10':
     raise SystemExit('RC7 post-transform policy version mismatch')
 if policy.get('candidate_count') != 1:
     raise SystemExit('RC7 must remain a single predeclared candidate')
@@ -56,4 +56,4 @@ if 'CommercialArbitrateH1BeforeExecution(best)' not in final_main:
     raise SystemExit('RC7 deterministic H1 arbitration missing')
 if 'CommercialQueueDeferredM30(best, lastClosed, round21Bypass)' not in final_main:
     raise SystemExit('RC7 deferred M30 queue hook missing')
-print('Commercial RC7A post-transform applied: frozen control reservation preserved; candidate uses deterministic H1 priority + deferred M30 TTL + decision ledger')
+print('Commercial RC7B post-transform applied: frozen control reservation preserved; candidate uses deterministic H1 priority + deferred M30 TTL + decision ledger')
