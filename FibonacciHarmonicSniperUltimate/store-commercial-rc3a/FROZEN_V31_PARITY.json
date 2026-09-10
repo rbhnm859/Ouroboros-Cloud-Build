@@ -1,0 +1,55 @@
+{
+  "source_run_id": 34443631233,
+  "source_commit": "845d803d97044056601db54d7abe0f9d81526e60",
+  "artifact_id": 10139372191,
+  "artifact_sha256": "99f726a1aa6870d313d55ccd2b5cb2f78c0c7b791ddef2e4d6bab45dda9f0baf",
+  "canonical_trade_hash_fields": [
+    "entryTime",
+    "closeTime",
+    "direction",
+    "comment",
+    "entryPrice",
+    "closePrice",
+    "volume",
+    "net",
+    "pips"
+  ],
+  "profiles": {
+    "moderate_3y": {
+      "path": "moderate-3y/report.json",
+      "trades": 255,
+      "roi": 35.66,
+      "pf": 1.32,
+      "dd": 17.265734414878185,
+      "trade_hash": "8f73d7d0224c16b2852de668a055c546eab22b159ed91be80cbb1023f6d1c676"
+    },
+    "recent": {
+      "path": "recent-a/report.json",
+      "trades": 98,
+      "roi": 39.55,
+      "pf": 2.05,
+      "dd": 5.646323173396001,
+      "trade_hash": "92bd4492cda8b3b7029f831c41fa7874820ef2fa7a198ba5e695fd7561dd4a2f"
+    },
+    "y1": {
+      "path": "y1/report.json",
+      "trades": 86,
+      "trade_hash": "f3dbd274c6a3f355bce6ec904450098c01c1bcd5d1cb8819495a1db17f42d1ea"
+    },
+    "y2": {
+      "path": "y2/report.json",
+      "trades": 59,
+      "trade_hash": "a51c9151c641455de212572105de763f2f0379d7fae4b4c91af2aae8588f808e"
+    },
+    "harsh_3y": {
+      "path": "harsh-3y/report.json",
+      "trades": 239,
+      "trade_hash": "5f71ed5c2d19e37489d6634cd800a8fb0387c6d27023becd5385fe1b20f1986e"
+    },
+    "harsh_recent": {
+      "path": "harsh-y3/report.json",
+      "trades": 94,
+      "trade_hash": "bc0d2f04a6c8d1f931c40384c10986bf4c0a5a8134f55472ded8f333af1b1308"
+    }
+  }
+}
