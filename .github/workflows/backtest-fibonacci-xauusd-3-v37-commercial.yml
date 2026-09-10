@@ -1,0 +1,41 @@
+name: Fibonacci XAUUSD 3 - v3.7 Commercial Architecture Validation
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - fibonacci-xauusd-v3-hybrid
+    paths:
+      - '.github/workflows/backtest-fibonacci-xauusd-3-v37-commercial.yml'
+      - 'FibonacciHarmonicSniperUltimate/versions/xauusd_3/tools/v37_commercial_validate.sh'
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 330
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run v3.7 commercial architecture validation
+        shell: bash
+        env:
+          CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+          CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+          CTRADER_PASSWORD: ${{ secrets.CTRADER_PASSWORD }}
+        run: bash FibonacciHarmonicSniperUltimate/versions/xauusd_3/tools/v37_commercial_validate.sh
+
+      - name: Upload v3.7 validation evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: xauusd_3-v37-commercial-validation
+          path: |
+            FibonacciHarmonicSniperUltimate/versions/xauusd_3/validation-v37-commercial/V37_COMMERCIAL_REPORT.md
+            FibonacciHarmonicSniperUltimate/versions/xauusd_3/validation-v37-commercial/reports/
+            FibonacciHarmonicSniperUltimate/versions/xauusd_3/v37/src/
+            FibonacciHarmonicSniperUltimate/versions/xauusd_3/v37/builds/
+            FibonacciHarmonicSniperUltimate/versions/xauusd_3/v37/reports/
+          retention-days: 60
