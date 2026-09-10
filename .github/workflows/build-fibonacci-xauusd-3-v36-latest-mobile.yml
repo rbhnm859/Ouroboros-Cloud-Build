@@ -1,0 +1,99 @@
+name: Fibonacci XAUUSD 3 - v3.6 Latest Mobile Build
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [fibonacci-xauusd-v3-hybrid]
+    paths:
+      - '.github/workflows/build-fibonacci-xauusd-3-v36-latest-mobile.yml'
+      - 'FibonacciHarmonicSniperUltimate/versions/xauusd_3/src/FibonacciXAUUSD3.cs'
+      - 'FibonacciHarmonicSniperUltimate/versions/xauusd_3/FibonacciXAUUSD3.csproj'
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fibonacci-xauusd-v3-hybrid
+          fetch-depth: 0
+
+      - name: Verify v3.6 source
+        shell: bash
+        run: |
+          set -euo pipefail
+          SRC='FibonacciHarmonicSniperUltimate/versions/xauusd_3/src/FibonacciXAUUSD3.cs'
+          test -s "$SRC"
+          grep -q 'v3.6.0-safety-hardening' "$SRC"
+          grep -q 'RestoreDailyStateFromHistory' "$SRC"
+          grep -q 'EnsureProtectionIntegrity' "$SRC"
+          grep -q 'HasAnySymbolExposure' "$SRC"
+          grep -q 'MinimumRiskReward' "$SRC"
+
+      - name: Pull official cTrader CLI image
+        run: docker pull ghcr.io/spotware/ctrader-console:5.9.11
+
+      - name: Build .algo with official cTrader toolchain
+        shell: bash
+        run: |
+          set -euo pipefail
+          ROOT='FibonacciHarmonicSniperUltimate/versions/xauusd_3'
+          docker run --rm --entrypoint sh \
+            -v "$PWD:/repo" -w /repo \
+            ghcr.io/spotware/ctrader-console:5.9.11 \
+            -c "dotnet restore '$ROOT/FibonacciXAUUSD3.csproj' && dotnet build '$ROOT/FibonacciXAUUSD3.csproj' -c Release --no-restore -p:AlgoPublish=False -p:IncludeSource=True"
+
+          ALGO="$(find "$ROOT" -type f -name '*.algo' -print -quit)"
+          test -n "$ALGO"
+          test -s "$ALGO"
+
+          mkdir -p "$ROOT/builds"
+          OUT="$ROOT/builds/FibonacciXAUUSD3-v3.6-Latest-Mobile.algo"
+          cp "$ALGO" "$OUT"
+          sha256sum "$OUT" > "$ROOT/builds/FibonacciXAUUSD3-v3.6-Latest-Mobile.algo.sha256"
+
+          {
+            echo '# FibonacciXAUUSD3 v3.6 Latest Mobile Build'
+            echo
+            echo '- Source version: v3.6.0-safety-hardening'
+            echo '- Toolchain: ghcr.io/spotware/ctrader-console:5.9.11'
+            echo '- Target: cTrader Mobile / Cloud compatible .algo'
+            echo "- Commit: ${GITHUB_SHA}"
+            echo "- UTC build time: $(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+            echo
+            echo '## Integrity'
+            echo '```text'
+            cat "$ROOT/builds/FibonacciXAUUSD3-v3.6-Latest-Mobile.algo.sha256"
+            echo '```'
+          } > "$ROOT/builds/V3.6_LATEST_BUILD_INFO.md"
+
+      - name: Upload downloadable artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: FibonacciXAUUSD3-v3.6-Latest-Mobile
+          path: |
+            FibonacciHarmonicSniperUltimate/versions/xauusd_3/builds/FibonacciXAUUSD3-v3.6-Latest-Mobile.algo
+            FibonacciHarmonicSniperUltimate/versions/xauusd_3/builds/FibonacciXAUUSD3-v3.6-Latest-Mobile.algo.sha256
+            FibonacciHarmonicSniperUltimate/versions/xauusd_3/builds/V3.6_LATEST_BUILD_INFO.md
+          retention-days: 90
+
+      - name: Commit latest .algo to repository
+        shell: bash
+        run: |
+          set -euo pipefail
+          ROOT='FibonacciHarmonicSniperUltimate/versions/xauusd_3'
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add "$ROOT/builds/FibonacciXAUUSD3-v3.6-Latest-Mobile.algo" \
+                  "$ROOT/builds/FibonacciXAUUSD3-v3.6-Latest-Mobile.algo.sha256" \
+                  "$ROOT/builds/V3.6_LATEST_BUILD_INFO.md"
+          if git diff --cached --quiet; then
+            echo 'Build output unchanged; nothing to commit.'
+          else
+            git commit -m 'build(xauusd_3): publish v3.6 latest mobile algo [skip ci]'
+            git push origin HEAD:fibonacci-xauusd-v3-hybrid
+          fi
