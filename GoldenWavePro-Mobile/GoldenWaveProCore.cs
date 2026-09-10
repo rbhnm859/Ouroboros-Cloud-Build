@@ -1,1 +1,1 @@
-PLACEHOLDER
+// Intentionally kept as a marker file. The cTrader-compatible implementation is in GoldenWaveProMobile.cs.
