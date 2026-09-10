@@ -230,7 +230,7 @@ namespace cAlgo.Robots
         {
             if (!ValidateSymbol() || TimeFrame != TimeFrame.Minute)
             {
-                Print(Prefix + "K3 commercial research requires EURUSD M1.");
+                Print(Prefix + "K3 engineering audit requires EURUSD M1.");
                 Stop();
                 return;
             }
@@ -255,7 +255,7 @@ namespace cAlgo.Robots
             _accountPeakEquity = Account.Equity;
             Positions.Closed += OnPositionClosed;
             RestoreRuntimeState();
-            Debug("started; Flow-First hierarchy active; mandatory 3-bar delta persistence + closed-bar price acceptance + 2/4 context; cost gate floor=1.0; hard protections retained");
+            Debug("started; engineering-audit build; K3 C-FAIL status unchanged; entry context reads closed M15 values; threshold-cross telemetry enabled");
         }
 
         protected override void OnStop()
@@ -326,6 +326,23 @@ namespace cAlgo.Robots
             return TimeFrame.Minute15;
         }
 
+        private int ClosedM1Index()
+        {
+            return Bars.ClosePrices.Count - 2;
+        }
+
+        private int ClosedHtfIndex()
+        {
+            return _htfBars == null ? -1 : _htfBars.ClosePrices.Count - 2;
+        }
+
+        private double ClosedAtrValue()
+        {
+            int index = ClosedM1Index();
+            if (index < 0 || index >= _atr.Result.Count) return 0.0;
+            return _atr.Result[index];
+        }
+
         private void ProcessTickDelta()
         {
             double bid = Symbol.Bid;
@@ -359,7 +376,7 @@ namespace cAlgo.Robots
 
         private int EstimateClosedBarDelta()
         {
-            int index = Bars.ClosePrices.Count - 2;
+            int index = ClosedM1Index();
             if (index < 0) return 0;
             double open = Bars.OpenPrices[index];
             double close = Bars.ClosePrices[index];
@@ -398,42 +415,100 @@ namespace cAlgo.Robots
                 return 0;
             }
 
-            if (!CheckMomentum(signal))
+            int d1;
+            int d2;
+            int d3;
+            GetLastThreeDelta(out d1, out d2, out d3);
+            bool flowPersistent = IsFlowPersistent(signal, d1, d2, d3);
+
+            int closedIndex = ClosedM1Index();
+            double closedOpen = closedIndex >= 0 ? Bars.OpenPrices[closedIndex] : 0.0;
+            double closedClose = closedIndex >= 0 ? Bars.ClosePrices[closedIndex] : 0.0;
+            bool priceAccepted = closedIndex >= 0 && (signal > 0 ? closedClose > closedOpen : closedClose < closedOpen);
+
+            bool htfEmaOk = CheckHtfEma(signal);
+            bool emaSlopeOk = CheckEmaSlope(signal);
+            bool adxOk = CheckClosedHtfAdx();
+            bool spreadOk = CheckSpreadDynamic();
+            int context = (htfEmaOk ? 1 : 0) + (emaSlopeOk ? 1 : 0) + (adxOk ? 1 : 0) + (spreadOk ? 1 : 0);
+            double atr = ClosedAtrValue();
+            double estimatedCost = EstimateCandidateCostPips(atr);
+
+            string decision = "ACCEPT";
+            string reason = "none";
+            if (!flowPersistent)
             {
-                Skip("entry_flow_not_persistent");
+                decision = "REJECT";
+                reason = "entry_flow_not_persistent";
+            }
+            else if (closedIndex < 0)
+            {
+                decision = "REJECT";
+                reason = "entry_closed_bar_unavailable";
+            }
+            else if (!priceAccepted)
+            {
+                decision = "REJECT";
+                reason = "entry_price_rejected_flow";
+            }
+            else if (context < RequiredContextConfirmations)
+            {
+                decision = "REJECT";
+                reason = "entry_context_insufficient_" + context;
+            }
+
+            AuditSignal(signal, previous, cumulativeDelta, d1, d2, d3, priceAccepted, htfEmaOk, emaSlopeOk, adxOk, spreadOk, context, atr, estimatedCost, decision, reason);
+
+            if (decision != "ACCEPT")
+            {
+                Skip(reason);
                 return 0;
             }
 
-            int closedIndex = Bars.ClosePrices.Count - 2;
-            if (closedIndex < 0)
-            {
-                Skip("entry_closed_bar_unavailable");
-                return 0;
-            }
-
-            double open = Bars.OpenPrices[closedIndex];
-            double close = Bars.ClosePrices[closedIndex];
-            bool priceAccepted = signal > 0 ? close > open : close < open;
-            if (!priceAccepted)
-            {
-                Skip("entry_price_rejected_flow");
-                return 0;
-            }
-
-            int context = 0;
-            if (CheckHtfEma(signal)) context++;
-            if (CheckEmaSlope(signal)) context++;
-            if (_htfDms.ADX.LastValue >= AdxThreshold) context++;
-            if (CheckSpreadDynamic()) context++;
-
-            if (context < RequiredContextConfirmations)
-            {
-                Skip("entry_context_insufficient_" + context);
-                return 0;
-            }
-
-            Debug("SIGNAL_ACCEPT dir=" + signal + " cumDelta=" + cumulativeDelta + " prev=" + previous + " context=" + context + " closedOpen=" + open.ToString("F5") + " closedClose=" + close.ToString("F5") + " atr=" + _atr.Result.LastValue.ToString("F6") + " spreadPts=" + SpreadInPoints());
             return signal;
+        }
+
+        private void GetLastThreeDelta(out int d1, out int d2, out int d3)
+        {
+            d1 = DeltaFromNewest(1);
+            d2 = DeltaFromNewest(2);
+            d3 = DeltaFromNewest(3);
+        }
+
+        private int DeltaFromNewest(int offset)
+        {
+            if (_bufferFilled < offset || offset <= 0) return 0;
+            int idx = (_bufferIndex - offset + _deltaBuffer.Length) % _deltaBuffer.Length;
+            return _deltaBuffer[idx];
+        }
+
+        private bool IsFlowPersistent(int signal, int d1, int d2, int d3)
+        {
+            if (_bufferFilled < 3) return false;
+            if (signal > 0) return d1 > 0 && d2 > 0 && d3 > 0;
+            return d1 < 0 && d2 < 0 && d3 < 0;
+        }
+
+        private void AuditSignal(int signal, int previous, int cumulativeDelta, int d1, int d2, int d3, bool priceAccepted, bool htfEmaOk, bool emaSlopeOk, bool adxOk, bool spreadOk, int context, double atr, double estimatedCostPips, string decision, string skipReason)
+        {
+            Debug("SIGNAL_AUDIT ts=" + Server.Time.ToUniversalTime().ToString("O")
+                + " dir=" + signal
+                + " prevDelta=" + previous
+                + " cumDelta=" + cumulativeDelta
+                + " d1=" + d1
+                + " d2=" + d2
+                + " d3=" + d3
+                + " priceAccepted=" + priceAccepted
+                + " htfEma=" + htfEmaOk
+                + " emaSlope=" + emaSlopeOk
+                + " adx=" + adxOk
+                + " spread=" + spreadOk
+                + " context=" + context
+                + " atr=" + atr.ToString("F6")
+                + " spreadPts=" + SpreadInPoints()
+                + " estimatedCostPips=" + estimatedCostPips.ToString("F2")
+                + " decision=" + decision
+                + " skipReason=" + skipReason);
         }
 
         private int CalculateCumulativeDelta()
@@ -445,30 +520,37 @@ namespace cAlgo.Robots
 
         private bool CheckMomentum(int signal)
         {
-            if (_bufferFilled < 3) return false;
-            for (int i = 1; i <= 3; i++)
-            {
-                int idx = (_bufferIndex - i + _deltaBuffer.Length) % _deltaBuffer.Length;
-                int d = _deltaBuffer[idx];
-                if (signal > 0 && d <= 0) return false;
-                if (signal < 0 && d >= 0) return false;
-            }
-            return true;
+            int d1;
+            int d2;
+            int d3;
+            GetLastThreeDelta(out d1, out d2, out d3);
+            return IsFlowPersistent(signal, d1, d2, d3);
         }
 
         private bool CheckHtfEma(int signal)
         {
-            double ema = _htfEma.Result.LastValue;
+            int htfIndex = ClosedHtfIndex();
+            int m1Index = ClosedM1Index();
+            if (htfIndex < 0 || htfIndex >= _htfEma.Result.Count || m1Index < 0) return false;
+            double ema = _htfEma.Result[htfIndex];
+            double closedM1Price = Bars.ClosePrices[m1Index];
             if (ema <= 0) return false;
-            return signal > 0 ? Symbol.Bid > ema : Symbol.Bid < ema;
+            return signal > 0 ? closedM1Price > ema : closedM1Price < ema;
         }
 
         private bool CheckEmaSlope(int signal)
         {
-            int last = _htfEma.Result.Count - 1;
+            int last = ClosedHtfIndex();
             int bars = Math.Max(1, EmaSlopeBars);
-            if (last < bars) return false;
+            if (last < bars || last >= _htfEma.Result.Count) return false;
             return signal > 0 ? _htfEma.Result[last] > _htfEma.Result[last - bars] : _htfEma.Result[last] < _htfEma.Result[last - bars];
+        }
+
+        private bool CheckClosedHtfAdx()
+        {
+            int last = ClosedHtfIndex();
+            if (last < 0 || last >= _htfDms.ADX.Count) return false;
+            return _htfDms.ADX[last] >= AdxThreshold;
         }
 
         private bool CheckSpreadDynamic()
@@ -496,7 +578,8 @@ namespace cAlgo.Robots
             if (IsAccountEquityDrawdownHit()) { reason = "account_equity_drawdown_hit"; return false; }
             if (_lastTradeTime != DateTime.MinValue && Server.Time < _lastTradeTime.AddSeconds(MinSecondsBetweenTrades)) { reason = "cooldown_active"; return false; }
             if (_lastLossTime != DateTime.MinValue && Server.Time < _lastLossTime.AddMinutes(LossCooldownMinutes)) { reason = "loss_cooldown_active"; return false; }
-            double atr = _atr.Result.LastValue;
+            double atr = ClosedAtrValue();
+            if (atr <= 0) { reason = "closed_atr_unavailable"; return false; }
             if (atr < MinAtr) { reason = "atr_too_low"; return false; }
             if (MaxAtr > 0 && atr > MaxAtr) { reason = "atr_too_high"; return false; }
             return true;
@@ -527,7 +610,7 @@ namespace cAlgo.Robots
 
         private void OpenTrade(int signal)
         {
-            double atr = _atr.Result.LastValue;
+            double atr = ClosedAtrValue();
             double slPips = PriceDistanceToPips(atr * SlAtrMultiplier);
             double tpPips = PriceDistanceToPips(atr * TpAtrMultiplier);
             string reason;
@@ -557,6 +640,18 @@ namespace cAlgo.Robots
             _breakevenApplied = false;
             _dailyTradeCount++;
             Debug("OPEN " + type + " vol=" + volume + " sl=" + slPips.ToString("F2") + " tp=" + tpPips.ToString("F2") + " costPips=" + totalCostPips.ToString("F2") + " moveCost=" + ratio.ToString("F2"));
+        }
+
+        private double EstimateCandidateCostPips(double atr)
+        {
+            if (atr <= 0) return 0.0;
+            double slPips = PriceDistanceToPips(atr * SlAtrMultiplier);
+            double riskMoney = CalculateRiskMoney();
+            double volume = CalculateVolumeInUnits(slPips, riskMoney);
+            if (volume <= 0) volume = Symbol.VolumeInUnitsMin;
+            volume = Math.Min(Math.Max(volume, Symbol.VolumeInUnitsMin), Symbol.VolumeInUnitsMax);
+            volume = Symbol.NormalizeVolumeInUnits(volume, RoundingMode.Down);
+            return EstimateRoundTripCostPips(volume);
         }
 
         private double EstimateRoundTripCostPips(double volume)
@@ -642,7 +737,7 @@ namespace cAlgo.Robots
         private bool IsConfirmedClosedBarAdverse(Position p)
         {
             if (_bufferFilled < _deltaBuffer.Length) return false;
-            int index = Bars.ClosePrices.Count - 2;
+            int index = ClosedM1Index();
             if (index < 0) return false;
             int cumulativeDelta = CalculateCumulativeDelta();
             double open = Bars.OpenPrices[index];
