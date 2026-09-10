@@ -7,6 +7,6 @@
     <RootNamespace>cAlgo.Robots</RootNamespace>
   </PropertyGroup>
   <ItemGroup>
-    <PackageReference Include="cTrader.Automate" Version="1.*-*" />
+    <PackageReference Include="cTrader.Automate" Version="1.0.19" />
   </ItemGroup>
 </Project>
