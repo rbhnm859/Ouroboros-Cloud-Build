@@ -1,0 +1,198 @@
+name: Validate CDScalper K4 Price-First IS
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [cds-k4-price-first-breakout-research]
+    paths:
+      - 'CumulativeDeltaScalper-EURUSD-v1/k4/**'
+      - '.github/scripts/cdscalper_report_gate.py'
+      - '.github/workflows/cdscalper-k4-price-first-is.yml'
+
+permissions:
+  contents: read
+
+env:
+  SYMBOL: EURUSD
+  PERIOD: m1
+  BALANCE: '30'
+  BASE_SPREAD: '0.43'
+  COMMISSION: '35'
+  IS_START: '09/09/2024 00:00'
+  IS_END: '08/09/2025 23:59'
+  CTRADER_IMAGE_CANDIDATE: ghcr.io/spotware/ctrader-console:latest
+
+jobs:
+  audit_build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    outputs:
+      ctrader_image: ${{ steps.cli_image.outputs.digest }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+
+      - name: Verify K3 stop rule and K4 precommit
+        shell: bash
+        run: |
+          set -euo pipefail
+          K3_RESULT='CumulativeDeltaScalper-EURUSD-v1/reports/K3_FLOW_FIRST_CORRECTED_IS_STOP_RESULT.md'
+          K4_SPEC='CumulativeDeltaScalper-EURUSD-v1/k4/docs/PRECOMMIT_SPEC.md'
+          test -f "$K3_RESULT"
+          grep -q 'Classification: C — FAIL' "$K3_RESULT"
+          test ! -f 'CumulativeDeltaScalper-EURUSD-v1/k3/FREEZE_MANIFEST.json'
+          test -f "$K4_SPEC"
+          grep -q 'K4 Price-First Breakout' "$K4_SPEC"
+          grep -q 'Breakout lookback: exactly 5' "$K4_SPEC"
+          grep -q 'TP = 1.2 ATR' "$K4_SPEC"
+          echo 'K3 stop rule preserved and K4 architecture precommitted before IS.'
+
+      - name: Verify K4 engineering and anti-overfit invariants
+        shell: bash
+        run: |
+          set -euo pipefail
+          SRC='CumulativeDeltaScalper-EURUSD-v1/k4/src/CumulativeDeltaScalper_EURUSD_K4.cs'
+          PROJ='CumulativeDeltaScalper-EURUSD-v1/k4/CumulativeDeltaScalper_EURUSD_K4.csproj'
+          test -f "$SRC"
+          test -f "$PROJ"
+          grep -q 'AccessRights = AccessRights.None' "$SRC"
+          grep -q '<TargetFramework>net6.0</TargetFramework>' "$PROJ"
+          grep -q 'private const int BreakoutLookback = 5;' "$SRC"
+          grep -q 'private const double CloseLocationFraction = 0.30;' "$SRC"
+          grep -q 'private const int DeltaWindowSize = 10;' "$SRC"
+          grep -q 'private const double SlAtrMultiplier = 0.8;' "$SRC"
+          grep -q 'private const double TpAtrMultiplier = 1.2;' "$SRC"
+          grep -q 'private const double AdxThreshold = 16.0;' "$SRC"
+          grep -q 'private const int EmaSlopeBars = 3;' "$SRC"
+          grep -q 'ClosedHtfIndex()' "$SRC"
+          grep -q '_htfBars.ClosePrices.Count - 2' "$SRC"
+          grep -q 'SIGNAL_AUDIT ts=' "$SRC"
+          grep -q 'ExecuteMarketOrder(type, SymbolName, volume, TradeLabel, slPips, tpPips)' "$SRC"
+          grep -q 'NormalizeVolumeInUnits' "$SRC"
+          grep -q 'MinStopLossDistance' "$SRC"
+          grep -q 'MinTakeProfitDistance' "$SRC"
+          grep -q 'Account.PreciseLeverage' "$SRC"
+          grep -q 'GetOpenPosition()' "$SRC"
+          if grep -q 'DeltaThreshold' "$SRC"; then
+            echo 'K4 source unexpectedly contains DeltaThreshold trigger surface.'
+            exit 1
+          fi
+          if grep -Eiq '\b(Grid|Martingale|DCA|Recovery|Loss Averaging|Hedging|averaging down|reverse recovery)\b' "$SRC"; then
+            echo 'Forbidden strategy element found in K4 source.'
+            exit 1
+          fi
+          echo 'K4 fixed price-first architecture and safety invariants verified.'
+
+      - name: Resolve and pin cTrader Console image
+        id: cli_image
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p audit
+          docker pull "$CTRADER_IMAGE_CANDIDATE"
+          DIGEST="$(docker inspect --format='{{index .RepoDigests 0}}' "$CTRADER_IMAGE_CANDIDATE")"
+          test -n "$DIGEST"
+          echo "digest=$DIGEST" >> "$GITHUB_OUTPUT"
+          printf '%s\n' "$DIGEST" | tee audit/ctrader-image-digest.txt
+          docker run --rm "$DIGEST" --version > audit/ctrader-version.txt 2>&1 || true
+          cat audit/ctrader-version.txt || true
+
+      - name: Build exact K4 research algo
+        shell: bash
+        run: |
+          set -euo pipefail
+          dotnet build CumulativeDeltaScalper-EURUSD-v1/k4/CumulativeDeltaScalper_EURUSD_K4.csproj -c Release -p:AlgoBuild=true
+          ALGO="$(find CumulativeDeltaScalper-EURUSD-v1/k4/bin/Release/net6.0 -maxdepth 1 -type f -name '*.algo' -print -quit)"
+          test -n "$ALGO"
+          mkdir -p package/k4
+          cp "$ALGO" package/k4/K4_PRICE_FIRST_RESEARCH.algo
+          sha256sum package/k4/K4_PRICE_FIRST_RESEARCH.algo | tee audit/k4-algo-sha256.txt
+          git rev-parse HEAD | tee audit/tested-commit.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: CDScalper_K4_PRICE_FIRST_IS_PACKAGE
+          path: |
+            package/k4/K4_PRICE_FIRST_RESEARCH.algo
+            audit/*
+            CumulativeDeltaScalper-EURUSD-v1/k4/docs/PRECOMMIT_SPEC.md
+            CumulativeDeltaScalper-EURUSD-v1/k4/presets/eurusd_m1_k4_price_first_is.json
+          retention-days: 30
+
+  corrected_is:
+    needs: audit_build
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    env:
+      CTID: ${{ secrets.CTRADER_CTID }}
+      ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+      CT_PASS: ${{ secrets.CTRADER_PASSWORD }}
+      CTRADER_IMAGE: ${{ needs.audit_build.outputs.ctrader_image }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - uses: actions/download-artifact@v4
+        with:
+          name: CDScalper_K4_PRICE_FIRST_IS_PACKAGE
+          path: package
+
+      - name: Run exact precommitted corrected IS
+        shell: bash
+        run: |
+          set -euo pipefail
+          ALGO="$(find package -type f -name 'K4_PRICE_FIRST_RESEARCH.algo' -print -quit)"
+          test -n "$ALGO"
+          test -n "$CTRADER_IMAGE"
+          mkdir -p backtest/reports backtest/cache/EURUSD
+          cp "$ALGO" backtest/K4_PRICE_FIRST_RESEARCH.algo
+          printf '%s' "$CT_PASS" | tr -d '\r\n' > backtest/ctrader.pwd
+          chmod 600 backtest/ctrader.pwd
+
+          LOG='backtest/reports/K4_PRICE_FIRST_IS.log'
+          printf '%s\n' "ctrader backtest K4_PRICE_FIRST_RESEARCH.algo --symbol=$SYMBOL --period=$PERIOD --start=$IS_START --end=$IS_END --balance=$BALANCE --data-mode=ticks --spread=$BASE_SPREAD --commission=$COMMISSION --ExpectedLeverage=500" | tee "$LOG"
+
+          set +e
+          docker run --rm \
+            -v "$PWD/backtest:/work" \
+            -e "CTID=$CTID" -e "ACCOUNT=$ACCOUNT" -e "PWD-FILE=/work/ctrader.pwd" \
+            "$CTRADER_IMAGE" \
+            backtest /work/K4_PRICE_FIRST_RESEARCH.algo \
+            --environment-variables \
+            --symbol="$SYMBOL" --period="$PERIOD" \
+            --start="$IS_START" --end="$IS_END" --balance="$BALANCE" \
+            --data-mode=ticks --data-dir=/work/cache/EURUSD \
+            --spread="$BASE_SPREAD" --commission="$COMMISSION" \
+            --ExpectedLeverage=500 \
+            --report=/work/reports/K4_PRICE_FIRST_IS.html \
+            --report-json=/work/reports/K4_PRICE_FIRST_IS.json \
+            --exit-on-stop 2>&1 | tee -a "$LOG"
+          EXIT=${PIPESTATUS[0]}
+          set -e
+          rm -f backtest/ctrader.pwd
+          echo "$EXIT" > backtest/reports/K4_PRICE_FIRST_IS.exitcode.txt
+          test "$EXIT" -eq 0
+          test -f backtest/reports/K4_PRICE_FIRST_IS.json
+
+      - name: Apply corrected K4 IS gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 .github/scripts/cdscalper_report_gate.py \
+            backtest/reports/K4_PRICE_FIRST_IS.json \
+            --profile is \
+            --execution-log backtest/reports/K4_PRICE_FIRST_IS.log \
+            --expected-spread 0.43 \
+            --out backtest/reports/K4_PRICE_FIRST_IS.gate.json \
+            --fail-on-gate
+
+      - name: Upload exact K4 IS evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: CDScalper_K4_PRICE_FIRST_CORRECTED_IS
+          path: backtest/reports/*
+          if-no-files-found: warn
+          retention-days: 30
