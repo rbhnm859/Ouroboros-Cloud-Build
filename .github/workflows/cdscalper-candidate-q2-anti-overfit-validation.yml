@@ -99,7 +99,7 @@ jobs:
           STRESS_SPREAD: ${{ matrix.stress_spread }}
         run: |
           set -euo pipefail
-          mkdir -p "backtest/reports/$SYMBOL" "backtest/cache/$SYMBOL"
+          mkdir -p "backtest/reports/$SYMBOL"
           printf '%s' "$CT_PASS" | tr -d '\r\n' > backtest/ctrader.pwd
           chmod 600 backtest/ctrader.pwd
 
@@ -185,7 +185,7 @@ jobs:
 
           run_bt () {
             local tag="$1" start="$2" end="$3" spread="$4"
-            echo "=== Q2 $SYMBOL $tag | $start -> $end | spread=$spread | commission=$COMMISSION_PER_MILLION/million ==="
+            echo "=== Q2 $SYMBOL $tag | $start -> $end | spread=$spread | commission=$COMMISSION_PER_MILLION ==="
             docker run --rm \
               -v "$PWD/backtest:/work" \
               -e "CTID=$CTID" -e "ACCOUNT=$ACCOUNT" -e "PWD-FILE=/work/ctrader.pwd" \
@@ -195,9 +195,8 @@ jobs:
               --symbol="$SYMBOL" --period="$PERIOD" \
               --start="$start" --end="$end" --balance="$STARTING_BALANCE" \
               --commission="$COMMISSION_PER_MILLION" \
-              --commission-type=UsdPerMillionUsdVolume \
               --spread="$spread" \
-              --data-mode=ticks --data-dir="/work/cache/$SYMBOL" \
+              --data-mode=ticks \
               "${BOT[@]}" \
               --report="/work/reports/$SYMBOL/${SYMBOL}-${tag}.html" \
               --report-json="/work/reports/$SYMBOL/${SYMBOL}-${tag}.json" \
