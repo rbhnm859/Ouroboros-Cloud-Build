@@ -79,6 +79,7 @@ namespace cAlgo.Robots
         private double _zoneHigh;
         private double _impulseMid;
         private bool _pullbackTouched;
+        private DateTime _pullbackTouchBarOpen = DateTime.MinValue;
         private double _pullbackExtreme;
         private int _setupBarsElapsed;
 
@@ -112,7 +113,7 @@ namespace cAlgo.Robots
             Positions.Closed += OnPositionClosed;
             RestoreRuntimeState();
 
-            Debug("started; RESEARCH ONLY; completed M5 impulse -> M1 pullback -> M1 reclaim; completed M15 EMA context; delta has no decision role; structural SL + 1.80R TP; BE/trailing/adverse-delta off");
+            Debug("started; RESEARCH ONLY; completed M5 impulse -> completed M1 pullback -> later completed M1 reclaim; completed M15 EMA context; delta has no decision role; structural SL + 1.80R TP; BE/trailing/adverse-delta off");
         }
 
         protected override void OnStop()
@@ -275,6 +276,7 @@ namespace cAlgo.Robots
             _zoneHigh = low + range * RetraceHighFraction;
             _impulseMid = low + range * 0.50;
             _pullbackTouched = false;
+            _pullbackTouchBarOpen = DateTime.MinValue;
             _pullbackExtreme = direction > 0 ? double.MaxValue : double.MinValue;
             _setupBarsElapsed = 0;
 
@@ -327,8 +329,12 @@ namespace cAlgo.Robots
             }
 
             bool overlapsZone = low <= _zoneHigh && high >= _zoneLow;
-            if (overlapsZone)
+            if (overlapsZone && !_pullbackTouched)
+            {
                 _pullbackTouched = true;
+                _pullbackTouchBarOpen = barOpen;
+                Debug("PULLBACK_CONFIRMED barOpen=" + barOpen.ToUniversalTime().ToString("O"));
+            }
 
             if (_pullbackTouched)
             {
@@ -338,7 +344,10 @@ namespace cAlgo.Robots
                     _pullbackExtreme = Math.Max(_pullbackExtreme, high);
             }
 
-            bool reclaim = _pullbackTouched && (_setupDirection > 0
+            bool reclaimEligible = _pullbackTouched
+                && _pullbackTouchBarOpen != DateTime.MinValue
+                && barOpen > _pullbackTouchBarOpen;
+            bool reclaim = reclaimEligible && (_setupDirection > 0
                 ? close > _zoneHigh && close > open
                 : close < _zoneLow && close < open);
 
@@ -346,6 +355,8 @@ namespace cAlgo.Robots
                 + " dir=" + _setupDirection
                 + " bars=" + _setupBarsElapsed
                 + " touched=" + _pullbackTouched
+                + " pullbackBar=" + (_pullbackTouchBarOpen == DateTime.MinValue ? "none" : _pullbackTouchBarOpen.ToUniversalTime().ToString("O"))
+                + " reclaimEligible=" + reclaimEligible
                 + " close=" + close.ToString("F5")
                 + " zoneLow=" + _zoneLow.ToString("F5")
                 + " zoneHigh=" + _zoneHigh.ToString("F5")
@@ -656,6 +667,7 @@ namespace cAlgo.Robots
             _zoneHigh = 0.0;
             _impulseMid = 0.0;
             _pullbackTouched = false;
+            _pullbackTouchBarOpen = DateTime.MinValue;
             _pullbackExtreme = 0.0;
             _setupBarsElapsed = 0;
         }
