@@ -1,0 +1,73 @@
+name: Build HarmonyBotPro Upload Mobile
+
+on:
+  push:
+    branches:
+      - build/harmonybotpro-upload-20260911
+    paths:
+      - 'temp-build/harmonybotpro-upload/**'
+      - '.github/workflows/build-harmonybotpro-upload-20260911.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Restore and verify uploaded source
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat temp-build/harmonybotpro-upload/source/chunks/*.b64 | tr -d '[:space:]' > /tmp/HarmonyBotPro.cs.gz.b64
+          test "$(wc -c < /tmp/HarmonyBotPro.cs.gz.b64)" -eq 31584
+          echo 'cd11715a4678eb8dff216f5b717865af9cc018b7d88ecffbdaf4d88c0fd4e4cb  /tmp/HarmonyBotPro.cs.gz.b64' | sha256sum -c -
+          base64 -d /tmp/HarmonyBotPro.cs.gz.b64 | gzip -d > temp-build/harmonybotpro-upload/HarmonyBotPro.cs
+          test "$(wc -c < temp-build/harmonybotpro-upload/HarmonyBotPro.cs)" -eq 125566
+          echo '0b25083be0b9a8e11d6e1b2dd844dc9d5530f16b46daac8347421a16780b73a1  temp-build/harmonybotpro-upload/HarmonyBotPro.cs' | sha256sum -c -
+          grep -q 'public class HarmonyBotPro : Robot' temp-build/harmonybotpro-upload/HarmonyBotPro.cs
+          echo 'Source verification passed.'
+
+      - name: Restore NuGet packages
+        run: dotnet restore temp-build/harmonybotpro-upload/HarmonyBotPro.csproj
+
+      - name: Build cTrader algo
+        shell: bash
+        run: |
+          set -euo pipefail
+          dotnet build temp-build/harmonybotpro-upload/HarmonyBotPro.csproj \
+            --configuration Release \
+            --no-restore \
+            -p:AlgoPublish=False \
+            -p:IncludeSource=True \
+            -p:AlgoName=HarmonyBotPro_Mobile
+          find temp-build/harmonybotpro-upload -type f -name '*.algo' -print
+
+      - name: Collect mobile algo
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p temp-build/harmonybotpro-upload/artifact
+          ALGO=$(find temp-build/harmonybotpro-upload -type f -name '*.algo' -print -quit)
+          test -n "$ALGO"
+          cp "$ALGO" temp-build/harmonybotpro-upload/artifact/HarmonyBotPro_Mobile.algo
+          test -s temp-build/harmonybotpro-upload/artifact/HarmonyBotPro_Mobile.algo
+          sha256sum temp-build/harmonybotpro-upload/artifact/HarmonyBotPro_Mobile.algo
+
+      - name: Upload mobile artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: HarmonyBotPro-Mobile
+          path: temp-build/harmonybotpro-upload/artifact/HarmonyBotPro_Mobile.algo
+          if-no-files-found: error
+          retention-days: 7
