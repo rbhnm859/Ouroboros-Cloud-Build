@@ -29,6 +29,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          echo 'a942e9657cd588784fbae451e0182d3cb3b064a5079d50c29658ee2b784dd961  HarmonyBot-Mobile-Upload/source_chunks/01.b64' | sha256sum -c -
+          echo '8b3f34ee404265e96cecba8381b62f2b0486df566b0463cc2216d8ba2664cace  HarmonyBot-Mobile-Upload/source_chunks/02.b64' | sha256sum -c -
+          echo '6e74bcf9bc16a95c7c75c0179c1963645c648c1798231bf081540edf09c43ffc  HarmonyBot-Mobile-Upload/source_chunks/03.b64' | sha256sum -c -
+          echo '0ac7c775bbdd992f2089a82561d69da367b45cac07cce81068f9f83335638c91  HarmonyBot-Mobile-Upload/source_chunks/04.b64' | sha256sum -c -
           cat HarmonyBot-Mobile-Upload/source_chunks/*.b64 | base64 -d | gzip -d > HarmonyBot-Mobile-Upload/HarmonyBotPro.cs
           echo '6f37abec74ff97af691d6cc3e462c3b9dce7db13ac74160bc3a72afff662127c  HarmonyBot-Mobile-Upload/HarmonyBotPro.cs' | sha256sum -c -
           wc -l HarmonyBot-Mobile-Upload/HarmonyBotPro.cs
