@@ -1,0 +1,52 @@
+name: Persist HarmonyBotPro v19 Critical Repair
+
+on:
+  push:
+    branches: [harmonybot-v19-50pass]
+    paths: ['.github/workflows/persist-harmonybot-v19-critical.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  repair:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: harmonybot-v19-50pass
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '6.0.x'
+      - name: Apply deterministic critical fixes
+        run: python3 HarmonyBot-v19/tools/apply_critical_geometry_fixes.py
+      - name: Verify all 50 repair gates
+        shell: bash
+        run: python3 HarmonyBot-v19/tools/audit_v19_50.py HarmonyBot-v19/HarmonyBotPro_v19_50PASS.cs | tee HarmonyBot-v19/reports/50-pass-audit.txt
+      - name: Build mobile algo
+        shell: bash
+        run: |
+          set -euo pipefail
+          dotnet restore HarmonyBot-v19/HarmonyBotPro_v19.csproj
+          dotnet build HarmonyBot-v19/HarmonyBotPro_v19.csproj -c Release --no-restore -p:AlgoPublish=False -p:IncludeSource=True 2>&1 | tee HarmonyBot-v19/reports/build.log
+          ALGO=$(find HarmonyBot-v19/bin/Release -type f -name '*.algo' -print -quit)
+          test -n "$ALGO"
+          cp "$ALGO" HarmonyBot-v19/builds/HarmonyBotPro_v19_50PASS_Mobile.algo
+          sha256sum HarmonyBot-v19/builds/HarmonyBotPro_v19_50PASS_Mobile.algo | tee HarmonyBot-v19/reports/algo.sha256
+      - name: Commit repaired bot only
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add HarmonyBot-v19/HarmonyBotPro_v19_50PASS.cs HarmonyBot-v19/tools/audit_v19_50.py HarmonyBot-v19/reports HarmonyBot-v19/builds/HarmonyBotPro_v19_50PASS_Mobile.algo
+          git commit -m 'fix: persist v19 critical harmonic repairs [skip ci]' || true
+          git pull --rebase origin harmonybot-v19-50pass
+          git push origin HEAD:harmonybot-v19-50pass
+      - uses: actions/upload-artifact@v4
+        with:
+          name: HarmonyBotPro-v19-50PASS-CriticalFixed
+          path: HarmonyBot-v19/builds/HarmonyBotPro_v19_50PASS_Mobile.algo
+          retention-days: 30
