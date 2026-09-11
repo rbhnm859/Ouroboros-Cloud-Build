@@ -58,6 +58,22 @@ jobs:
           </Project>
           EOF
 
+      - name: Apply cTrader 1.0.19 compatibility patch
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('cli-build/HarmonyBotPro/HarmonyBotPro.cs')
+          s = p.read_text()
+          old = 'double px = p.ClosePrice > 0 ? p.ClosePrice : (p.TradeType == TradeType.Buy ? _symbol.Bid : _symbol.Ask);'
+          new = 'double px = p.TradeType == TradeType.Buy ? _symbol.Bid : _symbol.Ask;'
+          count = s.count(old)
+          if count != 2:
+              raise SystemExit(f'Expected 2 ClosePrice compatibility sites, found {count}')
+          s = s.replace(old, new)
+          p.write_text(s)
+          print('patched ClosePrice sites:', count)
+          PY
+
       - name: Restore
         run: dotnet restore cli-build/HarmonyBotPro/HarmonyBotPro.csproj
 
