@@ -59,6 +59,53 @@ jobs:
           echo "expected=a178fc90df0ee2c3306a99e3586184b0d2070db4c60d3c2a6259007426d5ec44"
           test "$(sha256sum cli-build/HarmonyBotPro/HarmonyBotPro.cs | awk '{print $1}')" = "a178fc90df0ee2c3306a99e3586184b0d2070db4c60d3c2a6259007426d5ec44"
 
+      - name: Recover missing source tail
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PYCODE'
+          from pathlib import Path
+          import base64, gzip, re, hashlib
+
+          target = Path('cli-build/HarmonyBotPro/HarmonyBotPro.cs')
+          current = target.read_text()
+          base = current.rstrip()
+          marker = 'tAB = Math.Max(1, a.Index - x.Index);'
+          if not base.endswith(marker):
+              raise SystemExit('Uploaded source does not end at the expected truncation marker')
+
+          workflow = Path('.github/workflows/build-harmonybotpro-mobile.yml').read_text()
+          m = re.search(r'payload = "([^"]+)"', workflow)
+          if not m:
+              raise SystemExit('Reference HarmonyBotPro payload not found')
+          reference = gzip.decompress(base64.b64decode(m.group(1))).decode()
+
+          match_pos = -1
+          anchor_len = 0
+          for n in (1600, 1200, 800, 500, 300, 200, 120):
+              if len(base) < n:
+                  continue
+              anchor = base[-n:]
+              p = reference.find(anchor)
+              if p >= 0 and reference.find(anchor, p + 1) < 0:
+                  match_pos = p
+                  anchor_len = n
+                  break
+          if match_pos < 0:
+              raise SystemExit('No safe unique suffix match found in repository reference source')
+
+          remainder = reference[match_pos + anchor_len:]
+          if not remainder.startswith('\n'):
+              raise SystemExit('Reference continuation is not line-aligned')
+          patched = base + remainder
+          target.write_text(patched)
+          print(f'recovered_anchor_chars={anchor_len}')
+          print(f'recovered_tail_chars={len(remainder)}')
+          print('patched_sha256=' + hashlib.sha256(patched.encode()).hexdigest())
+          print('patched_final_lines:')
+          print('\n'.join(patched.splitlines()[-12:]))
+          PYCODE
+
       - name: Restore
         run: dotnet restore cli-build/HarmonyBotPro/HarmonyBotPro.csproj
 
