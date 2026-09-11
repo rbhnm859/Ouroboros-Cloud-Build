@@ -1,0 +1,76 @@
+name: Build HarmonyBotPro Net6 Mobile
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/build-harmonybotpro-net6.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET 6
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '6.0.x'
+
+      - name: Recreate HarmonyBotPro source
+        run: |
+          mkdir -p cli-build/HarmonyBotPro
+          python3 - <<'PYCODE'
+          from pathlib import Path
+          import base64, gzip, re
+          text = Path('.github/workflows/build-harmonybotpro-mobile.yml').read_text()
+          m = re.search(r'payload = \"([^\"]+)\"', text)
+          if not m:
+              raise SystemExit('payload not found')
+          Path('cli-build/HarmonyBotPro/HarmonyBotPro.cs').write_bytes(gzip.decompress(base64.b64decode(m.group(1))))
+          PYCODE
+          cat > cli-build/HarmonyBotPro/HarmonyBotPro.csproj <<'EOF'
+          <Project Sdk="Microsoft.NET.Sdk">
+            <PropertyGroup>
+              <TargetFramework>net6.0</TargetFramework>
+              <ImplicitUsings>disable</ImplicitUsings>
+              <Nullable>disable</Nullable>
+              <AlgoName>HarmonyBotPro</AlgoName>
+              <AlgoBuild>true</AlgoBuild>
+              <AlgoPublish>false</AlgoPublish>
+              <IncludeSource>false</IncludeSource>
+            </PropertyGroup>
+            <ItemGroup>
+              <PackageReference Include="cTrader.Automate" Version="1.0.19" />
+            </ItemGroup>
+          </Project>
+          EOF
+
+      - name: Restore
+        run: dotnet restore cli-build/HarmonyBotPro/HarmonyBotPro.csproj
+
+      - name: Build Release ALGO
+        run: dotnet build cli-build/HarmonyBotPro/HarmonyBotPro.csproj -c Release --no-restore -p:AlgoPublish=false -p:IncludeSource=false
+
+      - name: Collect ALGO
+        run: |
+          mkdir -p output
+          ALGO=$(find cli-build/HarmonyBotPro -type f -name '*.algo' | head -n 1)
+          test -n "$ALGO"
+          cp "$ALGO" output/HarmonyBotPro.algo
+          sha256sum output/HarmonyBotPro.algo | tee output/HarmonyBotPro.algo.sha256
+          ls -lh output/HarmonyBotPro.algo
+
+      - name: Upload mobile artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: HarmonyBotPro-Mobile
+          path: |
+            output/HarmonyBotPro.algo
+            output/HarmonyBotPro.algo.sha256
+          if-no-files-found: error
