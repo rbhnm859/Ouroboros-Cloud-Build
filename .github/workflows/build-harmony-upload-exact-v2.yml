@@ -39,40 +39,27 @@ jobs:
             'bc08a3d8b2629540205d6ded9b99d53668487b4820c14e649e6c4db18864bb7d',
             'dc03845391c7bbbb638b965fb5b56e27d2389ed997895d6515ae59a3d68c66a3',
             'e3ec4f271803dd006d0154243e9deb17d3b9f23b492fef4474455fef439930fc']
-          expected_seg06=[
-            'e4036224c4f318fb22c428545b135c9006869c31f03ec26e7e21e51d9ce5ab07',
-            '459961ddc8bca935581afe7977e80ab934a404616549e5908ceb7f5e34a577f4',
-            '14bd13d75ea31cfbdaebc63b4ade90f6f06e006157feba700a6245f8bd370d39',
-            'f578c77f1335f4f4ba83b6b24a149aa39509e0d4e3c90338cb61138e701e76c9',
-            '3786b35cd9f871180d9a973e1c568bfe73b91f632e8ec372a081d9b2bcfe9a77',
-            'dc2001cbd5212e373c8f793db948bca13a7ed1e5133989df04a88ec5cc278bdf',
-            '23806395bbbd90ae154b3f3c122ecffe44d65ebe2c0000909aa433c5c7901bba',
-            'fa62086e6be8e3ee5a205f4ed1dd18442f25c70ab1cc5619c11e95164e4c08ee']
 
-          exact01_1000_1500='5n8fBuPajAsLVJZjmgc+hrqqXTgrq85F8zA8oPK1mVbzG9/4BhTfAJ6HAdgZH4Uwm8+9KPDGCX9Yr9enbViM9t21mzlectWzHdd0qFKvtOJ2/dhPNrwh7Ci8iKzwcY0zXLFo7ywYDrogI0FhobLbsGVEg54wj8Q1E6Pq4sHo50/X54Fnti5g5gH57MDl2yazLDoPV0B3FU/ZsyVLLbZTzdZiz3SNsZmTjTN23m7ONVswYXCmHG6vwAzhN+pX3nYWtztX8Iou7MPsuEqvi8LkuHLUaQHFZJyelbeP2DNmsZXxl1befoTg+IRfefv4yjCZUo3NdfJKZna9cp2dOB/yowZiRyLqqmG7XH2wKlcbM8bNnqLneOoq86vvJf0TEGgXfdDg0NLmX9RLNhhSbX25sbV/uLP3vMEZ6zVXW/2L5jM/jr1jHTvrVNYUpat7lXZICOLaG6QC6zauxbqNSqzLlpwDP4I+HEAf+CSDKus+KFi+IId+1yF0'
+          exact01='5n8fBuPajAsLVJZjmgc+hrqqXTgrq85F8zA8oPK1mVbzG9/4BhTfAJ6HAdgZH4Uwm8+9KPDGCX9Yr9enbViM9t21mzlectWzHdd0qFKvtOJ2/dhPNrwh7Ci8iKzwcY0zXLFo7ywYDrogI0FhobLbsGVEg54wj8Q1E6Pq4sHo50/X54Fnti5g5gH57MDl2yazLDoPV0B3FU/ZsyVLLbZTzdZiz3SNsZmTjTN23m7ONVswYXCmHG6vwAzhN+pX3nYWtztX8Iou7MPsuEqvi8LkuHLUaQHFZJyelbeP2DNmsZXxl1befoTg+IRfefv4yjCZUo3NdfJKZna9cp2dOB/yowZiRyLqqmG7XH2wKlcbM8bNnqLneOoq86vvJf0TEGgXfdDg0NLmX9RLNhhSbX25sbV/uLP3vMEZ6zVXW/2L5jM/jr1jHTvrVNYUpat7lXZICOLaG6QC6zauxbqNSqzLlpwDP4I+HEAf+CSDKus+KFi+IId+1yF0'
+          exact06='ZxQWL5mw4GUMVTq11zkuoWMEK7JDB//SjPcJ6FbsKtgi6Fu6GzhpwDasLvKsZQAw1l8UClu92DjmEmQt56+fUX7H3IU15UraJ9l3i+o7bSYSpZsCumh8VaFBxa0ZVjUGB+dwdeeoynAIuZGCWs0Qk8RH+nI5+7IK/8cixJmYTw/oDizwejoz8FF7AX3oUjOZfFZL8f0En7UApVYhqD/z/mce9+26bDU3BuzxAzYTtYFkUjjLVKjo7q73yohLHN31Jm/KCxdfjogyzQJjJrCthD64TkKaHX4h5Q2/kH7WviX3ENZQGlfOhYVChNIPm6arbwwrtZYna12Ya1EX1Fo9WcvT1rqRGaOIZFlzeiT7slbPXIsGRa01kLX6Fbs29UhVovnXnAhak3l8LeYmFNBjtHbA5xVb8hO02wAdcJXNvUG9Bfpa19pyrexmbEyALDaGug6QyNzYbfXG3jTtVjWycUXISFSfUSLHTBKbJZ4c6Yy4dHNRPOu3'
 
           chunks=[]
-          mismatches=[]
           for i in range(8):
             p=Path(f'tmp/harmony-exact/chunk-{i:02d}.txt').read_text()
             if i==1:
-              p=p[:1000]+exact01_1000_1500+p[1500:]
+              p=p[:1000]+exact01+p[1500:]
             if i==2:
               marker='Vg24Xum6MOeWUpW2br9YrPHAK13969'
               pos=p.rfind(marker)
               if pos<0: raise SystemExit('chunk-02 transport marker missing')
               p=p[:pos]+marker+'N'+'dzi13V9An'
             if i==6:
-              for n,j in enumerate(range(0,len(p),500)):
-                s=p[j:j+500]
-                h=hashlib.sha256(s.encode()).hexdigest()
-                print(f'CHUNK06SEG {j}:{j+len(s)} sha={h} expected={expected_seg06[n]}')
+              p=p[:2500]+exact06+p[3000:]
             actual=hashlib.sha256(p.encode()).hexdigest()
-            print(f'CHUNK_{i:02d}_SHA256={actual} expected={expected_chunks[i]} len={len(p)}')
-            if actual!=expected_chunks[i]: mismatches.append(i)
+            if actual!=expected_chunks[i]:
+              raise SystemExit(f'chunk-{i:02d} hash mismatch: {actual} != {expected_chunks[i]}')
             chunks.append(p)
-          if mismatches:
-            raise SystemExit('transport chunk mismatch: '+','.join(f'{i:02d}' for i in mismatches))
+            print(f'CHUNK_{i:02d}_SHA256={actual}')
 
           payload=''.join(chunks)
           data=gzip.decompress(base64.b64decode(payload))
