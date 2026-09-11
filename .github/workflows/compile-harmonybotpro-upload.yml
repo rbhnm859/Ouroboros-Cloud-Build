@@ -34,15 +34,32 @@ jobs:
           import base64, gzip, hashlib
           payload = Path('/tmp/payload.b64').read_text().strip()
           raw = gzip.decompress(base64.b64decode(payload))
-          Path('cli-build/HarmonyBotPro/HarmonyBotPro.cs').write_bytes(raw)
+          target = Path('cli-build/HarmonyBotPro/HarmonyBotPro.cs')
+          target.write_bytes(raw)
           print('uploaded_source_sha256=' + hashlib.sha256(raw).hexdigest())
           PYCODE
           test "$(sha256sum cli-build/HarmonyBotPro/HarmonyBotPro.cs | awk '{print $1}')" = "a178fc90df0ee2c3306a99e3586184b0d2070db4c60d3c2a6259007426d5ec44"
           cat compile-input/harmonybotpro-upload/repaired_tail.csfrag >> cli-build/HarmonyBotPro/HarmonyBotPro.cs
           test "$(sha256sum cli-build/HarmonyBotPro/HarmonyBotPro.cs | awk '{print $1}')" = "9cbff921d9116024afe8aaf6acc5d4c77cd1e2a8028b81cbe4c5732e40ffdf0e"
           cat compile-input/harmonybotpro-upload/performance_tracker.csfrag >> cli-build/HarmonyBotPro/HarmonyBotPro.cs
-          sha256sum cli-build/HarmonyBotPro/HarmonyBotPro.cs
-          tail -n 12 cli-build/HarmonyBotPro/HarmonyBotPro.cs
+
+      - name: Patch current cTrader API compatibility
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PYCODE'
+          from pathlib import Path
+          p = Path('cli-build/HarmonyBotPro/HarmonyBotPro.cs')
+          s = p.read_text()
+          old = "double px = p.ClosePrice > 0 ? p.ClosePrice : (p.TradeType == TradeType.Buy ? _symbol.Bid : _symbol.Ask);"
+          new = "double px = p.TradeType == TradeType.Buy ? _symbol.Bid : _symbol.Ask;"
+          count = s.count(old)
+          if count != 2:
+              raise SystemExit(f'Expected 2 ClosePrice compatibility replacements, found {count}')
+          s = s.replace(old, new)
+          p.write_text(s)
+          print('ClosePrice replacements:', count)
+          PYCODE
 
       - name: Create cTrader project
         run: |
