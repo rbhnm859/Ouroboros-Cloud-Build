@@ -56,10 +56,9 @@ jobs:
 
       - name: Verify uploaded source hash
         run: |
-          echo "expected=a178fc90df0ee2c3306a99e3586184b0d2070db4c60d3c2a6259007426d5ec44"
           test "$(sha256sum cli-build/HarmonyBotPro/HarmonyBotPro.cs | awk '{print $1}')" = "a178fc90df0ee2c3306a99e3586184b0d2070db4c60d3c2a6259007426d5ec44"
 
-      - name: Recover missing source tail
+      - name: Recover missing source tail from closest repository version
         shell: bash
         run: |
           set -euo pipefail
@@ -68,41 +67,60 @@ jobs:
           import base64, gzip, re, hashlib
 
           target = Path('cli-build/HarmonyBotPro/HarmonyBotPro.cs')
-          current = target.read_text()
-          base = current.rstrip()
+          base = target.read_text().rstrip()
           marker = 'tAB = Math.Max(1, a.Index - x.Index);'
           if not base.endswith(marker):
-              raise SystemExit('Uploaded source does not end at the expected truncation marker')
+              raise SystemExit('Unexpected upload truncation point')
 
-          workflow = Path('.github/workflows/build-harmonybotpro-mobile.yml').read_text()
-          m = re.search(r'payload = "([^"]+)"', workflow)
-          if not m:
-              raise SystemExit('Reference HarmonyBotPro payload not found')
-          reference = gzip.decompress(base64.b64decode(m.group(1))).decode()
-
-          match_pos = -1
-          anchor_len = 0
-          for n in (1600, 1200, 800, 500, 300, 200, 120):
-              if len(base) < n:
+          candidates = []
+          for wf in Path('.github/workflows').glob('*'):
+              if not wf.is_file():
                   continue
-              anchor = base[-n:]
-              p = reference.find(anchor)
-              if p >= 0 and reference.find(anchor, p + 1) < 0:
-                  match_pos = p
-                  anchor_len = n
-                  break
-          if match_pos < 0:
-              raise SystemExit('No safe unique suffix match found in repository reference source')
+              try:
+                  txt = wf.read_text(errors='ignore')
+              except Exception:
+                  continue
+              for m in re.finditer(r'payload\s*=\s*"([A-Za-z0-9+/=]+)"', txt):
+                  try:
+                      ref = gzip.decompress(base64.b64decode(m.group(1))).decode()
+                  except Exception:
+                      continue
+                  pos = ref.find(marker)
+                  while pos >= 0:
+                      end = pos + len(marker)
+                      # longest common suffix ending exactly at the truncation marker
+                      i = 0
+                      max_i = min(len(base), end)
+                      while i < max_i and base[-1-i] == ref[end-1-i]:
+                          i += 1
+                      candidates.append((i, str(wf), pos, ref))
+                      pos = ref.find(marker, pos + 1)
 
-          remainder = reference[match_pos + anchor_len:]
+          candidates.sort(key=lambda x: x[0], reverse=True)
+          print('TAIL CANDIDATES:')
+          for i, wf, pos, ref in candidates[:10]:
+              after = ref[pos + len(marker):]
+              preview = '\n'.join(after.splitlines()[:18])
+              print(f'--- common_suffix={i} file={wf} ---')
+              print(preview)
+
+          if not candidates:
+              raise SystemExit('No repository source contains the truncation marker')
+
+          common, wf, pos, ref = candidates[0]
+          if common < len(marker):
+              raise SystemExit('No valid marker match')
+          print(f'BEST_REFERENCE={wf} COMMON_SUFFIX={common}')
+
+          # Only splice at the exact marker; the existing uploaded source remains untouched before it.
+          remainder = ref[pos + len(marker):]
           if not remainder.startswith('\n'):
-              raise SystemExit('Reference continuation is not line-aligned')
+              raise SystemExit('Reference continuation is not line aligned')
           patched = base + remainder
           target.write_text(patched)
-          print(f'recovered_anchor_chars={anchor_len}')
-          print(f'recovered_tail_chars={len(remainder)}')
-          print('patched_sha256=' + hashlib.sha256(patched.encode()).hexdigest())
-          print('patched_final_lines:')
+          print(f'RECOVERED_TAIL_CHARS={len(remainder)}')
+          print('PATCHED_SHA256=' + hashlib.sha256(patched.encode()).hexdigest())
+          print('PATCHED_FINAL_LINES:')
           print('\n'.join(patched.splitlines()[-12:]))
           PYCODE
 
