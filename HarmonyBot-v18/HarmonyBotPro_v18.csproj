@@ -7,6 +7,6 @@
     <AssemblyName>HarmonyBotPro_v18</AssemblyName>
   </PropertyGroup>
   <ItemGroup>
-    <PackageReference Include="cTrader.Automate" Version="1.*-*" />
+    <PackageReference Include="cTrader.Automate" Version="1.0.19" />
   </ItemGroup>
 </Project>
