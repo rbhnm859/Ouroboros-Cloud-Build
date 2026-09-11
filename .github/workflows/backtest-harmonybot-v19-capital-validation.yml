@@ -1,0 +1,95 @@
+name: HarmonyBotPro v19 Capital Validation
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [harmonybot-v19-50pass]
+    paths:
+      - '.github/workflows/backtest-harmonybot-v19-capital-validation.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  backtest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { balance: 2500, label: 1Y, start: '11/09/2025', end: '10/09/2026' }
+          - { balance: 2500, label: 3Y, start: '11/09/2023', end: '10/09/2026' }
+          - { balance: 10000, label: 1Y, start: '11/09/2025', end: '10/09/2026' }
+          - { balance: 10000, label: 3Y, start: '11/09/2023', end: '10/09/2026' }
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify compiled v19 mobile algo
+        run: |
+          set -euo pipefail
+          mkdir -p backtest/cache backtest/reports
+          cp HarmonyBot-v19/builds/HarmonyBotPro_v19_50PASS_Mobile.algo backtest/HarmonyBotPro_v19_50PASS_Mobile.algo
+          echo 'b77762ba49914aa65be4c70817e238b5ba0f040b01a0c085897efcf3a7f074b7  backtest/HarmonyBotPro_v19_50PASS_Mobile.algo' | sha256sum -c -
+      - name: Pull cTrader CLI
+        run: docker pull ghcr.io/spotware/ctrader-console:5.9.11
+      - name: Create password file
+        env:
+          CTRADER_PASSWORD: ${{ secrets.CTRADER_PASSWORD }}
+        run: |
+          printf '%s' "$CTRADER_PASSWORD" > backtest/ctrader.pwd
+          chmod 600 backtest/ctrader.pwd
+      - name: Select FxPro USD demo leverage 1-500
+        env:
+          CTID: ${{ secrets.CTRADER_CTID }}
+        run: |
+          set -euo pipefail
+          docker run --rm -v "$PWD/backtest:/work" -e CTID -e 'PWD-FILE=/work/ctrader.pwd' ghcr.io/spotware/ctrader-console:5.9.11 accounts --environment-variables > backtest/accounts.json
+          ACCOUNT=$(python3 - <<'PY'
+          import json
+          with open('backtest/accounts.json',encoding='utf-8-sig') as f: a=json.load(f)
+          m=[x for x in a if str(x.get('Broker','')).lower()=='fxpro' and not x.get('Live',True) and str(x.get('DepositCurrency','')).upper()=='USD' and int(x.get('Leverage',0))==500]
+          if not m: raise SystemExit('No FxPro USD demo 1:500 account')
+          print(m[0]['Number'])
+          PY
+          )
+          echo "::add-mask::$ACCOUNT"
+          echo "ACCOUNT=$ACCOUNT" >> "$GITHUB_ENV"
+      - name: Backtest ${{ matrix.balance }} ${{ matrix.label }} XAUUSD H1 M1-data
+        env:
+          CTID: ${{ secrets.CTRADER_CTID }}
+        shell: bash
+        run: |
+          set +e
+          OUT="HarmonyBotPro-v19-XAUUSD-H1-${{ matrix.balance }}-${{ matrix.label }}"
+          timeout --signal=INT --kill-after=30s 20m docker run --rm -v "$PWD/backtest:/work" -e CTID -e ACCOUNT -e 'PWD-FILE=/work/ctrader.pwd' ghcr.io/spotware/ctrader-console:5.9.11 \
+            backtest /work/HarmonyBotPro_v19_50PASS_Mobile.algo --environment-variables \
+            --broker=FxPro --symbol=XAUUSD --period=h1 --start='${{ matrix.start }}' --end='${{ matrix.end }}' \
+            --balance=${{ matrix.balance }} --data-mode=m1 --data-dir=/work/cache --commission=35 --spread=17.18 \
+            --SymbolName=XAUUSD --RiskPercent=1.5 --MaxDrawdown=10 --AbsoluteHardDrawdownPercent=20 --DrawdownCooldownHours=24 --RecoveryRiskFactor=0.35 --MaxRiskOvershootPercent=3 \
+            --DailyLossLimitPercent=4 --WeeklyLossLimitPercent=8 --MonthlyTargetPercent=12 --RiskAfterMonthlyTarget=0.5 --CloseAllOnDailyLock=false \
+            --AutoReprotectOnStart=true --EmergencySlAtrMult=2 --EmergencyTpRR=2 --SessionStart=8 --SessionEnd=22 --MTFEnabled=true --H4FilterEnabled=false \
+            --PatternConfidence=0.68 --MaxConcurrentTrades=1 --MaxSameDirectionTrades=1 --EnforceSinglePosition=true --NoHedging=true --MaxTradesPerDay=4 --CooldownMinutes=10 \
+            --AtrPeriod=14 --SlAtrMult=1.2 --TpCdMult=1 --MinRR=2 --MaxSpreadPips=35 --MinStopLossPips=100 --MinTakeProfitPips=200 --MinStopDistancePips=15 --MinAtrPrice=3 \
+            --SwingDepth=5 --SwingLookback=200 --PivotScanCount=20 --MinLegAtrRatio=0.6 --EnableGartley=true --EnableBat=true --EnableButterfly=true --EnableCrab=true --EnableCypher=true --EnableRat=true \
+            --EnableDeepGartley=true --EnableAltBat=false --EnableDeepCrab=true --EnableABCD=true --EnableShark=true --EnableFiveZero=false --GlobalMinScore=0.55 --ConsensusBonus=1.12 \
+            --FibTolerance=0.05 --MaxEntryDeviationAtr=0.8 --MaxPatternAgeBars=12 --MaxTradesPerPatternPercent=50 --AutoDisableLosing=true --AutoDisableWinRate=50 \
+            --SlUpdateStepPips=2 --SlUpdateCooldownSec=5 --BreakEvenTriggerPips=100 --BreakEvenOffsetPips=10 --TrailingTriggerPips=150 --TrailingDistancePips=90 \
+            --EnablePartialTP=false --Tp1RR=1.2 --Tp1ClosePercent=30 --BlockNewsWindow=true --BlockedWindowsGMT='12:25-12:45;14:25-14:45' \
+            --report="/work/reports/${OUT}.html" --report-json="/work/reports/${OUT}.json" | tee "backtest/${OUT}.log"
+          RC=${PIPESTATUS[0]}
+          echo "backtest_exit=$RC"
+          test -s "backtest/reports/${OUT}.json"
+      - name: Remove credentials
+        if: always()
+        run: rm -f backtest/ctrader.pwd backtest/accounts.json
+      - name: Upload reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: HarmonyBotPro-v19-XAUUSD-H1-${{ matrix.balance }}-${{ matrix.label }}-CapitalValidation
+          path: |
+            backtest/reports/*.html
+            backtest/reports/*.json
+            backtest/*.log
+          if-no-files-found: warn
+          retention-days: 30
