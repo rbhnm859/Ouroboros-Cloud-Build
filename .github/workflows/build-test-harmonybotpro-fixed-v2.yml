@@ -1,0 +1,106 @@
+name: Build Test HarmonyBotPro Fixed V2
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/build-test-harmonybotpro-fixed-v2.yml'
+      - 'tools/harmonybotpro_fixed_patch.py'
+
+permissions:
+  contents: read
+
+jobs:
+  build-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '6.0.x'
+
+      - name: Patch source
+        run: |
+          mkdir -p fixed/HarmonyBotPro reports cache
+          python3 tools/harmonybotpro_fixed_patch.py
+          cat > fixed/HarmonyBotPro/HarmonyBotPro.csproj <<'EOF'
+          <Project Sdk="Microsoft.NET.Sdk">
+            <PropertyGroup>
+              <TargetFramework>net6.0</TargetFramework>
+              <ImplicitUsings>disable</ImplicitUsings>
+              <Nullable>disable</Nullable>
+              <AlgoName>HarmonyBotProFixed</AlgoName>
+              <AlgoBuild>true</AlgoBuild>
+              <AlgoPublish>false</AlgoPublish>
+              <IncludeSource>true</IncludeSource>
+            </PropertyGroup>
+            <ItemGroup>
+              <PackageReference Include="cTrader.Automate" Version="1.0.19" />
+            </ItemGroup>
+          </Project>
+          EOF
+
+      - name: Compile fixed ALGO
+        run: |
+          dotnet restore fixed/HarmonyBotPro/HarmonyBotPro.csproj
+          dotnet build fixed/HarmonyBotPro/HarmonyBotPro.csproj -c Release --no-restore -p:AlgoPublish=false -p:IncludeSource=true
+          ALGO=$(find fixed/HarmonyBotPro -type f -name '*.algo' | head -n 1)
+          test -n "$ALGO"
+          cp "$ALGO" fixed/HarmonyBotProFixed.algo
+          sha256sum fixed/HarmonyBotProFixed.algo | tee fixed/HarmonyBotProFixed.algo.sha256
+
+      - name: Pull cTrader CLI
+        run: docker pull ghcr.io/spotware/ctrader-console:5.9.11
+
+      - name: Create password file
+        env:
+          CTRADER_PASSWORD: ${{ secrets.CTRADER_PASSWORD }}
+        run: |
+          test -n "${CTRADER_PASSWORD:-}" || exit 1
+          printf '%s' "$CTRADER_PASSWORD" > ctrader.pwd
+
+      - name: Fixed open-mode diagnostic
+        env:
+          CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+          CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+        run: |
+          test -n "${CTRADER_CTID:-}" || exit 1
+          test -n "${CTRADER_ACCOUNT:-}" || exit 1
+          timeout 180s docker run --rm \
+            -v "$PWD/fixed:/work" -v "$PWD/reports:/reports" -v "$PWD/cache:/cache" -v "$PWD/ctrader.pwd:/pwd:ro" \
+            -e "CTID=$CTRADER_CTID" -e 'PWD-FILE=/pwd' -e "ACCOUNT=$CTRADER_ACCOUNT" \
+            ghcr.io/spotware/ctrader-console:5.9.11 \
+            backtest /work/HarmonyBotProFixed.algo --environment-variables \
+            --symbol=XAUUSD --period=h1 --start='04/09/2026' --end='11/09/2026' --balance=1000 --data-mode=open --data-dir=/cache \
+            --SymbolName=XAUUSD --RiskPercent=1.5 --MaxDrawdown=10 --DailyLossLimitPercent=4 --WeeklyLossLimitPercent=8 --MonthlyTargetPercent=12 --RiskAfterMonthlyTarget=0.5 \
+            --CloseAllOnDailyLock=false --AutoReprotectOnStart=true --EmergencySlAtrMult=2 --EmergencyTpRR=2 --SessionStart=8 --SessionEnd=22 --MTFEnabled=true --H4FilterEnabled=false \
+            --PatternConfidence=0.72 --MaxConcurrentTrades=3 --MaxSameDirectionTrades=1 --MaxTradesPerDay=3 --CooldownMinutes=10 --MaxSpreadPips=35 --MinAtrPrice=3 --AtrPeriod=14 \
+            --SlAtrMult=1.2 --TpCdMult=1 --MinRR=2 --MinStopLossPips=100 --MinTakeProfitPips=200 --MinStopDistancePips=15 --SwingDepth=5 --SwingLookback=200 --PivotScanCount=12 --MinLegAtrRatio=0.8 \
+            --EnableGartley=true --EnableBat=true --EnableButterfly=true --EnableCrab=true --EnableCypher=true --SlUpdateStepPips=2 --SlUpdateCooldownSec=5 --BreakEvenTriggerPips=100 --BreakEvenOffsetPips=10 \
+            --TrailingTriggerPips=150 --TrailingDistancePips=90 --EnablePartialTP=true --Tp1RR=1 --Tp1ClosePercent=60 --BlockNewsWindow=true --BlockedWindowsGMT='12:25-12:45;14:25-14:45' \
+            --report=/reports/fixed-open.html --report-json=/reports/fixed-open.json
+          test -s reports/fixed-open.json
+
+      - name: Print report JSON
+        if: success()
+        run: head -c 20000 reports/fixed-open.json || true
+
+      - name: Cleanup credentials
+        if: always()
+        run: rm -f ctrader.pwd
+
+      - name: Upload fixed build
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: HarmonyBotPro-Fixed-V2-Mobile
+          path: |
+            fixed/HarmonyBotProFixed.algo
+            fixed/HarmonyBotProFixed.algo.sha256
+            fixed/HarmonyBotPro/HarmonyBotPro.cs
+            reports/fixed-open.html
+            reports/fixed-open.json
+          if-no-files-found: warn
+          retention-days: 30
