@@ -40,29 +40,47 @@ jobs:
               'dc03845391c7bbbb638b965fb5b56e27d2389ed997895d6515ae59a3d68c66a3',
               'e3ec4f271803dd006d0154243e9deb17d3b9f23b492fef4474455fef439930fc',
           ]
-          chunks = []
+          expected_seg01 = [
+              'c941c8425aa3e0b4ee8c70104e6194658e40414fd12d36e6e76e58033fe29681',
+              'f02db48d7c59b75bba838bd068022b5e435ab53f0c8f4ea01d42febe1c78c32c',
+              '20423aa6c3a8c11e815858105d18d92675659a27e7dab0aa8f2086dbf75eed7e',
+              'f7fe609bcf20733a808f678c531e88ef44abe1078ec2f24a912d50950ebd2774',
+              '375c603f7d8499605924756674d4aebbc4ec506b1512667724a9c93eb74a7bb2',
+              '2d0150dbb365f2bce94832806df020e4ea05fe1c7a26473f8884262c81172581',
+              '8ecdb047449e0d346e1d7d5c005435c63c43495eed69d14ffcd6240a2e81d69e',
+              'e553e29cbb54d74a1ad51e5dd3c990e1f4a215a0c6fda0fede55c4e4f73b5596',
+          ]
+          chunks=[]
+          mismatches=[]
           for i in range(8):
-              p = Path(f'tmp/harmony-exact/chunk-{i:02d}.txt').read_text()
-              if i == 2:
-                  marker = 'Vg24Xum6MOeWUpW2br9YrPHAK13969'
-                  pos = p.rfind(marker)
+              p=Path(f'tmp/harmony-exact/chunk-{i:02d}.txt').read_text()
+              if i==1:
+                  for n,j in enumerate(range(0,len(p),500)):
+                      s=p[j:j+500]
+                      h=hashlib.sha256(s.encode()).hexdigest()
+                      print(f'CHUNK01SEG {j}:{j+len(s)} sha={h} expected={expected_seg01[n]}')
+              if i==2:
+                  marker='Vg24Xum6MOeWUpW2br9YrPHAK13969'
+                  pos=p.rfind(marker)
                   if pos < 0:
                       raise SystemExit('chunk-02 transport marker missing')
-                  p = p[:pos] + marker + 'N' + 'dzi13V9An'
-              actual = hashlib.sha256(p.encode()).hexdigest()
+                  p=p[:pos]+marker+'N'+'dzi13V9An'
+              actual=hashlib.sha256(p.encode()).hexdigest()
+              print(f'CHUNK_{i:02d}_SHA256={actual} expected={expected_chunks[i]} len={len(p)}')
               if actual != expected_chunks[i]:
-                  raise SystemExit(f'chunk-{i:02d} hash mismatch: {actual} != {expected_chunks[i]}')
+                  mismatches.append(i)
               chunks.append(p)
-              print(f'CHUNK_{i:02d}_SHA256={actual}')
+          if mismatches:
+              raise SystemExit('transport chunk mismatch: '+','.join(f'{i:02d}' for i in mismatches))
 
-          payload = ''.join(chunks)
-          data = gzip.decompress(base64.b64decode(payload))
-          expected_source = '0b25083be0b9a8e11d6e1b2dd844dc9d5530f16b46daac8347421a16780b73a1'
-          actual_source = hashlib.sha256(data).hexdigest()
+          payload=''.join(chunks)
+          data=gzip.decompress(base64.b64decode(payload))
+          expected_source='0b25083be0b9a8e11d6e1b2dd844dc9d5530f16b46daac8347421a16780b73a1'
+          actual_source=hashlib.sha256(data).hexdigest()
           if actual_source != expected_source:
               raise SystemExit(f'source hash mismatch: {actual_source} != {expected_source}')
           Path('cli-build/HarmonyBotPro/HarmonyBotPro.cs').write_bytes(data)
-          print('SOURCE_SHA256=' + actual_source)
+          print('SOURCE_SHA256='+actual_source)
           PYCODE
 
           cat > cli-build/HarmonyBotPro/HarmonyBotPro.csproj <<'EOF'
