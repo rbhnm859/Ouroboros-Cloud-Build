@@ -1,0 +1,249 @@
+name: Build and Test HarmonyBotPro Fixed
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/build-test-harmonybotpro-fixed.yml'
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  build-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET 6
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '6.0.x'
+
+      - name: Recreate and patch HarmonyBotPro source
+        run: |
+          mkdir -p fixed/HarmonyBotPro reports cache
+          python3 - <<'PY'
+          from pathlib import Path
+          import re, base64, gzip
+
+          wf = Path('.github/workflows/build-harmonybotpro-mobile.yml').read_text()
+          m = re.search(r'payload\s*=\s*"([A-Za-z0-9+/=]+)"', wf)
+          if not m:
+              raise SystemExit('embedded source payload not found')
+          s = gzip.decompress(base64.b64decode(m.group(1))).decode()
+
+          def one(old, new, label):
+              global s
+              n = s.count(old)
+              if n != 1:
+                  raise SystemExit(f'{label}: expected 1 match, found {n}')
+              s = s.replace(old, new, 1)
+
+          # Current symbol/current timeframe must use the backtest Bars stream directly.
+          s = s.replace('_signalBars = MarketData.GetBars(Bars.TimeFrame, SymbolName);', '_signalBars = Bars;')
+
+          one('        private readonly Dictionary<long, double> _totalClosedUnits = new Dictionary<long, double>();\n',
+              '        private readonly Dictionary<long, double> _totalClosedUnits = new Dictionary<long, double>();\n        private int _botOpenPositionCount;\n',
+              'position-count field')
+
+          one('''                if (_signalBars == null || _signalBars.Count < Math.Max(100, SwingLookback))
+                    return;
+
+                DateTime barTime = _signalBars.OpenTimes[_signalBars.Count - 1];
+                if (barTime <= _lastProcessedSignalBarTime) return;
+                _lastProcessedSignalBarTime = barTime;
+
+                int signalIndex = _signalBars.Count - 1;
+''', '''                if (_signalBars == null || _signalBars.Count < Math.Max(100, SwingLookback) + 2)
+                    return;
+
+                // Closed-bar only: deterministic live/backtest parity.
+                int signalIndex = _signalBars.Count - 2;
+                DateTime barTime = _signalBars.OpenTimes[signalIndex];
+                if (barTime <= _lastProcessedSignalBarTime) return;
+                _lastProcessedSignalBarTime = barTime;
+
+''', 'closed-bar signal')
+
+          one('''                if (!PassMtfFilter(signal.Direction)) return;
+                if (CountOpenPositionsInDirection(signal.Direction) >= MaxSameDirectionTrades) return;
+
+                double slPips, tpPips;
+''', '''                if (!PassMtfFilter(signal.Direction)) return;
+
+                TradeType desiredType = signal.Direction == TradeDirection.Buy ? TradeType.Buy : TradeType.Sell;
+                // Hard no-hedging guard.
+                if (open.Any(p => p.TradeType != desiredType)) return;
+                if (open.Count(p => p.TradeType == desiredType) >= MaxSameDirectionTrades) return;
+
+                double slPips, tpPips;
+''', 'no-hedging guard')
+
+          one('''                TradeType tt = signal.Direction == TradeDirection.Buy ? TradeType.Buy : TradeType.Sell;
+                var tr = ExecuteMarketOrder(tt, SymbolName, volumeInUnits, BotLabel, slPips, tpPips);''',
+              '''                TradeType tt = desiredType;
+                var tr = ExecuteMarketOrder(tt, SymbolName, volumeInUnits, BotLabel, slPips, tpPips);''',
+              'desired trade type')
+
+          one('''        protected override void OnTick()
+        {
+            try
+            {
+                ResetCalendarStates(false);
+                UpdateRiskLocks();
+                ManageOpenPositions();
+''', '''        protected override void OnTick()
+        {
+            try
+            {
+                // Entry logic is OnBar-only; skip per-tick management when flat.
+                if (_botOpenPositionCount <= 0) return;
+
+                ResetCalendarStates(false);
+                UpdateRiskLocks();
+                ManageOpenPositions();
+''', 'flat tick fast-path')
+
+          one('''            if (p == null || p.Label != BotLabel || p.SymbolName != SymbolName) return;
+
+            _tp1Done[p.Id] = false;''', '''            if (p == null || p.Label != BotLabel || p.SymbolName != SymbolName) return;
+
+            _botOpenPositionCount++;
+            _tp1Done[p.Id] = false;''', 'opened count')
+
+          one('''            if (p == null || p.Label != BotLabel || p.SymbolName != SymbolName) return;
+
+            double partialVol = _totalClosedUnits.ContainsKey(p.Id) ? _totalClosedUnits[p.Id] : 0;''', '''            if (p == null || p.Label != BotLabel || p.SymbolName != SymbolName) return;
+
+            if (_botOpenPositionCount > 0) _botOpenPositionCount--;
+            double partialVol = _totalClosedUnits.ContainsKey(p.Id) ? _totalClosedUnits[p.Id] : 0;''', 'closed count')
+
+          one('''                var h1 = MarketData.GetBars(TimeFrame.Hour, SymbolName);
+                if (h1 != null && h1.Count >= 220)
+                {
+                    double ema50 = CalculateEma(h1.ClosePrices, 50, h1.Count - 1);
+                    double ema200 = CalculateEma(h1.ClosePrices, 200, h1.Count - 1);''', '''                var h1 = Bars.TimeFrame == TimeFrame.Hour ? Bars : MarketData.GetBars(TimeFrame.Hour, SymbolName);
+                if (h1 != null && h1.Count >= 221)
+                {
+                    int h1Index = h1.Count - 2;
+                    double ema50 = CalculateEma(h1.ClosePrices, 50, h1Index);
+                    double ema200 = CalculateEma(h1.ClosePrices, 200, h1Index);''', 'H1 MTF cache')
+
+          one('''                if (h4 != null && h4.Count >= 220)
+                {
+                    double ema50 = CalculateEma(h4.ClosePrices, 50, h4.Count - 1);
+                    double ema200 = CalculateEma(h4.ClosePrices, 200, h4.Count - 1);''', '''                if (h4 != null && h4.Count >= 221)
+                {
+                    int h4Index = h4.Count - 2;
+                    double ema50 = CalculateEma(h4.ClosePrices, 50, h4Index);
+                    double ema200 = CalculateEma(h4.ClosePrices, 200, h4Index);''', 'H4 closed bar')
+
+          one('''        private void RebuildRuntimeStateFromOpenPositions()
+        {
+            var positions = Positions.FindAll(BotLabel, SymbolName);
+            foreach (var p in positions)''', '''        private void RebuildRuntimeStateFromOpenPositions()
+        {
+            var positions = Positions.FindAll(BotLabel, SymbolName);
+            _botOpenPositionCount = positions == null ? 0 : positions.Length;
+            foreach (var p in positions)''', 'initial position count')
+
+          Path('fixed/HarmonyBotPro/HarmonyBotPro.cs').write_text(s)
+          print('patched source lines:', len(s.splitlines()))
+          print('remaining same-TF MarketData.GetBars calls:', s.count('MarketData.GetBars(Bars.TimeFrame, SymbolName)'))
+          PY
+
+          cat > fixed/HarmonyBotPro/HarmonyBotPro.csproj <<'EOF'
+          <Project Sdk="Microsoft.NET.Sdk">
+            <PropertyGroup>
+              <TargetFramework>net6.0</TargetFramework>
+              <ImplicitUsings>disable</ImplicitUsings>
+              <Nullable>disable</Nullable>
+              <AlgoName>HarmonyBotProFixed</AlgoName>
+              <AlgoBuild>true</AlgoBuild>
+              <AlgoPublish>false</AlgoPublish>
+              <IncludeSource>true</IncludeSource>
+            </PropertyGroup>
+            <ItemGroup>
+              <PackageReference Include="cTrader.Automate" Version="1.0.19" />
+            </ItemGroup>
+          </Project>
+          EOF
+
+      - name: Restore and compile fixed ALGO
+        run: |
+          dotnet restore fixed/HarmonyBotPro/HarmonyBotPro.csproj
+          dotnet build fixed/HarmonyBotPro/HarmonyBotPro.csproj -c Release --no-restore -p:AlgoPublish=false -p:IncludeSource=true
+          ALGO=$(find fixed/HarmonyBotPro -type f -name '*.algo' | head -n 1)
+          test -n "$ALGO"
+          cp "$ALGO" fixed/HarmonyBotProFixed.algo
+          sha256sum fixed/HarmonyBotProFixed.algo | tee fixed/HarmonyBotProFixed.algo.sha256
+
+      - name: Pull official cTrader CLI
+        run: docker pull ghcr.io/spotware/ctrader-console:5.9.11
+
+      - name: Create cTrader password file
+        env:
+          CTRADER_PASSWORD: ${{ secrets.CTRADER_PASSWORD }}
+        run: |
+          test -n "${CTRADER_PASSWORD:-}" || exit 1
+          printf '%s' "$CTRADER_PASSWORD" > ctrader.pwd
+          chmod 600 ctrader.pwd
+
+      - name: Fixed 7-day open-mode diagnostic
+        env:
+          CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+          CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+        run: |
+          test -n "${CTRADER_CTID:-}" || exit 1
+          test -n "${CTRADER_ACCOUNT:-}" || exit 1
+          set +e
+          timeout 180s docker run --rm \
+            -v "$PWD/fixed:/work" -v "$PWD/reports:/reports" -v "$PWD/cache:/cache" -v "$PWD/ctrader.pwd:/pwd:ro" \
+            -e "CTID=$CTRADER_CTID" -e 'PWD-FILE=/pwd' -e "ACCOUNT=$CTRADER_ACCOUNT" \
+            ghcr.io/spotware/ctrader-console:5.9.11 \
+            backtest /work/HarmonyBotProFixed.algo --environment-variables \
+            --symbol=XAUUSD --period=h1 --start='04/09/2026' --end='11/09/2026' --balance=1000 --data-mode=open --data-dir=/cache \
+            --SymbolName=XAUUSD --RiskPercent=1.5 --MaxDrawdown=10.0 --DailyLossLimitPercent=4.0 --WeeklyLossLimitPercent=8.0 --MonthlyTargetPercent=12.0 --RiskAfterMonthlyTarget=0.5 \
+            --CloseAllOnDailyLock=false --AutoReprotectOnStart=true --EmergencySlAtrMult=2.0 --EmergencyTpRR=2.0 --SessionStart=8 --SessionEnd=22 --MTFEnabled=true --H4FilterEnabled=false \
+            --PatternConfidence=0.72 --MaxConcurrentTrades=3 --MaxSameDirectionTrades=1 --MaxTradesPerDay=3 --CooldownMinutes=10 --MaxSpreadPips=35 --MinAtrPrice=3.0 --AtrPeriod=14 \
+            --SlAtrMult=1.2 --TpCdMult=1.0 --MinRR=2.0 --MinStopLossPips=100 --MinTakeProfitPips=200 --MinStopDistancePips=15 --SwingDepth=5 --SwingLookback=200 --PivotScanCount=12 --MinLegAtrRatio=0.8 \
+            --EnableGartley=true --EnableBat=true --EnableButterfly=true --EnableCrab=true --EnableCypher=true --SlUpdateStepPips=2 --SlUpdateCooldownSec=5 --BreakEvenTriggerPips=100 --BreakEvenOffsetPips=10 \
+            --TrailingTriggerPips=150 --TrailingDistancePips=90 --EnablePartialTP=true --Tp1RR=1.0 --Tp1ClosePercent=60 --BlockNewsWindow=true --BlockedWindowsGMT='12:25-12:45;14:25-14:45' \
+            --report=/reports/fixed-open.html --report-json=/reports/fixed-open.json
+          ec=$?
+          set -e
+          echo "diagnostic_exit_code=$ec"
+          test "$ec" -eq 0
+          test -s reports/fixed-open.json
+
+      - name: Show fixed diagnostic summary
+        if: success()
+        run: |
+          python3 - <<'PY'
+          import json
+          d=json.load(open('reports/fixed-open.json'))
+          print(json.dumps(d, ensure_ascii=False)[:20000])
+          PY
+
+      - name: Remove credentials
+        if: always()
+        run: rm -f ctrader.pwd
+
+      - name: Upload fixed ALGO and diagnostic
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: HarmonyBotPro-Fixed-Mobile
+          path: |
+            fixed/HarmonyBotProFixed.algo
+            fixed/HarmonyBotProFixed.algo.sha256
+            fixed/HarmonyBotPro/HarmonyBotPro.cs
+            reports/fixed-open.html
+            reports/fixed-open.json
+          if-no-files-found: warn
+          retention-days: 30
