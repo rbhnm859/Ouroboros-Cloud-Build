@@ -31,7 +31,13 @@ jobs:
           set -euo pipefail
           echo 'a942e9657cd588784fbae451e0182d3cb3b064a5079d50c29658ee2b784dd961  HarmonyBot-Mobile-Upload/source_chunks/01.b64' | sha256sum -c -
           echo '8b3f34ee404265e96cecba8381b62f2b0486df566b0463cc2216d8ba2664cace  HarmonyBot-Mobile-Upload/source_chunks/02.b64' | sha256sum -c -
-          echo '6e74bcf9bc16a95c7c75c0179c1963645c648c1798231bf081540edf09c43ffc  HarmonyBot-Mobile-Upload/source_chunks/03.b64' | sha256sum -c -
+          echo '1a3ac581fb1026d1042e724ae9b8752796d6f90f8524abaabc73403b8940f01e  HarmonyBot-Mobile-Upload/source_chunks/03a.b64' | sha256sum -c -
+          echo 'f07cb5369f64f27246bd3869ca449bd1a01778de2d21c6557ce7a41cccbc5b6e  HarmonyBot-Mobile-Upload/source_chunks/03b.b64' | sha256sum -c -
+          echo '11ce01025cf1bd1d83c2e0407f0a90ca6c15446ea4eb6bac48da8511ae4b0c6a  HarmonyBot-Mobile-Upload/source_chunks/03c.b64' | sha256sum -c -
+          echo 'da24d0499b7c692f08717e174a51570bc47bfd64cc8064f1240cb53d9a1f52ed  HarmonyBot-Mobile-Upload/source_chunks/03d.b64' | sha256sum -c -
+          echo '0d9ba9a6c9a4c3e13c353b60ccd78e605494308e659fa4d469e6583ab5655609  HarmonyBot-Mobile-Upload/source_chunks/03e.b64' | sha256sum -c -
+          echo '60df8b711cafd6223000b246d33af6131f249a3083493387f7c7709c28909027  HarmonyBot-Mobile-Upload/source_chunks/03f.b64' | sha256sum -c -
+          echo 'df0d7195128b14efa108231c17d3bdb8b92544f940c8f08e6b03f75c05dbf6e1  HarmonyBot-Mobile-Upload/source_chunks/03g.b64' | sha256sum -c -
           echo '0ac7c775bbdd992f2089a82561d69da367b45cac07cce81068f9f83335638c91  HarmonyBot-Mobile-Upload/source_chunks/04.b64' | sha256sum -c -
           cat HarmonyBot-Mobile-Upload/source_chunks/*.b64 | base64 -d | gzip -d > HarmonyBot-Mobile-Upload/HarmonyBotPro.cs
           echo '6f37abec74ff97af691d6cc3e462c3b9dce7db13ac74160bc3a72afff662127c  HarmonyBot-Mobile-Upload/HarmonyBotPro.cs' | sha256sum -c -
