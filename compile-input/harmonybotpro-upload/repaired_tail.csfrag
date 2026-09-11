@@ -1,0 +1,135 @@
+                tBC = Math.Max(1, b.Index - a.Index);
+            }
+            else if (isAbcd)
+            {
+                tXA = Math.Max(1, b.Index - a.Index);
+                tAB = Math.Max(1, c.Index - b.Index);
+                tBC = Math.Max(1, d.Index - c.Index);
+            }
+            else
+            {
+                tXA = Math.Max(1, a.Index - x.Index);
+                tAB = Math.Max(1, b.Index - a.Index);
+                tBC = Math.Max(1, c.Index - b.Index);
+            }
+
+            double timeScore = (SymmetryScore(tXA, tAB) + SymmetryScore(tAB, tBC)) / 2.0;
+            score = Math.Min(1.0, score * 0.90 + timeScore * 0.10);
+            if (score < _minConfidence) return null;
+            if (score < def.Threshold) return null;
+            if (score < _globalMinScore) return null;
+
+            return new Candidate
+            {
+                O = o,
+                X = x ?? a,
+                A = a,
+                B = b,
+                C = c,
+                D = d,
+                IsBullish = bull,
+                Score = score,
+                PatternName = def.Name,
+                Family = def.Family,
+                Threshold = def.Threshold
+            };
+        }
+
+        private List<SwingPoint> BuildSwingPoints(Bars bars, int endIndex, int lookback, int depth)
+        {
+            var pivots = new List<SwingPoint>();
+            int start = Math.Max(depth, endIndex - lookback);
+
+            for (int i = start; i <= endIndex - depth; i++)
+            {
+                bool isHigh = true;
+                bool isLow = true;
+                double hi = bars.HighPrices[i];
+                double lo = bars.LowPrices[i];
+
+                for (int j = i - depth; j <= i + depth; j++)
+                {
+                    if (j < 0 || j >= bars.Count || j == i) continue;
+                    if (bars.HighPrices[j] > hi) isHigh = false;
+                    if (bars.LowPrices[j] < lo) isLow = false;
+                    if (!isHigh && !isLow) break;
+                }
+
+                if (isHigh && !isLow)
+                    pivots.Add(new SwingPoint { Index = i, Price = hi, IsHigh = true });
+                else if (isLow && !isHigh)
+                    pivots.Add(new SwingPoint { Index = i, Price = lo, IsHigh = false });
+                else if (isHigh && isLow)
+                {
+                    if (pivots.Count == 0 || pivots[pivots.Count - 1].IsHigh)
+                        pivots.Add(new SwingPoint { Index = i, Price = lo, IsHigh = false });
+                    else
+                        pivots.Add(new SwingPoint { Index = i, Price = hi, IsHigh = true });
+                }
+            }
+
+            pivots = pivots.OrderBy(p => p.Index).ToList();
+            if (pivots.Count == 0) return pivots;
+
+            var compressed = new List<SwingPoint> { pivots[0] };
+            for (int i = 1; i < pivots.Count; i++)
+            {
+                SwingPoint last = compressed[compressed.Count - 1];
+                SwingPoint cur = pivots[i];
+                if (cur.IsHigh == last.IsHigh)
+                {
+                    if (cur.IsHigh)
+                    {
+                        if (cur.Price >= last.Price) compressed[compressed.Count - 1] = cur;
+                    }
+                    else
+                    {
+                        if (cur.Price <= last.Price) compressed[compressed.Count - 1] = cur;
+                    }
+                }
+                else
+                {
+                    compressed.Add(cur);
+                }
+            }
+            return compressed;
+        }
+
+        private bool InRange(double v, double min, double max)
+        {
+            return v >= min && v <= max;
+        }
+
+        private double RatioScore(double value, double ideal)
+        {
+            if (ideal <= 0) return 0;
+            double err = Math.Abs(value - ideal) / ideal;
+            double score = 1.0 - err;
+            if (score < 0) return 0;
+            if (score > 1) return 1;
+            return score;
+        }
+
+        private double SymmetryScore(double a, double b)
+        {
+            if (a <= 0 || b <= 0) return 0;
+            double ratio = a > b ? a / b : b / a;
+            return Math.Max(0, Math.Min(1, 1.0 / ratio));
+        }
+
+        private class Candidate
+        {
+            public SwingPoint O;
+            public SwingPoint X;
+            public SwingPoint A;
+            public SwingPoint B;
+            public SwingPoint C;
+            public SwingPoint D;
+            public bool IsBullish;
+            public double Score;
+            public string PatternName;
+            public PatternFamily Family;
+            public double Threshold;
+        }
+    }
+}
