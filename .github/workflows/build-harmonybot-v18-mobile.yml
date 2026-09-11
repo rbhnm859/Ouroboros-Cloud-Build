@@ -1,0 +1,65 @@
+name: Build HarmonyBotPro v18 Mobile
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - 'HarmonyBot-v18/**'
+      - '.github/workflows/build-harmonybot-v18-mobile.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET 6
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '6.0.x'
+
+      - name: Restore v18 source
+        run: |
+          base64 -d HarmonyBot-v18/source/HarmonyBotPro.cs.gz.b64 | gzip -d > HarmonyBot-v18/HarmonyBotPro.cs
+          test -s HarmonyBot-v18/HarmonyBotPro.cs
+          grep -q 'public class HarmonyBotPro : Robot' HarmonyBot-v18/HarmonyBotPro.cs
+          wc -l HarmonyBot-v18/HarmonyBotPro.cs
+
+      - name: Restore cTrader packages
+        run: dotnet restore HarmonyBot-v18/HarmonyBotPro_v18.csproj
+
+      - name: Build mobile .algo
+        run: |
+          dotnet build HarmonyBot-v18/HarmonyBotPro_v18.csproj \
+            --configuration Release \
+            --no-restore \
+            -p:AlgoPublish=False \
+            -p:IncludeSource=True
+
+      - name: Locate and verify .algo
+        run: |
+          mkdir -p dist
+          ALGO=$(find HarmonyBot-v18 -type f -name '*.algo' | head -n 1)
+          if [ -z "$ALGO" ]; then
+            echo 'Build completed but no .algo was found.'
+            find HarmonyBot-v18 -maxdepth 8 -type f | sort
+            exit 1
+          fi
+          cp "$ALGO" dist/HarmonyBotPro_v18_Mobile.algo
+          test -s dist/HarmonyBotPro_v18_Mobile.algo
+          ls -lh dist/HarmonyBotPro_v18_Mobile.algo
+
+      - name: Upload mobile artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: HarmonyBotPro-v18-Mobile
+          path: dist/HarmonyBotPro_v18_Mobile.algo
+          if-no-files-found: error
+          retention-days: 30
