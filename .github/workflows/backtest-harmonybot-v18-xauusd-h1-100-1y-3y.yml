@@ -130,3 +130,5 @@ jobs:
             backtest/reports/HarmonyBotPro-v18-XAUUSD-H1-100-${{ matrix.label }}.json
           if-no-files-found: warn
           retention-days: 30
+
+# trigger: 2026-09-11 H1 robust run
