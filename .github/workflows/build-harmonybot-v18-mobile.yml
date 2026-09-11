@@ -39,6 +39,22 @@ jobs:
           grep -q 'public class HarmonyBotPro : Robot' HarmonyBot-v18/HarmonyBotPro.cs
           wc -l HarmonyBot-v18/HarmonyBotPro.cs
 
+      - name: Apply current cTrader API compatibility patch
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('HarmonyBot-v18/HarmonyBotPro.cs')
+          s = p.read_text(encoding='utf-8')
+          old = 'double px = p.ClosePrice > 0 ? p.ClosePrice : (p.TradeType == TradeType.Buy ? _symbol.Bid : _symbol.Ask);'
+          new = 'double px = p.TradeType == TradeType.Buy ? _symbol.Bid : _symbol.Ask;'
+          count = s.count(old)
+          if count != 2:
+              raise SystemExit(f'Expected 2 ClosePrice compatibility sites, found {count}')
+          p.write_text(s.replace(old, new), encoding='utf-8')
+          print('Patched Position.ClosePrice compatibility sites:', count)
+          PY
+
       - name: Restore and build
         id: compile
         shell: bash
@@ -75,7 +91,8 @@ jobs:
             echo "status=$STATUS"
             echo "restore_exit=$RESTORE_EXIT"
             echo "build_exit=$BUILD_EXIT"
-            echo "source_sha=$(sha256sum HarmonyBot-v18/HarmonyBotPro.cs | awk '{print $1}')"
+            echo "original_source_sha=68de9e46fb38f24f6b0356357abe48c5bb948b07fc5381aa096022862db5b892"
+            echo "compiled_source_sha=$(sha256sum HarmonyBot-v18/HarmonyBotPro.cs | awk '{print $1}')"
             echo "commit=${GITHUB_SHA}"
             date -u '+built_at_utc=%Y-%m-%dT%H:%M:%SZ'
             if [ -f HarmonyBot-v18/builds/HarmonyBotPro_v18_Mobile.algo ]; then
