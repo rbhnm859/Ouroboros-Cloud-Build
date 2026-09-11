@@ -1,0 +1,51 @@
+PASS 01 namespace cAlgo.Robots
+PASS 02 Robot AccessRights.None
+PASS 03 main class unique
+PASS 04 braces balanced
+PASS 05 no Position.ClosePrice API use
+PASS 06 completed signal bar
+PASS 07 completed H1 EMA
+PASS 08 completed H4 EMA
+PASS 09 completed ATR
+PASS 10 latest regime window
+PASS 11 risk raw below broker min skip
+PASS 12 risk post-normalization cap
+PASS 13 max risk overshoot parameter
+PASS 14 no hedge parameter
+PASS 15 single position parameter
+PASS 16 no hedge gate
+PASS 17 single position gate
+PASS 18 max concurrent default 1
+PASS 19 hard DD parameter
+PASS 20 DD cooldown parameter
+PASS 21 recovery risk factor
+PASS 22 hard DD permanent safety stop
+PASS 23 soft DD cooldown
+PASS 24 recovery unlock
+PASS 25 recovery target
+PASS 26 native NetProfit stats
+PASS 27 risk money tracked
+PASS 28 R based on money risk
+PASS 29 breakeven not counted win
+PASS 30 ledger gross money PF
+PASS 31 tracker observed equity DD
+PASS 32 partial TP default off
+PASS 33 TP1 reduced share
+PASS 34 R-aware break even
+PASS 35 R-aware trailing trigger
+PASS 36 R-aware trailing distance
+PASS 37 pattern confidence adjusted
+PASS 38 entry deviation adjusted
+PASS 39 pattern age parameter
+PASS 40 family-aware scan
+PASS 41 reversal bounds guard
+PASS 42 ABCD bounds guard
+PASS 43 Shark bounds guard
+PASS 44 5-0 bounds guard
+PASS 45 grouping completion index
+PASS 46 pattern completion age gate
+PASS 47 current closed close confirm
+PASS 48 ABCD BC retracement filter
+PASS 49 ABCD weight reduced
+PASS 50 success pattern race reset
+RESULT 50/50 passed

@@ -1,0 +1,17 @@
+/home/runner/work/Ouroboros-Cloud-Build/Ouroboros-Cloud-Build/HarmonyBot-v19/HarmonyBotPro_v19_50PASS.cs(20,23): warning CS0108: 'HarmonyBotPro.SymbolName' hides inherited member 'Algo.SymbolName'. Use the new keyword if hiding was intended. [/home/runner/work/Ouroboros-Cloud-Build/Ouroboros-Cloud-Build/HarmonyBot-v19/HarmonyBotPro_v19.csproj]
+/home/runner/work/Ouroboros-Cloud-Build/Ouroboros-Cloud-Build/HarmonyBot-v19/HarmonyBotPro_v19_50PASS.cs(719,22): warning CS0618: 'Robot.ModifyPosition(Position, double?, double?)' is obsolete: 'Please use new version with ProtectionType parameter.' [/home/runner/work/Ouroboros-Cloud-Build/Ouroboros-Cloud-Build/HarmonyBot-v19/HarmonyBotPro_v19.csproj]
+/home/runner/work/Ouroboros-Cloud-Build/Ouroboros-Cloud-Build/HarmonyBot-v19/HarmonyBotPro_v19_50PASS.cs(1266,34): warning CS0618: 'Robot.ModifyPosition(Position, double?, double?)' is obsolete: 'Please use new version with ProtectionType parameter.' [/home/runner/work/Ouroboros-Cloud-Build/Ouroboros-Cloud-Build/HarmonyBot-v19/HarmonyBotPro_v19.csproj]
+/home/runner/work/Ouroboros-Cloud-Build/Ouroboros-Cloud-Build/HarmonyBot-v19/HarmonyBotPro_v19_50PASS.cs(1304,30): warning CS0618: 'Robot.ModifyPosition(Position, double?, double?)' is obsolete: 'Please use new version with ProtectionType parameter.' [/home/runner/work/Ouroboros-Cloud-Build/Ouroboros-Cloud-Build/HarmonyBot-v19/HarmonyBotPro_v19.csproj]
+  HarmonyBotPro_v19 -> /home/runner/work/Ouroboros-Cloud-Build/Ouroboros-Cloud-Build/HarmonyBot-v19/bin/Release/net6.0/HarmonyBotPro_v19_50PASS.dll
+  HarmonyBotPro_v19 -> /home/runner/work/Ouroboros-Cloud-Build/Ouroboros-Cloud-Build/HarmonyBot-v19/bin/Release/net6.0/Ouroboros-Cloud-Build.algo
+
+Build succeeded.
+
+/home/runner/work/Ouroboros-Cloud-Build/Ouroboros-Cloud-Build/HarmonyBot-v19/HarmonyBotPro_v19_50PASS.cs(20,23): warning CS0108: 'HarmonyBotPro.SymbolName' hides inherited member 'Algo.SymbolName'. Use the new keyword if hiding was intended. [/home/runner/work/Ouroboros-Cloud-Build/Ouroboros-Cloud-Build/HarmonyBot-v19/HarmonyBotPro_v19.csproj]
+/home/runner/work/Ouroboros-Cloud-Build/Ouroboros-Cloud-Build/HarmonyBot-v19/HarmonyBotPro_v19_50PASS.cs(719,22): warning CS0618: 'Robot.ModifyPosition(Position, double?, double?)' is obsolete: 'Please use new version with ProtectionType parameter.' [/home/runner/work/Ouroboros-Cloud-Build/Ouroboros-Cloud-Build/HarmonyBot-v19/HarmonyBotPro_v19.csproj]
+/home/runner/work/Ouroboros-Cloud-Build/Ouroboros-Cloud-Build/HarmonyBot-v19/HarmonyBotPro_v19_50PASS.cs(1266,34): warning CS0618: 'Robot.ModifyPosition(Position, double?, double?)' is obsolete: 'Please use new version with ProtectionType parameter.' [/home/runner/work/Ouroboros-Cloud-Build/Ouroboros-Cloud-Build/HarmonyBot-v19/HarmonyBotPro_v19.csproj]
+/home/runner/work/Ouroboros-Cloud-Build/Ouroboros-Cloud-Build/HarmonyBot-v19/HarmonyBotPro_v19_50PASS.cs(1304,30): warning CS0618: 'Robot.ModifyPosition(Position, double?, double?)' is obsolete: 'Please use new version with ProtectionType parameter.' [/home/runner/work/Ouroboros-Cloud-Build/Ouroboros-Cloud-Build/HarmonyBot-v19/HarmonyBotPro_v19.csproj]
+    4 Warning(s)
+    0 Error(s)
+
+Time Elapsed 00:00:05.75
