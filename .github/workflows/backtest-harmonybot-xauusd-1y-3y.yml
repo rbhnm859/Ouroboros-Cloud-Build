@@ -1,4 +1,4 @@
-name: Backtest HarmonyBot XAUUSD 1Y 3Y
+name: HarmonyBotPro XAUUSD H1 Fast Crosscheck
 
 on:
   workflow_dispatch:
@@ -10,44 +10,42 @@ on:
 
 permissions:
   contents: read
+  actions: read
 
 concurrency:
-  group: harmonybot-xauusd-1y-3y
+  group: harmonybotpro-xauusd-h1-fast-crosscheck
   cancel-in-progress: true
 
 jobs:
   backtest:
     runs-on: ubuntu-latest
-    timeout-minutes: 180
+    timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
         include:
           - label: 1Y
-            start: '10/09/2025'
-            end: '10/09/2026'
+            start: '11/09/2025'
+            end: '11/09/2026'
           - label: 3Y
-            start: '10/09/2023'
-            end: '10/09/2026'
+            start: '11/09/2023'
+            end: '11/09/2026'
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Setup current .NET 6 SDK
-        uses: actions/setup-dotnet@v4
-        with:
-          dotnet-version: '6.0.x'
-
-      - name: Build HarmonyBot
+      - name: Download exact HarmonyBotPro mobile algo
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          mkdir -p backtest/cache backtest/reports
-          dotnet restore HarmonyBot-Mobile/HarmonyBot.csproj
-          dotnet build HarmonyBot-Mobile/HarmonyBot.csproj --configuration Release --no-restore -p:AlgoPublish=False -p:IncludeSource=True
-          ALGO="$(find HarmonyBot-Mobile -type f -name '*.algo' -print -quit)"
+          mkdir -p backtest/cache backtest/reports backtest/algo
+          curl -fL -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" -H "X-GitHub-Api-Version: 2022-11-28" "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/artifacts/10178731134/zip" -o backtest/HarmonyBotPro-Mobile.zip
+          unzip -o backtest/HarmonyBotPro-Mobile.zip -d backtest/algo
+          ALGO="$(find backtest/algo -type f -name 'HarmonyBotPro.algo' -print -quit)"
           test -n "$ALGO"
-          cp "$ALGO" backtest/HarmonyBot-Mobile.algo
-          test -s backtest/HarmonyBot-Mobile.algo
+          cp "$ALGO" backtest/HarmonyBotPro.algo
+          test -s backtest/HarmonyBotPro.algo
 
       - name: Pull official cTrader CLI
         run: docker pull ghcr.io/spotware/ctrader-console:5.9.11
@@ -60,31 +58,24 @@ jobs:
           printf '%s' "$CTRADER_PASSWORD" > backtest/ctrader.pwd
           chmod 600 backtest/ctrader.pwd
 
-      - name: Backtest HarmonyBot XAUUSD M15 ${{ matrix.label }}
+      - name: Backtest HarmonyBotPro XAUUSD H1 fast ${{ matrix.label }}
         env:
           CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
           CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
         run: |
-          test -n "${CTRADER_CTID:-}" || { echo 'Missing CTRADER_CTID'; exit 1; }
-          test -n "${CTRADER_ACCOUNT:-}" || { echo 'Missing CTRADER_ACCOUNT'; exit 1; }
-          docker run --rm \
-            -v "$PWD/backtest:/work" \
-            -e "CTID=$CTRADER_CTID" \
-            -e 'PWD-FILE=/work/ctrader.pwd' \
-            -e "ACCOUNT=$CTRADER_ACCOUNT" \
-            ghcr.io/spotware/ctrader-console:5.9.11 \
-            backtest /work/HarmonyBot-Mobile.algo \
-            --environment-variables --exit-on-stop \
-            --symbol=XAUUSD \
-            --period=m15 \
-            --start="${{ matrix.start }}" \
-            --end="${{ matrix.end }}" \
-            --balance=100 \
-            --data-mode=m1 \
-            --data-dir=/work/cache \
-            --SymbolName=XAUUSD \
-            --report="/work/reports/HarmonyBot-XAUUSD-M15-${{ matrix.label }}.html" \
-            --report-json="/work/reports/HarmonyBot-XAUUSD-M15-${{ matrix.label }}.json"
+          test -n "${CTRADER_CTID:-}" || exit 1
+          test -n "${CTRADER_ACCOUNT:-}" || exit 1
+          OUT="HarmonyBotPro-XAUUSD-H1-FAST-${{ matrix.label }}"
+          docker run --rm -v "$PWD/backtest:/work" -e "CTID=$CTRADER_CTID" -e 'PWD-FILE=/work/ctrader.pwd' -e "ACCOUNT=$CTRADER_ACCOUNT" ghcr.io/spotware/ctrader-console:5.9.11 \
+            backtest /work/HarmonyBotPro.algo --environment-variables \
+            --symbol=XAUUSD --period=h1 --start='${{ matrix.start }}' --end='${{ matrix.end }}' --balance=1000 --data-mode=h1 --data-dir=/work/cache \
+            --SymbolName=XAUUSD --RiskPercent=1.5 --MaxDrawdown=10.0 --DailyLossLimitPercent=4.0 --WeeklyLossLimitPercent=8.0 --MonthlyTargetPercent=12.0 --RiskAfterMonthlyTarget=0.5 \
+            --CloseAllOnDailyLock=false --AutoReprotectOnStart=true --EmergencySlAtrMult=2.0 --EmergencyTpRR=2.0 --SessionStart=8 --SessionEnd=22 --MTFEnabled=true --H4FilterEnabled=false \
+            --PatternConfidence=0.72 --MaxConcurrentTrades=3 --MaxSameDirectionTrades=1 --MaxTradesPerDay=3 --CooldownMinutes=10 --MaxSpreadPips=35 --MinAtrPrice=3.0 --AtrPeriod=14 \
+            --SlAtrMult=1.2 --TpCdMult=1.0 --MinRR=2.0 --MinStopLossPips=100 --MinTakeProfitPips=200 --MinStopDistancePips=15 --SwingDepth=5 --SwingLookback=200 --PivotScanCount=12 --MinLegAtrRatio=0.8 \
+            --EnableGartley=true --EnableBat=true --EnableButterfly=true --EnableCrab=true --EnableCypher=true --SlUpdateStepPips=2 --SlUpdateCooldownSec=5 --BreakEvenTriggerPips=100 --BreakEvenOffsetPips=10 \
+            --TrailingTriggerPips=150 --TrailingDistancePips=90 --EnablePartialTP=true --Tp1RR=1.0 --Tp1ClosePercent=60 --BlockNewsWindow=true --BlockedWindowsGMT='12:25-12:45;14:25-14:45' \
+            --report="/work/reports/${OUT}.html" --report-json="/work/reports/${OUT}.json"
 
       - name: Remove credentials
         if: always()
@@ -94,9 +85,9 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: HarmonyBot-XAUUSD-M15-${{ matrix.label }}-Reports
+          name: HarmonyBotPro-XAUUSD-H1-FAST-${{ matrix.label }}
           path: |
-            backtest/reports/HarmonyBot-XAUUSD-M15-${{ matrix.label }}.html
-            backtest/reports/HarmonyBot-XAUUSD-M15-${{ matrix.label }}.json
+            backtest/reports/HarmonyBotPro-XAUUSD-H1-FAST-${{ matrix.label }}.html
+            backtest/reports/HarmonyBotPro-XAUUSD-H1-FAST-${{ matrix.label }}.json
           if-no-files-found: warn
           retention-days: 30
