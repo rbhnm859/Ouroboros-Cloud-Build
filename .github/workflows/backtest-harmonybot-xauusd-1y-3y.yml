@@ -1,21 +1,15 @@
 name: HarmonyBotPro XAUUSD H1 Exact v18 $100 1Y 3Y
-
 on:
   workflow_dispatch:
   push:
-    branches:
-      - main
-    paths:
-      - '.github/workflows/backtest-harmonybot-xauusd-1y-3y.yml'
-
+    branches: [main]
+    paths: ['.github/workflows/backtest-harmonybot-xauusd-1y-3y.yml']
 permissions:
   contents: read
   actions: read
-
 concurrency:
   group: harmonybotpro-xauusd-h1-exact-v18-100
   cancel-in-progress: true
-
 jobs:
   backtest:
     runs-on: ubuntu-latest
@@ -24,91 +18,47 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - label: 1Y
-            start: '11/09/2025'
-            end: '10/09/2026'
-          - label: 3Y
-            start: '11/09/2023'
-            end: '10/09/2026'
-
+          - { label: 1Y, start: '11/09/2025', end: '10/09/2026' }
+          - { label: 3Y, start: '11/09/2023', end: '10/09/2026' }
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Download exact HarmonyBotPro v18 mobile algo
+      - uses: actions/checkout@v4
+      - name: Get exact v18 algo
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          set -euo pipefail
-          mkdir -p backtest/cache backtest/reports backtest/algo
-          curl -fL -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" -H "X-GitHub-Api-Version: 2022-11-28" \
-            "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/artifacts/10183039414/zip" \
-            -o backtest/HarmonyBotPro-v18-Mobile.zip
-          unzip -o backtest/HarmonyBotPro-v18-Mobile.zip -d backtest/algo
-          ALGO="$(find backtest/algo -type f -name 'HarmonyBotPro_v18_Mobile.algo' -print -quit)"
-          test -n "$ALGO"
-          cp "$ALGO" backtest/HarmonyBotPro_v18_Mobile.algo
+          mkdir -p backtest/algo backtest/cache backtest/reports
+          curl -fL -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/artifacts/10183039414/zip" -o backtest/v18.zip
+          unzip -o backtest/v18.zip -d backtest/algo
+          cp backtest/algo/HarmonyBotPro_v18_Mobile.algo backtest/HarmonyBotPro_v18_Mobile.algo
           echo '1e830c6cd334460d8f49faad4ecdf600b2ad81b419d9b7368aa6c96207597623  backtest/HarmonyBotPro_v18_Mobile.algo' | sha256sum -c -
-
-      - name: Pull official cTrader CLI
-        run: docker pull ghcr.io/spotware/ctrader-console:5.9.11
-
-      - name: Create cTrader password file
+      - run: docker pull ghcr.io/spotware/ctrader-console:5.9.11
+      - name: Password file
         env:
           CTRADER_PASSWORD: ${{ secrets.CTRADER_PASSWORD }}
-        run: |
-          test -n "${CTRADER_PASSWORD:-}" || { echo 'Missing CTRADER_PASSWORD'; exit 1; }
-          printf '%s' "$CTRADER_PASSWORD" > backtest/ctrader.pwd
-          chmod 600 backtest/ctrader.pwd
-
-      - name: Backtest XAUUSD H1 $100 FxPro ${{ matrix.label }}
+        run: printf '%s' "$CTRADER_PASSWORD" > backtest/ctrader.pwd
+      - name: Backtest ${{ matrix.label }}
         env:
-          CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
-          CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+          CTID: ${{ secrets.CTRADER_CTID }}
+          ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
         run: |
-          set -euo pipefail
           OUT="HarmonyBotPro-v18-XAUUSD-H1-100-${{ matrix.label }}"
-          docker run --rm \
-            -v "$PWD/backtest:/work" \
-            -e "CTID=$CTRADER_CTID" \
-            -e 'PWD-FILE=/work/ctrader.pwd' \
-            -e "ACCOUNT=$CTRADER_ACCOUNT" \
-            ghcr.io/spotware/ctrader-console:5.9.11 \
+          docker run --rm -v "$PWD/backtest:/work" -e CTID -e ACCOUNT -e 'PWD-FILE=/work/ctrader.pwd' ghcr.io/spotware/ctrader-console:5.9.11 \
             backtest /work/HarmonyBotPro_v18_Mobile.algo --environment-variables \
-            --broker=fxpro --symbol=XAUUSD --period=h1 \
-            --start='${{ matrix.start }}' --end='${{ matrix.end }}' \
-            --balance=100 --data-mode=m1 --data-dir=/work/cache \
-            --commission=35 --commission-type=UsdPerMillionUsdVolume \
-            --SymbolName=XAUUSD \
-            --RiskPercent=1.5 --MaxDrawdown=10.0 --DailyLossLimitPercent=4.0 --WeeklyLossLimitPercent=8.0 \
-            --MonthlyTargetPercent=12.0 --RiskAfterMonthlyTarget=0.5 --CloseAllOnDailyLock=false \
-            --AutoReprotectOnStart=true --EmergencySlAtrMult=2.0 --EmergencyTpRR=2.0 \
-            --SessionStart=8 --SessionEnd=22 --MTFEnabled=true --H4FilterEnabled=false --PatternConfidence=0.72 \
-            --MaxConcurrentTrades=3 --MaxSameDirectionTrades=1 --MaxTradesPerDay=4 --CooldownMinutes=10 \
-            --AtrPeriod=14 --SlAtrMult=1.2 --TpCdMult=1.0 --MinRR=2.0 --MaxSpreadPips=35.0 \
-            --MinStopLossPips=100.0 --MinTakeProfitPips=200.0 --MinStopDistancePips=15.0 --MinAtrPrice=3.0 \
-            --SwingDepth=5 --SwingLookback=200 --PivotScanCount=14 --MinLegAtrRatio=0.8 \
-            --EnableGartley=true --EnableBat=true --EnableButterfly=true --EnableCrab=true --EnableCypher=true \
-            --EnableRat=true --EnableDeepGartley=true --EnableAltBat=false --EnableDeepCrab=true \
-            --EnableABCD=true --EnableShark=true --EnableFiveZero=false \
-            --GlobalMinScore=0.55 --ConsensusBonus=1.12 --FibTolerance=0.05 --MaxEntryDeviationAtr=0.5 \
-            --MaxTradesPerPatternPercent=50 --AutoDisableLosing=true --AutoDisableWinRate=50.0 \
-            --SlUpdateStepPips=2.0 --SlUpdateCooldownSec=5 --BreakEvenTriggerPips=100.0 --BreakEvenOffsetPips=10.0 \
-            --TrailingTriggerPips=150.0 --TrailingDistancePips=90.0 --EnablePartialTP=true --Tp1RR=1.0 --Tp1ClosePercent=60.0 \
-            --BlockNewsWindow=true --BlockedWindowsGMT='12:25-12:45;14:25-14:45' \
-            --report="/work/reports/${OUT}.html" --report-json="/work/reports/${OUT}.json"
-
-      - name: Remove credentials
-        if: always()
+            --broker=fxpro --symbol=XAUUSD --period=h1 --start='${{ matrix.start }}' --end='${{ matrix.end }}' --balance=100 --data-mode=m1 --data-dir=/work/cache --commission=35 \
+            --SymbolName=XAUUSD --RiskPercent=1.5 --MaxDrawdown=10 --DailyLossLimitPercent=4 --WeeklyLossLimitPercent=8 --MonthlyTargetPercent=12 --RiskAfterMonthlyTarget=0.5 \
+            --CloseAllOnDailyLock=false --AutoReprotectOnStart=true --EmergencySlAtrMult=2 --EmergencyTpRR=2 --SessionStart=8 --SessionEnd=22 --MTFEnabled=true --H4FilterEnabled=false \
+            --PatternConfidence=0.72 --MaxConcurrentTrades=3 --MaxSameDirectionTrades=1 --MaxTradesPerDay=4 --CooldownMinutes=10 --AtrPeriod=14 --SlAtrMult=1.2 --TpCdMult=1 --MinRR=2 \
+            --MaxSpreadPips=35 --MinStopLossPips=100 --MinTakeProfitPips=200 --MinStopDistancePips=15 --MinAtrPrice=3 --SwingDepth=5 --SwingLookback=200 --PivotScanCount=14 --MinLegAtrRatio=0.8 \
+            --EnableGartley=true --EnableBat=true --EnableButterfly=true --EnableCrab=true --EnableCypher=true --EnableRat=true --EnableDeepGartley=true --EnableAltBat=false --EnableDeepCrab=true --EnableABCD=true --EnableShark=true --EnableFiveZero=false \
+            --GlobalMinScore=0.55 --ConsensusBonus=1.12 --FibTolerance=0.05 --MaxEntryDeviationAtr=0.5 --MaxTradesPerPatternPercent=50 --AutoDisableLosing=true --AutoDisableWinRate=50 \
+            --SlUpdateStepPips=2 --SlUpdateCooldownSec=5 --BreakEvenTriggerPips=100 --BreakEvenOffsetPips=10 --TrailingTriggerPips=150 --TrailingDistancePips=90 --EnablePartialTP=true --Tp1RR=1 --Tp1ClosePercent=60 \
+            --BlockNewsWindow=true --BlockedWindowsGMT='12:25-12:45;14:25-14:45' --report="/work/reports/${OUT}.html" --report-json="/work/reports/${OUT}.json"
+      - if: always()
         run: rm -f backtest/ctrader.pwd
-
-      - name: Upload reports
-        if: always()
+      - if: always()
         uses: actions/upload-artifact@v4
         with:
           name: HarmonyBotPro-v18-XAUUSD-H1-100-${{ matrix.label }}
-          path: |
-            backtest/reports/HarmonyBotPro-v18-XAUUSD-H1-100-${{ matrix.label }}.html
-            backtest/reports/HarmonyBotPro-v18-XAUUSD-H1-100-${{ matrix.label }}.json
+          path: backtest/reports/*
           if-no-files-found: warn
           retention-days: 30
