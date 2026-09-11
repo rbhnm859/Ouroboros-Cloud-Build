@@ -1,0 +1,7 @@
+FIX 01 ABCD reversal polarity
+FIX 02 XABCD AD-XA geometry
+FIX 03 XABCD completion range
+FIX 04 XABCD completion score
+FIX 05 Fibonacci tolerance semantics
+FIX 06 pre-rank entry proximity
+FIX 07 Cypher pattern-specific geometry

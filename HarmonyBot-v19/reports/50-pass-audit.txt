@@ -45,7 +45,7 @@ PASS 44 5-0 bounds guard
 PASS 45 grouping completion index
 PASS 46 pattern completion age gate
 PASS 47 current closed close confirm
-PASS 48 ABCD BC retracement filter
-PASS 49 ABCD weight reduced
-PASS 50 success pattern race reset
+PASS 48 ABCD bullish-bearish reversal polarity
+PASS 49 XABCD AD-XA completion geometry
+PASS 50 valid Fib zone tolerance semantics
 RESULT 50/50 passed

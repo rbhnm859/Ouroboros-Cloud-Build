@@ -1616,7 +1616,13 @@ namespace cAlgo.Robots
                     if (!IsDefEnabled(def)) continue;
                     Candidate c = Match(bars, pivots, i, def, currentIndex, atrNow, regimeScore, buyTrend, sellTrend);
                     if (c != null)
-                        all.Add(c);
+                    {
+                        SwingPoint completion = c.Family == PatternFamily.Shark ? c.C : c.D;
+                        double liveEntry = c.IsBullish ? symbol.Ask : symbol.Bid;
+                        // Reject stale/far candidates before ranking so they cannot mask a valid recent completion.
+                        if (completion != null && Math.Abs(liveEntry - completion.Price) <= atrNow * _maxEntryDeviationAtr)
+                            all.Add(c);
+                    }
                 }
             }
 
@@ -1794,8 +1800,9 @@ namespace cAlgo.Robots
             }
             else if (isAbcd)
             {
-                bull = (b.Price > a.Price) && (c.Price < b.Price) && (d.Price > c.Price);
-                bear = (b.Price < a.Price) && (c.Price > b.Price) && (d.Price < c.Price);
+                // ABCD is a reversal pattern: bullish completion is D-low; bearish completion is D-high.
+                bull = (b.Price < a.Price) && (c.Price > b.Price) && (d.Price < c.Price);
+                bear = (b.Price > a.Price) && (c.Price < b.Price) && (d.Price > c.Price);
                 ab = Math.Abs(b.Price - a.Price);
                 bc = Math.Abs(c.Price - b.Price);
                 cd = Math.Abs(d.Price - c.Price);
@@ -1858,27 +1865,40 @@ namespace cAlgo.Robots
             {
                 double rBC = bc / ab;
                 double rCD = cd / ab;
-                if (!InRange(rBC, R_382, R_886)) return null;
+                if (!InRange(rBC, R_382 - _fibTolerance, R_886 + _fibTolerance)) return null;
                 if (!InFibRange(rCD, def.BIdeal, def.BMin, def.BMax)) return null;
                 geometry = (RatioScore(rBC, R_618) + RatioScore(rCD, def.BIdeal)) / 2.0;
             }
+            else if (def.Name == "Cypher")
+            {
+                double xc = Math.Abs(c.Price - x.Price);
+                if (xc <= 0) return null;
+                double rAB = ab / xa;
+                double rXC = xc / xa;
+                double rCDXC = cd / xc;
+                if (!InRange(rAB, R_382 - _fibTolerance, R_618 + _fibTolerance)) return null;
+                if (!InRange(rXC, R_1272 - _fibTolerance, R_1414 + _fibTolerance)) return null;
+                if (!InRange(rCDXC, R_786 - _fibTolerance, R_786 + _fibTolerance)) return null;
+                geometry = (RatioScore(rAB, R_50) + RatioScore(rXC, R_1272) + RatioScore(rCDXC, R_786)) / 3.0;
+            }
             else
             {
-                double xd = Math.Abs(d.Price - x.Price);
+                // Standard XABCD completion ratio is AD/XA (retracement/extension from A), not |D-X|/XA.
+                double ad = Math.Abs(d.Price - a.Price);
                 double rAB = ab / xa;
                 double rBC = bc / ab;
                 double rCD = cd / bc;
-                double rXD = xd / xa;
+                double rAD = ad / xa;
 
                 if (!InFibRange(rAB, def.BIdeal, def.BMin, def.BMax)) return null;
                 if (!InFibRange(rBC, def.CIdeal, def.CMin, def.CMax)) return null;
                 if (!InFibRange(rCD, def.DIdeal, def.DMin, def.DMax)) return null;
-                if (!InFibRange(rXD, def.XDIdeal, def.XDMin, def.XDMax)) return null;
+                if (!InFibRange(rAD, def.XDIdeal, def.XDMin, def.XDMax)) return null;
 
                 double s1 = RatioScore(rAB, def.BIdeal);
                 double s2 = RatioScore(rBC, def.CIdeal);
                 double s3 = RatioScore(rCD, def.DIdeal);
-                double s4 = RatioScore(rXD, def.XDIdeal);
+                double s4 = RatioScore(rAD, def.XDIdeal);
                 geometry = (s1 + s2 + s3 + s4) / 4.0;
             }
 
@@ -2029,13 +2049,11 @@ namespace cAlgo.Robots
         // ============================================================
         private bool InFibRange(double value, double ideal, double min, double max)
         {
-            if (ideal > 0)
-            {
-                double lo = Math.Max(min, ideal - _fibTolerance);
-                double hi = Math.Min(max, ideal + _fibTolerance);
-                return value >= lo && value <= hi;
-            }
-            return value >= min && value <= max;
+            // min/max already define the accepted harmonic zone. FibTolerance expands the zone slightly;
+            // ideal remains a scoring target rather than an accidental hard gate.
+            double lo = Math.Max(0.0, min - _fibTolerance);
+            double hi = max + _fibTolerance;
+            return value >= lo && value <= hi;
         }
 
         private bool InRange(double v, double min, double max)
