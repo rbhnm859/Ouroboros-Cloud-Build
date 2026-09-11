@@ -1,6 +1,7 @@
 from pathlib import Path
 import re, base64, gzip
 
+# Runtime patch v2: preserve strategy parameters while fixing backtest data reuse and execution guards.
 wf = Path('.github/workflows/build-harmonybotpro-mobile.yml').read_text()
 m = re.search(r'payload\s*=\s*"([A-Za-z0-9+/=]+)"', wf)
 if not m:
