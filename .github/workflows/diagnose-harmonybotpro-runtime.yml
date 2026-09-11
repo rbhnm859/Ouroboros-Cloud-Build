@@ -1,0 +1,47 @@
+name: Diagnose HarmonyBotPro Runtime
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/diagnose-harmonybotpro-runtime.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Recreate source from existing build workflow
+        run: |
+          mkdir -p diagnostics
+          python3 - <<'PY'
+          from pathlib import Path
+          import re, base64, gzip
+          text = Path('.github/workflows/build-harmonybotpro-mobile.yml').read_text()
+          m = re.search(r'payload\s*=\s*"([A-Za-z0-9+/=]+)"', text)
+          if not m:
+              raise SystemExit('payload not found')
+          src = gzip.decompress(base64.b64decode(m.group(1)))
+          Path('diagnostics/HarmonyBotPro.cs').write_bytes(src)
+          print('source bytes:', len(src))
+          PY
+
+      - name: Print runtime hotspots
+        run: |
+          echo '=== Lifecycle methods ==='
+          grep -nE 'OnStart|OnTick|OnBar|OnBarClosed|OnTimer|Detect|Scan|Manage|Pattern|Swing|Pivot|MarketData.GetBars|while[[:space:]]*\(|for[[:space:]]*\(' diagnostics/HarmonyBotPro.cs | head -n 300 || true
+          echo '=== File stats ==='
+          wc -l -c diagnostics/HarmonyBotPro.cs
+
+      - name: Upload reconstructed source
+        uses: actions/upload-artifact@v4
+        with:
+          name: HarmonyBotPro-runtime-source
+          path: diagnostics/HarmonyBotPro.cs
+          retention-days: 7
