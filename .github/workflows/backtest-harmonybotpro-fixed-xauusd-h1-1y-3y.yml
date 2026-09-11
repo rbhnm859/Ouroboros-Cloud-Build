@@ -1,0 +1,131 @@
+name: HarmonyBotPro Fixed XAUUSD H1 1Y-3Y
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/backtest-harmonybotpro-fixed-xauusd-h1-1y-3y.yml'
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: harmonybotpro-fixed-xauusd-h1-final
+  cancel-in-progress: true
+
+jobs:
+  backtest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download verified fixed ALGO
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p backtest/algo backtest/reports backtest/cache
+          curl -fL -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/artifacts/10180280007/zip" -o backtest/fixed.zip
+          unzip -o backtest/fixed.zip -d backtest/algo
+          ALGO=$(find backtest/algo -type f -name 'HarmonyBotProFixed.algo' -print -quit)
+          test -n "$ALGO"
+          cp "$ALGO" backtest/HarmonyBotProFixed.algo
+          sha256sum backtest/HarmonyBotProFixed.algo
+
+      - name: Pull official cTrader CLI
+        run: docker pull ghcr.io/spotware/ctrader-console:5.9.11
+
+      - name: Create cTrader password file
+        env:
+          CTRADER_PASSWORD: ${{ secrets.CTRADER_PASSWORD }}
+        run: |
+          test -n "${CTRADER_PASSWORD:-}" || exit 1
+          printf '%s' "$CTRADER_PASSWORD" > backtest/ctrader.pwd
+          chmod 600 backtest/ctrader.pwd
+
+      - name: Backtest 3Y then 1Y with shared M1 cache
+        env:
+          CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+          CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+        run: |
+          test -n "${CTRADER_CTID:-}" || exit 1
+          test -n "${CTRADER_ACCOUNT:-}" || exit 1
+
+          run_bt() {
+            START="$1"
+            END="$2"
+            WINDOW="$3"
+            OUT="HarmonyBotProFixed-XAUUSD-H1-${WINDOW}"
+            docker run --rm \
+              -v "$PWD/backtest:/work" \
+              -e "CTID=$CTRADER_CTID" -e 'PWD-FILE=/work/ctrader.pwd' -e "ACCOUNT=$CTRADER_ACCOUNT" \
+              ghcr.io/spotware/ctrader-console:5.9.11 \
+              backtest /work/HarmonyBotProFixed.algo --environment-variables --exit-on-stop \
+              --symbol=XAUUSD --period=h1 --start="$START" --end="$END" \
+              --balance=1000 --commission=35 --spread=17.18 --data-mode=m1 --data-dir=/work/cache \
+              --SymbolName=XAUUSD --RiskPercent=1.5 --MaxDrawdown=10 --DailyLossLimitPercent=4 --WeeklyLossLimitPercent=8 --MonthlyTargetPercent=12 --RiskAfterMonthlyTarget=0.5 \
+              --CloseAllOnDailyLock=false --AutoReprotectOnStart=true --EmergencySlAtrMult=2 --EmergencyTpRR=2 --SessionStart=8 --SessionEnd=22 --MTFEnabled=true --H4FilterEnabled=false \
+              --PatternConfidence=0.72 --MaxConcurrentTrades=3 --MaxSameDirectionTrades=1 --MaxTradesPerDay=3 --CooldownMinutes=10 --MaxSpreadPips=35 --MinAtrPrice=3 --AtrPeriod=14 \
+              --SlAtrMult=1.2 --TpCdMult=1 --MinRR=2 --MinStopLossPips=100 --MinTakeProfitPips=200 --MinStopDistancePips=15 --SwingDepth=5 --SwingLookback=200 --PivotScanCount=12 --MinLegAtrRatio=0.8 \
+              --EnableGartley=true --EnableBat=true --EnableButterfly=true --EnableCrab=true --EnableCypher=true --SlUpdateStepPips=2 --SlUpdateCooldownSec=5 --BreakEvenTriggerPips=100 --BreakEvenOffsetPips=10 \
+              --TrailingTriggerPips=150 --TrailingDistancePips=90 --EnablePartialTP=true --Tp1RR=1 --Tp1ClosePercent=60 --BlockNewsWindow=true --BlockedWindowsGMT='12:25-12:45;14:25-14:45' \
+              --report="/work/reports/${OUT}.html" --report-json="/work/reports/${OUT}.json"
+            test -s "backtest/reports/${OUT}.json"
+          }
+
+          run_bt '11/09/2023' '11/09/2026' '3Y'
+          run_bt '11/09/2025' '11/09/2026' '1Y'
+
+      - name: Create metrics summary
+        if: success()
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import json
+          for w in ('3Y','1Y'):
+              p=Path(f'backtest/reports/HarmonyBotProFixed-XAUUSD-H1-{w}.json')
+              d=json.loads(p.read_text())
+              total=d.get('TotalTrades',0) or 0
+              wins=d.get('WinningTrades',0) or 0
+              summary={
+                'window':w,
+                'equity':d.get('Equity'),
+                'net_profit':d.get('NetProfit'),
+                'return_percent':((d.get('Equity',1000)-1000)/1000*100) if d.get('Equity') is not None else None,
+                'total_trades':total,
+                'winning_trades':wins,
+                'losing_trades':d.get('LosingTrades'),
+                'win_rate_percent':(wins/total*100) if total else 0,
+                'profit_factor':d.get('ProfitFactor'),
+                'max_balance_drawdown_percent':d.get('MaxBalanceDrawdownPercentages'),
+                'max_equity_drawdown_percent':d.get('MaxEquityDrawdownPercentages'),
+                'average_trade':d.get('AverageTrade'),
+                'fitness':d.get('Fitness'),
+                'spread_pips':17.18,
+                'commission_usd_per_million_per_side':35,
+                'starting_balance':1000,
+                'symbol':'XAUUSD',
+                'period':'h1'
+              }
+              out=Path(f'backtest/reports/HarmonyBotProFixed-XAUUSD-H1-{w}-summary.json')
+              out.write_text(json.dumps(summary,indent=2))
+              print(json.dumps(summary,indent=2))
+          PY
+
+      - name: Cleanup credentials
+        if: always()
+        run: rm -f backtest/ctrader.pwd
+
+      - name: Upload final reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: HarmonyBotProFixed-XAUUSD-H1-1Y-3Y-Reports
+          path: |
+            backtest/reports/*.html
+            backtest/reports/*.json
+          if-no-files-found: warn
+          retention-days: 30
