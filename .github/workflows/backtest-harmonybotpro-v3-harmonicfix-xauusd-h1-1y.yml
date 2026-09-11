@@ -10,8 +10,7 @@ on:
 
 permissions:
   contents: read
-
-actions: read
+  actions: read
 
 concurrency:
   group: harmonybotpro-v3-harmonicfix-xauusd-h1-1y
