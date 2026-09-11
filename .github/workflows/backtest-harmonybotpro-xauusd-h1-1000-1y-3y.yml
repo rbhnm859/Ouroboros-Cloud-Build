@@ -1,0 +1,208 @@
+name: Backtest HarmonyBotPro XAUUSD H1 1000 1Y 3Y
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/backtest-harmonybotpro-xauusd-h1-1000-1y-3y.yml'
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: harmonybotpro-xauusd-h1-1000-1y-3y
+  cancel-in-progress: true
+
+jobs:
+  backtest:
+    name: XAUUSD H1 ${{ matrix.window }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - window: 1Y
+            start: '11/09/2025'
+            end: '11/09/2026'
+          - window: 3Y
+            start: '11/09/2023'
+            end: '11/09/2026'
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download exact HarmonyBotPro mobile algo
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p backtest/cache backtest/reports
+          curl -fL \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/artifacts/10178731134/zip" \
+            -o backtest/HarmonyBotPro-Mobile.zip
+          unzip -o backtest/HarmonyBotPro-Mobile.zip -d backtest/algo
+          ALGO="$(find backtest/algo -type f -name 'HarmonyBotPro.algo' -print -quit)"
+          test -n "$ALGO"
+          cp "$ALGO" backtest/HarmonyBotPro.algo
+          test -s backtest/HarmonyBotPro.algo
+          sha256sum backtest/HarmonyBotPro.algo
+
+      - name: Pull official cTrader CLI
+        run: docker pull ghcr.io/spotware/ctrader-console:5.9.11
+
+      - name: Create cTrader password file
+        env:
+          CTRADER_PASSWORD: ${{ secrets.CTRADER_PASSWORD }}
+        run: |
+          test -n "${CTRADER_PASSWORD:-}" || { echo 'Missing CTRADER_PASSWORD'; exit 1; }
+          printf '%s' "$CTRADER_PASSWORD" > backtest/ctrader.pwd
+          chmod 600 backtest/ctrader.pwd
+
+      - name: Backtest HarmonyBotPro XAUUSD H1 ${{ matrix.window }}
+        env:
+          CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+          CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+        run: |
+          test -n "${CTRADER_CTID:-}" || { echo 'Missing CTRADER_CTID'; exit 1; }
+          test -n "${CTRADER_ACCOUNT:-}" || { echo 'Missing CTRADER_ACCOUNT'; exit 1; }
+          echo "::add-mask::$CTRADER_CTID"
+          echo "::add-mask::$CTRADER_ACCOUNT"
+          OUT="HarmonyBotPro-XAUUSD-H1-${{ matrix.window }}"
+          docker run --rm \
+            -v "$PWD/backtest:/work" \
+            -e "CTID=$CTRADER_CTID" \
+            -e 'PWD-FILE=/work/ctrader.pwd' \
+            -e "ACCOUNT=$CTRADER_ACCOUNT" \
+            ghcr.io/spotware/ctrader-console:5.9.11 \
+            backtest /work/HarmonyBotPro.algo \
+            --environment-variables \
+            --symbol=XAUUSD \
+            --period=h1 \
+            --start='${{ matrix.start }}' \
+            --end='${{ matrix.end }}' \
+            --balance=1000 \
+            --data-mode=m1 \
+            --data-dir=/work/cache \
+            --SymbolName=XAUUSD \
+            --RiskPercent=1.5 \
+            --MaxDrawdown=10.0 \
+            --DailyLossLimitPercent=4.0 \
+            --WeeklyLossLimitPercent=8.0 \
+            --MonthlyTargetPercent=12.0 \
+            --RiskAfterMonthlyTarget=0.5 \
+            --CloseAllOnDailyLock=false \
+            --AutoReprotectOnStart=true \
+            --EmergencySlAtrMult=2.0 \
+            --EmergencyTpRR=2.0 \
+            --SessionStart=8 \
+            --SessionEnd=22 \
+            --MTFEnabled=true \
+            --H4FilterEnabled=false \
+            --PatternConfidence=0.72 \
+            --MaxConcurrentTrades=3 \
+            --MaxSameDirectionTrades=1 \
+            --MaxTradesPerDay=3 \
+            --CooldownMinutes=10 \
+            --MaxSpreadPips=35 \
+            --MinAtrPrice=3.0 \
+            --AtrPeriod=14 \
+            --SlAtrMult=1.2 \
+            --TpCdMult=1.0 \
+            --MinRR=2.0 \
+            --MinStopLossPips=100 \
+            --MinTakeProfitPips=200 \
+            --MinStopDistancePips=15 \
+            --SwingDepth=5 \
+            --SwingLookback=200 \
+            --PivotScanCount=12 \
+            --MinLegAtrRatio=0.8 \
+            --EnableGartley=true \
+            --EnableBat=true \
+            --EnableButterfly=true \
+            --EnableCrab=true \
+            --EnableCypher=true \
+            --SlUpdateStepPips=2 \
+            --SlUpdateCooldownSec=5 \
+            --BreakEvenTriggerPips=100 \
+            --BreakEvenOffsetPips=10 \
+            --TrailingTriggerPips=150 \
+            --TrailingDistancePips=90 \
+            --EnablePartialTP=true \
+            --Tp1RR=1.0 \
+            --Tp1ClosePercent=60 \
+            --BlockNewsWindow=true \
+            --BlockedWindowsGMT='12:25-12:45;14:25-14:45' \
+            --report="/work/reports/${OUT}.html" \
+            --report-json="/work/reports/${OUT}.json"
+
+      - name: Extract compact metrics
+        if: success()
+        run: |
+          python3 - <<'PYCODE'
+          from pathlib import Path
+          import json, re
+          window='${{ matrix.window }}'
+          p=Path(f'backtest/reports/HarmonyBotPro-XAUUSD-H1-{window}.json')
+          d=json.loads(p.read_text())
+          flat={}
+          def walk(x):
+              if isinstance(x,dict):
+                  for k,v in x.items():
+                      key=re.sub(r'[^a-z0-9]','',str(k).lower())
+                      if key not in flat and not isinstance(v,(dict,list)):
+                          flat[key]=v
+                      walk(v)
+              elif isinstance(x,list):
+                  for v in x: walk(v)
+          walk(d)
+          def get(*names):
+              for n in names:
+                  v=flat.get(re.sub(r'[^a-z0-9]','',n.lower()))
+                  if v not in (None,''): return v
+              return None
+          out={
+              'symbol':'XAUUSD','period':'h1','window':window,
+              'start':'${{ matrix.start }}','end':'${{ matrix.end }}',
+              'starting_balance':1000,
+              'ending_balance':get('EndingBalance','Balance'),
+              'net_profit':get('NetProfit','NetProfitAmount'),
+              'net_profit_percent':get('NetProfitPercentages','NetProfitPercentage','ReturnOnEquity','TotalReturn'),
+              'total_trades':get('TotalTrades','Trades'),
+              'winning_trades':get('WinningTrades','WinningPositions','Wins'),
+              'losing_trades':get('LosingTrades','LosingPositions','Losses'),
+              'win_rate':get('WinRate','WinningTradesPercentages','WinningTradesPercentage'),
+              'profit_factor':get('ProfitFactor'),
+              'max_equity_drawdown_percent':get('MaxEquityDrawdownPercentages','MaxEquityDrawdownPercentage','MaxDrawdownPercentages','MaxDrawdownPercentage'),
+              'max_balance_drawdown_percent':get('MaxBalanceDrawdownPercentages','MaxBalanceDrawdownPercentage'),
+              'sharpe_ratio':get('SharpeRatio'),
+              'sortino_ratio':get('SortinoRatio'),
+              'average_trade':get('AverageTrade'),
+              'commissions':get('Commissions','Commission'),
+          }
+          outp=Path(f'backtest/reports/HarmonyBotPro-XAUUSD-H1-{window}-summary.json')
+          outp.write_text(json.dumps(out,ensure_ascii=False,indent=2))
+          print(json.dumps(out,ensure_ascii=False,indent=2))
+          PYCODE
+
+      - name: Remove credentials
+        if: always()
+        run: rm -f backtest/ctrader.pwd
+
+      - name: Upload reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: HarmonyBotPro-XAUUSD-H1-${{ matrix.window }}-Reports
+          path: |
+            backtest/reports/HarmonyBotPro-XAUUSD-H1-${{ matrix.window }}.html
+            backtest/reports/HarmonyBotPro-XAUUSD-H1-${{ matrix.window }}.json
+            backtest/reports/HarmonyBotPro-XAUUSD-H1-${{ matrix.window }}-summary.json
+          if-no-files-found: warn
+          retention-days: 30
