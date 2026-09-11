@@ -1,6 +1,9 @@
-status=FAILED
+status=SUCCESS
 restore_exit=0
-build_exit=1
-source_sha=68de9e46fb38f24f6b0356357abe48c5bb948b07fc5381aa096022862db5b892
-commit=e0db8d19de6d5b9c4fd7ca1e4501e1428b68db88
-built_at_utc=2026-09-11T03:08:12Z
+build_exit=0
+original_source_sha=68de9e46fb38f24f6b0356357abe48c5bb948b07fc5381aa096022862db5b892
+compiled_source_sha=deb9e312984176f95011e017fe61e073226324735766a5424c3f773b57ddc95c
+commit=07d200f9456e5ccbcec6580e609821b6728a84e5
+built_at_utc=2026-09-11T03:09:24Z
+algo_size=74644
+algo_sha=1e830c6cd334460d8f49faad4ecdf600b2ad81b419d9b7368aa6c96207597623
