@@ -1,0 +1,39 @@
+name: Export HarmonyBot v18 Source Snapshot
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/export-harmonybot-v18-source.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Reconstruct verified v18 source
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p HarmonyBot-v18/source/snapshot
+          cat HarmonyBot-v18/source/chunks/*.b64 > /tmp/HarmonyBotPro.cs.gz.b64
+          test "$(wc -c < /tmp/HarmonyBotPro.cs.gz.b64)" -eq 20456
+          base64 -d /tmp/HarmonyBotPro.cs.gz.b64 | gzip -d > HarmonyBot-v18/source/snapshot/HarmonyBotPro_v18_original.cs
+          test "$(wc -c < HarmonyBot-v18/source/snapshot/HarmonyBotPro_v18_original.cs)" -eq 84511
+          echo '68de9e46fb38f24f6b0356357abe48c5bb948b07fc5381aa096022862db5b892  HarmonyBot-v18/source/snapshot/HarmonyBotPro_v18_original.cs' | sha256sum -c -
+          wc -l HarmonyBot-v18/source/snapshot/HarmonyBotPro_v18_original.cs
+      - name: Commit verified snapshot
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add HarmonyBot-v18/source/snapshot/HarmonyBotPro_v18_original.cs
+          git commit -m 'chore: export verified HarmonyBot v18 source snapshot [skip ci]' || true
+          git pull --rebase origin main
+          git push origin HEAD:main
