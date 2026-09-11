@@ -1,0 +1,374 @@
+            _round8MfePips.Remove(p.Id);
+            _round8MaePips.Remove(p.Id);
+
+            if (DebugLogging)
+                Print("[CLOSE] {0} net={1:F2} reason={2}", name, p.NetProfit, args.Reason);
+        }
+
+        private void AddCustomPatterns(string text)
+        {
+            if (string.IsNullOrWhiteSpace(text))
+                return;
+
+            // Format: Name|xbMin|xbMax|acMin|acMax|bdMin|bdMax|xdMin|xdMax ; next pattern ...
+            string[] records = text.Split(new[] { ';' }, StringSplitOptions.RemoveEmptyEntries);
+            foreach (string record in records)
+            {
+                string[] f = record.Split('|');
+                if (f.Length != 9)
+                    continue;
+
+                double xb1, xb2, ac1, ac2, bd1, bd2, xd1, xd2;
+                if (!double.TryParse(f[1], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out xb1) ||
+                    !double.TryParse(f[2], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out xb2) ||
+                    !double.TryParse(f[3], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out ac1) ||
+                    !double.TryParse(f[4], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out ac2) ||
+                    !double.TryParse(f[5], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out bd1) ||
+                    !double.TryParse(f[6], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out bd2) ||
+                    !double.TryParse(f[7], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out xd1) ||
+                    !double.TryParse(f[8], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out xd2))
+                    continue;
+
+                _patterns.Add(new PatternDefinition(f[0].Trim(), xb1, xb2, ac1, ac2, bd1, bd2, xd1, xd2, false));
+            }
+        }
+
+        public enum StopAnchorModeKind
+        {
+            LegacyD,
+            PatternInvalidation
+        }
+
+        public enum TargetRiskRewardPolicyKind
+        {
+            LegacyFallback,
+            RejectPoorGeometry
+        }
+
+        public enum Round5DecisionMode
+        {
+            ObserveOnly,
+            MacroVeto,
+            WeightedGate
+        }
+
+        public enum MultiTimeframeMode
+        {
+            Off,
+            RequireAgreement,
+            SellRequiresAgreement,
+            BuyRequiresAgreement,
+            ScoreOnly
+        }
+
+        public enum RiskSizingMode
+        {
+            FixedLots,
+            RiskPercentEquity,
+            FixedRiskCash
+        }
+
+        public enum TakeProfitMode
+        {
+            RiskReward,
+            Fib382AD,
+            Fib618AD,
+            PointC,
+            PointA
+        }
+
+        public enum EntryConfirmationMode
+        {
+            Aggressive,
+            Balanced,
+            Conservative
+        }
+
+        public enum TrendFilterMode
+        {
+            Off,
+            ScoreOnly,
+            ConfirmOnly,
+            Strict
+        }
+
+        private enum PivotKind { High, Low }
+
+        private sealed class PivotPoint
+        {
+            public PivotPoint(int index, double price, PivotKind kind) { Index = index; Price = price; Kind = kind; }
+            public int Index { get; private set; }
+            public double Price { get; private set; }
+            public PivotKind Kind { get; private set; }
+        }
+
+        private sealed class Round5Snapshot
+        {
+            public Round5FrameState D1;
+            public Round5FrameState H4;
+            public Round5FrameState H1;
+            public Round5FrameState M30;
+            public Round5FrameState M15;
+            public Round5FrameState M5;
+            public Round5FrameState M1;
+        }
+
+        private sealed class Round5FrameState
+        {
+            public Round5FrameState(string timeFrameName, string patternName, TradeType direction, double score, double confidence, int ageBars, int dIndex, double invalidationPrice)
+            {
+                TimeFrameName = timeFrameName;
+                PatternName = patternName;
+                Direction = direction;
+                Score = score;
+                Confidence = confidence;
+                AgeBars = ageBars;
+                DIndex = dIndex;
+                InvalidationPrice = invalidationPrice;
+            }
+            public string TimeFrameName { get; private set; }
+            public string PatternName { get; private set; }
+            public TradeType Direction { get; private set; }
+            public double Score { get; private set; }
+            public double Confidence { get; private set; }
+            public int AgeBars { get; private set; }
+            public int DIndex { get; private set; }
+            public double InvalidationPrice { get; private set; }
+        }
+
+        private sealed class MtfBiasSignal
+        {
+            public MtfBiasSignal(string patternName, TradeType direction, int dIndex, double score)
+            {
+                PatternName = patternName;
+                Direction = direction;
+                DIndex = dIndex;
+                Score = score;
+            }
+            public string PatternName { get; private set; }
+            public TradeType Direction { get; private set; }
+            public int DIndex { get; private set; }
+            public double Score { get; private set; }
+        }
+
+        private sealed class PatternMatch
+        {
+            public PatternMatch(PatternDefinition definition, TradeType direction, PivotPoint x, PivotPoint a, PivotPoint b, PivotPoint c, PivotPoint d,
+                double score, double xb, double ac, double bd, double xd, double cdAb)
+            {
+                Definition = definition; Direction = direction; X = x; A = a; B = b; C = c; D = d;
+                Score = score; Xb = xb; Ac = ac; Bd = bd; Xd = xd; CdAb = cdAb;
+                FinalScore = score;
+            }
+            public PatternDefinition Definition { get; private set; }
+            public TradeType Direction { get; private set; }
+            public PivotPoint X { get; private set; }
+            public PivotPoint A { get; private set; }
+            public PivotPoint B { get; private set; }
+            public PivotPoint C { get; private set; }
+            public PivotPoint D { get; private set; }
+            public double Score { get; private set; }
+            public double Xb { get; private set; }
+            public double Ac { get; private set; }
+            public double Bd { get; private set; }
+            public double Xd { get; private set; }
+            public double CdAb { get; private set; }
+            public bool TrendAligned { get; set; }
+            public double FinalScore { get; set; }
+            public string SignalKey { get { return Definition.Name + "|" + Direction + "|" + D.Index; } }
+        }
+
+        private sealed class PatternStats
+        {
+            public int Trades;
+            public int Wins;
+            public int Losses;
+            public double NetProfit;
+        }
+
+        private sealed class PatternDefinition
+        {
+            public PatternDefinition(string name, double xbMin, double xbMax, double acMin, double acMax,
+                double bdMin, double bdMax, double xdMin, double xdMax, bool isCore,
+                double cdAbMin = 0.0, double cdAbMax = 0.0)
+            {
+                Name = name; XbMin = xbMin; XbMax = xbMax; AcMin = acMin; AcMax = acMax;
+                BdMin = bdMin; BdMax = bdMax; XdMin = xdMin; XdMax = xdMax; IsCore = isCore;
+                CdAbMin = cdAbMin; CdAbMax = cdAbMax;
+            }
+
+            public string Name { get; private set; }
+            public double XbMin { get; private set; }
+            public double XbMax { get; private set; }
+            public double AcMin { get; private set; }
+            public double AcMax { get; private set; }
+            public double BdMin { get; private set; }
+            public double BdMax { get; private set; }
+            public double XdMin { get; private set; }
+            public double XdMax { get; private set; }
+            public double CdAbMin { get; private set; }
+            public double CdAbMax { get; private set; }
+            public bool IsCore { get; private set; }
+
+            public double Score(double xb, double ac, double bd, double xd, double cdAb, double tolerancePercent)
+            {
+                var scores = new List<double>
+                {
+                    ScoreRule(xb, XbMin, XbMax, tolerancePercent),
+                    ScoreRule(ac, AcMin, AcMax, tolerancePercent),
+                    ScoreRule(bd, BdMin, BdMax, tolerancePercent),
+                    ScoreRule(xd, XdMin, XdMax, tolerancePercent)
+                };
+                if (CdAbMin > 0 && CdAbMax > 0)
+                    scores.Add(ScoreRule(cdAb, CdAbMin, CdAbMax, tolerancePercent));
+                if (scores.Any(v => v <= 0))
+                    return 0;
+                return scores.Average();
+            }
+
+            private static double ScoreRule(double value, double min, double max, double tolPct)
+            {
+                if (min <= 0 && max <= 0)
+                    return 100;
+                if (max < min)
+                {
+                    double t = min; min = max; max = t;
+                }
+
+                if (Math.Abs(max - min) < 1e-12)
+                {
+                    double target = min;
+                    double allowed = Math.Max(target * tolPct / 100.0, 1e-9);
+                    double error = Math.Abs(value - target);
+                    if (error > allowed) return 0;
+                    return 100.0 * (1.0 - error / allowed);
+                }
+
+                if (value >= min && value <= max)
+                    return 100;
+
+                double lowerTol = Math.Max(min * tolPct / 100.0, 1e-9);
+                double upperTol = Math.Max(max * tolPct / 100.0, 1e-9);
+                if (value < min)
+                {
+                    double d = min - value;
+                    if (d > lowerTol) return 0;
+                    return 100.0 * (1.0 - d / lowerTol);
+                }
+                else
+                {
+                    double d = value - max;
+                    if (d > upperTol) return 0;
+                    return 100.0 * (1.0 - d / upperTol);
+                }
+            }
+        }
+
+        private static class PatternLibrary
+        {
+            public static List<PatternDefinition> Create()
+            {
+                var p = new List<PatternDefinition>();
+                Action<string,double,double,double,double,double,double,double,double,bool> add =
+                    (n,xb1,xb2,ac1,ac2,bd1,bd2,xd1,xd2,core) => p.Add(new PatternDefinition(n,xb1,xb2,ac1,ac2,bd1,bd2,xd1,xd2,core));
+
+                // Canonical / commonly used families
+                add("Gartley",0.618,0.618,0.382,0.886,1.272,1.618,0.786,0.786,true);
+                add("Bat",0.382,0.500,0.382,0.886,1.618,2.618,0.886,0.886,true);
+                add("Alt Bat",0.382,0.382,0.382,0.886,2.000,3.618,1.128,1.128,true);
+                add("Butterfly",0.786,0.786,0.382,0.886,1.618,2.618,1.272,1.618,true);
+                add("Crab",0.382,0.618,0.382,0.886,2.240,3.618,1.618,1.618,true);
+                add("Deep Crab",0.886,0.886,0.382,0.886,2.618,3.618,1.618,1.618,true);
+                add("Shark 1",0.382,0.618,1.128,1.618,1.618,2.236,0.886,0.886,true);
+                add("Shark 2",0.382,0.618,1.128,1.618,1.618,2.236,1.128,1.128,true);
+                add("New Cypher",0.382,0.618,1.414,2.140,1.272,2.000,0.786,0.786,true);
+                add("Nen Star",0.382,0.618,1.414,2.140,1.272,2.000,1.272,1.272,true);
+                add("5-0",1.128,1.618,1.500,2.236,0.500,0.618,0.400,0.618,true);
+                add("3 Drives",1.272,1.618,0.618,0.786,1.272,1.618,1.618,2.618,true);
+                p.Add(new PatternDefinition("ABCD",0.128,3.618,0.382,0.886,1.128,2.618,0.128,7.618,true,0.95,1.05));
+                p.Add(new PatternDefinition("Reciprocal ABCD",0.128,3.618,0.382,0.886,0.382,0.886,0.128,7.618,true,0.618,1.618));
+
+                // Extended / Max / Swan / 121 / community database
+                add("Max Bat",0.382,0.618,0.382,0.886,1.272,2.618,0.886,0.886,false);
+                add("Max Gartley",0.382,0.618,0.382,0.886,1.128,2.236,0.618,0.786,false);
+                add("Max Butterfly",0.618,0.886,0.382,0.886,1.272,2.618,1.272,1.618,false);
+                add("Butterfly 113",0.786,1.000,0.618,1.000,1.128,1.618,1.128,1.128,false);
+                add("Alt Shark 1",0.446,0.618,0.618,0.886,1.618,2.618,1.128,1.128,false);
+                add("Alt Shark 2",0.446,0.618,0.618,0.886,1.618,2.618,0.886,0.886,false);
+                add("Leonardo",0.500,0.500,0.382,0.886,1.128,2.618,0.786,0.786,false);
+                add("Navarro 200",0.382,0.786,0.886,1.128,0.886,3.618,0.886,1.128,false);
+                add("121",0.500,0.786,1.128,3.618,0.382,0.786,0.382,0.786,false);
+                add("White Swan",0.382,0.786,2.000,4.237,0.500,0.886,0.238,0.886,false);
+                add("Black Swan",1.382,2.618,0.236,0.500,1.128,2.000,1.128,2.618,false);
+                add("Sea Pony",0.128,3.618,0.382,0.500,1.618,2.618,0.618,3.618,false);
+                add("Partizan",0.128,3.618,0.382,0.382,1.618,1.618,0.618,3.618,false);
+                add("Partizan 2",0.128,3.618,1.128,1.618,1.618,2.236,0.618,3.618,false);
+                add("Partizan 2.1",0.128,3.618,1.128,1.128,1.618,1.618,0.618,3.618,false);
+                add("Partizan 2.2",0.128,3.618,1.128,1.128,2.236,2.236,0.618,3.618,false);
+                add("Partizan 2.3",0.128,3.618,0.618,1.618,1.618,1.618,0.618,3.618,false);
+                add("Partizan 2.4",0.128,3.618,1.618,1.618,2.236,2.236,0.618,3.618,false);
+                add("Henry-David",0.128,2.000,0.440,0.618,0.618,0.886,0.618,1.618,false);
+                add("Strong Henry-David",0.128,2.618,0.440,0.618,0.618,0.886,0.618,1.618,false);
+                add("David VM1",0.128,1.618,0.382,0.382,1.618,1.618,0.618,3.618,false);
+                add("David VM2",1.618,3.618,0.382,0.382,1.618,1.618,0.618,7.618,false);
+                add("SNORM",0.900,1.100,0.900,1.100,0.900,1.100,0.618,1.618,false);
+                add("Poruchik",0.128,3.618,0.382,2.618,1.000,1.000,0.618,3.618,false);
+                add("Kane",0.685,0.685,0.382,0.886,0.0,0.0,1.460,1.460,false);
+                add("Garfly",0.618,0.618,0.382,0.886,1.618,2.240,1.272,1.272,false);
+                add("May-00",1.128,1.618,1.618,2.236,0.500,0.618,0.500,0.618,false);
+
+                add("Total 1",0.382,0.786,0.382,0.886,1.272,2.618,0.786,0.886,false);
+                add("Total 2",0.382,0.786,0.382,0.886,1.618,3.618,1.128,1.618,false);
+                add("Total 3",0.276,0.618,1.128,2.618,1.272,2.618,0.618,0.886,false);
+                add("Total 4",0.382,0.786,1.128,2.618,1.618,2.618,1.128,1.272,false);
+                add("Total",0.276,0.786,0.382,2.618,1.272,3.618,0.618,1.618,false);
+
+                // Anti families
+                add("Anti Gartley",0.618,0.786,1.128,2.618,1.618,1.618,1.272,1.272,false);
+                add("Anti Bat",0.382,0.618,1.128,2.618,2.000,2.618,1.128,1.128,false);
+                add("Anti Alt Bat",0.236,0.500,1.128,2.618,2.618,2.618,0.886,0.886,false);
+                add("Anti Butterfly",0.382,0.618,1.128,2.618,1.272,1.272,0.618,0.786,false);
+                add("Anti Crab",0.276,0.446,1.128,2.618,1.618,2.618,0.618,0.618,false);
+                add("Anti Deep Crab",0.236,0.382,1.128,2.618,1.128,1.128,0.618,0.618,false);
+                add("Anti New Cypher",0.500,0.786,0.467,0.707,1.618,2.618,1.272,1.272,false);
+                add("Anti Nen Star",0.500,0.786,0.467,0.707,1.618,2.618,0.786,0.786,false);
+                add("Anti 3 Drives",0.618,0.786,1.272,1.618,0.618,0.786,0.130,0.886,false);
+                add("Anti 121",1.272,2.000,0.500,0.786,1.272,2.000,1.272,2.618,false);
+
+                // BG / NN ratio families often found in large harmonic databases
+                add("BG1",0.128,0.886,0.618,0.618,1.618,1.618,1.000,1.000,false);
+                add("BG2",0.128,0.886,0.707,0.707,1.414,1.414,1.000,1.000,false);
+                add("BG3",0.128,0.886,0.786,0.786,1.272,1.272,1.000,1.000,false);
+                add("BG4",0.128,0.886,0.886,0.886,1.128,1.128,1.000,1.000,false);
+                add("BG5",0.128,0.886,0.500,0.500,2.000,2.000,1.000,1.000,false);
+                add("BG6",0.128,0.886,0.382,0.382,2.618,2.618,1.000,1.000,false);
+                add("BG7",0.128,0.886,0.854,0.854,1.171,1.171,1.000,1.000,false);
+                add("BG8",0.128,0.886,0.886,0.886,1.128,1.128,1.000,1.000,false);
+                add("121 BG",0.500,0.577,1.128,1.733,0.618,0.707,0.447,0.786,false);
+
+                add("NN Gartley",0.618,0.618,0.382,0.886,1.128,1.618,0.786,0.786,false);
+                add("NN Bat",0.382,0.500,0.382,0.886,1.618,2.618,0.886,0.886,false);
+                add("NN Alt Bat",0.382,0.382,0.382,0.886,2.000,4.236,1.128,1.128,false);
+                add("NN Crab",0.382,0.618,0.382,0.886,2.236,4.236,1.618,1.618,false);
+                add("NN Deep Crab",0.886,0.886,0.382,0.886,2.618,4.236,1.618,1.618,false);
+                add("NN Anti Gartley",0.618,0.786,1.128,2.618,1.618,1.618,1.272,1.272,false);
+                add("NN Anti Bat",0.382,0.618,1.128,2.618,2.000,2.618,1.128,1.128,false);
+                add("NN Anti Alt Bat",0.236,0.500,1.128,2.618,2.618,2.618,0.886,0.886,false);
+                add("NN Anti Butterfly",0.382,0.618,1.128,2.618,1.272,1.272,0.618,0.786,false);
+                add("NN Anti Crab",0.236,0.447,1.128,2.618,1.128,2.618,0.618,0.618,false);
+                add("NN Anti Deep Crab",0.236,0.382,1.128,2.618,1.128,1.128,0.618,0.618,false);
+                add("NN Leo",0.500,0.500,0.382,0.886,1.128,2.618,0.786,0.786,false);
+                add("NN Anti Leo",0.382,0.886,1.128,2.618,2.000,2.000,1.272,1.272,false);
+                add("NN Total 1",0.382,0.786,0.382,0.886,1.272,2.618,0.786,0.886,false);
+                add("NN Total 2",0.382,0.786,0.382,0.886,1.618,4.236,1.128,1.618,false);
+                add("NN Total 3",0.236,0.618,1.128,2.618,1.272,2.618,0.618,0.886,false);
+                add("NN Total 4",0.382,0.786,1.128,2.618,1.618,2.618,1.128,1.272,false);
+                add("NN Total",0.236,0.786,0.382,2.618,1.272,4.236,0.618,1.618,false);
+                add("NN Black Swan",1.382,2.618,0.236,0.500,1.128,2.000,1.128,2.618,false);
+                add("NN White Swan",0.382,0.724,2.000,4.236,0.500,0.886,0.382,0.886,false);
+
+                return p;
+            }
+        }
+    }
+}

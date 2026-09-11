@@ -1,0 +1,254 @@
+name: Fibonacci BTC Round18 Frequency Validation
+
+on:
+  push:
+    branches:
+      - fibonacci-round18-frequency
+    paths:
+      - 'FibonacciHarmonicSniperUltimate/versions/v0.17.0-btc-round18-frequency/**'
+      - '.github/workflows/backtest-fibonacci-btc-round18-frequency.yml'
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'FibonacciHarmonicSniperUltimate/versions/v0.17.0-btc-round18-frequency/**'
+      - '.github/workflows/backtest-fibonacci-btc-round18-frequency.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fibonacci-btc-round18-frequency-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backtest:
+    name: BITCOIN H1 ${{ matrix.scenario }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - scenario: standard
+            spread: 0
+            commission: 65
+            baseline_trades: 94
+            pf_gate: 1.40
+            dd_gate: 8.0
+          - scenario: harsh
+            spread: 1500
+            commission: 100
+            baseline_trades: 92
+            pf_gate: 1.20
+            dd_gate: 10.0
+
+    env:
+      VERSION_DIR: FibonacciHarmonicSniperUltimate/versions/v0.17.0-btc-round18-frequency
+
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@v4
+
+      - name: Pull official cTrader CLI 5.9.11
+        run: docker pull ghcr.io/spotware/ctrader-console:5.9.11
+
+      - name: Assemble and verify Round18 source
+        run: |
+          set -euo pipefail
+          python3 "$VERSION_DIR/assemble_source.py"
+          test -s "$VERSION_DIR/FibonacciHarmonicSniperUltimate.cs"
+          test "$(find "$VERSION_DIR/source-parts" -maxdepth 1 -name 'part-*.cs.part' | wc -l)" -eq 6
+          grep -F 'VERSION v0.17.0-btc-round18-frequency' "$VERSION_DIR/FibonacciHarmonicSniperUltimate.cs"
+          sha256sum "$VERSION_DIR/FibonacciHarmonicSniperUltimate.cs" | tee "$VERSION_DIR/source.sha256"
+          wc -l "$VERSION_DIR/FibonacciHarmonicSniperUltimate.cs"
+
+      - name: Build Round18 .algo with official cTrader environment
+        run: |
+          set -euo pipefail
+          mkdir -p backtest/cache backtest/reports
+          docker run --rm --entrypoint sh \
+            -v "$PWD:/repo" \
+            -w /repo \
+            ghcr.io/spotware/ctrader-console:5.9.11 \
+            -c "dotnet restore /repo/$VERSION_DIR/FibonacciHarmonicSniperUltimate.csproj && dotnet build /repo/$VERSION_DIR/FibonacciHarmonicSniperUltimate.csproj --configuration Release --no-restore -p:AlgoPublish=False -p:IncludeSource=True"
+          ALGO="$(find "$VERSION_DIR" -type f -name '*.algo' -print -quit)"
+          test -n "$ALGO"
+          cp "$ALGO" backtest/Round18.algo
+          sha256sum backtest/Round18.algo | tee backtest/Round18.algo.sha256
+          ls -lh backtest/Round18.algo
+
+      - name: Create cTrader password file
+        env:
+          CTRADER_PASSWORD: ${{ secrets.CTRADER_PASSWORD }}
+        run: |
+          set -euo pipefail
+          test -n "${CTRADER_PASSWORD:-}"
+          printf '%s' "$CTRADER_PASSWORD" > backtest/ctrader.pwd
+          chmod 600 backtest/ctrader.pwd
+
+      - name: Backtest BITCOIN H1 — ${{ matrix.scenario }} costs
+        env:
+          CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+          CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+        run: |
+          set -euo pipefail
+          test -n "${CTRADER_CTID:-}"
+          test -n "${CTRADER_ACCOUNT:-}"
+          mkdir -p "backtest/reports/${{ matrix.scenario }}"
+          docker run --rm \
+            -v "$PWD/backtest:/work" \
+            -e "CTID=$CTRADER_CTID" \
+            -e "PWD-FILE=/work/ctrader.pwd" \
+            -e "ACCOUNT=$CTRADER_ACCOUNT" \
+            ghcr.io/spotware/ctrader-console:5.9.11 \
+            backtest /work/Round18.algo \
+            --environment-variables \
+            --exit-on-stop \
+            --symbol=BITCOIN \
+            --period=h1 \
+            --start='08/09/2025 00:00' \
+            --end='08/09/2026 00:00' \
+            --balance=10000 \
+            --data-mode=m1 \
+            --data-dir=/work/cache \
+            --commission=${{ matrix.commission }} \
+            --spread=${{ matrix.spread }} \
+            --RiskPercent=1.0 \
+            --Round17M30RiskPercent=0.50 \
+            --MaxOpenPositions=1 \
+            --MaxTradesPerDay=6 \
+            --MaxDailyLossPercent=5 \
+            --EnabledPatterns='Reciprocal ABCD' \
+            --PivotLeft=2 \
+            --PivotRight=2 \
+            --RatioTolerancePercent=6 \
+            --MinPatternScore=84 \
+            --MaxPatternAgeBars=16 \
+            --MaxEntryDistanceAtr=1.80 \
+            --ConfirmationMoveAtr=0.05 \
+            --UseCandleConfirmation=true \
+            --CooldownBars=2 \
+            --FallbackRiskReward=1.80 \
+            --MinimumRiskReward=1.50 \
+            --StopAnchorMode=LegacyD \
+            --TargetRiskRewardPolicy=LegacyFallback \
+            --Round5Mode=ObserveOnly \
+            --MtfMode=Off \
+            --Round6RequireM30SellConfirm=false \
+            --Round7VetoM30SellAlignment=false \
+            --Round8LogExcursions=false \
+            --Round9ShadowTpContinuation=false \
+            --Round10LogFunnel=false \
+            --Round15EnableM30Engine=true \
+            --Round16H1HealthGate=true \
+            --Round18EnableFrequencyExpansion=true \
+            --Round18M30CooldownBars=3 \
+            --Round18H1AlignmentBypass=true \
+            --Round18H1AlignmentMaxAgeBars=6 \
+            --Round18H1MinConfidence=0.65 \
+            --Round18AddAbcdM30=true \
+            --Round18AbcdMinScore=88 \
+            --Round18AbcdRatioTolerancePercent=5 \
+            --Round18AbcdMaxAgeBars=20 \
+            --Round18AbcdRequireTrend=true \
+            --Round18AbcdRiskPercent=0.25 \
+            --Round18LogFrequencyFunnel=true \
+            --DebugLogging=false \
+            --report="/work/reports/${{ matrix.scenario }}/report.html" \
+            --report-json="/work/reports/${{ matrix.scenario }}/report.json" \
+            2>&1 | tee "backtest/reports/${{ matrix.scenario }}/report.log"
+
+      - name: Summarize frequency result
+        if: always()
+        env:
+          SCENARIO: ${{ matrix.scenario }}
+          BASELINE_TRADES: ${{ matrix.baseline_trades }}
+          PF_GATE: ${{ matrix.pf_gate }}
+          DD_GATE: ${{ matrix.dd_gate }}
+        run: |
+          python3 - <<'PY'
+          import json, os, pathlib, re
+          scenario = os.environ['SCENARIO']
+          root = pathlib.Path('backtest/reports') / scenario
+          report = root / 'report.json'
+          summary = root / 'summary.json'
+          if not report.exists():
+              print('No JSON report produced')
+              raise SystemExit(1)
+          d = json.loads(report.read_text())
+          main = d.get('main', {})
+          ts = d.get('tradeStatistics', {})
+          eq = d.get('equity', {})
+          trades = int(ts.get('totalTrades') or 0)
+          wins = int(ts.get('winningTrades') or 0)
+          win_rate = (100.0 * wins / trades) if trades else 0.0
+          pf = float(ts.get('profitFactor') or 0.0)
+          roi = float(main.get('roi') or 0.0)
+          net = float(main.get('netProfit') or 0.0)
+          dd = float(eq.get('maxEquityDrawdownPercent') or 0.0)
+          baseline = int(os.environ['BASELINE_TRADES'])
+          pf_gate = float(os.environ['PF_GATE'])
+          dd_gate = float(os.environ['DD_GATE'])
+          increased = trades > baseline
+          target110 = trades >= 110
+          quality_ok = pf >= pf_gate and dd <= dd_gate
+          phase1_pass = increased and quality_ok
+          freq_line = None
+          log = root / 'report.log'
+          if log.exists():
+              for line in log.read_text(errors='replace').splitlines():
+                  if '[R18 FREQ STATS]' in line:
+                      freq_line = line.strip()
+          out = {
+              'scenario': scenario,
+              'trades': trades,
+              'baselineTrades': baseline,
+              'tradeDelta': trades - baseline,
+              'tradeIncreasePercent': ((trades / baseline - 1) * 100.0) if baseline else None,
+              'target110Reached': target110,
+              'winningTrades': wins,
+              'winRate': win_rate,
+              'netProfit': net,
+              'roi': roi,
+              'profitFactor': pf,
+              'maxEquityDrawdownPercent': dd,
+              'profitFactorGate': pf_gate,
+              'drawdownGate': dd_gate,
+              'frequencyIncreased': increased,
+              'qualityGatePassed': quality_ok,
+              'phase1Passed': phase1_pass,
+              'r18FrequencyStats': freq_line,
+          }
+          summary.write_text(json.dumps(out, indent=2))
+          print(json.dumps(out, indent=2))
+          with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as f:
+              f.write(f"## Round18 {scenario}\n\n")
+              f.write(f"- Trades: **{trades}** vs Round17 **{baseline}** ({trades-baseline:+d})\n")
+              f.write(f"- Win rate: **{win_rate:.2f}%**\n")
+              f.write(f"- ROI: **{roi:.2f}%** | Net profit: **${net:.2f}**\n")
+              f.write(f"- Profit Factor: **{pf:.2f}** (gate {pf_gate:.2f})\n")
+              f.write(f"- Max equity DD: **{dd:.2f}%** (gate {dd_gate:.2f}%)\n")
+              f.write(f"- >=110 trades: **{target110}**\n")
+              f.write(f"- Phase-1 frequency gate: **{'PASS' if phase1_pass else 'FAIL'}**\n")
+              if freq_line:
+                  f.write(f"- `{freq_line}`\n")
+          PY
+
+      - name: Upload Round18 ${{ matrix.scenario }} artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Fibonacci-BTC-Round18-Frequency-${{ matrix.scenario }}
+          path: |
+            backtest/Round18.algo
+            backtest/Round18.algo.sha256
+            backtest/reports/${{ matrix.scenario }}/
+            ${{ env.VERSION_DIR }}/FibonacciHarmonicSniperUltimate.cs
+            ${{ env.VERSION_DIR }}/source.sha256
+          if-no-files-found: warn
+
+      - name: Remove credentials
+        if: always()
+        run: rm -f backtest/ctrader.pwd

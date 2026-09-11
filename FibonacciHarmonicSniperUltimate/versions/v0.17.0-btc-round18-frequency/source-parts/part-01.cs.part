@@ -1,0 +1,375 @@
+        }
+        private AverageTrueRange _atr;
+        private ExponentialMovingAverage _ema;
+        private Bars _higherBars;
+        private int _mtfAgreementCount;
+        private int _mtfConflictCount;
+        private int _mtfNoBiasCount;
+        private int _mtfParentChildCount;
+        private List<PatternDefinition> _allPatterns;
+        private Bars _barsD1;
+        private Bars _barsH4;
+        private Bars _barsH1;
+        private Bars _barsM30;
+        private Bars _barsM15;
+        private Bars _barsM5;
+        private Bars _barsM1;
+        private readonly Dictionary<string, string> _round5LastMatrixKey = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        private int _round5MacroVetoCount;
+        private int _round5WeightedRejectCount;
+        private int _round5AcceptedCount;
+        private int _round5ShadowCount;
+        private int _round6SellAcceptedCount;
+        private int _round6SellRejectedCount;
+        private int _round6BuyPassthroughCount;
+        private int _round7BuyPassthroughCount;
+        private int _round7SellAcceptedCount;
+        private int _round7SellVetoedCount;
+        private List<PatternDefinition> _patterns;
+        private DateTime _day;
+        private double _dayStartEquity;
+        private int _tradesToday;
+        private int _lastTradeBar = -1000000;
+        private int _lastBullishDIndex = -1;
+        private int _lastBearishDIndex = -1;
+        private readonly HashSet<string> _consumedSignals = new HashSet<string>(StringComparer.Ordinal);
+        private readonly Dictionary<long, string> _positionPattern = new Dictionary<long, string>();
+        private readonly Dictionary<long, double> _round8InitialRiskPips = new Dictionary<long, double>();
+        private readonly Dictionary<long, double> _round8InitialTpPips = new Dictionary<long, double>();
+        private readonly Dictionary<long, double> _round8MfePips = new Dictionary<long, double>();
+        private readonly Dictionary<long, double> _round8MaePips = new Dictionary<long, double>();
+        private sealed class Round9ShadowState
+        {
+            public long PositionId;
+            public TradeType Direction;
+            public string Pattern;
+            public double EntryPrice;
+            public double RiskPips;
+            public DateTime ExitTime;
+            public double Max6R;
+            public double Max12R;
+            public double Max24R;
+            public double Max48R;
+            public double MinPostExitR = double.PositiveInfinity;
+            public double Hit20Min = -1;
+            public double Hit22Min = -1;
+            public double Hit25Min = -1;
+        }
+
+        private readonly List<Round9ShadowState> _round9Shadows = new List<Round9ShadowState>();
+        private readonly Dictionary<string, PatternStats> _stats = new Dictionary<string, PatternStats>(StringComparer.OrdinalIgnoreCase);
+
+        protected override void OnStart()
+        {
+            _atr = Indicators.AverageTrueRange(Bars, AtrPeriod, MovingAverageType.Exponential);
+            _ema = Indicators.ExponentialMovingAverage(Bars.ClosePrices, EmaPeriod);
+            _higherBars = MarketData.GetBars(HigherTimeFrame);
+            _allPatterns = PatternLibrary.Create();
+            _barsD1 = MarketData.GetBars(TimeFrame.Daily);
+            _barsH4 = MarketData.GetBars(TimeFrame.Hour4);
+            _barsH1 = MarketData.GetBars(TimeFrame.Hour);
+            _barsM30 = MarketData.GetBars(TimeFrame.Minute30);
+            _barsM15 = MarketData.GetBars(TimeFrame.Minute15);
+            _barsM5 = MarketData.GetBars(TimeFrame.Minute5);
+            _barsM1 = MarketData.GetBars(TimeFrame.Minute);
+            _patterns = PatternLibrary.Create();
+            AddCustomPatterns(CustomPatternRatios);
+            _patterns = _patterns.Where(IsPatternEnabled).ToList();
+            Print("VERSION v0.17.0-btc-round18-frequency");
+            ResetDay();
+            Positions.Closed += OnPositionClosed;
+
+            Print("FHSU started | Symbol={0} | TimeFrame={1} | Patterns={2} | Trading={3}", SymbolName, TimeFrame, _patterns.Count, TradingEnabled);
+            Print("Pattern selector: CORE = canonical set, ALL = entire database, or comma separated names.");
+            Print("BTC Round4 MTF | Mode={0} | ExecutionTF={1} | HigherTF={2} | HTFPatterns={3}", MtfMode, TimeFrame, HigherTimeFrame, HigherEnabledPatterns);
+            Print("BTC Round5 State Matrix | Mode={0} | D1={1} | H4={2} | H1={3} | M30={4} | M15={5} | M5={6} | M1={7}",
+                Round5Mode, D1Patterns, H4Patterns, H1Patterns, M30Patterns, M15Patterns, M5Patterns, M1Patterns);
+            Print("BTC Round6 Hybrid | M30 Sell Confirm={0} | M30Patterns={1} | M30MaxAge={2}",
+                Round6RequireM30SellConfirm, M30Patterns, M30StateMaxAge);
+            Print("BTC Round7 Inverse Veto | M30 Sell Veto={0} | M30Patterns={1} | M30MaxAge={2}",
+                Round7VetoM30SellAlignment, M30Patterns, M30StateMaxAge);
+            Print("BTC Round8 Excursion | LogMFE/MAE={0} | execution-only instrumentation; trading logic unchanged", Round8LogExcursions);
+            Print("BTC Round9 Shadow | enabled={0} | horizon={1}h | observes TP continuation only; no shadow orders", Round9ShadowTpContinuation, Round9ShadowHorizonHours);
+            _r15M30Atr = Indicators.AverageTrueRange(_barsM30, AtrPeriod, MovingAverageType.Exponential);
+            _r15M30Ema = Indicators.ExponentialMovingAverage(_barsM30.ClosePrices, EmaPeriod);
+            if (_barsM30 != null && _barsM30.Count > 0)
+                _r15LastSeenM30OpenTime = _barsM30.OpenTimes.LastValue;
+            Print("BTC Round10 Funnel | enabled={0} | diagnostics only; trading logic unchanged", Round10LogFunnel);
+            Print("BTC Round15 Portfolio | H1 primary + M30 Reciprocal ABCD frequency engine={0} | shared equity/risk/MaxOpenPositions | H1 priority", Round15EnableM30Engine);
+            Print("BTC Round16 H1 Health Gate | enabled={0} | M30 allowed only when >=2 of last 3 H1 trades are profitable", Round16H1HealthGate);
+            Print("BTC Round17 Risk Split | H1 RiskPercent={0:F2}% | M30 Risk={1:F2}%", RiskPercent, Round17M30RiskPercent);
+            Print("BTC Round18 Frequency | enabled={0} | M30Cooldown={1} | H1Bypass={2} age<={3} conf>={4:F2} | AddABCD={5} score>={6:F1} tol={7:F1}% age<={8} trend={9} risk={10:F2}%",
+                Round18EnableFrequencyExpansion, Round18M30CooldownBars, Round18H1AlignmentBypass, Round18H1AlignmentMaxAgeBars,
+                Round18H1MinConfidence, Round18AddAbcdM30, Round18AbcdMinScore, Round18AbcdRatioTolerancePercent,
+                Round18AbcdMaxAgeBars, Round18AbcdRequireTrend, Round18AbcdRiskPercent);
+        }
+
+        protected override void OnTick()
+        {
+            Round15ProcessM30ClosedBar();
+
+            if (Round9ShadowTpContinuation)
+                UpdateRound9Shadows();
+
+            if (!Round8LogExcursions)
+                return;
+
+            foreach (var p in Positions)
+            {
+                if (p.Label != BotLabel || p.SymbolName != SymbolName)
+                    continue;
+
+                double favourable = p.TradeType == TradeType.Buy
+                    ? (Symbol.Bid - p.EntryPrice) / Symbol.PipSize
+                    : (p.EntryPrice - Symbol.Ask) / Symbol.PipSize;
+                double adverse = p.TradeType == TradeType.Buy
+                    ? (p.EntryPrice - Symbol.Bid) / Symbol.PipSize
+                    : (Symbol.Ask - p.EntryPrice) / Symbol.PipSize;
+
+                if (double.IsNaN(favourable) || double.IsInfinity(favourable) ||
+                    double.IsNaN(adverse) || double.IsInfinity(adverse))
+                    continue;
+
+                favourable = Math.Max(0.0, favourable);
+                adverse = Math.Max(0.0, adverse);
+
+                double oldMfe;
+                if (!_round8MfePips.TryGetValue(p.Id, out oldMfe) || favourable > oldMfe)
+                    _round8MfePips[p.Id] = favourable;
+
+                double oldMae;
+                if (!_round8MaePips.TryGetValue(p.Id, out oldMae) || adverse > oldMae)
+                    _round8MaePips[p.Id] = adverse;
+            }
+        }
+
+        private double Round18CalculateM30Volume(double slPips, double riskPercent)
+        {
+            if (slPips <= 0 || riskPercent <= 0)
+                return 0;
+            double amount = Account.Equity * riskPercent / 100.0;
+            double raw = Symbol.VolumeForFixedRisk(amount, slPips, RoundingMode.Down);
+            if (double.IsNaN(raw) || double.IsInfinity(raw) || raw <= 0)
+                return 0;
+            raw = Symbol.NormalizeVolumeInUnits(raw, RoundingMode.Down);
+            if (raw > Symbol.VolumeInUnitsMax)
+                raw = Symbol.VolumeInUnitsMax;
+            return raw;
+        }
+
+        private bool Round18IsAbcdExpansion(PatternMatch match)
+        {
+            return match != null && match.Definition != null &&
+                match.Definition.Name.Equals("ABCD", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private bool Round18HealthAllowsM30(PatternMatch match)
+        {
+            if (Round16H1HealthAllowsM30())
+                return true;
+
+            if (!Round18EnableFrequencyExpansion || !Round18H1AlignmentBypass || match == null)
+                return false;
+
+            var h1 = FindRound5State("H1-R18", _barsH1, H1Patterns, DirectionStateMinScore, Round18H1AlignmentMaxAgeBars);
+            bool aligned = h1 != null && h1.Direction == match.Direction && h1.Confidence >= Round18H1MinConfidence;
+            if (aligned)
+            {
+                _r18HealthBypassUsed++;
+                if (DebugLogging)
+                    Print("[R18 H1 BYPASS] M30={0} {1} | H1={2} score={3:F1} conf={4:F3} age={5}",
+                        match.Definition.Name, match.Direction, h1.PatternName, h1.Score, h1.Confidence, h1.AgeBars);
+            }
+            return aligned;
+        }
+
+        private bool Round16H1HealthAllowsM30()
+        {
+            if (!Round16H1HealthGate)
+                return true;
+            if (_r16RecentH1Wins.Count < 3)
+                return false;
+            int wins = 0;
+            foreach (bool w in _r16RecentH1Wins)
+                if (w) wins++;
+            return wins >= 2;
+        }
+
+        private void Round15ProcessM30ClosedBar()
+        {
+            if (!Round15EnableM30Engine || !TradingEnabled || _barsM30 == null || _r15M30Atr == null || _r15M30Ema == null)
+                return;
+            if (_barsM30.Count < 110)
+                return;
+
+            DateTime currentOpen = _barsM30.OpenTimes.LastValue;
+            if (currentOpen == _r15LastSeenM30OpenTime)
+                return;
+
+            // H1 owns exact hourly boundaries. Defer M30 one tick/minute so H1 cannot be displaced.
+            if (Server.Time.Minute == 0)
+                return;
+
+            _r15LastSeenM30OpenTime = currentOpen;
+            int lastClosed = _barsM30.Count - 2;
+            if (lastClosed < 100)
+                return;
+
+            _r18M30BarsSeen++;
+            if (Server.Time.Date != _day)
+                ResetDay();
+
+            // Round18 deliberately evaluates the signal before the H1-health gate. This distinguishes
+            // "no signal" from "good signal blocked by regime" and enables a narrow H1-alignment bypass.
+            PatternMatch best = Round15FindM30Pattern(lastClosed);
+            if (best == null)
+                return;
+
+            _r18M30Candidates++;
+            if (Round18IsAbcdExpansion(best)) _r18AbcdCandidates++; else _r18CoreCandidates++;
+
+            if (!Round15PassM30Confirmation(best, lastClosed))
+            {
+                _r18BlockedConfirmation++;
+                return;
+            }
+
+            if (!Round18HealthAllowsM30(best))
+            {
+                _r16M30BlockedHealth++;
+                _r18BlockedHealthAfterCandidate++;
+                return;
+            }
+
+            if (!Round15PassSharedLimits(lastClosed))
+            {
+                _r15M30BlockedLimits++;
+                return;
+            }
+
+            Round15ExecuteM30(best, lastClosed);
+        }
+
+        private bool Round15PassSharedLimits(int lastClosed)
+        {
+            if (_tradesToday >= MaxTradesPerDay)
+            {
+                _r18BlockedDailyLimit++;
+                return false;
+            }
+
+            int m30Cooldown = Round18EnableFrequencyExpansion ? Round18M30CooldownBars : 4;
+            if (lastClosed - _r15LastM30TradeClosedIndex < m30Cooldown)
+            {
+                _r18BlockedCooldown++;
+                return false;
+            }
+
+            int ownOpen = 0;
+            foreach (var p in Positions)
+                if (p.SymbolName == SymbolName && p.Label == BotLabel)
+                    ownOpen++;
+            if (ownOpen >= MaxOpenPositions)
+            {
+                _r15M30BlockedOpenPosition++;
+                _r18BlockedPosition++;
+                return false;
+            }
+
+            if (MaxDailyLossPercent > 0 && _dayStartEquity > 0)
+            {
+                double dd = 100.0 * (_dayStartEquity - Account.Equity) / _dayStartEquity;
+                if (dd >= MaxDailyLossPercent)
+                {
+                    _r18BlockedDailyLoss++;
+                    return false;
+                }
+            }
+
+            double spreadPips = (Symbol.Ask - Symbol.Bid) / Symbol.PipSize;
+            if (MaxSpreadPips > 0 && spreadPips > MaxSpreadPips)
+            {
+                _r18BlockedSpread++;
+                return false;
+            }
+
+            double atr = _r15M30Atr.Result[lastClosed];
+            double atrPips = atr / Symbol.PipSize;
+            if (MinAtrPips > 0 && atrPips < MinAtrPips)
+            {
+                _r18BlockedAtr++;
+                return false;
+            }
+            if (atr <= 0)
+            {
+                _r18BlockedAtr++;
+                return false;
+            }
+            return true;
+        }
+
+        private List<PivotPoint> Round15BuildM30Pivots(int lastClosed)
+        {
+            const int left = 2;
+            const int right = 2;
+            const int lookback = 500;
+            var pivots = new List<PivotPoint>();
+            int latestConfirmed = lastClosed - right;
+            int first = Math.Max(left, lastClosed + 1 - lookback);
+            for (int i = first; i <= latestConfirmed; i++)
+            {
+                bool isHigh = true, isLow = true;
+                for (int j = 1; j <= left; j++)
+                {
+                    if (_barsM30.HighPrices[i] <= _barsM30.HighPrices[i-j]) isHigh = false;
+                    if (_barsM30.LowPrices[i] >= _barsM30.LowPrices[i-j]) isLow = false;
+                }
+                for (int j = 1; j <= right; j++)
+                {
+                    if (_barsM30.HighPrices[i] <= _barsM30.HighPrices[i+j]) isHigh = false;
+                    if (_barsM30.LowPrices[i] >= _barsM30.LowPrices[i+j]) isLow = false;
+                }
+                if (isHigh && !isLow)
+                    AddAlternatingPivot(pivots, new PivotPoint(i, _barsM30.HighPrices[i], PivotKind.High));
+                else if (isLow && !isHigh)
+                    AddAlternatingPivot(pivots, new PivotPoint(i, _barsM30.LowPrices[i], PivotKind.Low));
+            }
+            const int maxPivots=80;
+            if (pivots.Count>maxPivots) pivots=pivots.GetRange(pivots.Count-maxPivots,maxPivots);
+            return pivots;
+        }
+
+        private PatternMatch Round15FindM30Pattern(int lastClosed)
+        {
+            var pivots = Round15BuildM30Pivots(lastClosed);
+            if (pivots.Count < 5)
+                return null;
+            var candidates = new List<PatternMatch>();
+            int firstWindow = Math.Max(0, pivots.Count - 20);
+            for (int i=firstWindow; i<=pivots.Count-5; i++)
+            {
+                var x=pivots[i]; var a=pivots[i+1]; var b=pivots[i+2]; var c=pivots[i+3]; var d=pivots[i+4];
+                TradeType? direction=GetDirection(x,a,b,c,d);
+                if (!direction.HasValue) continue;
+                int age=lastClosed-d.Index;
+                if (age<0) continue;
+                if (direction==TradeType.Buy && d.Index==_r15LastM30BullishDIndex) continue;
+                if (direction==TradeType.Sell && d.Index==_r15LastM30BearishDIndex) continue;
+
+                double xa=Math.Abs(a.Price-x.Price), ab=Math.Abs(b.Price-a.Price), bc=Math.Abs(c.Price-b.Price), cd=Math.Abs(d.Price-c.Price);
+                if (xa<=0 || ab<=0 || bc<=0 || cd<=0) continue;
+                if (MinXaPips>0 && xa/Symbol.PipSize<MinXaPips) continue;
+                double xb=ab/xa, ac=bc/ab, bd=cd/bc, xd=Math.Abs(a.Price-d.Price)/xa, cdAb=cd/ab;
+                foreach (var def in _allPatterns)
+                {
+                    bool core = def.Name.Equals("Reciprocal ABCD", StringComparison.OrdinalIgnoreCase);
+                    bool expansion = Round18EnableFrequencyExpansion && Round18AddAbcdM30 && def.Name.Equals("ABCD", StringComparison.OrdinalIgnoreCase);
+                    if (!core && !expansion) continue;
+
+                    int maxAge = expansion ? Round18AbcdMaxAgeBars : 32;
+                    if (age > maxAge) continue;
+                    double tolerance = expansion ? Round18AbcdRatioTolerancePercent : 6.0;
+                    double minScore = expansion ? Round18AbcdMinScore : 84.0;
+                    double score=def.Score(xb,ac,bd,xd,cdAb,tolerance);
+                    if (score<minScore) continue;
+
