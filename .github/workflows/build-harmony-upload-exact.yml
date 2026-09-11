@@ -1,0 +1,83 @@
+name: Build Uploaded HarmonyBotPro Exact
+
+on:
+  push:
+    branches:
+      - build-harmony-upload-exact-20260911
+    paths:
+      - '.github/workflows/build-harmony-upload-exact.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET 6
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '6.0.x'
+
+      - name: Recreate exact uploaded source
+        shell: bash
+        run: |
+          mkdir -p cli-build/HarmonyBotPro
+          python3 - <<'PYCODE'
+          from pathlib import Path
+          import base64, gzip, hashlib
+          payload = "H4sIAOgipGoC/+29a3McSXIg+J2/IonRaKrIrEJVAWCz8erDk8QNSMAK6CZHPFpbVlUCyEFVZU1mAgSGDbO5lbQaaXZu53b1sJVs72Zl2jvt7ulk0mlnZ7WP+3A/4P7DmMie/hfn7vHIyMyIyCw8qN7TVLeBVZkRHh4eHh4eHh7uZ3EwPnYOLuPEHy3dO1N+NTfC4dDvJ0E4jptP/LEfBf1ciSfDsOcNg+97WCj3bjcYf0886q8Nj8Pm2v5O4UFzZ5z40dgbxkv37o29kR9PvL7P33fDXpjE997ec+Dzin7VDoOR/xvh2HdWHPE1bn56uOE6a/2+H8fd4PgkieGt+rP5HIrVXxOcyVlvGPSd/tCLY+epF43C8eV6mOxHobPoUBtUjDWKn9lZZ+UGHxWO02463SA+dWadDW8SJN7w1lt5te9FQEYgam3m4HLUC4czrrPpH3lnw+Qzb3iGhJt5ufbppwebM5wiClXiJGJDiBWfAxznrXPsJ0tOjH+u7mmboR59E/qURN7ALzbXbi64zrNgLH63mm347V2I3wvNVhGTQQj/+kStfT/q++OkCioA1dncdL6pQaLVbGWwaNNvBYuWBQ0otxl5bwbhm3EVNDa9YHjp7IbAYbvBKEh0CM3n8GkRlVJ85mz4UAMIn8BPQaAXvn9aitrjElLN21BjLVwHt2fhODkB5A69CMpqB7GTw6yTw+yRdRAZfAZ+CryIvzfOEmftCH47WTSLSLZK2L1dwu7USgbXKkhuDMPYd9aGQ2dv7Aj+658W0TsCWesXEeiF4dAhIABjb8wZrH9ape21syR0un4DZGgCCwZicJB4kYY2SXRmahuBdP0JA7E3JgBVGt8a+UCjcf/SOdh11g67zjNor9hyp2S6tW2cI9s4GK4lETYwHWaH+063e1c4HU663aqycQPWcr9/lgTnPskAPy5iNZfFKYNRR4NPALMIiiigGeRKXJvDBxAMhyRlAYUiao9aFtza8/MG7HKoiTYAUjW6RcdQcv3s6Ahmv0YqdVqFccxi9rF9aUHwDHqJUAIdodFoOAcjD6a51++HZ1C29mtzrboTn00mIUyYRtlHrygQxDUO8VmoW8UtU5eq89pYuQpVs00enkR+fALD4qBeolm8C6t3q7B8t2xUVlFMG6sy+kEfNENkFRAvtUkwiesaDljIobeQw65dHTuAcrC7D+1Mhx2IGBN2C6XE60yF3uF+VfRgKQnfEHqfhcMz0Ca3AVDP0y1LtpUBoSD6BEOAqEYe2TJbxL2JbgIvlMjhjnX+CsSwBWhgGoVHjl4FJNutmyiM1NRNUIXF43mI2zxvCJr+1vfOguRSx2pVJqpd0RbNHIaslS7uLi0i8dY2Z52mcwBbRmgcergdDKHj8d3uz3hrTNepPXl2qJm9j23L8Zx+weOAK+tQApGt8cCERqdzfTwQbAUsnradZ4fbzmHkQ3lG/6nkBFTeGnvARdVamy9pyaYoP51ntaZob99L0NKByshRMADFzddtHT7qWOd4q/nxx8a5w1tIG5hCK+yfRRGKgkPcwpcqhbkNjVUp5JAZ4KoYHaDpYTOImPnJiFX7elghdAm8OmJr4yRoPPUHx75TWx/i3mgPlK44SPz6dOsZwGFgKlKDozgL+zqNzJ23EMGirzOgsAQA0GqqeqqZnyXa0WjZMDEr51IbR7CVBgJ2eYB4EA40SGTJkd9QGZCAXR0DWEla2vaZ7Wbn+nu6qbaXoPFtbBqxyOsKnayuYEHicLIxqIoD6i63vrOFetV2tJ/GPrBPnDTWBt89ixOQwzpcLDMRAGB9Ub36PvpgEvnewKhxzy2UWNDmypQg1kD1bYB1e6LZPk23P8E9SRJOcPM8DUqWPUmnFKVOKUqH3qm/H4VHQTIVnaAjsLTEiYcrpJFkCyV7+oUqBBPNTIMfipbaJAr6ulVlrmReLZQghXIOQX8IdXoO1Ok3eJow6+wH5/xY5c5UaWpp058kJ5pdSdZmXGmFJIAEr9KSQM3vhuGpfncLzJxdlorTz4KGgFtJzURSOwd9DzVN2K9PuUI+MuBBYBEqAa3Ky7v+MfEzbeF06u5ju6W8hJsBPDD0B9sfzjeFiu1seyO0sNfanfqdsjXbXzhPYB839C+nWttYVV6zkrmatbXuJddoB2pN08YZkvFoeJ0eybpTtLcReb1rNIXVpmnlcnIy5ZaVt0MVp2ipe60x6k41Rpu+P7kB42H16ZlvDdROLQPaNuOsLlRdn76D1+QMrDsld6ytb2xeoyWsNkUrBydedHqNZqjeFO0sNFrXGaTt4Nz/DT/6IOJ6IRXXB/0w4poI7PoDtEndqdhmfjHs1ACa1lp6FvKnxHN5S49x6WPgUcdE4JXP2cbxWeysh+Mz3d692e7YdwjNOSM+EjoBr4LPdtBzDsOhH3kGO1grT51WO0eejlk1AOgSeNUd3dY4iS4Bj3OnBhpLffpj/Y59Q0fwAXxAvlKgtkxp/NmHBUKws+4II291r2b3UO1AHPoUhwJ4ZN+APQ5JhF30P+Aw4qlP/jkUAILzdNq2XwRjWNx8PWFyW6a5/E7uI5uWqeAmGvkAoutRkw07oDn2jv0RjMfd7p52nU8nA+zcQQKLonHTXth9tqvvPg+GrAlsoep+OMVLWh9rsd+vl23xctsI4x6PoySAH/j9KlitR753unXuo106OD6GiVnd8DLlwbBsirdUlXApintHR1DQgmGJnaNTDT/WTFX0gLmDIU70UgLe+OxaNDUlASWGpZaij284xKKlaW1FXBGDJ0kAusbh/jW0Pl75cL+avbntgIKtM7EWzc1z1Tfyh5N2NcMrIsDc3L6pcw0qGYaPF+w4EOQpFj92AvTcfxPj8gPiYyr6U22szOpWbtAf8NZi58mzQ41rb7uz2FlowN/5haX2PH2fh+9mX18OlkMFoB9igfuoiUpaOPb6/cB5EgUDYMjjYOw7Tu3Ln/31+5/+53e/99N3P/jxlz/+63c//Dfv//xfffnvf+uDGFqySF1vh9Oj/lQYUCqHKt6uf+4P4+kWtcf6JQ1hQikGsTISVBw7r0FiBibz447baj5qP4a/Hz1+5OJ0bzc7H3XgLz7t0N/5ZmfukZnPsCFqB5upjNlB8H3fhFjbbbsdd85dcB+77Tm307Y3jqCmapudLWDrut0Adjl3xDb3KLdlgjLmTRw0wVrAzVBleuDphRajTgGjNn+iWHebjxfmrRgh/GnwoR1KmMACxG4B3LbjPednamLKuwCEn92ftL1gc2oxnVgj4GucWjN60QmUTccuW8fsB09ELzx8qq5kE1574+ElrCzJCXOKmWotQwBYH6szl5oPsIIcJKC43zrkSRSc43ajH47jRK6QYbLr9UBAgszJXBiaWbJXJJGnrdl4AnULldm1G+fzmP4tAl/3ohjeBsdjb4jfNSA4G3wejAPU7JgH3ZKxmE/v90GJL5bZhD94xcr5fOjFzH+Hfq7IN03BpmWVocd4GcsHGcxxrw6JWOzzwYD0s8H20Dsua42fncMQJNdFGDWzGwFgfpYvvGh8bRS4G+RNYDDf8ptAyLnOE02uA4etdpUr8wlEVfcm/tgfCNsXzKQZMz8zZgtGXnRJqwWKQJDrmomCqHzeL9xZoML2rmBJMzktlbkn3KZnmZAD75K8Nk0Tl88GcTvHHyzpe0YlaM7SgW0VvPDiFrVtxu6NKGJH7w2/AsbwK2+ZLjuVND2SZUTbhaJMwgZ9ziqbPt4kCiMgBv9WhA7qxFEYjXDfDcQCfKF0wr5oGkCxEuJCuRmQ6yBw2fIwHB+7nF9Xnc8nrO31y310DETfxRVn7L8x1qjVlyo1w4q7OLhpK3RJix3IF1pRK0zbCCcgLrHQ2BBdFSNzC2ppbGkKsiG7QAvJpL3JrvRqSUWlqvaBVWFcsyrXQUUYaJvg5a2NPPXikwM/oRo0BmQ7wWUJRRUDnCkzHcpiVqzyRWz4LBwER5dc0mixllWuSZz4bETeQLBYlROGaVkAdQj7KLqn4xxF4cjhdHD6uD7H10EjQeWeLe+fwnBVGSRV8Uv37MeoycYZxbAcDVyZ1r341EdeP5Y/jFgo5acju+AbLhgOQwbF1I6RhfAFgAE9G/guxWZnoF+8aDlQSrO9vrYoI/Cr14wOcrNeVlBsrLPDsvVszel7/RO0nIL46IejydBHH82eF9Uta4I/8jawGiiJ1XQFsUJQY0/bWyMPD8OUn51Wq6zWfLbWvKildohOnAb8xCk5icIkGfoluoJyfIQvSlSG29wf7QZHfv+yP7yLPRJd0YWRDM/9CMbfd85D2kLS8lxLBzeNoYCfJLrM/M6+xQ/f+ACV2E4Iw04k7GstDUmgTAnxCY6cmqwM8+lsOKwXChXbww8ppbWZV1vd7l73tdiCjcPEOYKFdbDovG1dwW7Y2jx+0HBSM7yL/OQsGhffKVvjlARydwdkAP0dZjawjIeUwIc1/NNEBtrGDXwJYowuCkRGG+eLL9SGmkyFWEZfyOtR7XmIszoGkkUfml5Ct5MLsFYHrOlxkD6ebtbR0i3epXFT53xWusi7euJkfCXdnKeim3PfcHPuE3qYqkuDq/Un0NfLeAG6qbOem/emcxWfNzfjl2YD3E0hKQ5fbsYly835TLmKZ5MNNrkkuTnHIXXtlzzANXbOAkWdvpacBLG2ZsZMwoLG4Jg18/sbWSE1mFQpzRFr7uSayZtnCjX5Te+caoO1HPUOt2wos15DA7IirvjsaKXJDXqaZT0DRprJrVDSNT8PROoGw3PY5XxfL5R0kA+jy30QIgh2N4iTWubAwHXCswRA1utajqlEgC2YY5G/64+Pk5MaYvfMS06aMJdqbTd7cFJ3+UnPzbAXRGLIx9+3IV9C9gzu8fftuJOtVsNViHvmlGpacf+ku7P5unBy93xtfXdr0/nCGRICK7ACsK/Yn5VXb9tXr52Ydw9+duDnRBx8rLydW9yeuwKtnc4dVt7O08+Rd4FbtpW3C4vb7atvzujlBH4yfTcXY5vV5n8fBuPajAsLVJZjmgc+hrqqXTgrq85F8zA8oPK1mVbzG9/4BhTfAJ6HAdgZH4Uwm8+9KPDGCX9Yr9enbViM9t21mzLectWzHdd0qFKvtOJ2/dhPNrwh7Ci8iKzwcY0zXLFo7ywYDrogI0FhobLbsGVEg54wj8Q1E6Pq4sHo50/X54Fnti5g5gH57MDl2yazLDoPV0B3FU/ZsyVLLbZTzdZiz3SNsZmTjTN23m7ONVswYXCmHG6vwAzhN+pX3nYWtztX8Iou7MPsuEqvi8LkuHLUaQHFZJyelbeP2DNmsZXxl1befoTg+IRfefv4yjCZUo3NdfJKZna9cp2dOB/yowZiRyLqqmG7XH2wKlcbM8bNnqLneOoq86vvJf0TEGgXfdDg0NLmX9RLNhhSbX25sbV/uLP3vMEZ6zVXW/2L5jM/jr1jHTvrVNYUpat7lXZICOLaG6QC6zauxbqNSqzLlpwDP4I+HEAf+CSDKus+KFi+IId+1yF0svum7VhGQaKBgdkewv4xq1VpxoEKcwV9l4yTNVMpZCIO9sPwUjgpZaUpWQbm4g04RietTarNfnQ2ZlJaGqMCP9bRlrlN4iRH0WOW4Tsxasoich5S1x/4g1q9qt6BMO5nzv70fPTWuAxmKvNj7CVjaRH/DOW0XEPQC3tzc6ZuriZYobtz8O3X5BIxEMECj8+8aACtBpMJTjwKkYjm4hNvCIPdNEG9uum+mOagckw0DcU1UeDqU5JMVpyZeouv7Yl6olSXlbVl7+/Eh4zIPPoIsJuxOV6BnRh/5g2DQVnpvOPer/86rIY7Y+5Fl76oMcFJq2jdgnLXP8JoVFvc6qmdSrAbJP+M/e7Os7Xud5zaOBw3UI2sO8KaHDsskJZ37AXogdAXgTf6l86sE8Mq3hjIcBpDXIfjZqEdUC+dEBYRmCfpmrEN3YHxrQkviAomJ4TRZHsVZ3VFFwfETuP86SUHokassANQiQ+TLuvAUG+S4is8d5bzESgsgwUDoagsjSFGrGMzHIYENi0Rap8gbF0HfkawuRgf+3LKA+GTE18O4tA/rje12GuD6a06LeQ1Syg7XkJzqC3HIPu8qkzgpvI4GPf9XX4ADiyiI7I4G8/SeMkoarIwly3dm1bwm9hA59CQ44hVvCRilnjmNjNb5U/XupukCzjKgDhDNiINeBiSfzm71PC2vbgNJUcwjEP/CBCy7Hjl0tYvas/SKtBybazSyA5m3bK2UUsWTxCFxGYgV8Y3pllsrmVw2sC52RfOfv7Qm8CaX3mhLJrIDfrqjazzNzXPpyYfjCaQMVgbLEtWIas7ALCD0cnDPsnVyDmC1SUW6qrz5gRWEc95vvUCDwacvf2t5wdN5xDEH7KScwS9vNRK1929g61NqhPEKC4j2mqwUAbAth0UtIn82dZJUHjDurYzHvgXaG0t9BQAaXojj+560j9NrYrbK3wcv1LAv9YTV0BYXrE5wJkXMbvXHIeu6QIX1V4SPQfdZMUBzb9/NoR+rSWROuJuGvHIVallWNA5POhNC5lT/FQjilhWTY5U5B+jFYiurCqYddPHvJ26yajs9M4umYOpUp8esOrEijKwV3P97NIMKvaHwylgHUBx3RRmQ8NJaNAv5RkVGonZiVR2LJQBcDlxXXEY6qp0cyUF3LQD3LpMMK4hB1hFKfeskx04psF9jxzS0QAf2H8n2knY9yYkJFFoBeNaToHLWrBruArTgw2fbkPlizsPnJrlsuosu2pXr+uWMkTmDO0eKxrPKZAI4wR15m/7l5wWTQ6cxLbziabSq2LB186i6lKhUpjaBqUCCDKtwX39080nW4dMjWAER6rCZgW2CrB7FKyTwXjpNvaO9/e9OH6WHLEwh4Iwcj7U7XxCkfJO0DSz6PTonhTA9MawuWDx8pS9iNjAOD4ab2PkhP6wSeddBvVYmhmrEjM7lSUSwA75buEsKAoRYAGNNIDxLhbV0x73VRjteMUBPQH2UuxW7yBjpjZuxpHfMhbznbFssib64iL8Om4BptWTBaetPT/caTzdAnZ7LcMaEtvlBwh0x9Ng4rxtXyH/pQgUWGTplpQ+A4faCZPHxqWNbZ1vhTQBIMvXr3iIHoSuk9DNCoOsJxsCrCR7EShFT/xw5CfR5doYjZC4SnK8uMjmAPE7A2qbVmz/ejmBDWUyNetiPfq9qPxGLjZ3N8QeHAy51yTD1bSafsJKH054aROJOOhzco7fGZO3322eU4Lo4U51eJ7IVUhngquW4OKDXfJSwecvnu7tbrGT9drEo/CnDx1vMIg1godD53GaAXBMXpDC3IIOBs4b9BTxB6ztOAT9F/Vc+tmg8U68SywFhcfqCYm+NR39YRVUDvKWzPXkSOCazl03e4wyIxI+jDKJd+o32FnsPePGr+hPb2IGknXq2Kq6FSPdOsGpKZ2rVzEC+sPYr8gD1RCIzW1r2TELFRVh+wp4AJQWmtL61vZed4sNDPIFUp6f36CJCIdkwjlVcCkoeziLh5dN/dYgfyeiqAZo0MJlKEEvma0L3D/7bP9KkqqWJG7mBDDTX9dJjX/KyLkqr5n2t4k8AkLjVBI1d+KDM0rNBJOj6rwu3EAqtTrkTYgPHxrKVdPtVpgC+dBpa7rJh5wJXtDXvb7fOIp8H8d1gjaeGhvmE288GAILRP4IpYbjxehlQsHsDRKHEbAp7xJYD9PU7qT3D14p9Zs7g9dVmUXVDQ67a5tbTAnFo2rgjZW3nSsQA+S9AU+SCZ1N98PxEZ1Nz11Z7FfF5mFNTQospzKaEZbCgM2nXswuK2ZWoyY9UzwrttszdVgGZ9CXpRzL1AHwtuVU6d2mCoK4tWQdt73u5lbX4T6a7FQS5z+fjp84M/Rv5McYQxhoAqyyFUW4TxXUqpf2+k7OUWFbfNvHqIdB//QDnaNWOR0FebEzTiKvgaYuOmAUBwn+OTCsR10Y4/oQXTpJoJUQvzphLZ6woiGBUbX+AU9b2Yau4NekL5Ze2Yg/iFMCcv71ZtNt3keQaxhGC0riO7u5zad71iemlv1JKKxFx7AEwx+TUEB1CS1YWEYuoVmq4eyZqGb7SVNJnXh/RbX/69VFgtDkl8RX0hvjZQNNl4B66cUf3X0gvSVsyO//FO4E6fyj85eVXk24DtEztqFRQUQlCjXQ2J0BPWrIWiw6BLGrgLIKSZOi7ByjYBRXzxp09Yxt5PonwXAAWzkdWup9vWbXH8ESUcN2NDNVvRoncWnp8M3dXVMLGw3hyFXAKTyiulRctFLoE4fwOAxxya+RiXStFwPedAGABfNuqNAIlMEOvOhsxQkoEWx1Iogb7Fgezwd0i33+AqXsn7TeRhMXg4a1Wu264RxDvcoo69vuQWVPUjiPi+Nt5Yoe2tOf+CxEhSzI7Ck4eXvTrYI9Ocl3BrE0CzMOqTvZt2uDgYl18NNrMn9kvstTqJV947J5UEm11C1HV2ZhAsJHbNosoud+cbZmDOKs89PM8aJam2u2MMVJjcr2q/pkrTJRq09SOUE7FWforc3O8pl5b9pp2THMy+vPyQp2uY3IByBsfm6HUW2iNH51r2y1ZmNUy/78/8FqzV1aKXAQ9ilDljub4Jyb+VwS9rDCbChOeDzzMswZPORiSzDbrjtnBLY2DJOcP1G29Wcw4+nmkzJf9Q0XJzRvM6sBVL6IruByFIxTOkyan2XM0M51P9VpQe3zrfukSTZU5+YfxQkDieJgYCknPCKDIrXooP+zGvJaQYmGWZJE5ZSHCrkMjBVMRHQofliNfcrd0i6yAvZbtihA4Or+SZZZZtO3RQ7IdJ96/P/8ER8GYzczDedxeaiMzoNM13X+FefH4qQjpR/rQq6lWbXEonHBSU06ecmunyR68b/IBb4WZzT8CrxnlXWCg1AWi3t5WzaNbcN740W+M8KxWZQkFwOekt+pceM1nbO0W61G+H3nGLOt0rxoGieGEBHqOEgOKB2SEa+dYaGHCuRivwqunHQbAfWNgtCNnOX80arm+nrBM01ndc7HEDKasrMqYMGyWKX9oi6kWVDKr2rIaxqg9pKkUR0rXSdyGfVdwV95HuLRnEBpVFwwbBqn4nRRUDEXnZlPx6fj8M04ZytF5EJ+H2SC144FXhqWxsu1tF/kh2K9MDw99X1mredngeigW7htW9x353bIhs7o99EFl5EiuKzqe+8Ot0dFhsrueSyYpLoJEmUFKxIN0+pTnOCyqmwZHzi1g93Zw/3ZkTc+80DR+cU//mfsDT9FwQHLbPxJ6gTjxIenyaX+WIXUmq6oz6iVGu5SSvVcZ4ZhwxQhk/0wQ3ROJgGl8rEBG87cHpRCO604fXg4jY+qtB/6cqmRer6Gf/o3+raPTHGva9UcexOz8AEjgEp/h4XPxE6I47WWfTg28sdM1L2iXFpcxoFM6Y9IXBNcH6qaIBy7lnabODXqAtEuSMIveQYLXbR7ZlW+WldZ5tZX4sc2xsofcxPFLQLEHtIxr3QWx4xjMpMG72AA01WLapYxO3VYg2ilWyoJu9Q0+N4bSMUzblF5xx9NxbLNKXdSYHqDjMrJCxz1t5PX+crorXaYKycMueCVxUwuxNGLub2Q/dcBuNw2NjlNFP2+TmWPjtRlv2hHdO8Iw0LvLcPw//kO//PwH7DP+5d/9Ztf/vFXf/Ov/vxHP/jFn/7oF7/50z/60Vf/5o9++Rf/W78L2whPV8ZEJAqtmkfK1JvaSk8+9fvr73/6v99cc/HVLTgSrwdulzB/8cKm6BL97H9963s3/7j+JY7/efLJi01EPztelw9z+Bn7YOxFpCyNSk/J6c6DKWgYwTUeNZIKekVfGlBL/uoBMiJnssVoOXYYX3cnO/K7C4E7wCBJKsw9Kvh5/zpvM9s4eVTP4ScAz9mIvJe44bdTW94rK5A7m6Z3wzTYbz4PTvmQHXfYhMt9jG+SmxNZcu7g3Pg+ySdHMHZMdUg1Ri4kPQ2PcmfoAy5Tz6XdHZXfLpw1+Mi1nMLZ8RbpQN0oIgeHpr0MWXu+aRJGIcRrQDVTx6OGUZHkRRnGyAdXR7F5BwGT6TpRM2SSYfJZxkoIHZXrjtWRSUfhYVmaORLrQcCwLS/o9rR9cHN+SYKKdAj+SyuS84YKikVK0jlJDEUV6NiFQD6h7rDuzktwfwL6DxhM2oci88+4P/8+/+/kP2Gb9y7/6zS//+Le++h9/9Mt/9U/e/4t/9OWPfvD+t390dy4vKSZ5VxdWahjCnnvHcQXiT3PTX35bujdFk5Laxj4t+/thHCCYnYHRTWRdzNUlRWt+/5c/BiK+++1//e6nf/PuN/+jpSpKsCWnUPWXv/Nuv/ytH73/iz99/5MfAwDFAvTuf/3b93/7h3ULSCyWAQlVvvyz/+mrP/3zr/743777+c+Ay78Q6U3GHrCfN0QsvgCA3Fc1rCyWzIYjdD/YT+dB4Kwi/Xe6b+GN/oNLo3X/466/+8EfAXKpV6N1f/RlB/Luf//jdT/4da8XUVzKAfzoOkngphQr8+u63//cvf/5fGG73bO5i/iAdOOzTD3/yd3/7Z1/9zj8FVN7/H7/37j/+X+/+5e+UjaGyNi+lY/gHfwN4wOh9+Sc/pNGTy9wvfvjP01X0gRhUUw/l8pbhLQFcZY0UOl+MzLClK9GuFyfoYJSNTMFLZR21cEqsOulsyDhr0Uthybi6d3Xv/wOUBTPTfuoBAA=="
+          data = gzip.decompress(base64.b64decode(payload))
+          expected = "0b25083be0b9a8e11d6e1b2dd844dc9d5530f16b46daac8347421a16780b73a1"
+          actual = hashlib.sha256(data).hexdigest()
+          if actual != expected:
+              raise SystemExit(f"source hash mismatch: {actual} != {expected}")
+          Path('cli-build/HarmonyBotPro/HarmonyBotPro.cs').write_bytes(data)
+          print('SOURCE_SHA256=' + actual)
+          PYCODE
+          cat > cli-build/HarmonyBotPro/HarmonyBotPro.csproj <<'EOF'
+          <Project Sdk="Microsoft.NET.Sdk">
+            <PropertyGroup>
+              <TargetFramework>net6.0</TargetFramework>
+              <ImplicitUsings>disable</ImplicitUsings>
+              <Nullable>disable</Nullable>
+              <AlgoName>HarmonyBotPro</AlgoName>
+              <AlgoBuild>true</AlgoBuild>
+              <AlgoPublish>false</AlgoPublish>
+              <IncludeSource>false</IncludeSource>
+            </PropertyGroup>
+            <ItemGroup>
+              <PackageReference Include="cTrader.Automate" Version="1.0.19" />
+            </ItemGroup>
+          </Project>
+          EOF
+
+      - name: Restore
+        run: dotnet restore cli-build/HarmonyBotPro/HarmonyBotPro.csproj
+
+      - name: Build Release ALGO
+        run: dotnet build cli-build/HarmonyBotPro/HarmonyBotPro.csproj -c Release --no-restore -p:AlgoPublish=false -p:IncludeSource=false
+
+      - name: Collect ALGO
+        shell: bash
+        run: |
+          mkdir -p output
+          ALGO=$(find cli-build/HarmonyBotPro -type f -name '*.algo' | head -n 1)
+          test -n "$ALGO"
+          cp "$ALGO" output/HarmonyBotPro.algo
+          sha256sum output/HarmonyBotPro.algo | tee output/HarmonyBotPro.algo.sha256
+          printf '%s\n' '0b25083be0b9a8e11d6e1b2dd844dc9d5530f16b46daac8347421a16780b73a1  HarmonyBotPro.cs' > output/HarmonyBotPro.source.sha256
+          ls -lh output/HarmonyBotPro.algo
+
+      - name: Upload mobile artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: HarmonyBotPro-Mobile-Exact
+          path: |
+            output/HarmonyBotPro.algo
+            output/HarmonyBotPro.algo.sha256
+            output/HarmonyBotPro.source.sha256
+          if-no-files-found: error
