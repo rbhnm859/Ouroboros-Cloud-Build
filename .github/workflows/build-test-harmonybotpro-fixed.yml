@@ -30,133 +30,35 @@ jobs:
           python3 - <<'PY'
           from pathlib import Path
           import re, base64, gzip
-
           wf = Path('.github/workflows/build-harmonybotpro-mobile.yml').read_text()
           m = re.search(r'payload\s*=\s*"([A-Za-z0-9+/=]+)"', wf)
           if not m:
               raise SystemExit('embedded source payload not found')
           s = gzip.decompress(base64.b64decode(m.group(1))).decode()
-
-          def one(old, new, label):
+          def rep(old, new, label, expected=1):
               global s
               n = s.count(old)
-              if n != 1:
-                  raise SystemExit(f'{label}: expected 1 match, found {n}')
-              s = s.replace(old, new, 1)
-
-          # Current symbol/current timeframe must use the backtest Bars stream directly.
-          s = s.replace('_signalBars = MarketData.GetBars(Bars.TimeFrame, SymbolName);', '_signalBars = Bars;')
-
-          one('        private readonly Dictionary<long, double> _totalClosedUnits = new Dictionary<long, double>();\n',
-              '        private readonly Dictionary<long, double> _totalClosedUnits = new Dictionary<long, double>();\n        private int _botOpenPositionCount;\n',
-              'position-count field')
-
-          one('''                if (_signalBars == null || _signalBars.Count < Math.Max(100, SwingLookback))
-                    return;
-
-                DateTime barTime = _signalBars.OpenTimes[_signalBars.Count - 1];
-                if (barTime <= _lastProcessedSignalBarTime) return;
-                _lastProcessedSignalBarTime = barTime;
-
-                int signalIndex = _signalBars.Count - 1;
-''', '''                if (_signalBars == null || _signalBars.Count < Math.Max(100, SwingLookback) + 2)
-                    return;
-
-                // Closed-bar only: deterministic live/backtest parity.
-                int signalIndex = _signalBars.Count - 2;
-                DateTime barTime = _signalBars.OpenTimes[signalIndex];
-                if (barTime <= _lastProcessedSignalBarTime) return;
-                _lastProcessedSignalBarTime = barTime;
-
-''', 'closed-bar signal')
-
-          one('''                if (!PassMtfFilter(signal.Direction)) return;
-                if (CountOpenPositionsInDirection(signal.Direction) >= MaxSameDirectionTrades) return;
-
-                double slPips, tpPips;
-''', '''                if (!PassMtfFilter(signal.Direction)) return;
-
-                TradeType desiredType = signal.Direction == TradeDirection.Buy ? TradeType.Buy : TradeType.Sell;
-                // Hard no-hedging guard.
-                if (open.Any(p => p.TradeType != desiredType)) return;
-                if (open.Count(p => p.TradeType == desiredType) >= MaxSameDirectionTrades) return;
-
-                double slPips, tpPips;
-''', 'no-hedging guard')
-
-          one('''                TradeType tt = signal.Direction == TradeDirection.Buy ? TradeType.Buy : TradeType.Sell;
-                var tr = ExecuteMarketOrder(tt, SymbolName, volumeInUnits, BotLabel, slPips, tpPips);''',
-              '''                TradeType tt = desiredType;
-                var tr = ExecuteMarketOrder(tt, SymbolName, volumeInUnits, BotLabel, slPips, tpPips);''',
-              'desired trade type')
-
-          one('''        protected override void OnTick()
-        {
-            try
-            {
-                ResetCalendarStates(false);
-                UpdateRiskLocks();
-                ManageOpenPositions();
-''', '''        protected override void OnTick()
-        {
-            try
-            {
-                // Entry logic is OnBar-only; skip per-tick management when flat.
-                if (_botOpenPositionCount <= 0) return;
-
-                ResetCalendarStates(false);
-                UpdateRiskLocks();
-                ManageOpenPositions();
-''', 'flat tick fast-path')
-
-          one('''            if (p == null || p.Label != BotLabel || p.SymbolName != SymbolName) return;
-
-            _tp1Done[p.Id] = false;''', '''            if (p == null || p.Label != BotLabel || p.SymbolName != SymbolName) return;
-
-            _botOpenPositionCount++;
-            _tp1Done[p.Id] = false;''', 'opened count')
-
-          one('''            if (p == null || p.Label != BotLabel || p.SymbolName != SymbolName) return;
-
-            double partialVol = _totalClosedUnits.ContainsKey(p.Id) ? _totalClosedUnits[p.Id] : 0;''', '''            if (p == null || p.Label != BotLabel || p.SymbolName != SymbolName) return;
-
-            if (_botOpenPositionCount > 0) _botOpenPositionCount--;
-            double partialVol = _totalClosedUnits.ContainsKey(p.Id) ? _totalClosedUnits[p.Id] : 0;''', 'closed count')
-
-          one('''                var h1 = MarketData.GetBars(TimeFrame.Hour, SymbolName);
-                if (h1 != null && h1.Count >= 220)
-                {
-                    double ema50 = CalculateEma(h1.ClosePrices, 50, h1.Count - 1);
-                    double ema200 = CalculateEma(h1.ClosePrices, 200, h1.Count - 1);''', '''                var h1 = Bars.TimeFrame == TimeFrame.Hour ? Bars : MarketData.GetBars(TimeFrame.Hour, SymbolName);
-                if (h1 != null && h1.Count >= 221)
-                {
-                    int h1Index = h1.Count - 2;
-                    double ema50 = CalculateEma(h1.ClosePrices, 50, h1Index);
-                    double ema200 = CalculateEma(h1.ClosePrices, 200, h1Index);''', 'H1 MTF cache')
-
-          one('''                if (h4 != null && h4.Count >= 220)
-                {
-                    double ema50 = CalculateEma(h4.ClosePrices, 50, h4.Count - 1);
-                    double ema200 = CalculateEma(h4.ClosePrices, 200, h4.Count - 1);''', '''                if (h4 != null && h4.Count >= 221)
-                {
-                    int h4Index = h4.Count - 2;
-                    double ema50 = CalculateEma(h4.ClosePrices, 50, h4Index);
-                    double ema200 = CalculateEma(h4.ClosePrices, 200, h4Index);''', 'H4 closed bar')
-
-          one('''        private void RebuildRuntimeStateFromOpenPositions()
-        {
-            var positions = Positions.FindAll(BotLabel, SymbolName);
-            foreach (var p in positions)''', '''        private void RebuildRuntimeStateFromOpenPositions()
-        {
-            var positions = Positions.FindAll(BotLabel, SymbolName);
-            _botOpenPositionCount = positions == null ? 0 : positions.Length;
-            foreach (var p in positions)''', 'initial position count')
-
+              if n != expected:
+                  raise SystemExit(f'{label}: expected {expected}, found {n}')
+              s = s.replace(old, new)
+          rep('_signalBars = MarketData.GetBars(Bars.TimeFrame, SymbolName);', '_signalBars = Bars;', 'same-timeframe Bars', 3)
+          rep('        private readonly Dictionary<long, double> _totalClosedUnits = new Dictionary<long, double>();\n', '        private readonly Dictionary<long, double> _totalClosedUnits = new Dictionary<long, double>();\n        private int _botOpenPositionCount;\n', 'open count field')
+          rep('                if (_signalBars == null || _signalBars.Count < Math.Max(100, SwingLookback))\n', '                if (_signalBars == null || _signalBars.Count < Math.Max(100, SwingLookback) + 2)\n', 'closed bar min bars')
+          rep('                DateTime barTime = _signalBars.OpenTimes[_signalBars.Count - 1];\n', '                int signalIndex = _signalBars.Count - 2;\n                DateTime barTime = _signalBars.OpenTimes[signalIndex];\n', 'closed signal time')
+          rep('                int signalIndex = _signalBars.Count - 1;\n                double atrNow = CalculateAtr(_signalBars, AtrPeriod, signalIndex);\n', '                double atrNow = CalculateAtr(_signalBars, AtrPeriod, signalIndex);\n', 'remove forming signal index')
+          rep('                if (!PassMtfFilter(signal.Direction)) return;\n                if (CountOpenPositionsInDirection(signal.Direction) >= MaxSameDirectionTrades) return;\n', '                if (!PassMtfFilter(signal.Direction)) return;\n                TradeType desiredType = signal.Direction == TradeDirection.Buy ? TradeType.Buy : TradeType.Sell;\n                if (open.Any(p => p.TradeType != desiredType)) return;\n                if (open.Count(p => p.TradeType == desiredType) >= MaxSameDirectionTrades) return;\n', 'hard no hedge')
+          rep('                TradeType tt = signal.Direction == TradeDirection.Buy ? TradeType.Buy : TradeType.Sell;\n', '                TradeType tt = desiredType;\n', 'trade type reuse')
+          rep('        protected override void OnTick()\n        {\n            try\n            {\n                ResetCalendarStates(false);\n', '        protected override void OnTick()\n        {\n            try\n            {\n                if (_botOpenPositionCount <= 0) return;\n                ResetCalendarStates(false);\n', 'flat tick fast path')
+          rep('            if (p == null || p.Label != BotLabel || p.SymbolName != SymbolName) return;\n\n            _tp1Done[p.Id] = false;\n', '            if (p == null || p.Label != BotLabel || p.SymbolName != SymbolName) return;\n\n            _botOpenPositionCount++;\n            _tp1Done[p.Id] = false;\n', 'opened count')
+          rep('            if (p == null || p.Label != BotLabel || p.SymbolName != SymbolName) return;\n\n            double partialVol = _totalClosedUnits.ContainsKey(p.Id) ? _totalClosedUnits[p.Id] : 0;\n', '            if (p == null || p.Label != BotLabel || p.SymbolName != SymbolName) return;\n\n            if (_botOpenPositionCount > 0) _botOpenPositionCount--;\n            double partialVol = _totalClosedUnits.ContainsKey(p.Id) ? _totalClosedUnits[p.Id] : 0;\n', 'closed count')
+          rep('                var h1 = MarketData.GetBars(TimeFrame.Hour, SymbolName);\n', '                var h1 = Bars.TimeFrame == TimeFrame.Hour ? Bars : MarketData.GetBars(TimeFrame.Hour, SymbolName);\n', 'reuse H1 Bars')
+          rep('                if (h1 != null && h1.Count >= 220)\n                {\n                    double ema50 = CalculateEma(h1.ClosePrices, 50, h1.Count - 1);\n                    double ema200 = CalculateEma(h1.ClosePrices, 200, h1.Count - 1);\n', '                if (h1 != null && h1.Count >= 221)\n                {\n                    int h1Index = h1.Count - 2;\n                    double ema50 = CalculateEma(h1.ClosePrices, 50, h1Index);\n                    double ema200 = CalculateEma(h1.ClosePrices, 200, h1Index);\n', 'H1 closed MTF')
+          rep('                if (h4 != null && h4.Count >= 220)\n                {\n                    double ema50 = CalculateEma(h4.ClosePrices, 50, h4.Count - 1);\n                    double ema200 = CalculateEma(h4.ClosePrices, 200, h4.Count - 1);\n', '                if (h4 != null && h4.Count >= 221)\n                {\n                    int h4Index = h4.Count - 2;\n                    double ema50 = CalculateEma(h4.ClosePrices, 50, h4Index);\n                    double ema200 = CalculateEma(h4.ClosePrices, 200, h4Index);\n', 'H4 closed MTF')
+          rep('        private void RebuildRuntimeStateFromOpenPositions()\n        {\n            var positions = Positions.FindAll(BotLabel, SymbolName);\n', '        private void RebuildRuntimeStateFromOpenPositions()\n        {\n            var positions = Positions.FindAll(BotLabel, SymbolName);\n            _botOpenPositionCount = positions == null ? 0 : positions.Length;\n', 'initial open count')
           Path('fixed/HarmonyBotPro/HarmonyBotPro.cs').write_text(s)
           print('patched source lines:', len(s.splitlines()))
-          print('remaining same-TF MarketData.GetBars calls:', s.count('MarketData.GetBars(Bars.TimeFrame, SymbolName)'))
+          print('same-TF redundant calls:', s.count('MarketData.GetBars(Bars.TimeFrame, SymbolName)'))
           PY
-
           cat > fixed/HarmonyBotPro/HarmonyBotPro.csproj <<'EOF'
           <Project Sdk="Microsoft.NET.Sdk">
             <PropertyGroup>
@@ -201,7 +103,6 @@ jobs:
         run: |
           test -n "${CTRADER_CTID:-}" || exit 1
           test -n "${CTRADER_ACCOUNT:-}" || exit 1
-          set +e
           timeout 180s docker run --rm \
             -v "$PWD/fixed:/work" -v "$PWD/reports:/reports" -v "$PWD/cache:/cache" -v "$PWD/ctrader.pwd:/pwd:ro" \
             -e "CTID=$CTRADER_CTID" -e 'PWD-FILE=/pwd' -e "ACCOUNT=$CTRADER_ACCOUNT" \
@@ -215,10 +116,6 @@ jobs:
             --EnableGartley=true --EnableBat=true --EnableButterfly=true --EnableCrab=true --EnableCypher=true --SlUpdateStepPips=2 --SlUpdateCooldownSec=5 --BreakEvenTriggerPips=100 --BreakEvenOffsetPips=10 \
             --TrailingTriggerPips=150 --TrailingDistancePips=90 --EnablePartialTP=true --Tp1RR=1.0 --Tp1ClosePercent=60 --BlockNewsWindow=true --BlockedWindowsGMT='12:25-12:45;14:25-14:45' \
             --report=/reports/fixed-open.html --report-json=/reports/fixed-open.json
-          ec=$?
-          set -e
-          echo "diagnostic_exit_code=$ec"
-          test "$ec" -eq 0
           test -s reports/fixed-open.json
 
       - name: Show fixed diagnostic summary
