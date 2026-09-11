@@ -1,0 +1,87 @@
+name: HarmonyBotPro XAUUSD H1 M1 Smoke
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/smoke-harmonybotpro-xauusd-h1-m1.yml'
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download exact HarmonyBotPro algo
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p backtest/cache backtest/reports backtest/algo
+          curl -fL -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" -H "X-GitHub-Api-Version: 2022-11-28" "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/artifacts/10178731134/zip" -o backtest/HarmonyBotPro-Mobile.zip
+          unzip -o backtest/HarmonyBotPro-Mobile.zip -d backtest/algo
+          cp "$(find backtest/algo -type f -name 'HarmonyBotPro.algo' -print -quit)" backtest/HarmonyBotPro.algo
+          test -s backtest/HarmonyBotPro.algo
+
+      - name: Pull official cTrader CLI
+        run: docker pull ghcr.io/spotware/ctrader-console:5.9.11
+
+      - name: Create password file
+        env:
+          CTRADER_PASSWORD: ${{ secrets.CTRADER_PASSWORD }}
+        run: |
+          test -n "${CTRADER_PASSWORD:-}" || exit 1
+          printf '%s' "$CTRADER_PASSWORD" > backtest/ctrader.pwd
+          chmod 600 backtest/ctrader.pwd
+
+      - name: Exact 7-day M1 smoke backtest
+        env:
+          CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+          CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+        run: |
+          test -n "${CTRADER_CTID:-}" || exit 1
+          test -n "${CTRADER_ACCOUNT:-}" || exit 1
+          docker run --rm \
+            -v "$PWD/backtest:/work" \
+            -e "CTID=$CTRADER_CTID" -e 'PWD-FILE=/work/ctrader.pwd' -e "ACCOUNT=$CTRADER_ACCOUNT" \
+            ghcr.io/spotware/ctrader-console:5.9.11 \
+            backtest /work/HarmonyBotPro.algo --environment-variables \
+            --symbol=XAUUSD --period=h1 --start='04/09/2026' --end='11/09/2026' --balance=1000 --data-mode=m1 --data-dir=/work/cache \
+            --SymbolName=XAUUSD --RiskPercent=1.5 --MaxDrawdown=10.0 --DailyLossLimitPercent=4.0 --WeeklyLossLimitPercent=8.0 --MonthlyTargetPercent=12.0 --RiskAfterMonthlyTarget=0.5 \
+            --CloseAllOnDailyLock=false --AutoReprotectOnStart=true --EmergencySlAtrMult=2.0 --EmergencyTpRR=2.0 --SessionStart=8 --SessionEnd=22 --MTFEnabled=true --H4FilterEnabled=false \
+            --PatternConfidence=0.72 --MaxConcurrentTrades=3 --MaxSameDirectionTrades=1 --MaxTradesPerDay=3 --CooldownMinutes=10 --MaxSpreadPips=35 --MinAtrPrice=3.0 --AtrPeriod=14 \
+            --SlAtrMult=1.2 --TpCdMult=1.0 --MinRR=2.0 --MinStopLossPips=100 --MinTakeProfitPips=200 --MinStopDistancePips=15 --SwingDepth=5 --SwingLookback=200 --PivotScanCount=12 --MinLegAtrRatio=0.8 \
+            --EnableGartley=true --EnableBat=true --EnableButterfly=true --EnableCrab=true --EnableCypher=true --SlUpdateStepPips=2 --SlUpdateCooldownSec=5 --BreakEvenTriggerPips=100 --BreakEvenOffsetPips=10 \
+            --TrailingTriggerPips=150 --TrailingDistancePips=90 --EnablePartialTP=true --Tp1RR=1.0 --Tp1ClosePercent=60 --BlockNewsWindow=true --BlockedWindowsGMT='12:25-12:45;14:25-14:45' \
+            --report=/work/reports/smoke.html --report-json=/work/reports/smoke.json
+
+      - name: Show result
+        if: success()
+        run: |
+          test -s backtest/reports/smoke.json
+          python3 - <<'PY'
+          import json
+          p='backtest/reports/smoke.json'
+          d=json.load(open(p))
+          print(json.dumps(d, ensure_ascii=False)[:12000])
+          PY
+
+      - name: Remove credentials
+        if: always()
+        run: rm -f backtest/ctrader.pwd
+
+      - name: Upload smoke report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: HarmonyBotPro-XAUUSD-H1-M1-Smoke
+          path: |
+            backtest/reports/smoke.html
+            backtest/reports/smoke.json
+          if-no-files-found: warn
+          retention-days: 7
