@@ -37,6 +37,19 @@ jobs:
           Path('cli-build/HarmonyBotPro/HarmonyBotPro.cs').write_bytes(raw)
           print('source_sha256=' + hashlib.sha256(raw).hexdigest())
           PYCODE
+          test "$(sha256sum cli-build/HarmonyBotPro/HarmonyBotPro.cs | awk '{print $1}')" = "a178fc90df0ee2c3306a99e3586184b0d2070db4c60d3c2a6259007426d5ec44"
+
+      - name: Append reconstructed missing tail
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat compile-input/harmonybotpro-upload/repaired_tail.csfrag >> cli-build/HarmonyBotPro/HarmonyBotPro.cs
+          sha256sum cli-build/HarmonyBotPro/HarmonyBotPro.cs
+          test "$(sha256sum cli-build/HarmonyBotPro/HarmonyBotPro.cs | awk '{print $1}')" = "9cbff921d9116024afe8aaf6acc5d4c77cd1e2a8028b81cbe4c5732e40ffdf0e"
+          tail -n 12 cli-build/HarmonyBotPro/HarmonyBotPro.cs
+
+      - name: Create cTrader project
+        run: |
           cat > cli-build/HarmonyBotPro/HarmonyBotPro.csproj <<'EOF'
           <Project Sdk="Microsoft.NET.Sdk">
             <PropertyGroup>
@@ -53,76 +66,6 @@ jobs:
             </ItemGroup>
           </Project>
           EOF
-
-      - name: Verify uploaded source hash
-        run: |
-          test "$(sha256sum cli-build/HarmonyBotPro/HarmonyBotPro.cs | awk '{print $1}')" = "a178fc90df0ee2c3306a99e3586184b0d2070db4c60d3c2a6259007426d5ec44"
-
-      - name: Recover missing source tail from closest repository version
-        shell: bash
-        run: |
-          set -euo pipefail
-          python3 - <<'PYCODE'
-          from pathlib import Path
-          import base64, gzip, re, hashlib
-
-          target = Path('cli-build/HarmonyBotPro/HarmonyBotPro.cs')
-          base = target.read_text().rstrip()
-          marker = 'tAB = Math.Max(1, a.Index - x.Index);'
-          if not base.endswith(marker):
-              raise SystemExit('Unexpected upload truncation point')
-
-          candidates = []
-          for wf in Path('.github/workflows').glob('*'):
-              if not wf.is_file():
-                  continue
-              try:
-                  txt = wf.read_text(errors='ignore')
-              except Exception:
-                  continue
-              for m in re.finditer(r'payload\s*=\s*"([A-Za-z0-9+/=]+)"', txt):
-                  try:
-                      ref = gzip.decompress(base64.b64decode(m.group(1))).decode()
-                  except Exception:
-                      continue
-                  pos = ref.find(marker)
-                  while pos >= 0:
-                      end = pos + len(marker)
-                      # longest common suffix ending exactly at the truncation marker
-                      i = 0
-                      max_i = min(len(base), end)
-                      while i < max_i and base[-1-i] == ref[end-1-i]:
-                          i += 1
-                      candidates.append((i, str(wf), pos, ref))
-                      pos = ref.find(marker, pos + 1)
-
-          candidates.sort(key=lambda x: x[0], reverse=True)
-          print('TAIL CANDIDATES:')
-          for i, wf, pos, ref in candidates[:10]:
-              after = ref[pos + len(marker):]
-              preview = '\n'.join(after.splitlines()[:18])
-              print(f'--- common_suffix={i} file={wf} ---')
-              print(preview)
-
-          if not candidates:
-              raise SystemExit('No repository source contains the truncation marker')
-
-          common, wf, pos, ref = candidates[0]
-          if common < len(marker):
-              raise SystemExit('No valid marker match')
-          print(f'BEST_REFERENCE={wf} COMMON_SUFFIX={common}')
-
-          # Only splice at the exact marker; the existing uploaded source remains untouched before it.
-          remainder = ref[pos + len(marker):]
-          if not remainder.startswith('\n'):
-              raise SystemExit('Reference continuation is not line aligned')
-          patched = base + remainder
-          target.write_text(patched)
-          print(f'RECOVERED_TAIL_CHARS={len(remainder)}')
-          print('PATCHED_SHA256=' + hashlib.sha256(patched.encode()).hexdigest())
-          print('PATCHED_FINAL_LINES:')
-          print('\n'.join(patched.splitlines()[-12:]))
-          PYCODE
 
       - name: Restore
         run: dotnet restore cli-build/HarmonyBotPro/HarmonyBotPro.csproj
