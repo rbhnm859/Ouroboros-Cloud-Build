@@ -1,0 +1,63 @@
+
+namespace cAlgo.Robots
+{
+    public class PerformanceTracker
+    {
+        private readonly Robot _robot;
+        private int _trades;
+        private int _wins;
+        private int _losses;
+        private double _sumR;
+        private double _grossWinR;
+        private double _grossLossR;
+        private double _sumPnlProxy;
+        private double _sumPips;
+        private double _sumExpectedRR;
+        private double _sumNotional;
+
+        public double InitialEquity { get; set; }
+
+        public PerformanceTracker(Robot robot)
+        {
+            _robot = robot;
+        }
+
+        public void AddTrade(DateTime time, double r, double moneyPnl, double avgPips, double expectedRR, double notional)
+        {
+            _trades++;
+            _sumR += r;
+            _sumPnlProxy += moneyPnl;
+            _sumPips += avgPips;
+            _sumExpectedRR += expectedRR;
+            _sumNotional += notional;
+
+            if (r >= 0)
+            {
+                _wins++;
+                _grossWinR += r;
+            }
+            else
+            {
+                _losses++;
+                _grossLossR += -r;
+            }
+        }
+
+        public void PrintReport(double finalEquity)
+        {
+            double winRate = _trades > 0 ? (double)_wins / _trades * 100.0 : 0.0;
+            double avgR = _trades > 0 ? _sumR / _trades : 0.0;
+            double profitFactor = _grossLossR > 0 ? _grossWinR / _grossLossR : (_grossWinR > 0 ? 99.0 : 0.0);
+            double returnPct = InitialEquity > 0 ? (finalEquity - InitialEquity) / InitialEquity * 100.0 : 0.0;
+            double avgPips = _trades > 0 ? _sumPips / _trades : 0.0;
+            double avgExpectedRR = _trades > 0 ? _sumExpectedRR / _trades : 0.0;
+
+            Console.WriteLine("================================================================");
+            Console.WriteLine("HarmonyBotPro PERFORMANCE REPORT");
+            Console.WriteLine("Trades={0} Wins={1} Losses={2} WinRate={3:F1}%", _trades, _wins, _losses, winRate);
+            Console.WriteLine("AvgR={0:F3} PF={1:F2} Return={2:F2}% AvgPips={3:F1} PlannedRR={4:F2}", avgR, profitFactor, returnPct, avgPips, avgExpectedRR);
+            Console.WriteLine("PnlProxy={0:F4} Notional={1:F2} FinalEquity={2:F2}", _sumPnlProxy, _sumNotional, finalEquity);
+            Console.WriteLine("================================================================");
+        }
+    }
+}
