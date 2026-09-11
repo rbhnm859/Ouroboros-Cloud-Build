@@ -78,7 +78,7 @@ jobs:
             --broker=fxpro --symbol=XAUUSD --period=h1 \
             --start='${{ matrix.start }}' --end='${{ matrix.end }}' \
             --balance=100 --data-mode=m1 --data-dir=/work/cache \
-            --commission=35 --commission-type=UsdPerMillionUsdVolume --precise-conversion \
+            --commission=35 --commission-type=UsdPerMillionUsdVolume \
             --SymbolName=XAUUSD \
             --RiskPercent=1.5 --MaxDrawdown=10.0 --DailyLossLimitPercent=4.0 --WeeklyLossLimitPercent=8.0 \
             --MonthlyTargetPercent=12.0 --RiskAfterMonthlyTarget=0.5 --CloseAllOnDailyLock=false \
