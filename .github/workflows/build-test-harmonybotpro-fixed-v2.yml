@@ -1,4 +1,4 @@
-name: HarmonyBotPro V3 HarmonicFix XAUUSD H1 1Y Runner
+name: Build Test HarmonyBotPro Fixed V2
 
 on:
   workflow_dispatch:
@@ -6,33 +6,32 @@ on:
     branches: [main]
     paths:
       - '.github/workflows/build-test-harmonybotpro-fixed-v2.yml'
-      - 'tools/harmonybotpro_harmonic_fix_v3.py'
+      - 'tools/harmonybotpro_fixed_patch.py'
 
 permissions:
   contents: read
 
 jobs:
-  build-backtest:
+  build-test:
     runs-on: ubuntu-latest
-    timeout-minutes: 150
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '6.0.x'
 
-      - name: Apply V3 harmonic patch
+      - name: Patch source
         run: |
-          mkdir -p fixed-v3/HarmonyBotPro backtest/reports backtest/cache
-          python3 tools/harmonybotpro_harmonic_fix_v3.py
-          cat > fixed-v3/HarmonyBotPro/HarmonyBotPro.csproj <<'EOF'
+          mkdir -p fixed/HarmonyBotPro reports cache
+          python3 tools/harmonybotpro_fixed_patch.py
+          cat > fixed/HarmonyBotPro/HarmonyBotPro.csproj <<'EOF'
           <Project Sdk="Microsoft.NET.Sdk">
             <PropertyGroup>
               <TargetFramework>net6.0</TargetFramework>
               <ImplicitUsings>disable</ImplicitUsings>
               <Nullable>disable</Nullable>
-              <AlgoName>HarmonyBotProV3</AlgoName>
+              <AlgoName>HarmonyBotProFixed</AlgoName>
               <AlgoBuild>true</AlgoBuild>
               <AlgoPublish>false</AlgoPublish>
               <IncludeSource>true</IncludeSource>
@@ -43,93 +42,65 @@ jobs:
           </Project>
           EOF
 
-      - name: Compile V3 ALGO
+      - name: Compile fixed ALGO
         run: |
-          dotnet restore fixed-v3/HarmonyBotPro/HarmonyBotPro.csproj
-          dotnet build fixed-v3/HarmonyBotPro/HarmonyBotPro.csproj -c Release --no-restore -p:AlgoPublish=false -p:IncludeSource=true
-          ALGO=$(find fixed-v3/HarmonyBotPro -type f -name '*.algo' -print -quit)
+          dotnet restore fixed/HarmonyBotPro/HarmonyBotPro.csproj
+          dotnet build fixed/HarmonyBotPro/HarmonyBotPro.csproj -c Release --no-restore -p:AlgoPublish=false -p:IncludeSource=true
+          ALGO=$(find fixed/HarmonyBotPro -type f -name '*.algo' | head -n 1)
           test -n "$ALGO"
-          cp "$ALGO" backtest/HarmonyBotProV3.algo
-          sha256sum backtest/HarmonyBotProV3.algo | tee backtest/HarmonyBotProV3.algo.sha256
+          cp "$ALGO" fixed/HarmonyBotProFixed.algo
+          sha256sum fixed/HarmonyBotProFixed.algo | tee fixed/HarmonyBotProFixed.algo.sha256
 
-      - name: Pull official cTrader CLI
+      - name: Pull cTrader CLI
         run: docker pull ghcr.io/spotware/ctrader-console:5.9.11
 
-      - name: Create cTrader password file
+      - name: Create password file
         env:
           CTRADER_PASSWORD: ${{ secrets.CTRADER_PASSWORD }}
         run: |
           test -n "${CTRADER_PASSWORD:-}" || exit 1
-          printf '%s' "$CTRADER_PASSWORD" > backtest/ctrader.pwd
-          chmod 600 backtest/ctrader.pwd
+          printf '%s' "$CTRADER_PASSWORD" > ctrader.pwd
 
-      - name: XAUUSD H1 one-year M1 backtest
+      - name: Fixed open-mode diagnostic
         env:
           CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
           CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
         run: |
           test -n "${CTRADER_CTID:-}" || exit 1
           test -n "${CTRADER_ACCOUNT:-}" || exit 1
-          docker run --rm \
-            -v "$PWD/backtest:/work" \
-            -e "CTID=$CTRADER_CTID" -e 'PWD-FILE=/work/ctrader.pwd' -e "ACCOUNT=$CTRADER_ACCOUNT" \
+          timeout 180s docker run --rm \
+            -v "$PWD/fixed:/work" -v "$PWD/reports:/reports" -v "$PWD/cache:/cache" -v "$PWD/ctrader.pwd:/pwd:ro" \
+            -e "CTID=$CTRADER_CTID" -e 'PWD-FILE=/pwd' -e "ACCOUNT=$CTRADER_ACCOUNT" \
             ghcr.io/spotware/ctrader-console:5.9.11 \
-            backtest /work/HarmonyBotProV3.algo --environment-variables --exit-on-stop \
-            --symbol=XAUUSD --period=h1 --start='11/09/2025' --end='11/09/2026' \
-            --balance=1000 --commission=35 --spread=17.18 --data-mode=m1 --data-dir=/work/cache \
+            backtest /work/HarmonyBotProFixed.algo --environment-variables \
+            --symbol=XAUUSD --period=h1 --start='04/09/2026' --end='11/09/2026' --balance=1000 --data-mode=open --data-dir=/cache \
             --SymbolName=XAUUSD --RiskPercent=1.5 --MaxDrawdown=10 --DailyLossLimitPercent=4 --WeeklyLossLimitPercent=8 --MonthlyTargetPercent=12 --RiskAfterMonthlyTarget=0.5 \
             --CloseAllOnDailyLock=false --AutoReprotectOnStart=true --EmergencySlAtrMult=2 --EmergencyTpRR=2 --SessionStart=8 --SessionEnd=22 --MTFEnabled=true --H4FilterEnabled=false \
             --PatternConfidence=0.72 --MaxConcurrentTrades=3 --MaxSameDirectionTrades=1 --MaxTradesPerDay=3 --CooldownMinutes=10 --MaxSpreadPips=35 --MinAtrPrice=3 --AtrPeriod=14 \
             --SlAtrMult=1.2 --TpCdMult=1 --MinRR=2 --MinStopLossPips=100 --MinTakeProfitPips=200 --MinStopDistancePips=15 --SwingDepth=5 --SwingLookback=200 --PivotScanCount=12 --MinLegAtrRatio=0.8 \
             --EnableGartley=true --EnableBat=true --EnableButterfly=true --EnableCrab=true --EnableCypher=true --SlUpdateStepPips=2 --SlUpdateCooldownSec=5 --BreakEvenTriggerPips=100 --BreakEvenOffsetPips=10 \
             --TrailingTriggerPips=150 --TrailingDistancePips=90 --EnablePartialTP=true --Tp1RR=1 --Tp1ClosePercent=60 --BlockNewsWindow=true --BlockedWindowsGMT='12:25-12:45;14:25-14:45' \
-            --report=/work/reports/HarmonyBotProV3-XAUUSD-H1-1Y.html \
-            --report-json=/work/reports/HarmonyBotProV3-XAUUSD-H1-1Y.json \
-            2>&1 | tee backtest/reports/HarmonyBotProV3-XAUUSD-H1-1Y-cli.log
-          test -s backtest/reports/HarmonyBotProV3-XAUUSD-H1-1Y.json
+            --report=/reports/fixed-open.html --report-json=/reports/fixed-open.json
+          test -s reports/fixed-open.json
 
-      - name: Create one-year metrics summary
+      - name: Print report JSON
         if: success()
-        run: |
-          python3 - <<'PY'
-          from pathlib import Path
-          import json,re
-          p=Path('backtest/reports/HarmonyBotProV3-XAUUSD-H1-1Y.json')
-          d=json.loads(p.read_text())
-          total=d.get('TotalTrades',0) or 0
-          wins=d.get('WinningTrades',0) or 0
-          log=Path('backtest/reports/HarmonyBotProV3-XAUUSD-H1-1Y-cli.log').read_text(errors='replace')
-          mg=re.findall(r'\[GATES\][^\r\n]*',log)
-          mh=re.findall(r'\[HARMONIC\][^\r\n]*',log)
-          summary={
-            'window':'1Y','start':'2025-09-11','end':'2026-09-11','symbol':'XAUUSD','period':'h1','starting_balance':1000,
-            'equity':d.get('Equity'),'net_profit':d.get('NetProfit'),
-            'return_percent':((d.get('Equity',1000)-1000)/1000*100) if d.get('Equity') is not None else None,
-            'total_trades':total,'winning_trades':wins,'losing_trades':d.get('LosingTrades'),
-            'win_rate_percent':(wins/total*100) if total else 0,'profit_factor':d.get('ProfitFactor'),
-            'max_balance_drawdown_percent':d.get('MaxBalanceDrawdownPercentages'),
-            'max_equity_drawdown_percent':d.get('MaxEquityDrawdownPercentages'),
-            'average_trade':d.get('AverageTrade'),'fitness':d.get('Fitness'),
-            'spread_pips':17.18,'commission_usd_per_million_per_side':35,
-            'gate_diagnostics':mg[-1] if mg else None,'harmonic_diagnostics':mh[-1] if mh else None
-          }
-          Path('backtest/reports/HarmonyBotProV3-XAUUSD-H1-1Y-summary.json').write_text(json.dumps(summary,indent=2))
-          print(json.dumps(summary,indent=2))
-          PY
+        run: head -c 20000 reports/fixed-open.json || true
 
       - name: Cleanup credentials
         if: always()
-        run: rm -f backtest/ctrader.pwd
+        run: rm -f ctrader.pwd
 
-      - name: Upload V3 build and one-year reports
+      - name: Upload fixed build
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: HarmonyBotProV3-HarmonicFix-XAUUSD-H1-1Y
+          name: HarmonyBotPro-Fixed-V2-Mobile
           path: |
-            backtest/HarmonyBotProV3.algo
-            backtest/HarmonyBotProV3.algo.sha256
-            fixed-v3/HarmonyBotPro/HarmonyBotPro.cs
-            backtest/reports/*
+            fixed/HarmonyBotProFixed.algo
+            fixed/HarmonyBotProFixed.algo.sha256
+            fixed/HarmonyBotPro/HarmonyBotPro.cs
+            reports/fixed-open.html
+            reports/fixed-open.json
           if-no-files-found: warn
           retention-days: 30
