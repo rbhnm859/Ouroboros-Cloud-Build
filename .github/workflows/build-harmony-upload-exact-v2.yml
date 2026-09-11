@@ -1,0 +1,110 @@
+name: Build Uploaded HarmonyBotPro Exact V2
+
+on:
+  push:
+    branches:
+      - build-harmony-upload-exact-20260911
+    paths:
+      - '.github/workflows/build-harmony-upload-exact-v2.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET 6
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '6.0.x'
+
+      - name: Reconstruct and verify exact uploaded source
+        shell: bash
+        run: |
+          mkdir -p cli-build/HarmonyBotPro
+          python3 - <<'PYCODE'
+          from pathlib import Path
+          import base64, gzip, hashlib
+
+          expected_chunks = [
+              'a418d0aebe6717c1eb7d98e0a0dad01e1852ea2ef25048b6c727bb562a91093f',
+              '9fc4cfdf97c3f8376a45231580fc3231cb1e93608cad19112ce6566c1d894284',
+              'c25d035bbeb6e392703b1a9b24eadda49d5ac31710f5435076260130949d6021',
+              'b944a1b344e7c5c798eb11559766f3701e85b965575feb4abc48ce7730d6d332',
+              'aa8c337ccc6498a6c949024a095b418c6583dec4a11af68a23952e1e37fe7555',
+              'bc08a3d8b2629540205d6ded9b99d53668487b4820c14e649e6c4db18864bb7d',
+              'dc03845391c7bbbb638b965fb5b56e27d2389ed997895d6515ae59a3d68c66a3',
+              'e3ec4f271803dd006d0154243e9deb17d3b9f23b492fef4474455fef439930fc',
+          ]
+          chunks = []
+          for i in range(8):
+              p = Path(f'tmp/harmony-exact/chunk-{i:02d}.txt').read_text()
+              if i == 2:
+                  marker = 'Vg24Xum6MOeWUpW2br9YrPHAK13969'
+                  pos = p.rfind(marker)
+                  if pos < 0:
+                      raise SystemExit('chunk-02 transport marker missing')
+                  p = p[:pos] + marker + 'N' + 'dzi13V9An'
+              actual = hashlib.sha256(p.encode()).hexdigest()
+              if actual != expected_chunks[i]:
+                  raise SystemExit(f'chunk-{i:02d} hash mismatch: {actual} != {expected_chunks[i]}')
+              chunks.append(p)
+              print(f'CHUNK_{i:02d}_SHA256={actual}')
+
+          payload = ''.join(chunks)
+          data = gzip.decompress(base64.b64decode(payload))
+          expected_source = '0b25083be0b9a8e11d6e1b2dd844dc9d5530f16b46daac8347421a16780b73a1'
+          actual_source = hashlib.sha256(data).hexdigest()
+          if actual_source != expected_source:
+              raise SystemExit(f'source hash mismatch: {actual_source} != {expected_source}')
+          Path('cli-build/HarmonyBotPro/HarmonyBotPro.cs').write_bytes(data)
+          print('SOURCE_SHA256=' + actual_source)
+          PYCODE
+
+          cat > cli-build/HarmonyBotPro/HarmonyBotPro.csproj <<'EOF'
+          <Project Sdk="Microsoft.NET.Sdk">
+            <PropertyGroup>
+              <TargetFramework>net6.0</TargetFramework>
+              <ImplicitUsings>disable</ImplicitUsings>
+              <Nullable>disable</Nullable>
+              <AlgoName>HarmonyBotPro</AlgoName>
+              <AlgoBuild>true</AlgoBuild>
+              <AlgoPublish>false</AlgoPublish>
+              <IncludeSource>false</IncludeSource>
+            </PropertyGroup>
+            <ItemGroup>
+              <PackageReference Include="cTrader.Automate" Version="1.0.19" />
+            </ItemGroup>
+          </Project>
+          EOF
+
+      - name: Restore
+        run: dotnet restore cli-build/HarmonyBotPro/HarmonyBotPro.csproj
+
+      - name: Build Release ALGO
+        run: dotnet build cli-build/HarmonyBotPro/HarmonyBotPro.csproj -c Release --no-restore -p:AlgoPublish=false -p:IncludeSource=false
+
+      - name: Collect ALGO
+        shell: bash
+        run: |
+          mkdir -p output
+          ALGO=$(find cli-build/HarmonyBotPro -type f -name '*.algo' | head -n 1)
+          test -n "$ALGO"
+          cp "$ALGO" output/HarmonyBotPro.algo
+          sha256sum output/HarmonyBotPro.algo | tee output/HarmonyBotPro.algo.sha256
+          printf '%s\n' '0b25083be0b9a8e11d6e1b2dd844dc9d5530f16b46daac8347421a16780b73a1  HarmonyBotPro.cs' > output/HarmonyBotPro.source.sha256
+          ls -lh output/HarmonyBotPro.algo
+
+      - name: Upload mobile artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: HarmonyBotPro-Mobile-Exact
+          path: |
+            output/HarmonyBotPro.algo
+            output/HarmonyBotPro.algo.sha256
+            output/HarmonyBotPro.source.sha256
+          if-no-files-found: error
