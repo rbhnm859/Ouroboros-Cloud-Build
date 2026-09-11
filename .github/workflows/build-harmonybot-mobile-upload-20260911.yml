@@ -1,0 +1,62 @@
+name: Build Uploaded HarmonyBot Mobile ALGO
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - harmonybot-mobile-upload-20260911
+    paths:
+      - 'HarmonyBot-Mobile-Upload/**'
+      - '.github/workflows/build-harmonybot-mobile-upload-20260911.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Recreate uploaded source and verify SHA-256
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat HarmonyBot-Mobile-Upload/source_chunks/*.b64 | base64 -d | gzip -d > HarmonyBot-Mobile-Upload/HarmonyBotPro.cs
+          echo '6f37abec74ff97af691d6cc3e462c3b9dce7db13ac74160bc3a72afff662127c  HarmonyBot-Mobile-Upload/HarmonyBotPro.cs' | sha256sum -c -
+          wc -l HarmonyBot-Mobile-Upload/HarmonyBotPro.cs
+
+      - name: Restore
+        run: dotnet restore HarmonyBot-Mobile-Upload/HarmonyBotPro_Mobile.csproj
+
+      - name: Build Release ALGO
+        run: dotnet build HarmonyBot-Mobile-Upload/HarmonyBotPro_Mobile.csproj -c Release --no-restore -p:AlgoPublish=false -p:IncludeSource=false
+
+      - name: Locate and stage mobile ALGO
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t ALGOS < <(find HarmonyBot-Mobile-Upload -type f -name '*.algo' -print)
+          printf 'Found %s algo file(s)\n' "${#ALGOS[@]}"
+          printf '%s\n' "${ALGOS[@]}"
+          test "${#ALGOS[@]}" -ge 1
+          mkdir -p mobile-output
+          cp "${ALGOS[0]}" mobile-output/HarmonyBotPro_Mobile.algo
+          sha256sum mobile-output/HarmonyBotPro_Mobile.algo | tee mobile-output/SHA256.txt
+
+      - name: Upload mobile ALGO
+        uses: actions/upload-artifact@v4
+        with:
+          name: HarmonyBotPro-Mobile-ALGO
+          path: |
+            mobile-output/HarmonyBotPro_Mobile.algo
+            mobile-output/SHA256.txt
+          if-no-files-found: error
+          retention-days: 30
