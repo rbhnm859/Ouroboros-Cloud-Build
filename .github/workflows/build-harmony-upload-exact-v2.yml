@@ -30,55 +30,56 @@ jobs:
           from pathlib import Path
           import base64, gzip, hashlib
 
-          expected_chunks = [
-              'a418d0aebe6717c1eb7d98e0a0dad01e1852ea2ef25048b6c727bb562a91093f',
-              '9fc4cfdf97c3f8376a45231580fc3231cb1e93608cad19112ce6566c1d894284',
-              'c25d035bbeb6e392703b1a9b24eadda49d5ac31710f5435076260130949d6021',
-              'b944a1b344e7c5c798eb11559766f3701e85b965575feb4abc48ce7730d6d332',
-              'aa8c337ccc6498a6c949024a095b418c6583dec4a11af68a23952e1e37fe7555',
-              'bc08a3d8b2629540205d6ded9b99d53668487b4820c14e649e6c4db18864bb7d',
-              'dc03845391c7bbbb638b965fb5b56e27d2389ed997895d6515ae59a3d68c66a3',
-              'e3ec4f271803dd006d0154243e9deb17d3b9f23b492fef4474455fef439930fc',
-          ]
-          expected_seg01 = [
-              'c941c8425aa3e0b4ee8c70104e6194658e40414fd12d36e6e76e58033fe29681',
-              'f02db48d7c59b75bba838bd068022b5e435ab53f0c8f4ea01d42febe1c78c32c',
-              '20423aa6c3a8c11e815858105d18d92675659a27e7dab0aa8f2086dbf75eed7e',
-              'f7fe609bcf20733a808f678c531e88ef44abe1078ec2f24a912d50950ebd2774',
-              '375c603f7d8499605924756674d4aebbc4ec506b1512667724a9c93eb74a7bb2',
-              '2d0150dbb365f2bce94832806df020e4ea05fe1c7a26473f8884262c81172581',
-              '8ecdb047449e0d346e1d7d5c005435c63c43495eed69d14ffcd6240a2e81d69e',
-              'e553e29cbb54d74a1ad51e5dd3c990e1f4a215a0c6fda0fede55c4e4f73b5596',
-          ]
+          expected_chunks=[
+            'a418d0aebe6717c1eb7d98e0a0dad01e1852ea2ef25048b6c727bb562a91093f',
+            '9fc4cfdf97c3f8376a45231580fc3231cb1e93608cad19112ce6566c1d894284',
+            'c25d035bbeb6e392703b1a9b24eadda49d5ac31710f5435076260130949d6021',
+            'b944a1b344e7c5c798eb11559766f3701e85b965575feb4abc48ce7730d6d332',
+            'aa8c337ccc6498a6c949024a095b418c6583dec4a11af68a23952e1e37fe7555',
+            'bc08a3d8b2629540205d6ded9b99d53668487b4820c14e649e6c4db18864bb7d',
+            'dc03845391c7bbbb638b965fb5b56e27d2389ed997895d6515ae59a3d68c66a3',
+            'e3ec4f271803dd006d0154243e9deb17d3b9f23b492fef4474455fef439930fc']
+          expected_seg06=[
+            'e4036224c4f318fb22c428545b135c9006869c31f03ec26e7e21e51d9ce5ab07',
+            '459961ddc8bca935581afe7977e80ab934a404616549e5908ceb7f5e34a577f4',
+            '14bd13d75ea31cfbdaebc63b4ade90f6f06e006157feba700a6245f8bd370d39',
+            'f578c77f1335f4f4ba83b6b24a149aa39509e0d4e3c90338cb61138e701e76c9',
+            '3786b35cd9f871180d9a973e1c568bfe73b91f632e8ec372a081d9b2bcfe9a77',
+            'dc2001cbd5212e373c8f793db948bca13a7ed1e5133989df04a88ec5cc278bdf',
+            '23806395bbbd90ae154b3f3c122ecffe44d65ebe2c0000909aa433c5c7901bba',
+            'fa62086e6be8e3ee5a205f4ed1dd18442f25c70ab1cc5619c11e95164e4c08ee']
+
+          exact01_1000_1500='5n8fBuPajAsLVJZjmgc+hrqqXTgrq85F8zA8oPK1mVbzG9/4BhTfAJ6HAdgZH4Uwm8+9KPDGCX9Yr9enbViM9t21mzlectWzHdd0qFKvtOJ2/dhPNrwh7Ci8iKzwcY0zXLFo7ywYDrogI0FhobLbsGVEg54wj8Q1E6Pq4sHo50/X54Fnti5g5gH57MDl2yazLDoPV0B3FU/ZsyVLLbZTzdZiz3SNsZmTjTN23m7ONVswYXCmHG6vwAzhN+pX3nYWtztX8Iou7MPsuEqvi8LkuHLUaQHFZJyelbeP2DNmsZXxl1befoTg+IRfefv4yjCZUo3NdfJKZna9cp2dOB/yowZiRyLqqmG7XH2wKlcbM8bNnqLneOoq86vvJf0TEGgXfdDg0NLmX9RLNhhSbX25sbV/uLP3vMEZ6zVXW/2L5jM/jr1jHTvrVNYUpat7lXZICOLaG6QC6zauxbqNSqzLlpwDP4I+HEAf+CSDKus+KFi+IId+1yF0'
+
           chunks=[]
           mismatches=[]
           for i in range(8):
-              p=Path(f'tmp/harmony-exact/chunk-{i:02d}.txt').read_text()
-              if i==1:
-                  for n,j in enumerate(range(0,len(p),500)):
-                      s=p[j:j+500]
-                      h=hashlib.sha256(s.encode()).hexdigest()
-                      print(f'CHUNK01SEG {j}:{j+len(s)} sha={h} expected={expected_seg01[n]}')
-              if i==2:
-                  marker='Vg24Xum6MOeWUpW2br9YrPHAK13969'
-                  pos=p.rfind(marker)
-                  if pos < 0:
-                      raise SystemExit('chunk-02 transport marker missing')
-                  p=p[:pos]+marker+'N'+'dzi13V9An'
-              actual=hashlib.sha256(p.encode()).hexdigest()
-              print(f'CHUNK_{i:02d}_SHA256={actual} expected={expected_chunks[i]} len={len(p)}')
-              if actual != expected_chunks[i]:
-                  mismatches.append(i)
-              chunks.append(p)
+            p=Path(f'tmp/harmony-exact/chunk-{i:02d}.txt').read_text()
+            if i==1:
+              p=p[:1000]+exact01_1000_1500+p[1500:]
+            if i==2:
+              marker='Vg24Xum6MOeWUpW2br9YrPHAK13969'
+              pos=p.rfind(marker)
+              if pos<0: raise SystemExit('chunk-02 transport marker missing')
+              p=p[:pos]+marker+'N'+'dzi13V9An'
+            if i==6:
+              for n,j in enumerate(range(0,len(p),500)):
+                s=p[j:j+500]
+                h=hashlib.sha256(s.encode()).hexdigest()
+                print(f'CHUNK06SEG {j}:{j+len(s)} sha={h} expected={expected_seg06[n]}')
+            actual=hashlib.sha256(p.encode()).hexdigest()
+            print(f'CHUNK_{i:02d}_SHA256={actual} expected={expected_chunks[i]} len={len(p)}')
+            if actual!=expected_chunks[i]: mismatches.append(i)
+            chunks.append(p)
           if mismatches:
-              raise SystemExit('transport chunk mismatch: '+','.join(f'{i:02d}' for i in mismatches))
+            raise SystemExit('transport chunk mismatch: '+','.join(f'{i:02d}' for i in mismatches))
 
           payload=''.join(chunks)
           data=gzip.decompress(base64.b64decode(payload))
           expected_source='0b25083be0b9a8e11d6e1b2dd844dc9d5530f16b46daac8347421a16780b73a1'
           actual_source=hashlib.sha256(data).hexdigest()
-          if actual_source != expected_source:
-              raise SystemExit(f'source hash mismatch: {actual_source} != {expected_source}')
+          if actual_source!=expected_source:
+            raise SystemExit(f'source hash mismatch: {actual_source} != {expected_source}')
           Path('cli-build/HarmonyBotPro/HarmonyBotPro.cs').write_bytes(data)
           print('SOURCE_SHA256='+actual_source)
           PYCODE
