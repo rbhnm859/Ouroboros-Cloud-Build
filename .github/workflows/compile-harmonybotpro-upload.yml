@@ -1,0 +1,86 @@
+name: Compile HarmonyBotPro Upload
+
+on:
+  push:
+    branches:
+      - compile-harmonybotpro-upload-20260911
+    paths:
+      - '.github/workflows/compile-harmonybotpro-upload.yml'
+      - 'compile-input/harmonybotpro-upload/**'
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET 6
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '6.0.x'
+
+      - name: Recreate uploaded source
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p cli-build/HarmonyBotPro
+          cat compile-input/harmonybotpro-upload/payload.part* > /tmp/payload.b64
+          python3 - <<'PYCODE'
+          from pathlib import Path
+          import base64, gzip, hashlib
+          payload = Path('/tmp/payload.b64').read_text().strip()
+          raw = gzip.decompress(base64.b64decode(payload))
+          Path('cli-build/HarmonyBotPro/HarmonyBotPro.cs').write_bytes(raw)
+          print('source_sha256=' + hashlib.sha256(raw).hexdigest())
+          PYCODE
+          cat > cli-build/HarmonyBotPro/HarmonyBotPro.csproj <<'EOF'
+          <Project Sdk="Microsoft.NET.Sdk">
+            <PropertyGroup>
+              <TargetFramework>net6.0</TargetFramework>
+              <ImplicitUsings>disable</ImplicitUsings>
+              <Nullable>disable</Nullable>
+              <AlgoName>HarmonyBotPro</AlgoName>
+              <AlgoBuild>true</AlgoBuild>
+              <AlgoPublish>false</AlgoPublish>
+              <IncludeSource>false</IncludeSource>
+            </PropertyGroup>
+            <ItemGroup>
+              <PackageReference Include="cTrader.Automate" Version="1.0.19" />
+            </ItemGroup>
+          </Project>
+          EOF
+
+      - name: Verify uploaded source hash
+        run: |
+          echo "expected=a178fc90df0ee2c3306a99e3586184b0d2070db4c60d3c2a6259007426d5ec44"
+          test "$(sha256sum cli-build/HarmonyBotPro/HarmonyBotPro.cs | awk '{print $1}')" = "a178fc90df0ee2c3306a99e3586184b0d2070db4c60d3c2a6259007426d5ec44"
+
+      - name: Restore
+        run: dotnet restore cli-build/HarmonyBotPro/HarmonyBotPro.csproj
+
+      - name: Build Release ALGO
+        run: dotnet build cli-build/HarmonyBotPro/HarmonyBotPro.csproj -c Release --no-restore -p:AlgoPublish=false -p:IncludeSource=false
+
+      - name: Collect ALGO
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p output
+          ALGO=$(find cli-build/HarmonyBotPro -type f -name '*.algo' | head -n 1)
+          test -n "$ALGO"
+          cp "$ALGO" output/HarmonyBotPro.algo
+          sha256sum output/HarmonyBotPro.algo | tee output/HarmonyBotPro.algo.sha256
+          ls -lh output/HarmonyBotPro.algo
+
+      - name: Upload mobile artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: HarmonyBotPro-Uploaded-Mobile
+          path: |
+            output/HarmonyBotPro.algo
+            output/HarmonyBotPro.algo.sha256
+          if-no-files-found: error
