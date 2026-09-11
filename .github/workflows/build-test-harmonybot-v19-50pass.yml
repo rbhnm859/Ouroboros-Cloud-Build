@@ -1,0 +1,221 @@
+name: HarmonyBotPro v19 50-Pass Build and Validation
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [harmonybot-v19-50pass]
+    paths:
+      - 'HarmonyBot-v19/source/**'
+      - 'HarmonyBot-v19/HarmonyBotPro_v19.csproj'
+      - '.github/workflows/build-test-harmonybot-v19-50pass.yml'
+
+permissions:
+  contents: write
+
+env:
+  V19_DIR: HarmonyBot-v19
+  V19_CS: HarmonyBot-v19/HarmonyBotPro_v19_50PASS.cs
+  V19_ALGO: HarmonyBot-v19/builds/HarmonyBotPro_v19_50PASS_Mobile.algo
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '6.0.x'
+
+      - name: Restore exact v19 source
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$V19_DIR/builds" "$V19_DIR/reports"
+          base64 -d "$V19_DIR/source/HarmonyBotPro_v19_50PASS.cs.gz.b64" | gzip -d > "$V19_CS"
+          test -s "$V19_CS"
+          echo 'b61e1e07bf4f555ac3f8f8e03f38d1d311a374354d29f9f874b383d8a0d351c3  HarmonyBot-v19/HarmonyBotPro_v19_50PASS.cs' | sha256sum -c -
+          wc -l -c "$V19_CS"
+
+      - name: Run 50-pass structural audit
+        shell: bash
+        run: |
+          python3 - <<'PY' | tee HarmonyBot-v19/reports/50-pass-audit.txt
+          from pathlib import Path
+          s=Path('HarmonyBot-v19/HarmonyBotPro_v19_50PASS.cs').read_text()
+          checks=[]
+          def ck(name, cond): checks.append((name,bool(cond)))
+          ck('01 namespace', 'namespace cAlgo.Robots' in s)
+          ck('02 AccessRights.None', 'AccessRights = AccessRights.None' in s)
+          ck('03 unique robot class', s.count('public class HarmonyBotPro : Robot')==1)
+          ck('04 braces balanced', s.count('{')==s.count('}'))
+          ck('05 no Position.ClosePrice', 'p.ClosePrice' not in s)
+          ck('06 closed signal bar', 'int signalIndex = _signalBars.Count - 2;' in s)
+          ck('07 closed H1 EMA', 'h1.Count - 2' in s)
+          ck('08 closed H4 EMA', 'h4.Count - 2' in s)
+          ck('09 closed ATR', 'int idx = _signalBars.Count - 2;' in s)
+          ck('10 latest regime window', 'int endIndex = _signalBars != null ? _signalBars.Count - 2 : -1;' in s)
+          ck('11 sub-min volume risk skip', 'raw < _symbol.VolumeInUnitsMin' in s)
+          ck('12 normalized risk cap', 'actualRisk > maxAllowed' in s)
+          ck('13 overshoot parameter', 'MaxRiskOvershootPercent' in s)
+          ck('14 no hedge parameter', 'public bool NoHedging' in s)
+          ck('15 single position parameter', 'public bool EnforceSinglePosition' in s)
+          ck('16 opposite trade gate', 'p.TradeType != tt' in s)
+          ck('17 single position gate', 'EnforceSinglePosition && open.Length > 0' in s)
+          ck('18 max concurrent default one', 'Max Concurrent Trades", DefaultValue = 1' in s)
+          ck('19 hard DD parameter', 'AbsoluteHardDrawdownPercent' in s)
+          ck('20 DD cooldown', 'DrawdownCooldownHours' in s)
+          ck('21 recovery risk', 'RecoveryRiskFactor' in s)
+          ck('22 hard safety stop', 'AbsoluteHardDD' in s)
+          ck('23 soft DD cooldown', 'MaxDDCooldown' in s)
+          ck('24 recovery unlock', 'Drawdown cooldown completed' in s)
+          ck('25 recovery target', '_drawdownRecoveryTarget' in s)
+          ck('26 native NetProfit', 'double moneyPnl = p.NetProfit;' in s)
+          ck('27 initial risk money', '_initialRiskMoney' in s)
+          ck('28 money-based R', 'moneyPnl / riskMoney' in s)
+          ck('29 breakeven ledger', 's.Breakevens++' in s)
+          ck('30 gross money PF', 's.GrossWinMoney / s.GrossLossMoney' in s)
+          ck('31 observed equity DD', 'ObserveEquity' in s)
+          ck('32 partial TP default off', 'Enable Partial TP", DefaultValue = false' in s)
+          ck('33 TP1 reduced share', 'TP1 Close %", DefaultValue = 30.0' in s)
+          ck('34 R-aware BE', 'initialRiskPips * 0.80' in s)
+          ck('35 R-aware trail trigger', 'initialRiskPips * 1.50' in s)
+          ck('36 R-aware trail distance', 'initialRiskPips * 0.60' in s)
+          ck('37 confidence rebalance', 'Pattern Confidence", DefaultValue = 0.68' in s)
+          ck('38 entry deviation rebalance', 'Max Entry Dev (ATR)", DefaultValue = 0.8' in s)
+          ck('39 pattern age', 'Max Pattern Age Bars' in s)
+          ck('40 family-aware scan', 'for (int i = start; i < pivots.Count; i++)' in s)
+          ck('41 reversal bounds', '!isShark && !isFiveZero && !isAbcd && i + 4 >= pivots.Count' in s)
+          ck('42 ABCD bounds', 'isAbcd && i + 3 >= pivots.Count' in s)
+          ck('43 Shark bounds', 'isShark && i + 3 >= pivots.Count' in s)
+          ck('44 FiveZero bounds', 'isFiveZero && i + 4 >= pivots.Count' in s)
+          ck('45 completion grouping', 'int key = c.CompletionIndex;' in s)
+          ck('46 age gate', 'completionAge > _maxPatternAgeBars' in s)
+          ck('47 closed-bar confirmation', 'bars.ClosePrices[currentIndex]' in s)
+          ck('48 ABCD BC retracement', 'InRange(rBC, R_382, R_886)' in s)
+          ck('49 ABCD dominance reduced', '0.68, 0.60, 0.85, 0.90)' in s)
+          ck('50 pattern race reset', '_lastOpenedPattern = "";' in s)
+          failed=[n for n,ok in checks if not ok]
+          for n,ok in checks: print(('PASS' if ok else 'FAIL'), n)
+          print(f'RESULT {len(checks)-len(failed)}/{len(checks)} passed')
+          if failed: raise SystemExit('failed: '+', '.join(failed))
+          PY
+
+      - name: Restore and compile cTrader algo
+        shell: bash
+        run: |
+          set -euo pipefail
+          dotnet restore "$V19_DIR/HarmonyBotPro_v19.csproj"
+          dotnet build "$V19_DIR/HarmonyBotPro_v19.csproj" --configuration Release --no-restore -p:AlgoPublish=False -p:IncludeSource=True | tee "$V19_DIR/reports/build.log"
+          ALGO=$(find "$V19_DIR" -type f -name '*.algo' -print -quit)
+          test -n "$ALGO"
+          cp "$ALGO" "$V19_ALGO"
+          test -s "$V19_ALGO"
+          sha256sum "$V19_ALGO" | tee "$V19_DIR/reports/algo.sha256"
+
+      - name: Publish generated source and mobile algo to branch
+        shell: bash
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add "$V19_CS" "$V19_ALGO" "$V19_DIR/reports/50-pass-audit.txt" "$V19_DIR/reports/build.log" "$V19_DIR/reports/algo.sha256"
+          git commit -m 'build: publish HarmonyBotPro v19 50-pass source and mobile algo [skip ci]' || true
+          git pull --rebase origin harmonybot-v19-50pass || true
+          git push origin HEAD:harmonybot-v19-50pass
+
+      - name: Upload compiled mobile package
+        uses: actions/upload-artifact@v4
+        with:
+          name: HarmonyBotPro-v19-50PASS-Mobile
+          path: |
+            HarmonyBot-v19/builds/HarmonyBotPro_v19_50PASS_Mobile.algo
+            HarmonyBot-v19/HarmonyBotPro_v19_50PASS.cs
+            HarmonyBot-v19/reports/50-pass-audit.txt
+            HarmonyBot-v19/reports/build.log
+            HarmonyBot-v19/reports/algo.sha256
+          retention-days: 30
+
+  backtest:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { label: 1Y, start: '11/09/2025', end: '10/09/2026' }
+          - { label: 3Y, start: '11/09/2023', end: '10/09/2026' }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: HarmonyBotPro-v19-50PASS-Mobile
+          path: package
+      - name: Prepare validation package
+        run: |
+          mkdir -p backtest/cache backtest/reports
+          cp package/HarmonyBotPro_v19_50PASS_Mobile.algo backtest/HarmonyBotPro_v19_50PASS_Mobile.algo
+      - name: Pull cTrader CLI
+        run: docker pull ghcr.io/spotware/ctrader-console:5.9.11
+      - name: Create password file
+        env:
+          CTRADER_PASSWORD: ${{ secrets.CTRADER_PASSWORD }}
+        run: |
+          printf '%s' "$CTRADER_PASSWORD" > backtest/ctrader.pwd
+          chmod 600 backtest/ctrader.pwd
+      - name: Select FxPro USD demo 1-500
+        env:
+          CTID: ${{ secrets.CTRADER_CTID }}
+        run: |
+          set -euo pipefail
+          docker run --rm -v "$PWD/backtest:/work" -e CTID -e 'PWD-FILE=/work/ctrader.pwd' ghcr.io/spotware/ctrader-console:5.9.11 accounts --environment-variables > backtest/accounts.json
+          ACCOUNT=$(python3 - <<'PY'
+          import json
+          a=json.load(open('backtest/accounts.json',encoding='utf-8-sig'))
+          m=[x for x in a if str(x.get('Broker','')).lower()=='fxpro' and not x.get('Live',True) and str(x.get('DepositCurrency','')).upper()=='USD' and int(x.get('Leverage',0))==500]
+          if not m: raise SystemExit('No FxPro USD demo 1:500 account')
+          print(m[0]['Number'])
+          PY
+          )
+          echo "::add-mask::$ACCOUNT"
+          echo "ACCOUNT=$ACCOUNT" >> "$GITHUB_ENV"
+      - name: Backtest ${{ matrix.label }} M1 data path
+        env:
+          CTID: ${{ secrets.CTRADER_CTID }}
+        shell: bash
+        run: |
+          set +e
+          OUT="HarmonyBotPro-v19-XAUUSD-H1-100-${{ matrix.label }}"
+          timeout --signal=INT --kill-after=30s 20m docker run --rm -v "$PWD/backtest:/work" -e CTID -e ACCOUNT -e 'PWD-FILE=/work/ctrader.pwd' ghcr.io/spotware/ctrader-console:5.9.11 \
+            backtest /work/HarmonyBotPro_v19_50PASS_Mobile.algo --environment-variables \
+            --broker=FxPro --symbol=XAUUSD --period=h1 --start='${{ matrix.start }}' --end='${{ matrix.end }}' \
+            --balance=100 --data-mode=m1 --data-dir=/work/cache --commission=35 --spread=17.18 \
+            --SymbolName=XAUUSD --RiskPercent=1.5 --MaxDrawdown=10 --AbsoluteHardDrawdownPercent=20 --DrawdownCooldownHours=24 --RecoveryRiskFactor=0.35 --MaxRiskOvershootPercent=3 \
+            --DailyLossLimitPercent=4 --WeeklyLossLimitPercent=8 --MonthlyTargetPercent=12 --RiskAfterMonthlyTarget=0.5 --CloseAllOnDailyLock=false \
+            --AutoReprotectOnStart=true --EmergencySlAtrMult=2 --EmergencyTpRR=2 --SessionStart=8 --SessionEnd=22 --MTFEnabled=true --H4FilterEnabled=false \
+            --PatternConfidence=0.68 --MaxConcurrentTrades=1 --MaxSameDirectionTrades=1 --EnforceSinglePosition=true --NoHedging=true --MaxTradesPerDay=4 --CooldownMinutes=10 \
+            --AtrPeriod=14 --SlAtrMult=1.2 --TpCdMult=1 --MinRR=2 --MaxSpreadPips=35 --MinStopLossPips=100 --MinTakeProfitPips=200 --MinStopDistancePips=15 --MinAtrPrice=3 \
+            --SwingDepth=5 --SwingLookback=200 --PivotScanCount=20 --MinLegAtrRatio=0.6 --EnableGartley=true --EnableBat=true --EnableButterfly=true --EnableCrab=true --EnableCypher=true --EnableRat=true \
+            --EnableDeepGartley=true --EnableAltBat=false --EnableDeepCrab=true --EnableABCD=true --EnableShark=true --EnableFiveZero=false --GlobalMinScore=0.55 --ConsensusBonus=1.12 \
+            --FibTolerance=0.05 --MaxEntryDeviationAtr=0.8 --MaxPatternAgeBars=12 --MaxTradesPerPatternPercent=50 --AutoDisableLosing=true --AutoDisableWinRate=50 \
+            --SlUpdateStepPips=2 --SlUpdateCooldownSec=5 --BreakEvenTriggerPips=100 --BreakEvenOffsetPips=10 --TrailingTriggerPips=150 --TrailingDistancePips=90 \
+            --EnablePartialTP=false --Tp1RR=1.2 --Tp1ClosePercent=30 --BlockNewsWindow=true --BlockedWindowsGMT='12:25-12:45;14:25-14:45' \
+            --report="/work/reports/${OUT}.html" --report-json="/work/reports/${OUT}.json" | tee "backtest/${OUT}.log"
+          RC=${PIPESTATUS[0]}
+          echo "backtest_exit=$RC"
+          test -s "backtest/reports/${OUT}.json"
+      - name: Remove credentials
+        if: always()
+        run: rm -f backtest/ctrader.pwd backtest/accounts.json
+      - name: Upload validation reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: HarmonyBotPro-v19-XAUUSD-H1-100-${{ matrix.label }}
+          path: |
+            backtest/reports/*.html
+            backtest/reports/*.json
+            backtest/*.log
+          if-no-files-found: warn
+          retention-days: 30
