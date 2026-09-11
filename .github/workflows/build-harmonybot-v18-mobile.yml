@@ -6,7 +6,7 @@ on:
     branches:
       - main
     paths:
-      - 'HarmonyBot-v18/source/HarmonyBotPro.cs.gz.b64'
+      - 'HarmonyBot-v18/source/chunks/**'
       - 'HarmonyBot-v18/HarmonyBotPro_v18.csproj'
       - '.github/workflows/build-harmonybot-v18-mobile.yml'
 
@@ -27,12 +27,17 @@ jobs:
           dotnet-version: '6.0.x'
 
       - name: Restore v18 source
+        shell: bash
         run: |
-          base64 -d HarmonyBot-v18/source/HarmonyBotPro.cs.gz.b64 | gzip -d > HarmonyBot-v18/HarmonyBotPro.cs
+          set -euo pipefail
+          cat HarmonyBot-v18/source/chunks/*.b64 > /tmp/HarmonyBotPro.cs.gz.b64
+          test "$(wc -c < /tmp/HarmonyBotPro.cs.gz.b64)" -eq 20456
+          base64 -d /tmp/HarmonyBotPro.cs.gz.b64 | gzip -d > HarmonyBot-v18/HarmonyBotPro.cs
           test -s HarmonyBot-v18/HarmonyBotPro.cs
+          test "$(wc -c < HarmonyBot-v18/HarmonyBotPro.cs)" -eq 84511
+          echo '68de9e46fb38f24f6b0356357abe48c5bb948b07fc5381aa096022862db5b892  HarmonyBot-v18/HarmonyBotPro.cs' | sha256sum -c -
           grep -q 'public class HarmonyBotPro : Robot' HarmonyBot-v18/HarmonyBotPro.cs
           wc -l HarmonyBot-v18/HarmonyBotPro.cs
-          sha256sum HarmonyBot-v18/HarmonyBotPro.cs
 
       - name: Restore and build
         id: compile
