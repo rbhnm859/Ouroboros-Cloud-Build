@@ -1,0 +1,71 @@
+name: Verify HarmonyBotPro Exit Fix
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/verify-harmonybotpro-exit-fix.yml'
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download fixed ALGO
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p work/algo work/reports work/cache
+          curl -fL -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/artifacts/10180280007/zip" -o work/fixed.zip
+          unzip -o work/fixed.zip -d work/algo
+          ALGO=$(find work/algo -type f -name 'HarmonyBotProFixed.algo' -print -quit)
+          test -n "$ALGO"
+          cp "$ALGO" work/HarmonyBotProFixed.algo
+
+      - name: Pull cTrader CLI
+        run: docker pull ghcr.io/spotware/ctrader-console:5.9.11
+
+      - name: Create password file
+        env:
+          CTRADER_PASSWORD: ${{ secrets.CTRADER_PASSWORD }}
+        run: |
+          test -n "${CTRADER_PASSWORD:-}" || exit 1
+          printf '%s' "$CTRADER_PASSWORD" > work/ctrader.pwd
+          chmod 600 work/ctrader.pwd
+
+      - name: Run 7-day open diagnostic with exit-on-stop
+        env:
+          CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+          CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+        run: |
+          test -n "${CTRADER_CTID:-}" || exit 1
+          test -n "${CTRADER_ACCOUNT:-}" || exit 1
+          docker run --rm \
+            -v "$PWD/work:/work" \
+            -e "CTID=$CTRADER_CTID" -e 'PWD-FILE=/work/ctrader.pwd' -e "ACCOUNT=$CTRADER_ACCOUNT" \
+            ghcr.io/spotware/ctrader-console:5.9.11 \
+            backtest /work/HarmonyBotProFixed.algo --environment-variables --exit-on-stop \
+            --symbol=XAUUSD --period=h1 --start='04/09/2026' --end='11/09/2026' --balance=1000 --data-mode=open --data-dir=/work/cache \
+            --SymbolName=XAUUSD --RiskPercent=1.5 --MaxDrawdown=10 --DailyLossLimitPercent=4 --WeeklyLossLimitPercent=8 --MonthlyTargetPercent=12 --RiskAfterMonthlyTarget=0.5 \
+            --CloseAllOnDailyLock=false --AutoReprotectOnStart=true --EmergencySlAtrMult=2 --EmergencyTpRR=2 --SessionStart=8 --SessionEnd=22 --MTFEnabled=true --H4FilterEnabled=false \
+            --PatternConfidence=0.72 --MaxConcurrentTrades=3 --MaxSameDirectionTrades=1 --MaxTradesPerDay=3 --CooldownMinutes=10 --MaxSpreadPips=35 --MinAtrPrice=3 --AtrPeriod=14 \
+            --SlAtrMult=1.2 --TpCdMult=1 --MinRR=2 --MinStopLossPips=100 --MinTakeProfitPips=200 --MinStopDistancePips=15 --SwingDepth=5 --SwingLookback=200 --PivotScanCount=12 --MinLegAtrRatio=0.8 \
+            --EnableGartley=true --EnableBat=true --EnableButterfly=true --EnableCrab=true --EnableCypher=true --SlUpdateStepPips=2 --SlUpdateCooldownSec=5 --BreakEvenTriggerPips=100 --BreakEvenOffsetPips=10 \
+            --TrailingTriggerPips=150 --TrailingDistancePips=90 --EnablePartialTP=true --Tp1RR=1 --Tp1ClosePercent=60 --BlockNewsWindow=true --BlockedWindowsGMT='12:25-12:45;14:25-14:45' \
+            --report=/work/reports/verify.html --report-json=/work/reports/verify.json
+          test -s work/reports/verify.json
+
+      - name: Print result
+        run: cat work/reports/verify.json
+
+      - name: Cleanup
+        if: always()
+        run: rm -f work/ctrader.pwd
