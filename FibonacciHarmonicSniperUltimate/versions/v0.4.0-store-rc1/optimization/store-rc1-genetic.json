@@ -1,0 +1,12 @@
+{
+  "parameters": [
+    { "Name": "TradingEnabled", "Optimize": false, "Value": "True" },
+    { "Name": "MinPatternScore", "Optimize": true, "Min": "84", "Max": "94", "Step": "2" },
+    { "Name": "RatioTolerancePercent", "Optimize": true, "Min": "3", "Max": "7", "Step": "1" },
+    { "Name": "ConfirmationMoveAtr", "Optimize": true, "Min": "0.04", "Max": "0.16", "Step": "0.04" },
+    { "Name": "MaxEntryDistanceAtr", "Optimize": true, "Min": "0.60", "Max": "1.20", "Step": "0.15" },
+    { "Name": "SlAtrBuffer", "Optimize": true, "Min": "0.15", "Max": "0.45", "Step": "0.10" },
+    { "Name": "MinimumNetRiskReward", "Optimize": true, "Min": "1.30", "Max": "1.90", "Step": "0.10" },
+    { "Name": "RunnerScore", "Optimize": true, "Min": "90", "Max": "98", "Step": "2" }
+  ]
+}
