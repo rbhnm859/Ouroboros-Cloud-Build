@@ -1,0 +1,5 @@
+MSBuild version 17.3.4+a400405ba for .NET
+  Determining projects to restore...
+  Restored /workspace/scratch/5a1f1560d18a/repo/CumulativeDeltaScalper-EURUSD-v1/src/CumulativeDeltaScalper_EURUSD_v1.csproj (in 107 ms).
+  CumulativeDeltaScalper_EURUSD_v1 -> /workspace/scratch/5a1f1560d18a/repo/CumulativeDeltaScalper-EURUSD-v1/src/bin/Release/net6.0/CumulativeDeltaScalper_EURUSD_v1.dll
+  CumulativeDeltaScalper_EURUSD_v1 -> /workspace/scratch/5a1f1560d18a/repo/CumulativeDeltaScalper-EURUSD-v1/src/bin/Release/net6.0/CumulativeDeltaScalper-EURUSD-v1.algo

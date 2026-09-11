@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net6.0</TargetFramework>
+    <RootNamespace>cAlgo.Robots</RootNamespace>
+    <AssemblyName>CumulativeDeltaScalper_EURUSD_v1</AssemblyName>
+    <AlgoName>CumulativeDeltaScalper_EURUSD_v1</AlgoName>
+    <AlgoBuild>true</AlgoBuild>
+    <AlgoPublish>false</AlgoPublish>
+    <IncludeSource>true</IncludeSource>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <Nullable>disable</Nullable>
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- Official platform API/build tooling only; no third-party strategy packages. -->
+    <PackageReference Include="cTrader.Automate" Version="1.0.19" />
+  </ItemGroup>
+  <Target Name="CopyAlgoToBuilds" AfterTargets="_AlgoBuildAfterBuild">
+    <ItemGroup><BuiltAlgo Include="$(TargetDir)CumulativeDeltaScalper-EURUSD-v1.algo" /></ItemGroup>
+    <Error Condition="!Exists('$(TargetDir)CumulativeDeltaScalper-EURUSD-v1.algo')" Text="Build produced no .algo artifact" />
+    <Copy SourceFiles="@(BuiltAlgo)" DestinationFiles="$(MSBuildProjectDirectory)/../builds/CumulativeDeltaScalper_EURUSD_v1.algo" />
+  </Target>
+</Project>
