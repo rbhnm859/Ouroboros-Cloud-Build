@@ -1,3 +1,4 @@
+using System;
 using cAlgo.API;
 
 namespace cAlgo.Robots
@@ -28,6 +29,7 @@ namespace cAlgo.Robots
             public int OppositePressureBars { get; set; }
             public bool BreakevenApplied { get; set; }
             public bool TrailingActivated { get; set; }
+            public DateTime LastProtectionUpdateTime { get; set; }
         }
     }
 }
