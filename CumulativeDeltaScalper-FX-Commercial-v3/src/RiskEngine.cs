@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using cAlgo.API;
 
 namespace cAlgo.Robots
@@ -13,6 +14,22 @@ namespace cAlgo.Robots
 
         private void TryEnter(EntryCandidate candidate, int closedIndex)
         {
+            // Re-sync immediately before order construction. PassGlobalEntryGuards already performs
+            // this once, but MTF/signal calculations happen afterwards and another cBot instance may
+            // have traded the same portfolio label in that interval.
+            EnsureDailyStateRecovered();
+            if (HasConflictingOpenPosition())
+            {
+                _filterRejectCount++;
+                DebugLog("BLOCK pre_order_position_recheck");
+                return;
+            }
+            if (!PassImmediateRiskStateRecheck())
+            {
+                _riskRejectCount++;
+                return;
+            }
+
             var atrPips = _atr.Result[closedIndex] / Symbol.PipSize;
             if (double.IsNaN(atrPips) || double.IsInfinity(atrPips) || atrPips <= 0)
             {
@@ -55,6 +72,14 @@ namespace cAlgo.Robots
             {
                 _riskRejectCount++;
                 DebugLog("BLOCK margin estimate={0:F2} cap={1:F2}", estimatedMargin, maxMargin);
+                return;
+            }
+
+            // Narrow the multi-instance race window again immediately before the synchronous trade call.
+            if (HasConflictingOpenPosition() || !PassImmediateRiskStateRecheck())
+            {
+                _riskRejectCount++;
+                DebugLog("BLOCK final_pre_execution_recheck");
                 return;
             }
 
@@ -125,6 +150,26 @@ namespace cAlgo.Robots
 
             DebugLog("OPEN {0} setup={1} vol={2} SL={3:F2} TP={4:F2} pressure={5:F1} momentumR={6:F2} allInRisk={7:F2} slip={8:F2}p",
                 candidate.Direction, candidate.Setup, volume, actualStopPips, actualTakePips, candidate.Pressure, candidate.MomentumR, state.InitialRiskMoney, adverseEntrySlippagePips);
+        }
+
+        private bool HasConflictingOpenPosition()
+        {
+            return PortfolioSinglePosition
+                ? Positions.Any(p => p.Label == TradeLabel)
+                : Positions.Any(p => p.Label == TradeLabel && p.SymbolName == SymbolName);
+        }
+
+        private bool PassImmediateRiskStateRecheck()
+        {
+            if (Server.Time < _nextTradeTime)
+                return false;
+            if (_tradesToday >= MaxTradesPerDay)
+                return false;
+            if (_consecutiveLosses >= MaxConsecutiveLosses)
+                return false;
+            if (_dailyRealized <= -Math.Abs(_dayStartEquity * MaxDailyLossPercent / 100.0))
+                return false;
+            return true;
         }
 
         private double CalculateFailClosedVolume(TradeType direction, double stopPips)
@@ -208,19 +253,21 @@ namespace cAlgo.Robots
             return Math.Min(requested, hardCap);
         }
 
-        private bool PassCostAwareRewardRisk(double stopPips, double takePips, double spreadPips)
+        private bool PassCostAwareRewardRisk(double stopPips, double takePips, double observedSpreadPips)
         {
-            var commissionPips = EstimateRoundTripCommissionPips();
-            var costPips = Math.Max(0.0, spreadPips) + Math.Max(0.0, commissionPips) + Math.Max(0.0, SlippageReservePips);
-            var effectiveReward = takePips - costPips;
-            var effectiveRisk = stopPips + costPips;
+            // SL/TP pips are measured from the actual filled entry price. Spread is therefore not
+            // subtracted a second time from payout RR; it is controlled separately by MaxSpread and
+            // ATR/Spread gates. Explicit commission and slippage reserve remain additive costs.
+            var explicitCostPips = Math.Max(0.0, EstimateRoundTripCommissionPips()) + Math.Max(0.0, SlippageReservePips);
+            var effectiveReward = takePips - explicitCostPips;
+            var effectiveRisk = stopPips + explicitCostPips;
             if (effectiveReward <= 0 || effectiveRisk <= 0)
                 return false;
 
             var rr = effectiveReward / effectiveRisk;
             if (rr < MinEffectiveRewardRisk)
             {
-                DebugLog("BLOCK effective_rr={0:F2} rawRR={1:F2} cost={2:F2}p", rr, takePips / stopPips, costPips);
+                DebugLog("BLOCK effective_rr={0:F2} rawRR={1:F2} explicitCost={2:F2}p spreadGate={3:F2}p", rr, takePips / stopPips, explicitCostPips, observedSpreadPips);
                 return false;
             }
             return true;
@@ -236,6 +283,7 @@ namespace cAlgo.Robots
                 return 0;
 
             // Commission setting is USD per million USD notional per side; round trip = 2 sides.
+            // Multiplying the result by Symbol.PipValue*volume converts it back to account money.
             return 2.0 * CommissionPerMillionUsd * mid / (1000000.0 * Symbol.PipSize);
         }
 
