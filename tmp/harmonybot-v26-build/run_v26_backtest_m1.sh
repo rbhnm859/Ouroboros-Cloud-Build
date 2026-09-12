@@ -12,7 +12,7 @@ docker run --rm \
   -e "CTID=$CTRADER_CTID" \
   -e 'PWD-FILE=/work/secure/pwd' \
   -e "ACCOUNT=$ACCOUNT" \
-  ghcr.io/spotware/ctrader-console:5.9.11 \
+  ghcr.io/spotware/ctrader-console:latest \
   backtest /work/HarmonyBotPro_v26_Mobile.algo --environment-variables \
   --broker=FxPro --symbol=XAUUSD --period=m15 \
   --start="$START" --end="$END" \
