@@ -1,0 +1,81 @@
+name: HarmonyBotPro v28 Mobile Build Only
+
+on:
+  push:
+    branches:
+      - harmonybot-v28-commercial-final-rc
+    paths:
+      - '.github/workflows/build-harmonybot-v28-mobile-only.yml'
+      - 'tmp/harmonybot-v26-build/fix_v28_compile_guard.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  build-mobile:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Generate final V28 source
+        run: |
+          set -euo pipefail
+          python3 tmp/harmonybot-v26-build/build_v261_frequency.py
+          python3 tmp/harmonybot-v26-build/fix_v261_mtf_overload.py
+          python3 tmp/harmonybot-v26-build/fix_v262_frequency_safe.py
+          python3 tmp/harmonybot-v26-build/fix_v262_grid_guard_band.py
+          python3 tmp/harmonybot-v26-build/fix_v27_commercial_rc.py
+          python3 tmp/harmonybot-v26-build/fix_v28_frequency_architecture.py
+          python3 tmp/harmonybot-v26-build/fix_v28_cost_rr.py
+          python3 tmp/harmonybot-v26-build/fix_v28_compile_guard.py
+          mkdir -p output
+          cp cli-build/HarmonyBotPro_v261/HarmonyBotPro.cs output/HarmonyBotPro_v28_CommercialFinalRC.cs
+          sha256sum output/HarmonyBotPro_v28_CommercialFinalRC.cs > output/HarmonyBotPro_v28_CommercialFinalRC.cs.sha256
+          grep -q 'private bool IsGridGuardAccount()' output/HarmonyBotPro_v28_CommercialFinalRC.cs
+          cat > cli-build/HarmonyBotPro_v261/HarmonyBotPro.csproj <<'EOF'
+          <Project Sdk="Microsoft.NET.Sdk">
+            <PropertyGroup>
+              <TargetFramework>net6.0</TargetFramework>
+              <ImplicitUsings>disable</ImplicitUsings>
+              <Nullable>disable</Nullable>
+              <AlgoName>HarmonyBotPro_v28_CommercialFinalRC_Mobile</AlgoName>
+              <AlgoBuild>true</AlgoBuild>
+              <AlgoPublish>false</AlgoPublish>
+              <IncludeSource>false</IncludeSource>
+            </PropertyGroup>
+            <ItemGroup>
+              <PackageReference Include="cTrader.Automate" Version="1.0.19" />
+            </ItemGroup>
+          </Project>
+          EOF
+
+      - name: Compile Mobile algo
+        run: |
+          set -euo pipefail
+          dotnet restore cli-build/HarmonyBotPro_v261/HarmonyBotPro.csproj
+          dotnet build cli-build/HarmonyBotPro_v261/HarmonyBotPro.csproj -c Release --no-restore -p:AlgoPublish=false -p:IncludeSource=false 2>&1 | tee output/build.log
+          ! grep -q ' error CS' output/build.log
+          ALGO=$(find cli-build/HarmonyBotPro_v261 -type f -name '*.algo' | head -n 1)
+          test -n "$ALGO"
+          cp "$ALGO" output/HarmonyBotPro_v28_CommercialFinalRC_Mobile.algo
+          sha256sum output/HarmonyBotPro_v28_CommercialFinalRC_Mobile.algo > output/HarmonyBotPro_v28_CommercialFinalRC_Mobile.algo.sha256
+
+      - name: Upload mobile build
+        uses: actions/upload-artifact@v4
+        with:
+          name: HarmonyBotPro-v28-Mobile-Compiled
+          path: |
+            output/HarmonyBotPro_v28_CommercialFinalRC_Mobile.algo
+            output/HarmonyBotPro_v28_CommercialFinalRC_Mobile.algo.sha256
+            output/HarmonyBotPro_v28_CommercialFinalRC.cs
+            output/HarmonyBotPro_v28_CommercialFinalRC.cs.sha256
+            output/build.log
+          if-no-files-found: error
+          retention-days: 30
