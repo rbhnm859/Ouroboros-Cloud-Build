@@ -20,6 +20,13 @@ jobs:
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '6.0.x'
+      - name: Reconstruct and verify full source
+        run: |
+          set -euo pipefail
+          SRC='CumulativeDeltaScalper-FX-Adaptive-v2/CumulativeDeltaScalper_FX_Adaptive_v2.cs'
+          cat CumulativeDeltaScalper-FX-Adaptive-v2/source-parts/part-*.txt > "$SRC"
+          test "$(wc -l < "$SRC")" -eq 1792
+          echo 'dff5df0bcb8ba55387e9abd135f773ae0cf3601aa1b8690bde7c8f1b2ce0e2e6  CumulativeDeltaScalper-FX-Adaptive-v2/CumulativeDeltaScalper_FX_Adaptive_v2.cs' | sha256sum -c -
       - name: Build adaptive multi-FX algo
         run: |
           set -euo pipefail
