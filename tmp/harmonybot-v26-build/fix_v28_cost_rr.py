@@ -17,8 +17,17 @@ helper='''        private double EstimateRoundTurnCommissionPips()\n        {\n 
 if marker not in s: raise SystemExit('cost helper marker missing')
 s=s.replace(marker,helper+marker,1)
 
+# v28 compile/safety hardening: the frequency patch referenced a removed helper.
+# For this commercial single-position branch Grid is forbidden, so force the
+# execution decision off rather than silently falling back to any averaging logic.
+s=s.replace('bool useGridForThisTrade = EnableFibGrid && !(SmallAccountGridGuard && IsGridGuardAccount());',
+            'bool useGridForThisTrade = false; // v28 commercial: Grid forbidden')
+s=s.replace('if (EnableFibGrid && SmallAccountGridGuard && IsGridGuardAccount())',
+            'if (false)')
+
 p.write_text(s,encoding='utf-8')
 print('Applied v28 cost-adjusted RR repricing fix')
+print('Applied v28 no-grid compile hardening')
 
 # Mandatory commercial hardening stages after frequency/cost logic.
 for patch_name in [
