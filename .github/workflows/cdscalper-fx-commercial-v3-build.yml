@@ -6,13 +6,17 @@ on:
     paths:
       - 'CumulativeDeltaScalper-FX-Commercial-v3/**'
       - '.github/workflows/cdscalper-fx-commercial-v3-build.yml'
+  pull_request:
+    paths:
+      - 'CumulativeDeltaScalper-FX-Commercial-v3/**'
+      - '.github/workflows/cdscalper-fx-commercial-v3-build.yml'
   workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: cds-fx-commercial-v3-build
+  group: cds-fx-commercial-v3-build-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
