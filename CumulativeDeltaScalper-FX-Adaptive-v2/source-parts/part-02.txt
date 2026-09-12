@@ -1,0 +1,448 @@
+            double spread = CurrentSpreadPips();
+            if (double.IsNaN(spread) || double.IsInfinity(spread) || spread < 0)
+                return;
+
+            _spreadHistory[_spreadIndex] = spread;
+            _spreadIndex = (_spreadIndex + 1) % _spreadHistory.Length;
+            if (_spreadFilled < _spreadHistory.Length)
+                _spreadFilled++;
+        }
+
+        private double AverageSpreadPips()
+        {
+            if (_spreadFilled <= 0)
+                return 0;
+
+            double sum = 0;
+            for (int i = 0; i < _spreadFilled; i++)
+                sum += _spreadHistory[i];
+
+            return sum / _spreadFilled;
+        }
+
+        private bool CheckExecutionQuality()
+        {
+            double spread = CurrentSpreadPips();
+            double atrPips = GetClosedAtrPips();
+
+            if (spread <= 0 || atrPips <= 0)
+                return false;
+
+            if (spread > MaxSpreadPips)
+                return false;
+
+            double avgSpread = AverageSpreadPips();
+            if (avgSpread > 0 && spread > avgSpread * SpreadAverageMultiplier)
+                return false;
+
+            if (MaxSpreadToAtrPercent > 0 && spread / atrPips * 100.0 > MaxSpreadToAtrPercent)
+                return false;
+
+            if (MinAtrToSpreadRatio > 0 && atrPips / spread < MinAtrToSpreadRatio)
+                return false;
+
+            if (MinAtrPips > 0 && atrPips < MinAtrPips)
+                return false;
+
+            if (MaxAtrPips > 0 && atrPips > MaxAtrPips)
+                return false;
+
+            return true;
+        }
+
+        // ============================================================
+        // Sessions / guards
+        // ============================================================
+
+        private bool CheckEntryGuards(out string reason)
+        {
+            reason = string.Empty;
+
+            if (!Symbol.IsTradingEnabled)
+            {
+                reason = "symbol_trading_disabled";
+                return false;
+            }
+
+            if (!Symbol.MarketHours.IsOpened())
+            {
+                reason = "market_closed";
+                return false;
+            }
+
+            if (!IsWithinConfiguredSession())
+            {
+                reason = "session_blocked";
+                return false;
+            }
+
+            if (UseRolloverBlackout && IsInMinuteWindow(
+                RolloverStartHour, RolloverStartMinute,
+                RolloverEndHour, RolloverEndMinute))
+            {
+                reason = "rollover_blackout";
+                return false;
+            }
+
+            if (_dailyTradeCount >= MaxDailyTrades)
+            {
+                reason = "daily_trade_limit";
+                return false;
+            }
+
+            if (_consecutiveLosses >= MaxConsecutiveLosses)
+            {
+                reason = "consecutive_loss_limit";
+                return false;
+            }
+
+            double dailyLossLimitByPercent = _dayStartBalance * MaxDailyLossPercent / 100.0;
+            double dailyLossLimit = dailyLossLimitByPercent;
+
+            if (MaxDailyLossMoney > 0)
+                dailyLossLimit = Math.Min(dailyLossLimitByPercent, MaxDailyLossMoney);
+
+            double scopedNetToday = _dailyClosedPnl + GetScopeFloatingPnl();
+
+            if (dailyLossLimit > 0 && scopedNetToday <= -dailyLossLimit)
+            {
+                reason = "daily_loss_limit";
+                return false;
+            }
+
+            if (DailyProfitTargetMoney > 0 && _dailyClosedPnl >= DailyProfitTargetMoney)
+            {
+                reason = "daily_profit_target";
+                return false;
+            }
+
+            if (MaxFloatingLossMoney > 0 && GetScopeFloatingPnl() <= -MaxFloatingLossMoney)
+            {
+                reason = "floating_loss_limit";
+                return false;
+            }
+
+            if (IsAccountEquityDrawdownHit())
+            {
+                reason = "account_equity_drawdown";
+                return false;
+            }
+
+            int cooldownSeconds = CooldownBars * GetChartTimeframeMinutes() * 60;
+            if (_lastTradeTime != DateTime.MinValue &&
+                cooldownSeconds > 0 &&
+                Server.Time < _lastTradeTime.AddSeconds(cooldownSeconds))
+            {
+                reason = "trade_cooldown";
+                return false;
+            }
+
+            if (_lastLossTime != DateTime.MinValue &&
+                LossCooldownMinutes > 0 &&
+                Server.Time < _lastLossTime.AddMinutes(LossCooldownMinutes))
+            {
+                reason = "loss_cooldown";
+                return false;
+            }
+
+            if (!CheckExecutionQuality())
+            {
+                reason = "execution_quality";
+                return false;
+            }
+
+            return true;
+        }
+
+        private bool IsWithinConfiguredSession()
+        {
+            if (SessionMode == CdsSessionMode.Off)
+                return true;
+
+            if (SessionMode == CdsSessionMode.ManualUtc)
+            {
+                return IsInMinuteWindow(
+                    ManualSessionStartHour, ManualSessionStartMinute,
+                    ManualSessionEndHour, ManualSessionEndMinute);
+            }
+
+            return IsWithinAutoCurrencySession();
+        }
+
+        private bool IsWithinAutoCurrencySession()
+        {
+            string pair = _fxPairCore ?? string.Empty;
+            bool hasEurope = pair.Contains("EUR") || pair.Contains("GBP") || pair.Contains("CHF");
+            bool hasAsia = pair.Contains("JPY") || pair.Contains("AUD") || pair.Contains("NZD");
+            bool hasAmerica = pair.Contains("USD") || pair.Contains("CAD");
+
+            bool europeWindow = hasEurope && IsInMinuteWindow(6, 0, 18, 0);
+            bool asiaWindow = hasAsia && IsInMinuteWindow(23, 0, 10, 0);
+            bool americaWindow = hasAmerica && IsInMinuteWindow(12, 0, 21, 0);
+
+            return europeWindow || asiaWindow || americaWindow;
+        }
+
+        private bool IsInMinuteWindow(int startHour, int startMinute, int endHour, int endMinute)
+        {
+            DateTime utc = Server.Time.ToUniversalTime();
+            int now = utc.Hour * 60 + utc.Minute;
+            int start = startHour * 60 + startMinute;
+            int end = endHour * 60 + endMinute;
+
+            if (start == end)
+                return true;
+
+            if (start < end)
+                return now >= start && now < end;
+
+            return now >= start || now < end;
+        }
+
+        // ============================================================
+        // Entry / risk / broker validation
+        // ============================================================
+
+        private void OpenTrade(int signal)
+        {
+            double atrPips = GetClosedAtrPips();
+            if (atrPips <= 0)
+            {
+                Skip("invalid_atr");
+                return;
+            }
+
+            double slPips = atrPips * SlAtrMultiplier;
+            double tpPips = atrPips * TpAtrMultiplier;
+
+            AdjustProtectionDistancesForBroker(ref slPips, ref tpPips);
+
+            double spread = CurrentSpreadPips();
+            double effectiveReward = Math.Max(0.0, tpPips - spread);
+            double effectiveRisk = slPips + spread;
+            double effectiveRr = effectiveRisk > 0 ? effectiveReward / effectiveRisk : 0;
+
+            if (MinEffectiveRewardRisk > 0 && effectiveRr < MinEffectiveRewardRisk)
+            {
+                Skip("effective_rr_too_low_" + effectiveRr.ToString("F2"));
+                return;
+            }
+
+            double requestedRiskMoney = CalculateRequestedRiskMoney();
+            double hardRiskCap = Math.Max(0.01, Account.Equity * HardRiskCapPercentOfEquity / 100.0);
+            double allowedRiskMoney = Math.Min(requestedRiskMoney, hardRiskCap);
+
+            if (allowedRiskMoney <= 0)
+            {
+                Skip("non_positive_risk");
+                return;
+            }
+
+            double volume = CalculateAndVerifyVolume(slPips, allowedRiskMoney);
+            if (volume < Symbol.VolumeInUnitsMin)
+            {
+                Skip("risk_too_small_for_broker_min_volume");
+                return;
+            }
+
+            TradeType tradeType = signal > 0 ? TradeType.Buy : TradeType.Sell;
+
+            double estimatedMargin = Symbol.GetEstimatedMargin(tradeType, volume);
+            if (Account.FreeMargin > 0 &&
+                MaxMarginUsePercentOfFree > 0 &&
+                estimatedMargin > Account.FreeMargin * MaxMarginUsePercentOfFree / 100.0)
+            {
+                Skip("margin_guard");
+                return;
+            }
+
+            TradeResult result;
+
+            // Best-effort atomic guard for multiple instances running in the same process.
+            // The position re-check is still required because cloud instances may be isolated.
+            lock (PortfolioOrderLock)
+            {
+                if (HasBlockingBotPosition())
+                {
+                    Skip("portfolio_position_race_guard");
+                    return;
+                }
+
+                result = ExecuteMarketOrder(
+                    tradeType,
+                    SymbolName,
+                    volume,
+                    TradeLabel,
+                    slPips,
+                    tpPips);
+            }
+
+            if (!result.IsSuccessful || result.Position == null)
+            {
+                Skip("order_rejected_" + result.Error);
+                return;
+            }
+
+            _lastTradeTime = Server.Time;
+            _openTradeTime = result.Position.EntryTime;
+            _openTradeDirection = signal;
+            _initialRiskPips = slPips;
+            _breakevenApplied = false;
+
+            Entry(signal > 0 ? "buy" : "sell");
+
+            double actualRisk = Symbol.AmountRisked(volume, slPips);
+            Debug(
+                (signal > 0 ? "BUY" : "SELL") +
+                " volume=" + volume +
+                " requestedRisk=" + requestedRiskMoney.ToString("F2") +
+                " actualRisk~=" + actualRisk.ToString("F2") +
+                " margin~=" + estimatedMargin.ToString("F2") +
+                " SL=" + slPips.ToString("F2") +
+                " TP=" + tpPips.ToString("F2") +
+                " effectiveRR=" + effectiveRr.ToString("F2"));
+        }
+
+        private double CalculateRequestedRiskMoney()
+        {
+            double basis = Math.Max(0, Math.Min(Account.Balance, Account.Equity));
+
+            if (RiskMode == CdsFxRiskModeV2.RiskPercent)
+                return basis * RiskPercentPerTrade / 100.0;
+
+            if (RiskMode == CdsFxRiskModeV2.FixedMoneyRisk)
+            {
+                double risk = FixedMoneyRisk;
+                if (AutoScaleFixedRisk && RiskReferenceBalance > 0)
+                    risk = FixedMoneyRisk * basis / RiskReferenceBalance;
+                return Math.Max(0, risk);
+            }
+
+            // Fixed-lot mode still receives a hard-risk cap later.
+            return Math.Max(0.01, basis * HardRiskCapPercentOfEquity / 100.0);
+        }
+
+        private double CalculateAndVerifyVolume(double stopLossPips, double allowedRiskMoney)
+        {
+            double volume;
+
+            if (RiskMode == CdsFxRiskModeV2.FixedLots)
+            {
+                volume = Symbol.QuantityToVolumeInUnits(Math.Min(FixedLotSize, MaxLotSize));
+            }
+            else
+            {
+                volume = Symbol.VolumeForFixedRisk(allowedRiskMoney, stopLossPips, RoundingMode.Down);
+            }
+
+            double maxVolume = Symbol.QuantityToVolumeInUnits(MaxLotSize);
+            volume = Math.Min(volume, Math.Min(maxVolume, Symbol.VolumeInUnitsMax));
+            volume = Symbol.NormalizeVolumeInUnits(volume, RoundingMode.Down);
+
+            if (volume < Symbol.VolumeInUnitsMin)
+                return 0;
+
+            double hardCap = Math.Max(0.01, Account.Equity * HardRiskCapPercentOfEquity / 100.0);
+            double actualRisk = Symbol.AmountRisked(volume, stopLossPips);
+
+            if (actualRisk > hardCap * 1.01 && actualRisk > 0)
+            {
+                volume *= hardCap / actualRisk;
+                volume = Symbol.NormalizeVolumeInUnits(volume, RoundingMode.Down);
+            }
+
+            if (volume < Symbol.VolumeInUnitsMin)
+                return 0;
+
+            actualRisk = Symbol.AmountRisked(volume, stopLossPips);
+            if (actualRisk > hardCap * 1.02)
+                return 0;
+
+            return volume;
+        }
+
+        private void AdjustProtectionDistancesForBroker(ref double slPips, ref double tpPips)
+        {
+            slPips = Math.Max(0.1, slPips);
+            tpPips = Math.Max(0.1, tpPips);
+
+            double buffer = Math.Max(0.0, BrokerDistanceBufferPips);
+
+            if (Symbol.MinDistanceType == SymbolMinDistanceType.Pips)
+            {
+                if (Symbol.MinStopLossDistance > 0)
+                    slPips = Math.Max(slPips, Symbol.MinStopLossDistance + buffer);
+
+                if (Symbol.MinTakeProfitDistance > 0)
+                    tpPips = Math.Max(tpPips, Symbol.MinTakeProfitDistance + buffer);
+            }
+            else if (Symbol.MinDistanceType == SymbolMinDistanceType.Percentage)
+            {
+                double referencePrice = Math.Max(Symbol.TickSize, (Symbol.Bid + Symbol.Ask) / 2.0);
+
+                if (Symbol.MinStopLossDistance > 0)
+                {
+                    double minSlPriceDistance = referencePrice * Symbol.MinStopLossDistance / 100.0;
+                    slPips = Math.Max(slPips, minSlPriceDistance / Symbol.PipSize + buffer);
+                }
+
+                if (Symbol.MinTakeProfitDistance > 0)
+                {
+                    double minTpPriceDistance = referencePrice * Symbol.MinTakeProfitDistance / 100.0;
+                    tpPips = Math.Max(tpPips, minTpPriceDistance / Symbol.PipSize + buffer);
+                }
+            }
+        }
+
+        // ============================================================
+        // Position management
+        // ============================================================
+
+        private Position GetCurrentSymbolPosition()
+        {
+            return Positions.FirstOrDefault(p => p.Label == TradeLabel && p.SymbolName == SymbolName);
+        }
+
+        private bool HasBlockingBotPosition()
+        {
+            if (PortfolioSinglePosition)
+                return Positions.Any(p => p.Label == TradeLabel);
+
+            return Positions.Any(p => p.Label == TradeLabel && p.SymbolName == SymbolName);
+        }
+
+        private void RecoverCurrentSymbolPositionState()
+        {
+            Position position = GetCurrentSymbolPosition();
+            if (position == null)
+                return;
+
+            _openTradeTime = position.EntryTime;
+            _lastTradeTime = position.EntryTime;
+            _openTradeDirection = position.TradeType == TradeType.Buy ? 1 : -1;
+
+            if (position.StopLoss.HasValue && Symbol.PipSize > 0)
+                _initialRiskPips = Math.Abs(position.EntryPrice - position.StopLoss.Value) / Symbol.PipSize;
+
+            if (_initialRiskPips <= 0)
+                _initialRiskPips = Math.Max(0.1, GetClosedAtrPips() * SlAtrMultiplier);
+
+            _breakevenApplied = IsStopAtOrBeyondBreakeven(position);
+
+            Debug(
+                "recovered position id=" + position.Id +
+                " entry=" + position.EntryTime +
+                " direction=" + _openTradeDirection +
+                " initialRiskPips~=" + _initialRiskPips.ToString("F2") +
+                " BE=" + _breakevenApplied);
+        }
+
+        private void ManageOpenPosition(Position position)
+        {
+            if (CloseOnCriticalGuard)
+            {
+                string criticalReason;
+                if (CheckCriticalExit(out criticalReason))
+                {
+                    ClosePositionWithLog(position, criticalReason);
+                    return;
