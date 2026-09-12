@@ -19,15 +19,20 @@ s=s.replace(marker,helper+marker,1)
 
 # v28 compile/safety hardening: the frequency patch referenced a removed helper.
 # For this commercial single-position branch Grid is forbidden, so force the
-# execution decision off rather than silently falling back to any averaging logic.
+# execution decision off rather than silently falling back to averaging logic.
 s=s.replace('bool useGridForThisTrade = EnableFibGrid && !(SmallAccountGridGuard && IsGridGuardAccount());',
             'bool useGridForThisTrade = false; // v28 commercial: Grid forbidden')
 s=s.replace('if (EnableFibGrid && SmallAccountGridGuard && IsGridGuardAccount())',
             'if (false)')
 
+# Hard-disable the legacy grid engine at runtime even if a preset tries to enable it.
+onstart='''        protected override void OnStart()\n        {\n'''
+if onstart not in s: raise SystemExit('OnStart marker missing for no-grid enforcement')
+s=s.replace(onstart, onstart + '''            EnableFibGrid = false; // v28 Commercial Final RC forbids Grid/DCA/Recovery\n''', 1)
+
 p.write_text(s,encoding='utf-8')
 print('Applied v28 cost-adjusted RR repricing fix')
-print('Applied v28 no-grid compile hardening')
+print('Applied v28 no-grid compile/runtime hardening')
 
 # Mandatory commercial hardening stages after frequency/cost logic.
 for patch_name in [
