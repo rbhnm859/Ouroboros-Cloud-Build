@@ -31,6 +31,7 @@ jobs:
           python3 tmp/harmonybot-v26-build/fix_v262_grid_guard_band.py
           python3 tmp/harmonybot-v26-build/fix_v27_commercial_rc.py
           python3 tmp/harmonybot-v26-build/fix_v27_rr_sync.py
+          python3 tmp/harmonybot-v26-build/fix_v27_compile_debt.py
           cat > cli-build/HarmonyBotPro_v261/HarmonyBotPro.csproj <<'EOF'
           <Project Sdk="Microsoft.NET.Sdk">
             <PropertyGroup>
@@ -156,6 +157,7 @@ jobs:
       - name: Summarize commercial metrics
         if: always()
         run: |
+          mkdir -p reports
           python3 - <<'PY' | tee reports/V27_SUMMARY.csv
           import json,glob,os
           print('window,trades,wins,winRate,netProfit,profitFactor,avgTrade,maxEquityDD,maxBalanceDD')
@@ -180,6 +182,7 @@ jobs:
       - name: Scan runtime defects
         if: always()
         run: |
+          mkdir -p reports
           grep -R -nE 'EXCEPTION|EntityNotFound|InvalidRequest|ORDER ERROR|SL MODIFY ERROR|FAILED with error' reports/*.console.txt > reports/V27_RUNTIME_DEFECTS.txt || true
           grep -R -h '\[COMMERCIAL-DIAG\]' reports/*.console.txt > reports/V27_DIAGNOSTICS.txt || true
           grep -R -hE '\[RISK-COMPRESS\]|\[RISK-BLOCK\]|\[VOLUME\]|\[DAILY LOCK\]|\[WEEKLY LOCK\]|Max drawdown' reports/*.console.txt > reports/V27_RISK_EVENTS.txt || true
