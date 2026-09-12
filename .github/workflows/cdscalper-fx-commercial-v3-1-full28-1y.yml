@@ -110,8 +110,6 @@ jobs:
             --balance=100 \
             --spread=${{ matrix.spread }} \
             --commission=35 \
-            --commission-type=UsdPerMillionUsdVolume \
-            --precise-conversion \
             --data-mode=m1 \
             --data-dir=/work/cache \
             --report="/work/reports/${{ matrix.symbol }}-1Y-M1.html" \
