@@ -12,11 +12,10 @@ namespace cAlgo.Robots
         [Parameter("Max Entry Slippage Pips", Group = "Execution", DefaultValue = 0.80, MinValue = 0.0, MaxValue = 10.0, Step = 0.05)]
         public double MaxEntrySlippagePips { get; set; }
 
+        private bool _commissionModelFailureLogged;
+
         private void TryEnter(EntryCandidate candidate, int closedIndex)
         {
-            // Re-sync immediately before order construction. PassGlobalEntryGuards already performs
-            // this once, but MTF/signal calculations happen afterwards and another cBot instance may
-            // have traded the same portfolio label in that interval.
             EnsureDailyStateRecovered();
             if (HasConflictingOpenPosition())
             {
@@ -75,7 +74,6 @@ namespace cAlgo.Robots
                 return;
             }
 
-            // Narrow the multi-instance race window again immediately before the synchronous trade call.
             if (HasConflictingOpenPosition() || !PassImmediateRiskStateRecheck())
             {
                 _riskRejectCount++;
@@ -92,7 +90,6 @@ namespace cAlgo.Robots
                 return;
             }
 
-            // Commercial fail-safe: a successful fill without both protections is not accepted.
             if (!result.Position.StopLoss.HasValue || !result.Position.TakeProfit.HasValue)
             {
                 Print("[V3 CRITICAL] entry protection missing; closing position id={0}", result.Position.Id);
@@ -108,9 +105,6 @@ namespace cAlgo.Robots
                 return;
             }
 
-            // Re-audit using the protections actually attached to the filled position. Relative
-            // protection is based on opening price, but execution/rounding/broker rules can still
-            // make requested and realised distances differ.
             var actualStopPips = Math.Abs(result.Position.EntryPrice - result.Position.StopLoss.Value) / Symbol.PipSize;
             var actualTakePips = Math.Abs(result.Position.TakeProfit.Value - result.Position.EntryPrice) / Symbol.PipSize;
             var applicableCap = GetApplicableAllInRiskCap();
@@ -127,7 +121,7 @@ namespace cAlgo.Robots
                 return;
             }
 
-            if (!PassCostAwareRewardRisk(actualStopPips, actualTakePips, spreadPips))
+            if (!PassCostAwareRewardRisk(actualStopPips, actualTakePips, spreadPips, volume))
             {
                 Print("[V3 CRITICAL] post-fill RR audit failed id={0} stop={1:F2}p take={2:F2}p", result.Position.Id, actualStopPips, actualTakePips);
                 EmergencyCloseNewPosition(result.Position, "post_fill_rr_audit");
@@ -180,13 +174,11 @@ namespace cAlgo.Robots
             var applicableCap = GetApplicableAllInRiskCap();
             var tolerance = 1.0 + RiskAuditTolerancePercent / 100.0;
 
-            // First prove the broker minimum volume itself fits the requested all-in risk cap.
-            // Never round an unsafe value up to minimum volume.
             var minStopRisk = Symbol.AmountRisked(Symbol.VolumeInUnitsMin, stopPips);
             var minAllInRisk = minStopRisk +
                                EstimateRoundTripCommissionMoney(Symbol.VolumeInUnitsMin) +
                                EstimateSlippageReserveMoney(Symbol.VolumeInUnitsMin);
-            if (minAllInRisk > applicableCap * tolerance)
+            if (double.IsNaN(minAllInRisk) || double.IsInfinity(minAllInRisk) || minAllInRisk > applicableCap * tolerance)
             {
                 DebugLog("BLOCK min_volume_risk minVol={0} allInRisk={1:F2} cap={2:F2}", Symbol.VolumeInUnitsMin, minAllInRisk, applicableCap);
                 return 0;
@@ -199,10 +191,10 @@ namespace cAlgo.Robots
             }
             else
             {
-                // Reserve estimated commission and stop-execution slippage before asking the platform
-                // for fixed-risk volume. The final normalized result is audited again below.
                 var nonStopReserve = EstimateRoundTripCommissionMoney(Symbol.VolumeInUnitsMin) +
                                      EstimateSlippageReserveMoney(Symbol.VolumeInUnitsMin);
+                if (double.IsNaN(nonStopReserve) || double.IsInfinity(nonStopReserve) || nonStopReserve >= applicableCap)
+                    return 0;
                 var stopRiskBudget = Math.Max(0.01, applicableCap - nonStopReserve);
                 rawVolume = Symbol.VolumeForFixedRisk(stopRiskBudget, stopPips, RoundingMode.Down);
             }
@@ -217,11 +209,9 @@ namespace cAlgo.Robots
                 return 0;
             }
 
-            // Recalculate with actual normalized volume. If all-in risk remains too large, scale down
-            // and normalize DOWN again rather than silently accepting excess risk.
             var actualStopRisk = Symbol.AmountRisked(volume, stopPips);
             var allInRisk = actualStopRisk + EstimateRoundTripCommissionMoney(volume) + EstimateSlippageReserveMoney(volume);
-            if (allInRisk > applicableCap * tolerance && allInRisk > 0)
+            if (allInRisk > applicableCap * tolerance && allInRisk > 0 && !double.IsInfinity(allInRisk))
             {
                 volume *= applicableCap / allInRisk;
                 volume = Symbol.NormalizeVolumeInUnits(volume, RoundingMode.Down);
@@ -253,12 +243,15 @@ namespace cAlgo.Robots
             return Math.Min(requested, hardCap);
         }
 
-        private bool PassCostAwareRewardRisk(double stopPips, double takePips, double observedSpreadPips)
+        private bool PassCostAwareRewardRisk(double stopPips, double takePips, double observedSpreadPips, double volume = 0)
         {
-            // SL/TP pips are measured from the actual filled entry price. Spread is therefore not
-            // subtracted a second time from payout RR; it is controlled separately by MaxSpread and
-            // ATR/Spread gates. Explicit commission and slippage reserve remain additive costs.
-            var explicitCostPips = Math.Max(0.0, EstimateRoundTripCommissionPips()) + Math.Max(0.0, SlippageReservePips);
+            var commissionPips = volume >= Symbol.VolumeInUnitsMin
+                ? EstimateRoundTripCommissionPips(volume)
+                : EstimateRoundTripCommissionPips(Symbol.VolumeInUnitsMin);
+            var explicitCostPips = Math.Max(0.0, commissionPips) + Math.Max(0.0, SlippageReservePips);
+            if (double.IsNaN(explicitCostPips) || double.IsInfinity(explicitCostPips))
+                return false;
+
             var effectiveReward = takePips - explicitCostPips;
             var effectiveRisk = stopPips + explicitCostPips;
             if (effectiveReward <= 0 || effectiveRisk <= 0)
@@ -275,24 +268,105 @@ namespace cAlgo.Robots
 
         private double EstimateRoundTripCommissionPips()
         {
-            if (CommissionPerMillionUsd <= 0 || Symbol.PipSize <= 0)
-                return 0;
+            return EstimateRoundTripCommissionPips(Symbol.VolumeInUnitsMin);
+        }
 
-            var mid = (Symbol.Bid + Symbol.Ask) * 0.5;
-            if (mid <= 0)
+        private double EstimateRoundTripCommissionPips(double volume)
+        {
+            if (volume <= 0 || Symbol.PipValue <= 0)
                 return 0;
-
-            // Commission setting is USD per million USD notional per side; round trip = 2 sides.
-            // Multiplying the result by Symbol.PipValue*volume converts it back to account money.
-            return 2.0 * CommissionPerMillionUsd * mid / (1000000.0 * Symbol.PipSize);
+            var money = EstimateRoundTripCommissionMoney(volume);
+            if (double.IsNaN(money) || double.IsInfinity(money))
+                return money;
+            return Math.Max(0.0, money / (Symbol.PipValue * volume));
         }
 
         private double EstimateRoundTripCommissionMoney(double volume)
         {
             if (volume <= 0)
                 return 0;
-            var pips = EstimateRoundTripCommissionPips();
-            return Math.Max(0.0, pips * Symbol.PipValue * volume);
+
+            try
+            {
+                var oneSide = EstimateOneSideBrokerCommissionMoney(volume);
+                var minimumOneSide = EstimateOneSideMinimumCommissionMoney();
+                oneSide = Math.Max(oneSide, minimumOneSide);
+                return Math.Max(0.0, oneSide * 2.0);
+            }
+            catch (Exception ex)
+            {
+                if (!_commissionModelFailureLogged)
+                {
+                    _commissionModelFailureLogged = true;
+                    Print("[V3 CRITICAL] commission conversion failed; entries fail closed. type={0} error={1}", Symbol.CommissionType, ex.Message);
+                }
+                return double.PositiveInfinity;
+            }
+        }
+
+        private double EstimateOneSideBrokerCommissionMoney(double volume)
+        {
+            var rate = Symbol.Commission;
+            if (rate <= 0 && Symbol.CommissionType == SymbolCommissionType.UsdPerMillionUsdVolume)
+                rate = CommissionPerMillionUsd;
+            if (rate <= 0)
+                return 0;
+
+            switch (Symbol.CommissionType)
+            {
+                case SymbolCommissionType.UsdPerMillionUsdVolume:
+                {
+                    var usdNotional = Math.Abs(AssetConverter.Convert(volume, Symbol.BaseAsset, "USD"));
+                    var commissionUsd = usdNotional * rate / 1000000.0;
+                    return Math.Abs(AssetConverter.Convert(commissionUsd, "USD", Account.Asset));
+                }
+                case SymbolCommissionType.UsdPerOneLot:
+                {
+                    var lots = Math.Abs(Symbol.VolumeInUnitsToQuantity(volume));
+                    var commissionUsd = lots * rate;
+                    return Math.Abs(AssetConverter.Convert(commissionUsd, "USD", Account.Asset));
+                }
+                case SymbolCommissionType.QuoteCurrencyPerOneLot:
+                {
+                    var lots = Math.Abs(Symbol.VolumeInUnitsToQuantity(volume));
+                    var commissionQuote = lots * rate;
+                    return Math.Abs(AssetConverter.Convert(commissionQuote, Symbol.QuoteAsset, Account.Asset));
+                }
+                case SymbolCommissionType.PercentageOfTradingVolume:
+                {
+                    var mid = (Symbol.Bid + Symbol.Ask) * 0.5;
+                    if (mid <= 0)
+                        return double.PositiveInfinity;
+                    var quoteNotional = Math.Abs(volume * mid);
+                    var commissionQuote = quoteNotional * rate / 100.0;
+                    return Math.Abs(AssetConverter.Convert(commissionQuote, Symbol.QuoteAsset, Account.Asset));
+                }
+                default:
+                    return EstimateFallbackUsdPerMillionCommissionMoney(volume);
+            }
+        }
+
+        private double EstimateFallbackUsdPerMillionCommissionMoney(double volume)
+        {
+            if (CommissionPerMillionUsd <= 0)
+                return 0;
+            var usdNotional = Math.Abs(AssetConverter.Convert(volume, Symbol.BaseAsset, "USD"));
+            var commissionUsd = usdNotional * CommissionPerMillionUsd / 1000000.0;
+            return Math.Abs(AssetConverter.Convert(commissionUsd, "USD", Account.Asset));
+        }
+
+        private double EstimateOneSideMinimumCommissionMoney()
+        {
+            if (Symbol.MinCommission <= 0)
+                return 0;
+
+            if (Symbol.MinCommissionType == SymbolMinCommissionType.QuoteAsset)
+                return Math.Abs(AssetConverter.Convert(Symbol.MinCommission, Symbol.QuoteAsset, Account.Asset));
+
+            if (Symbol.MinCommissionAsset != null)
+                return Math.Abs(AssetConverter.Convert(Symbol.MinCommission, Symbol.MinCommissionAsset, Account.Asset));
+
+            return 0;
         }
 
         private double EstimateSlippageReserveMoney(double volume)
