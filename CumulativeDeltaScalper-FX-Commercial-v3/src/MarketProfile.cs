@@ -6,6 +6,9 @@ namespace cAlgo.Robots
 {
     public partial class CumulativeDeltaScalper_FX_Commercial_v3
     {
+        [Parameter("Min Minutes Before Market Close", Group = "Session", DefaultValue = 30, MinValue = 0, MaxValue = 240)]
+        public int MinMinutesBeforeMarketClose { get; set; }
+
         private static readonly string[] SupportedFxCurrencies =
         {
             "USD", "EUR", "GBP", "JPY", "CHF", "CAD", "AUD", "NZD"
@@ -60,6 +63,17 @@ namespace cAlgo.Robots
             // Refresh authoritative account state before each entry decision so restart and
             // cross-symbol cBot instances cannot bypass portfolio daily protections.
             EnsureDailyStateRecovered();
+
+            // Broker-native market hours protect weekends, holidays and broker-specific session
+            // interruptions before our strategy-specific liquidity windows are evaluated.
+            if (Symbol.MarketHours == null || !Symbol.MarketHours.IsOpened(utc))
+                return false;
+            if (MinMinutesBeforeMarketClose > 0)
+            {
+                var tillClose = Symbol.MarketHours.TimeTillClose();
+                if (tillClose > TimeSpan.Zero && tillClose.TotalMinutes <= MinMinutesBeforeMarketClose)
+                    return false;
+            }
 
             if (SessionMode == V3SessionMode.Off)
                 return true;
