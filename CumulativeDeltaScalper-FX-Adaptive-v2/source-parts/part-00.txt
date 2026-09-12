@@ -1,0 +1,448 @@
+// ===================================================================
+//  CumulativeDeltaScalper_FX_Adaptive_v2
+//  Deep-repaired multi-FX edition derived from Original Candidate K.
+//
+//  Main upgrades:
+//  - Adaptive normalized pressure score (-100..+100 per bar), removing
+//    raw-tick-count scale distortion across brokers, pairs and timeframes.
+//  - Closed-bar ATR/HTF EMA/ADX/DMI reads to avoid using forming bars.
+//  - Portfolio single-position lock by shared label (default ON).
+//  - O(1) runtime daily accounting; History is rebuilt only at start/day reset.
+//  - Restart recovery for open-position time, direction, risk and breakeven state.
+//  - Risk hard-cap verification with Symbol.AmountRisked after volume rounding.
+//  - Margin guard with Symbol.GetEstimatedMargin.
+//  - Cost-aware spread/ATR and effective RR filters.
+//  - Broker market-hours/trading-enabled checks and min-distance adaptation.
+//  - R-based breakeven + optional ATR trailing with broker-distance validation.
+//  - Automatic broad liquidity sessions by currency group + rollover blackout.
+//
+//  Strategy constraints:
+//  - No hedging, grid, martingale, DCA, recovery or loss averaging.
+//  - One open bot position across all configured FX symbols by default.
+//  - Every entry carries SL and TP.
+// ===================================================================
+
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using cAlgo.API;
+using cAlgo.API.Indicators;
+using cAlgo.API.Internals;
+
+namespace cAlgo.Robots
+{
+    public enum CdsFxRiskModeV2
+    {
+        FixedLots = 0,
+        RiskPercent = 1,
+        FixedMoneyRisk = 2
+    }
+
+    public enum CdsPressureMode
+    {
+        Hybrid = 0,
+        TickImbalance = 1,
+        CandlePressure = 2
+    }
+
+    public enum CdsSessionMode
+    {
+        Off = 0,
+        ManualUtc = 1,
+        AutoCurrencyLiquidity = 2
+    }
+
+    [Robot(TimeZone = TimeZones.UTC, AccessRights = AccessRights.None)]
+    public class CumulativeDeltaScalper_FX_Adaptive_v2 : Robot
+    {
+        private const string Prefix = "[CDS-FX-Adaptive-v2] ";
+        private const int AtrPeriod = 14;
+        private const int EmaPeriod = 50;
+        private const int AdxPeriod = 14;
+
+        private static readonly object PortfolioOrderLock = new object();
+
+        private const string DefaultFxPairs =
+            "AUDCAD,AUDCHF,AUDJPY,AUDNZD,AUDUSD," +
+            "CADCHF,CADJPY," +
+            "CHFJPY," +
+            "EURAUD,EURCAD,EURCHF,EURGBP,EURJPY,EURNZD,EURUSD," +
+            "GBPAUD,GBPCAD,GBPCHF,GBPJPY,GBPNZD,GBPUSD," +
+            "NZDCAD,NZDCHF,NZDJPY,NZDUSD," +
+            "USDCAD,USDCHF,USDJPY";
+
+        private static readonly string[] KnownCurrencies =
+        {
+            "USD", "EUR", "GBP", "JPY", "CHF", "CAD", "AUD", "NZD"
+        };
+
+        // ============================================================
+        // General
+        // ============================================================
+
+        [Parameter("Bot Label", DefaultValue = "CDS_FX_ADAPTIVE_V2", Group = "General")]
+        public string TradeLabel { get; set; }
+
+        [Parameter("Debug Logging", DefaultValue = false, Group = "General")]
+        public bool DebugLogging { get; set; }
+
+        [Parameter("Summary Logging", DefaultValue = true, Group = "General")]
+        public bool SummaryLogging { get; set; }
+
+        [Parameter("Portfolio Single Position", DefaultValue = true, Group = "General")]
+        public bool PortfolioSinglePosition { get; set; }
+
+        [Parameter("Use Allowed FX List", DefaultValue = true, Group = "General")]
+        public bool UseAllowedFxList { get; set; }
+
+        [Parameter("Allowed FX Pairs", DefaultValue = DefaultFxPairs, Group = "General")]
+        public string AllowedFxPairs { get; set; }
+
+        [Parameter("Allow M1", DefaultValue = true, Group = "General")]
+        public bool AllowM1 { get; set; }
+
+        [Parameter("Allow M5", DefaultValue = true, Group = "General")]
+        public bool AllowM5 { get; set; }
+
+        [Parameter("Allow M15", DefaultValue = true, Group = "General")]
+        public bool AllowM15 { get; set; }
+
+        [Parameter("Allow M30", DefaultValue = true, Group = "General")]
+        public bool AllowM30 { get; set; }
+
+        // ============================================================
+        // Adaptive pressure / delta proxy
+        // ============================================================
+
+        [Parameter("Pressure Mode", DefaultValue = CdsPressureMode.Hybrid, Group = "Pressure")]
+        public CdsPressureMode PressureMode { get; set; }
+
+        [Parameter("Pressure Window", DefaultValue = 8, MinValue = 3, MaxValue = 30, Group = "Pressure")]
+        public int PressureWindow { get; set; }
+
+        [Parameter("Cumulative Threshold", DefaultValue = 180.0, MinValue = 20.0, Step = 10.0, Group = "Pressure")]
+        public double CumulativePressureThreshold { get; set; }
+
+        [Parameter("Min Directional Bars", DefaultValue = 2, MinValue = 1, MaxValue = 5, Group = "Pressure")]
+        public int MinDirectionalBars { get; set; }
+
+        [Parameter("Min Momentum Score", DefaultValue = 12.0, MinValue = 0.0, Step = 1.0, Group = "Pressure")]
+        public double MinMomentumScore { get; set; }
+
+        [Parameter("Min Tick Samples/Bar", DefaultValue = 8, MinValue = 0, Group = "Pressure")]
+        public int MinTickSamplesPerBar { get; set; }
+
+        [Parameter("Hybrid Tick Weight", DefaultValue = 0.65, MinValue = 0.0, MaxValue = 1.0, Step = 0.05, Group = "Pressure")]
+        public double HybridTickWeight { get; set; }
+
+        [Parameter("Candle Close Weight", DefaultValue = 0.35, MinValue = 0.0, MaxValue = 1.0, Step = 0.05, Group = "Pressure")]
+        public double CandleCloseLocationWeight { get; set; }
+
+        // ============================================================
+        // Trend / volatility filters
+        // ============================================================
+
+        [Parameter("Min Confirmations", DefaultValue = 4, MinValue = 0, MaxValue = 5, Group = "Filters")]
+        public int MinConfirmations { get; set; }
+
+        [Parameter("Use HTF EMA", DefaultValue = true, Group = "Filters")]
+        public bool UseHtfEmaFilter { get; set; }
+
+        [Parameter("HTF Timeframe", DefaultValue = "Minute15", Group = "Filters")]
+        public string HtfTimeFrameName { get; set; }
+
+        [Parameter("EMA Slope Bars", DefaultValue = 3, MinValue = 1, MaxValue = 20, Group = "Filters")]
+        public int EmaSlopeBars { get; set; }
+
+        [Parameter("ADX Threshold", DefaultValue = 17.0, MinValue = 0.0, Step = 0.5, Group = "Filters")]
+        public double AdxThreshold { get; set; }
+
+        [Parameter("Require DMI Direction", DefaultValue = true, Group = "Filters")]
+        public bool RequireDmiDirection { get; set; }
+
+        [Parameter("Min ATR (Pips)", DefaultValue = 0.0, MinValue = 0.0, Step = 0.1, Group = "Filters")]
+        public double MinAtrPips { get; set; }
+
+        [Parameter("Max ATR (Pips, 0=Off)", DefaultValue = 0.0, MinValue = 0.0, Step = 0.5, Group = "Filters")]
+        public double MaxAtrPips { get; set; }
+
+        [Parameter("Min ATR/Spread Ratio", DefaultValue = 4.0, MinValue = 0.0, Step = 0.25, Group = "Filters")]
+        public double MinAtrToSpreadRatio { get; set; }
+
+        // ============================================================
+        // Session / execution
+        // ============================================================
+
+        [Parameter("Session Mode", DefaultValue = CdsSessionMode.AutoCurrencyLiquidity, Group = "Session")]
+        public CdsSessionMode SessionMode { get; set; }
+
+        [Parameter("Manual Start H UTC", DefaultValue = 7, MinValue = 0, MaxValue = 23, Group = "Session")]
+        public int ManualSessionStartHour { get; set; }
+
+        [Parameter("Manual Start M", DefaultValue = 0, MinValue = 0, MaxValue = 59, Group = "Session")]
+        public int ManualSessionStartMinute { get; set; }
+
+        [Parameter("Manual End H UTC", DefaultValue = 18, MinValue = 0, MaxValue = 23, Group = "Session")]
+        public int ManualSessionEndHour { get; set; }
+
+        [Parameter("Manual End M", DefaultValue = 0, MinValue = 0, MaxValue = 59, Group = "Session")]
+        public int ManualSessionEndMinute { get; set; }
+
+        [Parameter("Use Rollover Blackout", DefaultValue = true, Group = "Session")]
+        public bool UseRolloverBlackout { get; set; }
+
+        [Parameter("Rollover Start H UTC", DefaultValue = 20, MinValue = 0, MaxValue = 23, Group = "Session")]
+        public int RolloverStartHour { get; set; }
+
+        [Parameter("Rollover Start M", DefaultValue = 45, MinValue = 0, MaxValue = 59, Group = "Session")]
+        public int RolloverStartMinute { get; set; }
+
+        [Parameter("Rollover End H UTC", DefaultValue = 22, MinValue = 0, MaxValue = 23, Group = "Session")]
+        public int RolloverEndHour { get; set; }
+
+        [Parameter("Rollover End M", DefaultValue = 15, MinValue = 0, MaxValue = 59, Group = "Session")]
+        public int RolloverEndMinute { get; set; }
+
+        [Parameter("Max Spread (Pips)", DefaultValue = 4.0, MinValue = 0.1, Step = 0.1, Group = "Execution")]
+        public double MaxSpreadPips { get; set; }
+
+        [Parameter("Spread Avg Multiplier", DefaultValue = 1.8, MinValue = 1.0, Step = 0.1, Group = "Execution")]
+        public double SpreadAverageMultiplier { get; set; }
+
+        [Parameter("Spread History Bars", DefaultValue = 30, MinValue = 5, MaxValue = 200, Group = "Execution")]
+        public int SpreadHistorySize { get; set; }
+
+        [Parameter("Max Spread/ATR %", DefaultValue = 22.0, MinValue = 0.0, Step = 1.0, Group = "Execution")]
+        public double MaxSpreadToAtrPercent { get; set; }
+
+        [Parameter("Min Effective RR", DefaultValue = 1.10, MinValue = 0.0, Step = 0.05, Group = "Execution")]
+        public double MinEffectiveRewardRisk { get; set; }
+
+        [Parameter("Max Margin Use % Free", DefaultValue = 35.0, MinValue = 1.0, MaxValue = 100.0, Step = 1.0, Group = "Execution")]
+        public double MaxMarginUsePercentOfFree { get; set; }
+
+        // ============================================================
+        // Risk
+        // ============================================================
+
+        [Parameter("Risk Mode", DefaultValue = CdsFxRiskModeV2.RiskPercent, Group = "Risk")]
+        public CdsFxRiskModeV2 RiskMode { get; set; }
+
+        [Parameter("Risk % per Trade", DefaultValue = 0.50, MinValue = 0.05, Step = 0.05, Group = "Risk")]
+        public double RiskPercentPerTrade { get; set; }
+
+        [Parameter("Fixed Money Risk", DefaultValue = 1.00, MinValue = 0.01, Step = 0.01, Group = "Risk")]
+        public double FixedMoneyRisk { get; set; }
+
+        [Parameter("Auto Scale Fixed Risk", DefaultValue = false, Group = "Risk")]
+        public bool AutoScaleFixedRisk { get; set; }
+
+        [Parameter("Risk Reference Balance", DefaultValue = 100.0, MinValue = 1.0, Step = 1.0, Group = "Risk")]
+        public double RiskReferenceBalance { get; set; }
+
+        [Parameter("Fixed Lot Size", DefaultValue = 0.01, MinValue = 0.01, Step = 0.01, Group = "Risk")]
+        public double FixedLotSize { get; set; }
+
+        [Parameter("Max Lot Size", DefaultValue = 0.05, MinValue = 0.01, Step = 0.01, Group = "Risk")]
+        public double MaxLotSize { get; set; }
+
+        [Parameter("Hard Risk Cap % Equity", DefaultValue = 1.00, MinValue = 0.05, Step = 0.05, Group = "Risk")]
+        public double HardRiskCapPercentOfEquity { get; set; }
+
+        [Parameter("SL ATR Mult", DefaultValue = 1.00, MinValue = 0.2, Step = 0.1, Group = "Risk")]
+        public double SlAtrMultiplier { get; set; }
+
+        [Parameter("TP ATR Mult", DefaultValue = 1.60, MinValue = 0.2, Step = 0.1, Group = "Risk")]
+        public double TpAtrMultiplier { get; set; }
+
+        [Parameter("Min Stop Buffer Pips", DefaultValue = 0.2, MinValue = 0.0, Step = 0.1, Group = "Risk")]
+        public double BrokerDistanceBufferPips { get; set; }
+
+        // ============================================================
+        // Protection / daily controls
+        // ============================================================
+
+        [Parameter("Max Daily Trades", DefaultValue = 4, MinValue = 1, Group = "Protection")]
+        public int MaxDailyTrades { get; set; }
+
+        [Parameter("Max Daily Loss %", DefaultValue = 2.0, MinValue = 0.1, Step = 0.1, Group = "Protection")]
+        public double MaxDailyLossPercent { get; set; }
+
+        [Parameter("Max Daily Loss Money (0=Off)", DefaultValue = 0.0, MinValue = 0.0, Step = 0.1, Group = "Protection")]
+        public double MaxDailyLossMoney { get; set; }
+
+        [Parameter("Daily Profit Target (0=Off)", DefaultValue = 0.0, MinValue = 0.0, Step = 0.1, Group = "Protection")]
+        public double DailyProfitTargetMoney { get; set; }
+
+        [Parameter("Max Consecutive Losses", DefaultValue = 2, MinValue = 1, Group = "Protection")]
+        public int MaxConsecutiveLosses { get; set; }
+
+        [Parameter("Cooldown Bars", DefaultValue = 2, MinValue = 0, MaxValue = 50, Group = "Protection")]
+        public int CooldownBars { get; set; }
+
+        [Parameter("Loss Cooldown Min", DefaultValue = 20, MinValue = 0, Group = "Protection")]
+        public int LossCooldownMinutes { get; set; }
+
+        [Parameter("Max Floating Loss Money (0=Off)", DefaultValue = 0.0, MinValue = 0.0, Step = 0.1, Group = "Protection")]
+        public double MaxFloatingLossMoney { get; set; }
+
+        [Parameter("Max Account Equity DD % (0=Off)", DefaultValue = 0.0, MinValue = 0.0, Step = 0.1, Group = "Protection")]
+        public double MaxAccountEquityDrawdownPercent { get; set; }
+
+        [Parameter("Close On Critical Guard", DefaultValue = true, Group = "Protection")]
+        public bool CloseOnCriticalGuard { get; set; }
+
+        // ============================================================
+        // Exit
+        // ============================================================
+
+        [Parameter("Max Trade Bars", DefaultValue = 4, MinValue = 0, MaxValue = 100, Group = "Exit")]
+        public int MaxTradeBars { get; set; }
+
+        [Parameter("Use Breakeven", DefaultValue = true, Group = "Exit")]
+        public bool UseBreakeven { get; set; }
+
+        [Parameter("Breakeven Trigger R", DefaultValue = 0.80, MinValue = 0.1, Step = 0.1, Group = "Exit")]
+        public double BreakevenTriggerR { get; set; }
+
+        [Parameter("Breakeven Plus Pips", DefaultValue = 0.20, MinValue = 0.0, Step = 0.1, Group = "Exit")]
+        public double BreakevenPlusPips { get; set; }
+
+        [Parameter("Use ATR Trailing", DefaultValue = true, Group = "Exit")]
+        public bool UseAtrTrailing { get; set; }
+
+        [Parameter("Trailing Start R", DefaultValue = 1.20, MinValue = 0.1, Step = 0.1, Group = "Exit")]
+        public double TrailingStartR { get; set; }
+
+        [Parameter("Trailing ATR Mult", DefaultValue = 1.00, MinValue = 0.2, Step = 0.1, Group = "Exit")]
+        public double TrailingAtrMultiplier { get; set; }
+
+        [Parameter("Use Adverse Pressure Exit", DefaultValue = true, Group = "Exit")]
+        public bool UseAdversePressureExit { get; set; }
+
+        [Parameter("Adverse Pressure Threshold", DefaultValue = 140.0, MinValue = 20.0, Step = 10.0, Group = "Exit")]
+        public double AdversePressureThreshold { get; set; }
+
+        // ============================================================
+        // Runtime state
+        // ============================================================
+
+        private AverageTrueRange _atr;
+        private ExponentialMovingAverage _htfEma;
+        private DirectionalMovementSystem _htfDms;
+        private Bars _htfBars;
+
+        private HashSet<string> _allowedPairs;
+        private string _fxPairCore;
+
+        private double _prevBid;
+        private int _upTicks;
+        private int _downTicks;
+        private bool _tickWindowPrimed;
+
+        private double[] _pressureBuffer;
+        private int _pressureIndex;
+        private int _pressureFilled;
+        private double _previousCumulativePressure;
+
+        private double[] _spreadHistory;
+        private int _spreadIndex;
+        private int _spreadFilled;
+
+        private DateTime _lastProcessedBarTime = DateTime.MinValue;
+        private DateTime _lastTradeTime = DateTime.MinValue;
+        private DateTime _lastLossTime = DateTime.MinValue;
+        private DateTime _openTradeTime = DateTime.MinValue;
+        private int _openTradeDirection;
+        private double _initialRiskPips;
+        private bool _breakevenApplied;
+
+        private DateTime _currentDay = DateTime.MinValue;
+        private double _dayStartBalance;
+        private double _dailyClosedPnl;
+        private int _dailyTradeCount;
+        private int _consecutiveLosses;
+        private double _accountPeakEquity;
+
+        private readonly Dictionary<string, int> _skipReasons = new Dictionary<string, int>();
+        private readonly Dictionary<string, int> _entryReasons = new Dictionary<string, int>();
+
+        // ============================================================
+        // Lifecycle
+        // ============================================================
+
+        protected override void OnStart()
+        {
+            _allowedPairs = BuildAllowedPairs();
+            _fxPairCore = DetectFxPairCore();
+
+            if (!ValidateSymbol())
+            {
+                Print(Prefix + "unsupported FX symbol: " + SymbolName);
+                Stop();
+                return;
+            }
+
+            if (!ValidateTimeFrame())
+            {
+                Print(Prefix + "invalid timeframe " + TimeFrame + ". Allowed M1/M5/M15/M30.");
+                Stop();
+                return;
+            }
+
+            if (!ValidateParameters())
+            {
+                Print(Prefix + "invalid parameters");
+                Stop();
+                return;
+            }
+
+            _atr = Indicators.AverageTrueRange(AtrPeriod, MovingAverageType.Simple);
+            TimeFrame htf = ResolveHtfTimeFrame();
+            _htfBars = MarketData.GetBars(htf);
+            _htfEma = Indicators.ExponentialMovingAverage(_htfBars.ClosePrices, EmaPeriod);
+            _htfDms = Indicators.DirectionalMovementSystem(_htfBars, AdxPeriod);
+
+            _pressureBuffer = new double[PressureWindow];
+            _spreadHistory = new double[SpreadHistorySize];
+
+            _prevBid = Symbol.Bid;
+            _currentDay = Server.Time.Date;
+            _accountPeakEquity = Account.Equity;
+
+            Positions.Opened += OnPositionOpened;
+            Positions.Closed += OnPositionClosed;
+
+            RebuildDailyStateFromHistory();
+            RecoverCurrentSymbolPositionState();
+
+            Debug(
+                "started symbol=" + SymbolName +
+                " core=" + _fxPairCore +
+                " TF=" + TimeFrame +
+                " HTF=" + htf +
+                " pip=" + Symbol.PipSize +
+                " tick=" + Symbol.TickSize +
+                " singlePortfolio=" + PortfolioSinglePosition);
+        }
+
+        protected override void OnStop()
+        {
+            Positions.Opened -= OnPositionOpened;
+            Positions.Closed -= OnPositionClosed;
+            PrintSummary("final");
+            Debug("stopped");
+        }
+
+        protected override void OnException(Exception exception)
+        {
+            Print(Prefix + "EXCEPTION " + exception.GetType().Name + ": " + exception.Message);
+        }
+
+        protected override void OnTick()
+        {
+            ResetDailyIfNeeded();
+            UpdateAccountPeakEquity();
+            ProcessTickPressure();
+
+            Position position = GetCurrentSymbolPosition();
