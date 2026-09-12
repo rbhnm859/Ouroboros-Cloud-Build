@@ -6,6 +6,9 @@ namespace cAlgo.Robots
 {
     public partial class CumulativeDeltaScalper_FX_Commercial_v3
     {
+        [Parameter("Use Live Tick Pressure", Group = "Signal", DefaultValue = false)]
+        public bool UseLiveTickPressure { get; set; }
+
         [Parameter("Min Previous Pressure Fraction", Group = "Signal", DefaultValue = 0.30, MinValue = 0.0, MaxValue = 1.0, Step = 0.05)]
         public double MinPreviousPressureFraction { get; set; }
 
@@ -26,6 +29,28 @@ namespace cAlgo.Robots
 
         private double ComputeAndStorePressure(int index)
         {
+            WarmupPressureHistoryIfNeeded(index);
+            var pressure = CalculatePressure(index, true);
+            StorePressure(pressure);
+            return pressure;
+        }
+
+        private void WarmupPressureHistoryIfNeeded(int currentClosedIndex)
+        {
+            if (_pressureHistory.Count > 0 || currentClosedIndex <= 1)
+                return;
+
+            // Reconstruct enough deterministic closed-bar history after startup/restart. Historical
+            // raw tick direction is intentionally not guessed; candle/tick-volume features are fully
+            // available in both bar-data backtests and live charts.
+            var needed = Math.Max(PressureWindow, PersistenceLookback) + 12;
+            var start = Math.Max(1, currentClosedIndex - needed);
+            for (var i = start; i < currentClosedIndex; i++)
+                StorePressure(CalculatePressure(i, false));
+        }
+
+        private double CalculatePressure(int index, bool allowCurrentTickPressure)
+        {
             var high = Bars.HighPrices[index];
             var low = Bars.LowPrices[index];
             var open = Bars.OpenPrices[index];
@@ -34,7 +59,6 @@ namespace cAlgo.Robots
 
             var bodyScore = Clamp(100.0 * (close - open) / range, -100.0, 100.0);
             var closeLocation = Clamp(100.0 * (2.0 * (close - low) / range - 1.0), -100.0, 100.0);
-            var tickScore = _lastCompletedTickSamples >= 8 ? _lastCompletedTickPressure : 0.0;
 
             var volumeNow = Math.Max(1.0, Bars.TickVolumes[index]);
             var start = Math.Max(0, index - 10);
@@ -48,18 +72,22 @@ namespace cAlgo.Robots
             var volumeAvg = volumeCount == 0 ? volumeNow : volumeSum / volumeCount;
             var volumeImpulse = Clamp(volumeNow / Math.Max(1.0, volumeAvg), 0.65, 1.35);
 
-            // Deterministic on bar-data backtests: candle pressure dominates when raw tick samples are unavailable.
-            var tickWeight = _lastCompletedTickSamples >= 8 ? 0.25 : 0.0;
+            // Commercial default is deterministic across m1 server-data backtests, restart and live.
+            // Raw tick direction is optional/experimental until separately validated with tick-mode data.
+            var useTick = UseLiveTickPressure && allowCurrentTickPressure && _lastCompletedTickSamples >= 8;
+            var tickScore = useTick ? _lastCompletedTickPressure : 0.0;
+            var tickWeight = useTick ? 0.25 : 0.0;
             var candleWeight = 1.0 - tickWeight;
             var candlePressure = 0.62 * bodyScore + 0.38 * closeLocation;
-            var pressure = Clamp((candleWeight * candlePressure + tickWeight * tickScore) * volumeImpulse, -100.0, 100.0);
+            return Clamp((candleWeight * candlePressure + tickWeight * tickScore) * volumeImpulse, -100.0, 100.0);
+        }
 
+        private void StorePressure(double pressure)
+        {
             _pressureHistory.Add(pressure);
             var keep = Math.Max(100, PressureWindow + PersistenceLookback + 30);
             if (_pressureHistory.Count > keep)
                 _pressureHistory.RemoveRange(0, _pressureHistory.Count - keep);
-
-            return pressure;
         }
 
         private EntryCandidate BuildEntryCandidate(int index, double latestPressure)
