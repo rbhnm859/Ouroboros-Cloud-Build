@@ -94,8 +94,7 @@ jobs:
             backtest /work/HarmonyBotPro_v26_Mobile.algo --environment-variables \
             --broker=fxpro --symbol=XAUUSD --period=m15 \
             --start='${{ matrix.start }}' --end='${{ matrix.end }}' \
-            --balance=100 --data-mode=m1 --data-dir=/work/cache \
-            --commission=35 --commission-type=UsdPerMillionUsdVolume --precise-conversion \
+            --balance=100 --data-mode=m1 --commission=35 \
             --SymbolName=XAUUSD \
             --RiskPercent=1.5 --MaxDrawdown=10.0 --DailyLossLimitPercent=4.0 --WeeklyLossLimitPercent=8.0 \
             --MonthlyTargetPercent=12.0 --RiskAfterMonthlyTarget=0.5 --CloseAllOnDailyLock=false \
@@ -127,7 +126,7 @@ jobs:
             --GridTrailTriggerR=0.5 --GridTrailDistanceFib=0.382 --GridScaleOutEnabled=true --GridScaleOutR=0.618 \
             --GridScaleOutPercent=38.2 --GridMaxAddsPerDay=6 --GridVolatilityAdapt=true --GridDrawdownScaleRisk=true \
             --report="/work/reports/${OUT}.html" --report-json="/work/reports/${OUT}.json" \
-            | tee "/work/reports/${OUT}.console.txt"
+            | tee "backtest/reports/${OUT}.console.txt"
 
       - name: Print compact result
         if: always()
