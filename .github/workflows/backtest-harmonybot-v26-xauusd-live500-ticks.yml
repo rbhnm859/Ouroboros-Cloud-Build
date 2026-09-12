@@ -1,10 +1,6 @@
 name: HarmonyBotPro v26 XAUUSD FxPro Live500 Tick Backtests
 on:
-  push:
-    branches:
-      - compile-harmonybot-v26-20260912
-    paths:
-      - '.github/workflows/backtest-harmonybot-v26-xauusd-live500-ticks.yml'
+  workflow_dispatch:
 permissions:
   contents: read
   actions: read
@@ -67,7 +63,6 @@ jobs:
           matches=[x for x in data if str(x.get('Broker','')).lower()=='fxpro' and bool(x.get('Live')) and str(x.get('DepositCurrency','')).upper()=='USD' and int(x.get('Leverage',0))==500]
           if not matches:
               raise SystemExit('No active FxPro Live USD 1:500 account found')
-          # Prefer the first exact live 1:500 FxPro account. Number is never printed.
           num=str(matches[0].get('Number','')).strip()
           if not num: raise SystemExit('Selected account has no Number')
           open('backtest/secure/account','w').write(num)
