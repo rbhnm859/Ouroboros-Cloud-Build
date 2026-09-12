@@ -1,0 +1,209 @@
+name: HarmonyBotPro v28 Commercial Final RC
+
+on:
+  push:
+    branches:
+      - harmonybot-v28-commercial-final-rc
+    paths:
+      - '.github/workflows/build-backtest-harmonybot-v28-commercial-final-rc.yml'
+      - 'tmp/harmonybot-v26-build/fix_v28_frequency_architecture.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  build-and-validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Generate v28 full source from audited patch chain
+        run: |
+          set -euo pipefail
+          python3 tmp/harmonybot-v26-build/build_v261_frequency.py
+          python3 tmp/harmonybot-v26-build/fix_v261_mtf_overload.py
+          python3 tmp/harmonybot-v26-build/fix_v262_frequency_safe.py
+          python3 tmp/harmonybot-v26-build/fix_v262_grid_guard_band.py
+          python3 tmp/harmonybot-v26-build/fix_v27_commercial_rc.py
+          python3 tmp/harmonybot-v26-build/fix_v28_frequency_architecture.py
+          mkdir -p output reports secure
+          cp cli-build/HarmonyBotPro_v261/HarmonyBotPro.cs output/HarmonyBotPro_v28_CommercialFinalRC.cs
+          sha256sum output/HarmonyBotPro_v28_CommercialFinalRC.cs | tee output/HarmonyBotPro_v28_CommercialFinalRC.cs.sha256
+          cat > cli-build/HarmonyBotPro_v261/HarmonyBotPro.csproj <<'EOF'
+          <Project Sdk="Microsoft.NET.Sdk">
+            <PropertyGroup>
+              <TargetFramework>net6.0</TargetFramework>
+              <ImplicitUsings>disable</ImplicitUsings>
+              <Nullable>disable</Nullable>
+              <AlgoName>HarmonyBotPro_v28_CommercialFinalRC</AlgoName>
+              <AlgoBuild>true</AlgoBuild>
+              <AlgoPublish>false</AlgoPublish>
+              <IncludeSource>false</IncludeSource>
+            </PropertyGroup>
+            <ItemGroup>
+              <PackageReference Include="cTrader.Automate" Version="1.0.19" />
+            </ItemGroup>
+          </Project>
+          EOF
+
+      - name: Compile mobile algo and static audit
+        run: |
+          set -euo pipefail
+          dotnet restore cli-build/HarmonyBotPro_v261/HarmonyBotPro.csproj
+          dotnet build cli-build/HarmonyBotPro_v261/HarmonyBotPro.csproj -c Release --no-restore -p:AlgoPublish=false -p:IncludeSource=false 2>&1 | tee build.log
+          ! grep -q ' error CS' build.log
+          ALGO=$(find cli-build/HarmonyBotPro_v261 -type f -name '*.algo' | head -n 1)
+          test -n "$ALGO"
+          cp "$ALGO" output/HarmonyBotPro_v28_CommercialFinalRC_Mobile.algo
+          sha256sum output/HarmonyBotPro_v28_CommercialFinalRC_Mobile.algo | tee output/HarmonyBotPro_v28_CommercialFinalRC_Mobile.algo.sha256
+          grep -q 'VolumeForFixedRisk' output/HarmonyBotPro_v28_CommercialFinalRC.cs
+          grep -q 'AmountRisked' output/HarmonyBotPro_v28_CommercialFinalRC.cs
+          grep -q 'PipsForFixedRisk' output/HarmonyBotPro_v28_CommercialFinalRC.cs
+          grep -q 'ExecuteMarketRangeOrder' output/HarmonyBotPro_v28_CommercialFinalRC.cs
+          grep -q 'RangeAwareRatioScore' output/HarmonyBotPro_v28_CommercialFinalRC.cs
+          if grep -q 'MarketOrderParameters' output/HarmonyBotPro_v28_CommercialFinalRC.cs; then exit 1; fi
+
+      - name: Prepare FxPro Live USD 1:500 context
+        env:
+          CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+          CTRADER_PASSWORD: ${{ secrets.CTRADER_PASSWORD }}
+        run: |
+          set -euo pipefail
+          docker pull ghcr.io/spotware/ctrader-console:latest
+          printf '%s' "$CTRADER_PASSWORD" > secure/pwd
+          chmod 600 secure/pwd
+          docker run --rm -v "$PWD/secure:/secure" \
+            -e "CTID=$CTRADER_CTID" -e 'PWD-FILE=/secure/pwd' \
+            ghcr.io/spotware/ctrader-console:latest accounts --environment-variables > secure/accounts.json
+          python3 - <<'PY'
+          import json
+          d=json.load(open('secure/accounts.json',encoding='utf-8-sig'))
+          m=[x for x in d if str(x.get('Broker','')).lower()=='fxpro' and bool(x.get('Live')) and str(x.get('DepositCurrency','')).upper()=='USD' and int(x.get('Leverage',0))==500]
+          if not m: raise SystemExit('No matching FxPro Live USD 1:500 account')
+          open('secure/account','w').write(str(m[0]['Number']))
+          print('FxPro Live USD 1:500 selected (masked)')
+          PY
+          rm -f secure/accounts.json
+
+      - name: Create A-B commercial runner
+        run: |
+          cat > run_v28.sh <<'EOF'
+          #!/usr/bin/env bash
+          set -euo pipefail
+          PROFILE="$1"; LABEL="$2"; START="$3"; END="$4"
+          ACCOUNT="$(cat secure/account)"
+          if [ "$PROFILE" = "BAL" ]; then
+            CONF=0.72; SLATR=1.00; MINLEG=0.80; ATRFAC=0.70; AGE=48; BOUNDARY=0.60; REVFLOOR=0.45; CBUF=0.06; SESSION=8; MAXDAY=4; COOL=10; ENTRY=0.85
+          else
+            CONF=0.70; SLATR=0.90; MINLEG=0.70; ATRFAC=0.65; AGE=64; BOUNDARY=0.62; REVFLOOR=0.50; CBUF=0.04; SESSION=7; MAXDAY=6; COOL=5; ENTRY=1.00
+          fi
+          OUT="HarmonyBotPro-v28-${PROFILE}-XAUUSD-M15-100-${LABEL}-FxPro-Live500-open"
+          docker run --rm \
+            -v "$PWD/output:/work/output" -v "$PWD/reports:/work/reports" -v "$PWD/secure:/secure" \
+            -e "CTID=$CTRADER_CTID" -e 'PWD-FILE=/secure/pwd' -e "ACCOUNT=$ACCOUNT" \
+            ghcr.io/spotware/ctrader-console:latest \
+            backtest /work/output/HarmonyBotPro_v28_CommercialFinalRC_Mobile.algo --environment-variables --exit-on-stop \
+            --broker=FxPro --symbol=XAUUSD --period=m15 --start="$START" --end="$END" \
+            --balance=100 --data-mode=open --commission=35 --spread=17.14 \
+            --SymbolName=XAUUSD --RiskPercent=1.5 --MaxDrawdown=10.0 --DailyLossLimitPercent=4.0 --WeeklyLossLimitPercent=8.0 \
+            --MonthlyTargetPercent=12.0 --RiskAfterMonthlyTarget=0.5 --CloseAllOnDailyLock=false \
+            --AutoReprotectOnStart=true --EmergencySlAtrMult=2.0 --EmergencyTpRR=2.0 \
+            --MaxConsecutiveLosses=3 --ConsecutiveLossCooldownMin=60 --MarginBufferPercent=20.0 \
+            --SmallAccountMode=true --SmallAccountThreshold=100.0 --SmallAccountMinSLPips=25.0 --SmallAccountMinTPPips=50.0 \
+            --AllowMinVolumeFallback=true --MinVolumeRiskCapPercent=5.0 --MicroMinVolumeRiskCapPercent=10.0 \
+            --MaxNotionalToEquityRatio=500.0 --SessionStart="$SESSION" --SessionEnd=22 \
+            --MTFEnabled=true --H4FilterEnabled=false --PatternConfidence="$CONF" \
+            --MaxConcurrentTrades=1 --MaxSameDirectionTrades=1 --AntiHedge=true --MaxTradesPerDay="$MAXDAY" --CooldownMinutes="$COOL" \
+            --AtrPeriod=14 --SlAtrMult="$SLATR" --TpCdMult=1.0 --MinRR=2.0 --UseCostAdjustedRR=true \
+            --MaxSpreadPips=35.0 --MinStopLossPips=100.0 --MinTakeProfitPips=200.0 --MinStopDistancePips=15.0 \
+            --MinAtrPrice=3.0 --MaxSlippagePips=30.0 --SwingDepth=5 --SwingLookback=200 --PivotScanCount=14 --MinLegAtrRatio="$MINLEG" \
+            --EnableGartley=true --EnableBat=true --EnableButterfly=true --EnableCrab=true --EnableCypher=true --EnableRat=true \
+            --EnableDeepGartley=true --EnableAltBat=false --EnableDeepCrab=true --EnableABCD=true --EnableShark=true --EnableFiveZero=false \
+            --GlobalMinScore=0.55 --ConsensusBonus=1.12 --FibTolerance=0.05 --MaxEntryDeviationAtr=0.5 \
+            --AdaptiveFrequencyRecovery=true --SoftMtfReversalGate=true --CounterTrendConfidenceBuffer="$CBUF" --AdaptiveEntryDeviationFloor="$ENTRY" \
+            --ClosedBarProvisionalD=true --ProvisionalDMinMoveAtr=0.30 --SmallAccountGridGuard=true \
+            --CommercialRiskEngine=true --ProjectedRiskGuard=true --RiskHeadroomPercent=0.25 \
+            --CompressStopToRiskBudget=true --MaxStopCompressionRatio=0.90 --DisablePartialAtMinVolume=true \
+            --AdaptiveMinAtrFactor="$ATRFAC" --CommercialSwingDepthReduction=1 --CommercialPivotScanMin=20 \
+            --CandidateMaxAgeBars="$AGE" --DirectionDominanceMargin=0.04 --FibRangeBoundaryScore="$BOUNDARY" --ReversalTrendScoreFloor="$REVFLOOR" \
+            --MaxTradesPerPatternPercent=50 --AutoDisableLosing=true --AutoDisableWinRate=50.0 \
+            --SlUpdateStepPips=2.0 --SlUpdateCooldownSec=5 --BreakEvenTriggerPips=100.0 --BreakEvenOffsetPips=10.0 \
+            --TrailingTriggerPips=150.0 --TrailingDistancePips=90.0 --EnablePartialTP=true --Tp1RR=1.0 --Tp1ClosePercent=60.0 \
+            --BlockNewsWindow=true --BlockedWindowsGMT='12:25-12:45;14:25-14:45' \
+            --EnableFibGrid=false --GridMaxLevels=5 --GridMaxTotalRiskPercent=10.0 \
+            --report="/work/reports/${OUT}.html" --report-json="/work/reports/${OUT}.json" \
+            > "reports/${OUT}.console.txt" 2>&1
+          EOF
+          chmod +x run_v28.sh
+
+      - name: Balanced profile M3
+        env: { CTRADER_CTID: '${{ secrets.CTRADER_CTID }}' }
+        run: ./run_v28.sh BAL M3 '12/06/2026 00:00' '11/09/2026 23:59'
+      - name: Balanced profile 1Y
+        env: { CTRADER_CTID: '${{ secrets.CTRADER_CTID }}' }
+        run: ./run_v28.sh BAL 1Y '12/09/2025 00:00' '11/09/2026 23:59'
+      - name: Balanced profile 3Y
+        env: { CTRADER_CTID: '${{ secrets.CTRADER_CTID }}' }
+        run: ./run_v28.sh BAL 3Y '12/09/2023 00:00' '11/09/2026 23:59'
+      - name: Frequency profile M3
+        env: { CTRADER_CTID: '${{ secrets.CTRADER_CTID }}' }
+        run: ./run_v28.sh FREQ M3 '12/06/2026 00:00' '11/09/2026 23:59'
+      - name: Frequency profile 1Y
+        env: { CTRADER_CTID: '${{ secrets.CTRADER_CTID }}' }
+        run: ./run_v28.sh FREQ 1Y '12/09/2025 00:00' '11/09/2026 23:59'
+      - name: Frequency profile 3Y
+        env: { CTRADER_CTID: '${{ secrets.CTRADER_CTID }}' }
+        run: ./run_v28.sh FREQ 3Y '12/09/2023 00:00' '11/09/2026 23:59'
+
+      - name: Build commercial acceptance matrix
+        if: always()
+        run: |
+          mkdir -p reports
+          python3 - <<'PY'
+          import json,glob,os,csv,re
+          def allv(x):
+              if isinstance(x,dict): return x.get('all',0)
+              return x or 0
+          rows=[]
+          for p in sorted(glob.glob('reports/*.json')):
+              d=json.load(open(p)); ts=d.get('tradeStatistics',{}); eq=d.get('equity',{})
+              n=allv(ts.get('totalTrades')); w=allv(ts.get('winningTrades'))
+              name=os.path.basename(p)
+              profile='FREQ' if '-FREQ-' in name else 'BAL'
+              window=next((x for x in ['M3','1Y','3Y'] if f'-{x}-' in name),'?')
+              rows.append({
+                'profile':profile,'window':window,'trades':n,'winrate':(100*w/n if n else 0),
+                'netprofit':allv(ts.get('netProfit')),'pf':allv(ts.get('profitFactor')),
+                'maxdd':eq.get('maxEquityDrawdownPercent',0),'commission':allv(ts.get('commissions'))
+              })
+          with open('reports/acceptance.csv','w',newline='') as f:
+              wr=csv.DictWriter(f,fieldnames=['profile','window','trades','winrate','netprofit','pf','maxdd','commission']); wr.writeheader(); wr.writerows(rows)
+          print(*rows,sep='\n')
+          PY
+          grep -h '\[COMMERCIAL-DIAG\]\|\[PERF\]\|\[RISK-BLOCK\]\|\[RISK-COMPRESS\]' reports/*.console.txt > reports/commercial-diagnostics.txt || true
+
+      - name: Remove private material
+        if: always()
+        run: rm -rf secure
+
+      - name: Upload v28 full source mobile algo and reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: HarmonyBotPro-v28-CommercialFinalRC
+          path: |
+            output/HarmonyBotPro_v28_CommercialFinalRC.cs
+            output/HarmonyBotPro_v28_CommercialFinalRC.cs.sha256
+            output/HarmonyBotPro_v28_CommercialFinalRC_Mobile.algo
+            output/HarmonyBotPro_v28_CommercialFinalRC_Mobile.algo.sha256
+            reports/
+            build.log
+          if-no-files-found: warn
+          retention-days: 30
