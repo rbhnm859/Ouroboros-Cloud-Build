@@ -1,0 +1,218 @@
+name: CDS FX Commercial V3.1 - Full28 1Y Costed Validation
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/cdscalper-fx-commercial-v3-1-full28-1y.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: cds-fx-commercial-v3-1-full28-1y
+  cancel-in-progress: true
+
+jobs:
+  backtest:
+    name: ${{ matrix.symbol }} M1 1Y
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      max-parallel: 14
+      matrix:
+        include:
+          - { symbol: AUDCAD, spread: 1.22 }
+          - { symbol: AUDCHF, spread: 1.05 }
+          - { symbol: AUDJPY, spread: 1.42 }
+          - { symbol: AUDNZD, spread: 1.54 }
+          - { symbol: AUDUSD, spread: 0.61 }
+          - { symbol: CADCHF, spread: 0.92 }
+          - { symbol: CADJPY, spread: 1.22 }
+          - { symbol: CHFJPY, spread: 1.40 }
+          - { symbol: EURAUD, spread: 1.28 }
+          - { symbol: EURCAD, spread: 1.41 }
+          - { symbol: EURCHF, spread: 1.59 }
+          - { symbol: EURGBP, spread: 0.98 }
+          - { symbol: EURJPY, spread: 1.16 }
+          - { symbol: EURNZD, spread: 2.64 }
+          - { symbol: EURUSD, spread: 0.44 }
+          - { symbol: GBPAUD, spread: 2.30 }
+          - { symbol: GBPCAD, spread: 2.29 }
+          - { symbol: GBPCHF, spread: 1.21 }
+          - { symbol: GBPJPY, spread: 2.30 }
+          - { symbol: GBPNZD, spread: 2.68 }
+          - { symbol: GBPUSD, spread: 0.67 }
+          - { symbol: NZDCAD, spread: 2.40 }
+          - { symbol: NZDCHF, spread: 1.18 }
+          - { symbol: NZDJPY, spread: 1.92 }
+          - { symbol: NZDUSD, spread: 1.08 }
+          - { symbol: USDCAD, spread: 1.00 }
+          - { symbol: USDCHF, spread: 0.73 }
+          - { symbol: USDJPY, spread: 0.37 }
+
+    steps:
+      - name: Download exact V3.1 compiled artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: cds-fx-commercial-v3-algo
+          path: bt
+          github-token: ${{ github.token }}
+          repository: rbhnm859/Ouroboros-Cloud-Build
+          run-id: 34703585931
+
+      - name: Verify exact V3.1 artifact
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s bt/CumulativeDeltaScalper_FX_Commercial_v3.algo
+          echo 'Expected SHA256: b4c82d945b76433eea030af86b7e764366385eb60c6bbe26502f0a774b859612'
+          ACTUAL=$(sha256sum bt/CumulativeDeltaScalper_FX_Commercial_v3.algo | awk '{print $1}')
+          echo "Actual SHA256:   $ACTUAL"
+          test "$ACTUAL" = 'b4c82d945b76433eea030af86b7e764366385eb60c6bbe26502f0a774b859612'
+          mkdir -p bt/cache bt/reports
+
+      - name: Pull official cTrader CLI
+        run: docker pull ghcr.io/spotware/ctrader-console:5.9.11
+
+      - name: Create credential file
+        env:
+          CTRADER_PASSWORD: ${{ secrets.CTRADER_PASSWORD }}
+        run: |
+          test -n "${CTRADER_PASSWORD:-}" || { echo 'Missing CTRADER_PASSWORD'; exit 1; }
+          printf '%s' "$CTRADER_PASSWORD" > bt/ctrader.pwd
+          chmod 600 bt/ctrader.pwd
+
+      - name: Backtest ${{ matrix.symbol }} M1 2025-09-12 to 2026-09-12
+        env:
+          CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+          CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+        shell: bash
+        run: |
+          set -o pipefail
+          test -n "${CTRADER_CTID:-}" || { echo 'Missing CTRADER_CTID'; exit 1; }
+          test -n "${CTRADER_ACCOUNT:-}" || { echo 'Missing CTRADER_ACCOUNT'; exit 1; }
+          docker run --rm \
+            -v "$PWD/bt:/work" \
+            -e "CTID=$CTRADER_CTID" \
+            -e 'PWD-FILE=/work/ctrader.pwd' \
+            -e "ACCOUNT=$CTRADER_ACCOUNT" \
+            ghcr.io/spotware/ctrader-console:5.9.11 \
+            backtest /work/CumulativeDeltaScalper_FX_Commercial_v3.algo \
+            --environment-variables --exit-on-stop \
+            --broker=FxPro \
+            --symbol=${{ matrix.symbol }} \
+            --period=m1 \
+            --start='12/09/2025' \
+            --end='12/09/2026' \
+            --balance=100 \
+            --spread=${{ matrix.spread }} \
+            --commission=35 \
+            --commission-type=UsdPerMillionUsdVolume \
+            --precise-conversion \
+            --data-mode=m1 \
+            --data-dir=/work/cache \
+            --report="/work/reports/${{ matrix.symbol }}-1Y-M1.html" \
+            --report-json="/work/reports/${{ matrix.symbol }}-1Y-M1.json" \
+            2>&1 | tee "bt/reports/${{ matrix.symbol }}-1Y-M1.log"
+          test -s "bt/reports/${{ matrix.symbol }}-1Y-M1.json"
+
+      - name: Produce per-pair scorecard
+        env:
+          SYMBOL: ${{ matrix.symbol }}
+          SPREAD: ${{ matrix.spread }}
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import json, os, csv
+          symbol=os.environ['SYMBOL']; spread=float(os.environ['SPREAD'])
+          d=json.loads(Path(f'bt/reports/{symbol}-1Y-M1.json').read_text())
+          m=d.get('main',{}); e=d.get('equity',{}); t=d.get('tradeStatistics',{})
+          def a(k, default=0):
+              v=t.get(k,default); v=v.get('all',default) if isinstance(v,dict) else v
+              try:return float(v)
+              except:return float(default)
+          trades=int(a('totalTrades')); wins=int(a('winningTrades')); losses=int(a('losingTrades'))
+          net=a('netProfit'); pf=a('profitFactor'); avg=a('averageTrade'); comm=a('commissions'); swaps=a('swaps')
+          dd=float(e.get('maxEquityDrawdownPercent') or 0); start=float(m.get('startingCapital') or 100); end=float(m.get('endingBalance') or start+net)
+          wr=100*wins/trades if trades else 0; roi=100*net/start if start else 0
+          sample='PASS' if trades>=50 else 'INSUFFICIENT'
+          commercial='PASS' if (net>0 and pf>=1.25 and dd<=12 and trades>=50) else 'FAIL'
+          row=[symbol,'M1',spread,trades,wins,losses,wr,net,roi,end,pf,dd,avg,comm,swaps,sample,commercial]
+          headers=['symbol','timeframe','spread_pips','trades','wins','losses','win_rate_pct','net_profit','roi_pct','ending_balance','profit_factor','max_equity_dd_pct','average_trade','commissions','swaps','sample_gate','commercial_is_gate']
+          with open(f'bt/reports/{symbol}-summary.csv','w',newline='') as f:
+              w=csv.writer(f); w.writerow(headers); w.writerow(row)
+          text='\n'.join([
+              f'# V3.1 {symbol} M1 — 1Y costed','',
+              f'- Trades: {trades}', f'- Wins/Losses: {wins}/{losses}', f'- Win rate: {wr:.2f}%',
+              f'- Net profit: ${net:.2f}', f'- ROI: {roi:.2f}%', f'- Ending balance: ${end:.2f}',
+              f'- Profit Factor: {pf:.3f}', f'- Max equity DD: {dd:.2f}%', f'- Average trade: ${avg:.3f}',
+              f'- Sample gate: {sample}', f'- Commercial IS gate: {commercial}',''])
+          Path(f'bt/reports/{symbol}-scorecard.md').write_text(text)
+          print(text)
+          PY
+
+      - name: Remove credentials
+        if: always()
+        run: rm -f bt/ctrader.pwd
+
+      - name: Upload pair evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: v3-1-${{ matrix.symbol }}-1y-m1
+          path: |
+            bt/reports/${{ matrix.symbol }}-1Y-M1.html
+            bt/reports/${{ matrix.symbol }}-1Y-M1.json
+            bt/reports/${{ matrix.symbol }}-1Y-M1.log
+            bt/reports/${{ matrix.symbol }}-summary.csv
+            bt/reports/${{ matrix.symbol }}-scorecard.md
+          if-no-files-found: warn
+          retention-days: 30
+
+  aggregate:
+    name: Aggregate Full28 results
+    if: always()
+    needs: backtest
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: v3-1-*-1y-m1
+          path: results
+          merge-multiple: true
+      - name: Build Full28 leaderboard
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import csv
+          files=sorted(Path('results').glob('*-summary.csv'))
+          rows=[]
+          headers=None
+          for p in files:
+              with p.open() as f:
+                  r=list(csv.DictReader(f))
+                  if r:
+                      headers=r[0].keys(); rows.extend(r)
+          if not rows:
+              raise SystemExit('No summary CSV artifacts found')
+          rows.sort(key=lambda x:(float(x.get('net_profit') or 0),float(x.get('profit_factor') or 0)),reverse=True)
+          out=Path('full28-v3-1-1y-summary.csv')
+          with out.open('w',newline='') as f:
+              w=csv.DictWriter(f,fieldnames=list(headers)); w.writeheader(); w.writerows(rows)
+          md=['# V3.1 Full28 — 1Y M1 Costed Leaderboard','', '| Pair | Trades | WR | Net | PF | DD | Gate |','|---|---:|---:|---:|---:|---:|---|']
+          for x in rows:
+              md.append(f"| {x['symbol']} | {x['trades']} | {float(x['win_rate_pct']):.2f}% | ${float(x['net_profit']):.2f} | {float(x['profit_factor']):.3f} | {float(x['max_equity_dd_pct']):.2f}% | {x['commercial_is_gate']} |")
+          Path('full28-v3-1-1y-leaderboard.md').write_text('\n'.join(md)+'\n')
+          print('\n'.join(md))
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: v3-1-full28-1y-aggregate
+          path: |
+            full28-v3-1-1y-summary.csv
+            full28-v3-1-1y-leaderboard.md
+          retention-days: 30
