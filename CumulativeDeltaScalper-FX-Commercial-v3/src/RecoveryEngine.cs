@@ -10,14 +10,14 @@ namespace cAlgo.Robots
         private bool _dailyStateRecovered;
         private DateTime _recoveredDay = DateTime.MinValue;
 
-        // Rebuild from authoritative account history before every entry decision.
-        // This intentionally does more than one-time startup recovery: when the same bot label
-        // is running on several symbols, each cBot instance must see portfolio-wide closes/trades
-        // performed by the other instances before enforcing daily limits.
+        // Rebuild authoritative account state before every entry decision. History-derived recovery
+        // may EXTEND an existing local lockout but must never shorten one (for example an OnException
+        // circuit-breaker lockout that is not represented in trade history).
         private void EnsureDailyStateRecovered()
         {
             var dayStart = Server.Time.Date;
             var firstSyncForDay = !_dailyStateRecovered || _recoveredDay != dayStart;
+            var existingLocalLockout = _nextTradeTime;
 
             var closedToday = History
                 .Where(h => h.Label == TradeLabel &&
@@ -40,7 +40,7 @@ namespace cAlgo.Robots
             // reconstructs the start-of-day balance without allowing a restart to reset the loss cap.
             _dayStartEquity = Math.Max(1.0, Account.Balance - _dailyRealized);
             _consecutiveLosses = 0;
-            _nextTradeTime = DateTime.MinValue;
+            var recoveredLossLockout = DateTime.MinValue;
 
             for (var i = closedToday.Count - 1; i >= 0; i--)
             {
@@ -48,8 +48,8 @@ namespace cAlgo.Robots
                 if (trade.NetProfit < 0)
                 {
                     _consecutiveLosses++;
-                    if (_nextTradeTime == DateTime.MinValue && LossCooldownMinutes > 0)
-                        _nextTradeTime = trade.ClosingTime.AddMinutes(LossCooldownMinutes);
+                    if (recoveredLossLockout == DateTime.MinValue && LossCooldownMinutes > 0)
+                        recoveredLossLockout = trade.ClosingTime.AddMinutes(LossCooldownMinutes);
                 }
                 else if (trade.NetProfit > 0)
                 {
@@ -57,9 +57,13 @@ namespace cAlgo.Robots
                 }
             }
 
-            // Recover the current-symbol bar cooldown as well. Portfolio trade-count/loss state is
-            // shared through History, but a bar index is chart-specific and therefore recovered only
-            // from entries on this symbol.
+            _nextTradeTime = existingLocalLockout > recoveredLossLockout
+                ? existingLocalLockout
+                : recoveredLossLockout;
+
+            // Recover current-symbol bar cooldown. Portfolio trade-count/loss state is shared through
+            // History, but a bar index is chart-specific and therefore recovered only from entries on
+            // this symbol.
             var latestOwnEntry = DateTime.MinValue;
             foreach (var trade in closedToday.Where(h => h.SymbolName == SymbolName))
                 if (trade.EntryTime > latestOwnEntry)
