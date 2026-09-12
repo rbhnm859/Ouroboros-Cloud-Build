@@ -22,7 +22,7 @@ jobs:
         with:
           dotnet-version: '8.0.x'
 
-      - name: Recreate and verify HarmonyBot v26 source
+      - name: Recreate verify and patch HarmonyBot v26 source
         shell: bash
         run: |
           mkdir -p cli-build/HarmonyBotPro
@@ -34,10 +34,54 @@ jobs:
           source = gzip.decompress(base64.b64decode(payload))
           digest = hashlib.sha256(source).hexdigest()
           expected = 'e8d1782174c8f64e7620e2503007541d2ea3bcc2c3daf9fc74e6d21326c65d54'
-          print('source sha256:', digest)
+          print('original source sha256:', digest)
           if digest != expected:
               raise SystemExit(f'Source checksum mismatch: {digest} != {expected}')
-          Path('cli-build/HarmonyBotPro/HarmonyBotPro.cs').write_bytes(source)
+
+          text = source.decode('utf-8')
+          text = text.replace(
+              'long step = _symbol.VolumeInUnitsStep > 0 ? _symbol.VolumeInUnitsStep : 1;',
+              'double step = _symbol.VolumeInUnitsStep > 0 ? _symbol.VolumeInUnitsStep : 1;')
+
+          old_main = '''            var marketParams = new MarketOrderParameters
+            {
+                TradeType = tt,
+                SymbolName = SymbolName,
+                Volume = vol,
+                Label = BotLabel,
+                StopLossPips = slPips,
+                TakeProfitPips = tpPips,
+                SlippagePips = MaxSlippagePips,
+                StopTriggerMethod = StopTriggerMethod.Trade,
+                Comment = "HarmonyBotPro"
+            };
+
+            return ExecuteMarketOrder(marketParams);'''
+          new_main = '''            return ExecuteMarketOrder(tt, SymbolName, vol, BotLabel, slPips, tpPips,
+                "HarmonyBotPro", false, StopTriggerMethod.Trade);'''
+
+          old_grid = '''            var marketParams = new MarketOrderParameters
+            {
+                TradeType = tt,
+                SymbolName = SymbolName,
+                Volume = vol,
+                Label = GridLabel,
+                StopLossPips = slPips,
+                TakeProfitPips = null,
+                SlippagePips = MaxSlippagePips,
+                StopTriggerMethod = StopTriggerMethod.Trade,
+                Comment = "HarmonyBotPro-G"
+            };
+
+            return ExecuteMarketOrder(marketParams);'''
+          new_grid = '''            return ExecuteMarketOrder(tt, SymbolName, vol, GridLabel, slPips, null,
+                "HarmonyBotPro-G", false, StopTriggerMethod.Trade);'''
+
+          if old_main not in text or old_grid not in text:
+              raise SystemExit('Expected market-order blocks not found')
+          text = text.replace(old_main, new_main).replace(old_grid, new_grid)
+          Path('cli-build/HarmonyBotPro/HarmonyBotPro.cs').write_text(text, encoding='utf-8')
+          print('patched source sha256:', hashlib.sha256(text.encode('utf-8')).hexdigest())
           PYCODE
 
           cat > cli-build/HarmonyBotPro/HarmonyBotPro.csproj <<'EOF'
