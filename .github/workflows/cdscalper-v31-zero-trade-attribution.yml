@@ -1,0 +1,109 @@
+name: CDS FX V3.1 - Zero Trade Attribution
+
+on:
+  push:
+    branches: [cds-v31-zero-trade-diagnostic]
+    paths:
+      - '.github/workflows/cdscalper-v31-zero-trade-attribution.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: cds-v31-zero-trade-attribution
+  cancel-in-progress: true
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      max-parallel: 6
+      matrix:
+        include:
+          - { name: default, args: '--SummaryLogging=true' }
+          - { name: risk1pct, args: '--SummaryLogging=true --RiskPercentPerTrade=1.0' }
+          - { name: sessionoff, args: '--SummaryLogging=true --SessionMode=Off' }
+          - { name: h1off, args: '--SummaryLogging=true --RequireH1Agreement=false' }
+          - { name: relaxed_signal, args: '--SummaryLogging=true --RequireH1Agreement=false --MinAveragePressure=15 --MinLastPressure=18 --MinDirectionalBars=2 --MinAdx=12 --MinEmaGapAtr=0 --MaxEmaExtensionAtr=1.50 --BreakoutBufferAtr=0' }
+          - { name: relaxed_all_risk1, args: '--SummaryLogging=true --SessionMode=Off --RiskPercentPerTrade=1.0 --RequireH1Agreement=false --MinAveragePressure=15 --MinLastPressure=18 --MinDirectionalBars=2 --MinAdx=12 --MinEmaGapAtr=0 --MaxEmaExtensionAtr=1.50 --BreakoutBufferAtr=0' }
+
+    steps:
+      - name: Download exact V3.1 binary
+        uses: actions/download-artifact@v4
+        with:
+          name: cds-fx-commercial-v3-algo
+          path: bt
+          github-token: ${{ github.token }}
+          repository: rbhnm859/Ouroboros-Cloud-Build
+          run-id: 34703585931
+
+      - name: Verify exact SHA
+        run: |
+          set -euo pipefail
+          test -s bt/CumulativeDeltaScalper_FX_Commercial_v3.algo
+          ACTUAL=$(sha256sum bt/CumulativeDeltaScalper_FX_Commercial_v3.algo | awk '{print $1}')
+          echo "$ACTUAL"
+          test "$ACTUAL" = 'b4c82d945b76433eea030af86b7e764366385eb60c6bbe26502f0a774b859612'
+          mkdir -p bt/cache bt/reports
+
+      - name: Pull cTrader CLI
+        run: docker pull ghcr.io/spotware/ctrader-console:5.9.11
+
+      - name: Prepare credentials
+        env:
+          CTRADER_PASSWORD: ${{ secrets.CTRADER_PASSWORD }}
+        run: |
+          test -n "${CTRADER_PASSWORD:-}"
+          printf '%s' "$CTRADER_PASSWORD" > bt/ctrader.pwd
+          chmod 600 bt/ctrader.pwd
+
+      - name: Run EURUSD attribution ${{ matrix.name }}
+        env:
+          CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+          CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+          EXTRA_ARGS: ${{ matrix.args }}
+        shell: bash
+        run: |
+          set -o pipefail
+          test -n "${CTRADER_CTID:-}"
+          test -n "${CTRADER_ACCOUNT:-}"
+          docker run --rm \
+            -v "$PWD/bt:/work" \
+            -e "CTID=$CTRADER_CTID" \
+            -e 'PWD-FILE=/work/ctrader.pwd' \
+            -e "ACCOUNT=$CTRADER_ACCOUNT" \
+            ghcr.io/spotware/ctrader-console:5.9.11 \
+            backtest /work/CumulativeDeltaScalper_FX_Commercial_v3.algo \
+            --environment-variables --exit-on-stop \
+            --broker=FxPro --symbol=EURUSD --period=m1 \
+            --start='12/09/2025' --end='12/09/2026' \
+            --balance=100 --spread=0.44 --commission=35 --data-mode=m1 \
+            --data-dir=/work/cache \
+            $EXTRA_ARGS \
+            --report-json="/work/reports/${{ matrix.name }}.json" \
+            2>&1 | tee "bt/reports/${{ matrix.name }}.log"
+
+      - name: Extract V3 summary
+        if: always()
+        shell: bash
+        run: |
+          echo '=== V3 SUMMARY ==='
+          grep -E '\[V3 SUMMARY\]|\[V3 CRITICAL\]|\[V3 EXCEPTION\]' "bt/reports/${{ matrix.name }}.log" || true
+          echo '=== CLI RESULT ==='
+          grep -E 'Total Trades|Net Profit|Profit Factor|Drawdown|Error:' "bt/reports/${{ matrix.name }}.log" | tail -n 30 || true
+
+      - name: Remove credentials
+        if: always()
+        run: rm -f bt/ctrader.pwd
+
+      - name: Upload diagnostic
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: v31-zero-trade-${{ matrix.name }}
+          path: bt/reports/
+          retention-days: 7
