@@ -110,7 +110,7 @@ namespace cAlgo.Robots
             if (!ProtectionUpdateAllowed(state))
                 return;
 
-            var result = ModifyPosition(position, newStop, position.TakeProfit);
+            var result = ModifyPosition(position, newStop, position.TakeProfit, ProtectionType.Absolute);
             if (!result.IsSuccessful)
             {
                 Print("[V3 PROTECTION] breakeven modify failed id={0} error={1}", position.Id, result.Error);
@@ -139,7 +139,7 @@ namespace cAlgo.Robots
             if (!CanImproveStop(position, newStop, MinTrailStepPips))
                 return;
 
-            var result = ModifyPosition(position, newStop, position.TakeProfit);
+            var result = ModifyPosition(position, newStop, position.TakeProfit, ProtectionType.Absolute);
             if (!result.IsSuccessful)
             {
                 Print("[V3 PROTECTION] trail modify failed id={0} error={1}", position.Id, result.Error);
