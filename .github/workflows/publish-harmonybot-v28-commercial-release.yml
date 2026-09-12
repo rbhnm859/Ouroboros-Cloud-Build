@@ -1,0 +1,78 @@
+name: Publish HarmonyBotPro v28 Commercial Release
+
+on:
+  push:
+    branches:
+      - harmonybot-v28-commercial-final-rc
+    paths:
+      - '.github/workflows/publish-harmonybot-v28-commercial-release.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  publish-release-files:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: harmonybot-v28-commercial-final-rc
+          fetch-depth: 0
+
+      - name: Download exact successful V28 build artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          rm -rf .release-tmp
+          mkdir -p .release-tmp releases/HarmonyBotPro-v28
+          curl -fsSL \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/artifacts/10301368977/zip" \
+            -o .release-tmp/build.zip
+          unzip -oq .release-tmp/build.zip -d .release-tmp/build
+          test -s .release-tmp/build/HarmonyBotPro_v28_CommercialFinalRC_Mobile.algo
+          test -s .release-tmp/build/HarmonyBotPro_v28_CommercialFinalRC.cs
+          echo 'dbcef1836cae2e36529f45771cd8e0dcf8d9733361c5bcf7444a31334fa2044d  .release-tmp/build/HarmonyBotPro_v28_CommercialFinalRC_Mobile.algo' | sha256sum -c -
+          echo '1b774d03af24e413a6e5e6ca43eba2d1d11aefd390df4d550ecf07ae79b1196d  .release-tmp/build/HarmonyBotPro_v28_CommercialFinalRC.cs' | sha256sum -c -
+
+      - name: Stage release package
+        run: |
+          set -euo pipefail
+          cp .release-tmp/build/HarmonyBotPro_v28_CommercialFinalRC_Mobile.algo releases/HarmonyBotPro-v28/
+          cp .release-tmp/build/HarmonyBotPro_v28_CommercialFinalRC.cs releases/HarmonyBotPro-v28/
+          cp .release-tmp/build/HarmonyBotPro_v28_CommercialFinalRC_Mobile.algo.sha256 releases/HarmonyBotPro-v28/
+          cp .release-tmp/build/HarmonyBotPro_v28_CommercialFinalRC.cs.sha256 releases/HarmonyBotPro-v28/
+          cp .release-tmp/build/build.log releases/HarmonyBotPro-v28/
+          cat > releases/HarmonyBotPro-v28/README.md <<'EOF'
+          # HarmonyBotPro v28 Commercial Final RC
+
+          cTrader Mobile/Cloud build package for the V28 Commercial Final RC.
+
+          - Binary: `HarmonyBotPro_v28_CommercialFinalRC_Mobile.algo`
+          - Full source: `HarmonyBotPro_v28_CommercialFinalRC.cs`
+          - Algo SHA256: `dbcef1836cae2e36529f45771cd8e0dcf8d9733361c5bcf7444a31334fa2044d`
+          - Source SHA256: `1b774d03af24e413a6e5e6ca43eba2d1d11aefd390df4d550ecf07ae79b1196d`
+          - Build target: net6.0 / cTrader.Automate 1.0.19
+          - Build mode: IncludeSource=false for the `.algo`; full source is supplied separately.
+          - Successful source build artifact: GitHub Actions artifact `10301368977`.
+          EOF
+          (cd releases/HarmonyBotPro-v28 && zip -q -j HarmonyBotPro-v28-Mobile-Release.zip HarmonyBotPro_v28_CommercialFinalRC_Mobile.algo HarmonyBotPro_v28_CommercialFinalRC.cs HarmonyBotPro_v28_CommercialFinalRC_Mobile.algo.sha256 HarmonyBotPro_v28_CommercialFinalRC.cs.sha256 build.log README.md)
+
+      - name: Commit release files to repository
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add releases/HarmonyBotPro-v28
+          if git diff --cached --quiet; then
+            echo 'Release files already current.'
+            exit 0
+          fi
+          git commit -m 'Publish HarmonyBotPro v28 Mobile algo and full source'
+          git push origin HEAD:harmonybot-v28-commercial-final-rc
