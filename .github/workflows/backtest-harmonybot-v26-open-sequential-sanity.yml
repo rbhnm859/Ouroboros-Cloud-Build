@@ -11,7 +11,7 @@ permissions:
 jobs:
   sanity:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - name: Prepare exact v26 and FxPro Live USD 1:500
@@ -42,7 +42,7 @@ jobs:
           print('FxPro Live USD 1:500 selected (number masked)')
           PY
           rm -f backtest/secure/accounts.json
-      - name: Run D7 M3 M6 1Y 3Y sequentially using M15 open prices
+      - name: Run D7 M3 M6 1Y 3Y sequentially using M15 open prices and exit-on-stop
         env:
           CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
         run: |
@@ -60,7 +60,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: HarmonyBotPro-v26-Open-Sanity-5Windows
+          name: HarmonyBotPro-v26-Open-Sanity-5Windows-exit-on-stop
           path: backtest/reports/
           if-no-files-found: warn
           retention-days: 30
