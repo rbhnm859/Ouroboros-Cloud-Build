@@ -6,11 +6,16 @@ namespace cAlgo.Robots
 {
     public partial class CumulativeDeltaScalper_FX_Commercial_v3
     {
+        private static readonly string[] SupportedFxCurrencies =
+        {
+            "USD", "EUR", "GBP", "JPY", "CHF", "CAD", "AUD", "NZD"
+        };
+
         private bool IsValidationSymbolAllowed()
         {
             var canonical = CanonicalSymbolName();
             var source = UseProductionWhitelist ? ProductionWhitelist : ValidationUniverse;
-            if (string.IsNullOrWhiteSpace(source))
+            if (string.IsNullOrWhiteSpace(source) || canonical.Length != 6)
                 return false;
 
             return source.Split(',')
@@ -21,10 +26,25 @@ namespace cAlgo.Robots
 
         private string CanonicalSymbolName()
         {
+            // Broker symbols can contain prefixes/suffixes such as fx_EURUSD, EURUSD.c or mEURUSDraw.
+            // Scan the normalized symbol for the first valid base/quote currency pair rather than
+            // blindly taking the first six letters, which breaks prefix-bearing symbols.
             var letters = new string(SymbolName.ToUpperInvariant().Where(char.IsLetter).ToArray());
-            if (letters.Length >= 6)
-                return letters.Substring(0, 6);
-            return letters;
+            if (letters.Length < 6)
+                return string.Empty;
+
+            for (var i = 0; i <= letters.Length - 6; i++)
+            {
+                var candidate = letters.Substring(i, 6);
+                var baseCurrency = candidate.Substring(0, 3);
+                var quoteCurrency = candidate.Substring(3, 3);
+                if (IsOneOf(baseCurrency, SupportedFxCurrencies) &&
+                    IsOneOf(quoteCurrency, SupportedFxCurrencies) &&
+                    baseCurrency != quoteCurrency)
+                    return candidate;
+            }
+
+            return string.Empty;
         }
 
         private bool IsSupportedTimeFrame()
@@ -37,8 +57,8 @@ namespace cAlgo.Robots
 
         private bool IsWithinTradingSession(DateTime utc)
         {
-            // Entry guards are reached before every new order. Rebuild day state once after startup/restart
-            // so a restart cannot reset daily loss, trade-count or consecutive-loss protection.
+            // Refresh authoritative account state before each entry decision so restart and
+            // cross-symbol cBot instances cannot bypass portfolio daily protections.
             EnsureDailyStateRecovered();
 
             if (SessionMode == V3SessionMode.Off)
