@@ -26,6 +26,7 @@ jobs:
       - name: Recreate and patch v26.1 source
         run: |
           python3 tmp/harmonybot-v26-build/build_v261_frequency.py
+          python3 tmp/harmonybot-v26-build/fix_v261_mtf_overload.py
           cat > cli-build/HarmonyBotPro_v261/HarmonyBotPro.csproj <<'EOF'
           <Project Sdk="Microsoft.NET.Sdk">
             <PropertyGroup>
