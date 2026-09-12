@@ -1,0 +1,201 @@
+name: HarmonyBotPro v27 Commercial RC Deep Validation
+
+on:
+  push:
+    branches:
+      - harmonybot-v27-commercial-rc
+    paths:
+      - '.github/workflows/build-backtest-harmonybot-v27-commercial-rc.yml'
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  commercial-rc:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Recreate and deep-patch v27 source
+        run: |
+          set -euo pipefail
+          python3 tmp/harmonybot-v26-build/build_v261_frequency.py
+          python3 tmp/harmonybot-v26-build/fix_v261_mtf_overload.py
+          python3 tmp/harmonybot-v26-build/fix_v262_frequency_safe.py
+          python3 tmp/harmonybot-v26-build/fix_v262_grid_guard_band.py
+          python3 tmp/harmonybot-v26-build/fix_v27_commercial_rc.py
+          python3 tmp/harmonybot-v26-build/fix_v27_rr_sync.py
+          cat > cli-build/HarmonyBotPro_v261/HarmonyBotPro.csproj <<'EOF'
+          <Project Sdk="Microsoft.NET.Sdk">
+            <PropertyGroup>
+              <TargetFramework>net6.0</TargetFramework>
+              <ImplicitUsings>disable</ImplicitUsings>
+              <Nullable>disable</Nullable>
+              <AlgoName>HarmonyBotPro_v27_Commercial_RC</AlgoName>
+              <AlgoBuild>true</AlgoBuild>
+              <AlgoPublish>false</AlgoPublish>
+              <IncludeSource>false</IncludeSource>
+            </PropertyGroup>
+            <ItemGroup>
+              <PackageReference Include="cTrader.Automate" Version="1.0.19" />
+            </ItemGroup>
+          </Project>
+          EOF
+
+      - name: Compile mobile algo
+        run: |
+          set -euo pipefail
+          dotnet restore cli-build/HarmonyBotPro_v261/HarmonyBotPro.csproj
+          dotnet build cli-build/HarmonyBotPro_v261/HarmonyBotPro.csproj -c Release --no-restore -p:AlgoPublish=false -p:IncludeSource=false
+          mkdir -p output reports secure
+          ALGO=$(find cli-build/HarmonyBotPro_v261 -type f -name '*.algo' | head -n 1)
+          test -n "$ALGO"
+          cp "$ALGO" output/HarmonyBotPro_v27_Commercial_RC_Mobile.algo
+          sha256sum output/HarmonyBotPro_v27_Commercial_RC_Mobile.algo | tee output/HarmonyBotPro_v27_Commercial_RC_Mobile.algo.sha256
+
+      - name: Prepare FxPro Live USD 1:500 context
+        env:
+          CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+          CTRADER_PASSWORD: ${{ secrets.CTRADER_PASSWORD }}
+        run: |
+          set -euo pipefail
+          docker pull ghcr.io/spotware/ctrader-console:latest
+          printf '%s' "$CTRADER_PASSWORD" > secure/pwd
+          chmod 600 secure/pwd
+          docker run --rm -v "$PWD/secure:/secure" \
+            -e "CTID=$CTRADER_CTID" -e 'PWD-FILE=/secure/pwd' \
+            ghcr.io/spotware/ctrader-console:latest accounts --environment-variables > secure/accounts.json
+          python3 - <<'PY'
+          import json
+          d=json.load(open('secure/accounts.json',encoding='utf-8-sig'))
+          m=[x for x in d if str(x.get('Broker','')).lower()=='fxpro' and bool(x.get('Live')) and str(x.get('DepositCurrency','')).upper()=='USD' and int(x.get('Leverage',0))==500]
+          if not m: raise SystemExit('No matching FxPro Live USD 1:500 account')
+          open('secure/account','w').write(str(m[0]['Number']))
+          print('FxPro Live USD 1:500 selected (masked)')
+          PY
+          rm -f secure/accounts.json
+
+      - name: Create v27 runner
+        run: |
+          cat > run_v27.sh <<'EOF'
+          #!/usr/bin/env bash
+          set -euo pipefail
+          LABEL="$1"; START="$2"; END="$3"; MODE="${4:-open}"
+          ACCOUNT="$(cat secure/account)"
+          OUT="HarmonyBotPro-v27-XAUUSD-M15-100-${LABEL}-FxPro-Live500-${MODE}"
+          docker run --rm \
+            -v "$PWD/output:/work/output" -v "$PWD/reports:/work/reports" -v "$PWD/secure:/secure" \
+            -e "CTID=$CTRADER_CTID" -e 'PWD-FILE=/secure/pwd' -e "ACCOUNT=$ACCOUNT" \
+            ghcr.io/spotware/ctrader-console:latest \
+            backtest /work/output/HarmonyBotPro_v27_Commercial_RC_Mobile.algo --environment-variables --exit-on-stop \
+            --broker=FxPro --symbol=XAUUSD --period=m15 --start="$START" --end="$END" \
+            --balance=100 --data-mode="$MODE" --commission=35 --spread=17.14 \
+            --SymbolName=XAUUSD --RiskPercent=1.5 --MaxDrawdown=10.0 --DailyLossLimitPercent=4.0 --WeeklyLossLimitPercent=8.0 \
+            --MonthlyTargetPercent=12.0 --RiskAfterMonthlyTarget=0.5 --CloseAllOnDailyLock=false \
+            --AutoReprotectOnStart=true --EmergencySlAtrMult=2.0 --EmergencyTpRR=2.0 \
+            --MaxConsecutiveLosses=3 --ConsecutiveLossCooldownMin=60 --MarginBufferPercent=20.0 \
+            --SmallAccountMode=true --SmallAccountThreshold=100.0 --SmallAccountMinSLPips=25.0 --SmallAccountMinTPPips=50.0 \
+            --AllowMinVolumeFallback=true --MinVolumeRiskCapPercent=5.0 --MicroMinVolumeRiskCapPercent=10.0 \
+            --MaxNotionalToEquityRatio=500.0 --SessionStart=8 --SessionEnd=22 --MTFEnabled=true --H4FilterEnabled=false --PatternConfidence=0.72 \
+            --MaxConcurrentTrades=3 --MaxSameDirectionTrades=1 --AntiHedge=true --MaxTradesPerDay=4 --CooldownMinutes=10 \
+            --AtrPeriod=14 --SlAtrMult=1.2 --TpCdMult=1.0 --MinRR=2.0 --UseCostAdjustedRR=true \
+            --MaxSpreadPips=35.0 --MinStopLossPips=100.0 --MinTakeProfitPips=200.0 --MinStopDistancePips=15.0 \
+            --MinAtrPrice=3.0 --MaxSlippagePips=30.0 --SwingDepth=5 --SwingLookback=200 --PivotScanCount=14 --MinLegAtrRatio=0.8 \
+            --EnableGartley=true --EnableBat=true --EnableButterfly=true --EnableCrab=true --EnableCypher=true --EnableRat=true \
+            --EnableDeepGartley=true --EnableAltBat=false --EnableDeepCrab=true --EnableABCD=true --EnableShark=true --EnableFiveZero=false \
+            --GlobalMinScore=0.55 --ConsensusBonus=1.12 --FibTolerance=0.05 --MaxEntryDeviationAtr=0.5 \
+            --AdaptiveFrequencyRecovery=true --SoftMtfReversalGate=true --CounterTrendConfidenceBuffer=0.06 --AdaptiveEntryDeviationFloor=0.85 \
+            --ClosedBarProvisionalD=true --ProvisionalDMinMoveAtr=0.30 --SmallAccountGridGuard=true \
+            --CommercialRiskEngine=true --ProjectedRiskGuard=true --RiskHeadroomPercent=0.25 \
+            --CompressStopToRiskBudget=true --MaxStopCompressionRatio=0.95 --CompressedTargetRR=2.4 --DisablePartialAtMinVolume=true \
+            --MaxTradesPerPatternPercent=50 --AutoDisableLosing=true --AutoDisableWinRate=50.0 \
+            --SlUpdateStepPips=2.0 --SlUpdateCooldownSec=5 --BreakEvenTriggerPips=100.0 --BreakEvenOffsetPips=10.0 \
+            --TrailingTriggerPips=150.0 --TrailingDistancePips=90.0 --EnablePartialTP=true --Tp1RR=1.0 --Tp1ClosePercent=60.0 \
+            --BlockNewsWindow=true --BlockedWindowsGMT='12:25-12:45;14:25-14:45' \
+            --EnableFibGrid=true --GridMaxLevels=5 --GridLevelFibs='0.382,0.618,0.786,1.0,1.272,1.618,2.618,4.236' \
+            --GridSizeFibs='1,1,2,3,5,8,13,21' --GridProfitFib=0.618 --GridStopFib=2.618 --GridMaxTotalRiskPercent=10.0 \
+            --GridCooldownMinutes=15 --GridMinStepPips=20.0 --GridOnlyWithTrend=true --GridUseGoldenMath=true \
+            --GridGoldenRiskConvergence=true --GridGoldenTrailCompression=true --GridBreakevenTriggerR=0.25 --GridBreakevenLockPips=5.0 \
+            --GridTrailTriggerR=0.5 --GridTrailDistanceFib=0.382 --GridScaleOutEnabled=true --GridScaleOutR=0.618 \
+            --GridScaleOutPercent=38.2 --GridMaxAddsPerDay=6 --GridVolatilityAdapt=true --GridDrawdownScaleRisk=true \
+            --report="/work/reports/${OUT}.html" --report-json="/work/reports/${OUT}.json" \
+            > "reports/${OUT}.console.txt" 2>&1
+          EOF
+          chmod +x run_v27.sh
+
+      - name: Backtest D7
+        env: { CTRADER_CTID: '${{ secrets.CTRADER_CTID }}' }
+        run: ./run_v27.sh D7 '05/09/2026 00:00' '11/09/2026 23:59' open
+
+      - name: Backtest M3
+        env: { CTRADER_CTID: '${{ secrets.CTRADER_CTID }}' }
+        run: ./run_v27.sh M3 '12/06/2026 00:00' '11/09/2026 23:59' open
+
+      - name: Backtest M6
+        env: { CTRADER_CTID: '${{ secrets.CTRADER_CTID }}' }
+        run: ./run_v27.sh M6 '12/03/2026 00:00' '11/09/2026 23:59' open
+
+      - name: Backtest OOS1Y
+        env: { CTRADER_CTID: '${{ secrets.CTRADER_CTID }}' }
+        run: ./run_v27.sh OOS1Y '12/09/2025 00:00' '11/09/2026 23:59' open
+
+      - name: Backtest IS2Y
+        env: { CTRADER_CTID: '${{ secrets.CTRADER_CTID }}' }
+        run: ./run_v27.sh IS2Y '12/09/2023 00:00' '11/09/2025 23:59' open
+
+      - name: Backtest 3Y
+        env: { CTRADER_CTID: '${{ secrets.CTRADER_CTID }}' }
+        run: ./run_v27.sh 3Y '12/09/2023 00:00' '11/09/2026 23:59' open
+
+      - name: Summarize commercial metrics
+        if: always()
+        run: |
+          python3 - <<'PY' | tee reports/V27_SUMMARY.csv
+          import json,glob,os
+          print('window,trades,wins,winRate,netProfit,profitFactor,avgTrade,maxEquityDD,maxBalanceDD')
+          order=['D7','M3','M6','OOS1Y','IS2Y','3Y']
+          rows=[]
+          for p in glob.glob('reports/*.json'):
+              d=json.load(open(p))
+              n=os.path.basename(p)
+              label=next((x for x in order if f'-{x}-' in n),None)
+              if not label: continue
+              ts=d.get('tradeStatistics',{}); eq=d.get('equity',{})
+              def a(k,default=0):
+                  v=ts.get(k,default)
+                  return v.get('all',default) if isinstance(v,dict) else v
+              t=a('totalTrades'); w=a('winningTrades'); wr=(100*w/t if t else 0)
+              rows.append((order.index(label),label,t,w,wr,a('netProfit'),a('profitFactor'),a('averageTrade'),eq.get('maxEquityDrawdownPercent',0),eq.get('maxBalanceDrawdownPercent',0)))
+          for r in sorted(rows):
+              _,label,t,w,wr,net,pf,avg,edd,bdd=r
+              print(f'{label},{t},{w},{wr:.2f},{net},{pf},{avg},{edd},{bdd}')
+          PY
+
+      - name: Scan runtime defects
+        if: always()
+        run: |
+          grep -R -nE 'EXCEPTION|EntityNotFound|InvalidRequest|ORDER ERROR|SL MODIFY ERROR|FAILED with error' reports/*.console.txt > reports/V27_RUNTIME_DEFECTS.txt || true
+          grep -R -h '\[COMMERCIAL-DIAG\]' reports/*.console.txt > reports/V27_DIAGNOSTICS.txt || true
+          grep -R -hE '\[RISK-COMPRESS\]|\[RISK-BLOCK\]|\[VOLUME\]|\[DAILY LOCK\]|\[WEEKLY LOCK\]|Max drawdown' reports/*.console.txt > reports/V27_RISK_EVENTS.txt || true
+
+      - name: Remove private material
+        if: always()
+        run: rm -rf secure
+
+      - name: Upload v27 mobile and validation reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: HarmonyBotPro-v27-Commercial-RC
+          path: |
+            output/HarmonyBotPro_v27_Commercial_RC_Mobile.algo
+            output/HarmonyBotPro_v27_Commercial_RC_Mobile.algo.sha256
+            reports/
+          if-no-files-found: warn
+          retention-days: 30
