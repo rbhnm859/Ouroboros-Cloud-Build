@@ -1,0 +1,83 @@
+name: Compile HarmonyBot v26 Mobile
+
+on:
+  push:
+    branches:
+      - compile-harmonybot-v26-20260912
+    paths:
+      - '.github/workflows/compile-harmonybot-v26-temp.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Recreate and verify HarmonyBot v26 source
+        shell: bash
+        run: |
+          mkdir -p cli-build/HarmonyBotPro
+          python3 - <<'PYCODE'
+          from pathlib import Path
+          import base64, gzip, hashlib
+          root = Path('tmp/harmonybot-v26-build')
+          payload = ''.join((root / f'payload.part0{i}').read_text() for i in range(1, 5))
+          source = gzip.decompress(base64.b64decode(payload))
+          digest = hashlib.sha256(source).hexdigest()
+          expected = 'e8d1782174c8f64e7620e2503007541d2ea3bcc2c3daf9fc74e6d21326c65d54'
+          print('source sha256:', digest)
+          if digest != expected:
+              raise SystemExit(f'Source checksum mismatch: {digest} != {expected}')
+          Path('cli-build/HarmonyBotPro/HarmonyBotPro.cs').write_bytes(source)
+          PYCODE
+
+          cat > cli-build/HarmonyBotPro/HarmonyBotPro.csproj <<'EOF'
+          <Project Sdk="Microsoft.NET.Sdk">
+            <PropertyGroup>
+              <TargetFramework>net8.0</TargetFramework>
+              <ImplicitUsings>disable</ImplicitUsings>
+              <Nullable>disable</Nullable>
+              <AlgoName>HarmonyBotPro_v26</AlgoName>
+              <AlgoBuild>true</AlgoBuild>
+              <AlgoPublish>false</AlgoPublish>
+              <IncludeSource>false</IncludeSource>
+            </PropertyGroup>
+            <ItemGroup>
+              <PackageReference Include="cTrader.Automate" Version="1.0.19" />
+            </ItemGroup>
+          </Project>
+          EOF
+
+      - name: Restore
+        run: dotnet restore cli-build/HarmonyBotPro/HarmonyBotPro.csproj
+
+      - name: Build Release ALGO
+        run: dotnet build cli-build/HarmonyBotPro/HarmonyBotPro.csproj -c Release --no-restore -p:AlgoPublish=false -p:IncludeSource=false
+
+      - name: Collect ALGO
+        shell: bash
+        run: |
+          mkdir -p output
+          ALGO=$(find cli-build/HarmonyBotPro -type f -name '*.algo' | head -n 1)
+          test -n "$ALGO"
+          cp "$ALGO" output/HarmonyBotPro_v26_Mobile.algo
+          sha256sum output/HarmonyBotPro_v26_Mobile.algo | tee output/HarmonyBotPro_v26_Mobile.algo.sha256
+          ls -lh output/HarmonyBotPro_v26_Mobile.algo
+
+      - name: Upload mobile artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: HarmonyBotPro-v26-Mobile
+          path: |
+            output/HarmonyBotPro_v26_Mobile.algo
+            output/HarmonyBotPro_v26_Mobile.algo.sha256
+          if-no-files-found: error
