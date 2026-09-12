@@ -85,7 +85,7 @@ namespace cAlgo.Robots
             _entryCount++;
             _lastEntryBarIndex = closedIndex;
 
-            DebugLog("OPEN {0} setup={1} vol={2} SL={3:F2} TP={4:F2} pressure={5:F1} momentumR={6:F2} risk={7:F2}",
+            DebugLog("OPEN {0} setup={1} vol={2} SL={3:F2} TP={4:F2} pressure={5:F1} momentumR={6:F2} allInRisk={7:F2}",
                 candidate.Direction, candidate.Setup, volume, stopPips, takePips, candidate.Pressure, candidate.MomentumR, state.InitialRiskMoney);
         }
 
@@ -95,27 +95,37 @@ namespace cAlgo.Robots
                 return 0;
 
             var hardCap = Math.Max(0.01, Account.Equity * HardRiskCapPercentOfEquity / 100.0);
-            var targetRisk = RiskMode == V3RiskMode.FixedMoney
-                ? FixedMoneyRisk
+            var requestedAllInRisk = RiskMode == V3RiskMode.FixedMoney
+                ? Math.Max(0.01, FixedMoneyRisk)
                 : RiskMode == V3RiskMode.FixedLots
                     ? hardCap
-                    : Account.Equity * RiskPercentPerTrade / 100.0;
-            targetRisk = Math.Min(targetRisk, hardCap);
+                    : Math.Max(0.01, Account.Equity * RiskPercentPerTrade / 100.0);
+            requestedAllInRisk = Math.Min(requestedAllInRisk, hardCap);
 
-            // First prove the broker minimum volume itself fits the cap. Never round an unsafe value up to minimum.
+            // First prove the broker minimum volume itself fits both the requested all-in risk and hard cap.
+            // Never round an unsafe value up to minimum volume.
             var minStopRisk = Symbol.AmountRisked(Symbol.VolumeInUnitsMin, stopPips);
             var minAllInRisk = minStopRisk + EstimateRoundTripCommissionMoney(Symbol.VolumeInUnitsMin);
-            if (minAllInRisk > hardCap * (1.0 + RiskAuditTolerancePercent / 100.0))
+            var tolerance = 1.0 + RiskAuditTolerancePercent / 100.0;
+            var applicableCap = RiskMode == V3RiskMode.FixedLots ? hardCap : Math.Min(requestedAllInRisk, hardCap);
+            if (minAllInRisk > applicableCap * tolerance)
             {
-                DebugLog("BLOCK min_volume_risk minVol={0} allInRisk={1:F2} hardCap={2:F2}", Symbol.VolumeInUnitsMin, minAllInRisk, hardCap);
+                DebugLog("BLOCK min_volume_risk minVol={0} allInRisk={1:F2} cap={2:F2}", Symbol.VolumeInUnitsMin, minAllInRisk, applicableCap);
                 return 0;
             }
 
             double rawVolume;
             if (RiskMode == V3RiskMode.FixedLots)
+            {
                 rawVolume = Symbol.QuantityToVolumeInUnits(FixedLotSize);
+            }
             else
-                rawVolume = Symbol.VolumeForFixedRisk(targetRisk, stopPips, RoundingMode.Down);
+            {
+                // Reserve an initial commission budget before asking the platform for fixed-risk volume.
+                var initialCommission = EstimateRoundTripCommissionMoney(Symbol.VolumeInUnitsMin);
+                var stopRiskBudget = Math.Max(0.01, requestedAllInRisk - initialCommission);
+                rawVolume = Symbol.VolumeForFixedRisk(stopRiskBudget, stopPips, RoundingMode.Down);
+            }
 
             var maxUnitsFromSetting = Symbol.QuantityToVolumeInUnits(MaxLotSize);
             rawVolume = Math.Min(rawVolume, Math.Min(maxUnitsFromSetting, Symbol.VolumeInUnitsMax));
@@ -127,12 +137,24 @@ namespace cAlgo.Robots
                 return 0;
             }
 
+            // Recalculate with the actual normalized volume. If all-in risk is still too large,
+            // scale down and normalize DOWN again rather than accepting a larger risk than requested.
             var actualStopRisk = Symbol.AmountRisked(volume, stopPips);
             var allInRisk = actualStopRisk + EstimateRoundTripCommissionMoney(volume);
-            var allowed = hardCap * (1.0 + RiskAuditTolerancePercent / 100.0);
-            if (double.IsNaN(allInRisk) || double.IsInfinity(allInRisk) || allInRisk > allowed)
+            if (allInRisk > applicableCap * tolerance && allInRisk > 0)
             {
-                DebugLog("BLOCK post_normalization_risk vol={0} stopRisk={1:F2} allIn={2:F2} allowed={3:F2}", volume, actualStopRisk, allInRisk, allowed);
+                volume *= applicableCap / allInRisk;
+                volume = Symbol.NormalizeVolumeInUnits(volume, RoundingMode.Down);
+            }
+
+            if (volume < Symbol.VolumeInUnitsMin)
+                return 0;
+
+            actualStopRisk = Symbol.AmountRisked(volume, stopPips);
+            allInRisk = actualStopRisk + EstimateRoundTripCommissionMoney(volume);
+            if (double.IsNaN(allInRisk) || double.IsInfinity(allInRisk) || allInRisk > applicableCap * tolerance)
+            {
+                DebugLog("BLOCK post_normalization_risk vol={0} stopRisk={1:F2} allIn={2:F2} cap={3:F2}", volume, actualStopRisk, allInRisk, applicableCap);
                 return 0;
             }
 
@@ -166,8 +188,8 @@ namespace cAlgo.Robots
             if (mid <= 0)
                 return 0;
 
-            // For USD-per-million-USD-volume commission, USD notional conversion cancels PipValue.
-            // round-trip commission pips = 2 * commission * price / (1,000,000 * pip size).
+            // For USD-per-million-USD-volume commission, conversion to account currency is represented
+            // by PipValue. The pips formula below is converted back to money using Symbol.PipValue.
             return 2.0 * CommissionPerMillionUsd * mid / (1000000.0 * Symbol.PipSize);
         }
 
