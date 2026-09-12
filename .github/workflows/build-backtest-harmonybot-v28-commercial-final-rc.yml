@@ -8,6 +8,8 @@ on:
       - '.github/workflows/build-backtest-harmonybot-v28-commercial-final-rc.yml'
       - 'tmp/harmonybot-v26-build/fix_v28_frequency_architecture.py'
       - 'tmp/harmonybot-v26-build/fix_v28_cost_rr.py'
+      - 'tmp/harmonybot-v26-build/fix_v28_release_audit.py'
+      - 'tmp/harmonybot-v26-build/fix_v28_pattern_integrity.py'
   workflow_dispatch:
 
 permissions:
@@ -71,7 +73,12 @@ jobs:
           grep -q 'ExecuteMarketRangeOrder' output/HarmonyBotPro_v28_CommercialFinalRC.cs
           grep -q 'RangeAwareRatioScore' output/HarmonyBotPro_v28_CommercialFinalRC.cs
           grep -q 'EstimateRoundTurnCommissionPips' output/HarmonyBotPro_v28_CommercialFinalRC.cs
+          grep -q 'Signal Dedupe Bars' output/HarmonyBotPro_v28_CommercialFinalRC.cs
+          grep -q 'reciprocalIdeal' output/HarmonyBotPro_v28_CommercialFinalRC.cs
+          grep -q '"Deep Gartley", PatternFamily.Reversal, 0.588, 0.648, R_618' output/HarmonyBotPro_v28_CommercialFinalRC.cs
+          grep -q '"Crab", PatternFamily.Reversal.*R_1618, R_1618, R_1618' output/HarmonyBotPro_v28_CommercialFinalRC.cs
           if grep -q 'MarketOrderParameters' output/HarmonyBotPro_v28_CommercialFinalRC.cs; then exit 1; fi
+          if grep -q 'bull = (b.Price > a.Price) && (c.Price < b.Price) && (d.Price > c.Price);' output/HarmonyBotPro_v28_CommercialFinalRC.cs; then exit 1; fi
 
       - name: Prepare FxPro Live USD 1:500 context
         env:
@@ -125,11 +132,11 @@ jobs:
             --MTFEnabled=true --H4FilterEnabled=false --PatternConfidence="$CONF" \
             --MaxConcurrentTrades=1 --MaxSameDirectionTrades=1 --AntiHedge=true --MaxTradesPerDay="$MAXDAY" --CooldownMinutes="$COOL" \
             --AtrPeriod=14 --SlAtrMult="$SLATR" --TpCdMult=1.0 --MinRR=2.0 --UseCostAdjustedRR=true \
-            --CommissionPerMillionPerSide=35.0 \
+            --CommissionPerMillionPerSide=35.0 --SignalDedupeBars=96 \
             --MaxSpreadPips=35.0 --MinStopLossPips=100.0 --MinTakeProfitPips=200.0 --MinStopDistancePips=15.0 \
             --MinAtrPrice=3.0 --MaxSlippagePips=30.0 --SwingDepth=5 --SwingLookback=200 --PivotScanCount=14 --MinLegAtrRatio="$MINLEG" \
-            --EnableGartley=true --EnableBat=true --EnableButterfly=true --EnableCrab=true --EnableCypher=true --EnableRat=true \
-            --EnableDeepGartley=true --EnableAltBat=false --EnableDeepCrab=true --EnableABCD=true --EnableShark=true --EnableFiveZero=false \
+            --EnableGartley=true --EnableBat=true --EnableButterfly=true --EnableCrab=true --EnableCypher=true --EnableRat=false \
+            --EnableDeepGartley=true --EnableAltBat=false --EnableDeepCrab=true --EnableABCD=true --EnableShark=false --EnableFiveZero=false \
             --GlobalMinScore=0.55 --ConsensusBonus=1.12 --FibTolerance=0.05 --MaxEntryDeviationAtr=0.5 \
             --AdaptiveFrequencyRecovery=true --SoftMtfReversalGate=true --CounterTrendConfidenceBuffer="$CBUF" --AdaptiveEntryDeviationFloor="$ENTRY" \
             --ClosedBarProvisionalD=true --ProvisionalDMinMoveAtr=0.30 --SmallAccountGridGuard=true \
@@ -171,7 +178,7 @@ jobs:
         run: |
           mkdir -p reports
           python3 - <<'PY'
-          import json,glob,os,csv
+          import json,glob,os,csv,re,collections
           def allv(x):
               if isinstance(x,dict): return x.get('all',0)
               return x or 0
@@ -185,7 +192,29 @@ jobs:
               rows.append({'profile':profile,'window':window,'trades':n,'winrate':(100*w/n if n else 0),'netprofit':allv(ts.get('netProfit')),'pf':allv(ts.get('profitFactor')),'maxdd':eq.get('maxEquityDrawdownPercent',0),'commission':allv(ts.get('commissions'))})
           with open('reports/acceptance.csv','w',newline='') as f:
               wr=csv.DictWriter(f,fieldnames=['profile','window','trades','winrate','netprofit','pf','maxdd','commission']); wr.writeheader(); wr.writerows(rows)
+
+          pattern_rows=[]
+          for p in sorted(glob.glob('reports/*.console.txt')):
+              counts=collections.Counter()
+              for line in open(p,errors='ignore'):
+                  m=re.search(r'\[TRADE\]\s+(.+?)\s+(Buy|Sell)\s+vol=',line)
+                  if m: counts[m.group(1).strip()]+=1
+              for pat,count in sorted(counts.items()):
+                  pattern_rows.append({'file':os.path.basename(p),'pattern':pat,'trades':count})
+          with open('reports/pattern-counts.csv','w',newline='') as f:
+              wr=csv.DictWriter(f,fieldnames=['file','pattern','trades']); wr.writeheader(); wr.writerows(pattern_rows)
+
+          by={(r['profile'],r['window']):r for r in rows}
+          verdict={}
+          for profile in ['BAL','FREQ']:
+              y1=by.get((profile,'1Y'),{})
+              y3=by.get((profile,'3Y'),{})
+              engineering=bool(y1 and y3 and y1['trades']>=20 and y3['trades']>=50 and y1['netprofit']>0 and y3['netprofit']>0 and y1['pf']>=1.20 and y3['pf']>=1.20 and y1['maxdd']<=10 and y3['maxdd']<=10)
+              commercial_target=bool(y1 and y3 and y3['trades']>=200 and y3['winrate']>=65 and y3['pf']>=2.50 and y3['maxdd']<=10 and y3['netprofit']>=100 and y1['netprofit']>0 and y1['maxdd']<=10)
+              verdict[profile]={'open_sanity_engineering_gate':engineering,'aspirational_commercial_target_gate':commercial_target}
+          json.dump({'note':'Open-price sanity only; final seal still requires M1/Tick and OOS validation.','profiles':verdict},open('reports/commercial-verdict.json','w'),indent=2)
           print(*rows,sep='\n')
+          print(json.dumps(verdict,indent=2))
           PY
           grep -h '\[COMMERCIAL-DIAG\]\|\[PERF\]\|\[RISK-BLOCK\]\|\[RISK-COMPRESS\]' reports/*.console.txt > reports/commercial-diagnostics.txt || true
 
