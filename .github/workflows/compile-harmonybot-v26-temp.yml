@@ -67,7 +67,7 @@ jobs:
           cat > cli-build/HarmonyBotPro/HarmonyBotPro.csproj <<'EOF'
           <Project Sdk="Microsoft.NET.Sdk">
             <PropertyGroup>
-              <TargetFramework>net8.0</TargetFramework>
+              <TargetFramework>net6.0</TargetFramework>
               <ImplicitUsings>disable</ImplicitUsings>
               <Nullable>disable</Nullable>
               <AlgoName>HarmonyBotPro_v26</AlgoName>
