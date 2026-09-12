@@ -14,7 +14,7 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
-      - name: Prepare exact v26 and FxPro Live USD 1:500
+      - name: Prepare exact v26 and FxPro Live USD 1:500 on latest CLI
         env:
           GH_TOKEN: ${{ github.token }}
           CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
@@ -27,12 +27,12 @@ jobs:
           unzip -oq backtest/v26.zip -d backtest/algo
           cp backtest/algo/HarmonyBotPro_v26_Mobile.algo backtest/HarmonyBotPro_v26_Mobile.algo
           echo '7457dede9159e4c0cd70a695eaa47e1574b25a73f1632002a90c498851ef24a9  backtest/HarmonyBotPro_v26_Mobile.algo' | sha256sum -c -
-          docker pull ghcr.io/spotware/ctrader-console:5.9.11
+          docker pull ghcr.io/spotware/ctrader-console:latest
           printf '%s' "$CTRADER_PASSWORD" > backtest/secure/pwd
           chmod 600 backtest/secure/pwd
           docker run --rm -v "$PWD/backtest/secure:/secure" \
             -e "CTID=$CTRADER_CTID" -e 'PWD-FILE=/secure/pwd' \
-            ghcr.io/spotware/ctrader-console:5.9.11 accounts --environment-variables > backtest/secure/accounts.json
+            ghcr.io/spotware/ctrader-console:latest accounts --environment-variables > backtest/secure/accounts.json
           python3 - <<'PY'
           import json
           d=json.load(open('backtest/secure/accounts.json',encoding='utf-8-sig'))
@@ -42,7 +42,7 @@ jobs:
           print('FxPro Live USD 1:500 selected (number masked)')
           PY
           rm -f backtest/secure/accounts.json
-      - name: Run D7 M3 M6 1Y 3Y sequentially using M15 open prices and exit-on-stop
+      - name: Run D7 M3 M6 1Y 3Y sequentially with exit-on-stop
         env:
           CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
         run: |
@@ -60,7 +60,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: HarmonyBotPro-v26-Open-Sanity-5Windows-exit-on-stop
+          name: HarmonyBotPro-v26-Open-Sanity-5Windows-latest
           path: backtest/reports/
           if-no-files-found: warn
           retention-days: 30
