@@ -6,6 +6,24 @@ namespace cAlgo.Robots
 {
     public partial class CumulativeDeltaScalper_FX_Commercial_v3
     {
+        [Parameter("Min Previous Pressure Fraction", Group = "Signal", DefaultValue = 0.30, MinValue = 0.0, MaxValue = 1.0, Step = 0.05)]
+        public double MinPreviousPressureFraction { get; set; }
+
+        [Parameter("Breakout Buffer ATR", Group = "Signal", DefaultValue = 0.05, MinValue = 0.0, MaxValue = 0.50, Step = 0.01)]
+        public double BreakoutBufferAtr { get; set; }
+
+        [Parameter("Max Entry Candle ATR", Group = "Signal", DefaultValue = 1.60, MinValue = 0.5, MaxValue = 5.0, Step = 0.05)]
+        public double MaxEntryCandleAtr { get; set; }
+
+        [Parameter("Max EMA Extension ATR", Group = "Signal", DefaultValue = 0.90, MinValue = 0.1, MaxValue = 3.0, Step = 0.05)]
+        public double MaxEmaExtensionAtr { get; set; }
+
+        [Parameter("Pullback Slow EMA Penetration ATR", Group = "Signal", DefaultValue = 0.10, MinValue = 0.0, MaxValue = 1.0, Step = 0.05)]
+        public double PullbackSlowPenetrationAtr { get; set; }
+
+        [Parameter("Min EMA Gap ATR", Group = "Trend", DefaultValue = 0.05, MinValue = 0.0, MaxValue = 1.0, Step = 0.01)]
+        public double MinEmaGapAtr { get; set; }
+
         private double ComputeAndStorePressure(int index)
         {
             var high = Bars.HighPrices[index];
@@ -30,7 +48,7 @@ namespace cAlgo.Robots
             var volumeAvg = volumeCount == 0 ? volumeNow : volumeSum / volumeCount;
             var volumeImpulse = Clamp(volumeNow / Math.Max(1.0, volumeAvg), 0.65, 1.35);
 
-            // Deterministic on M1 backtests: candle pressure dominates when raw tick samples are unavailable.
+            // Deterministic on bar-data backtests: candle pressure dominates when raw tick samples are unavailable.
             var tickWeight = _lastCompletedTickSamples >= 8 ? 0.25 : 0.0;
             var candleWeight = 1.0 - tickWeight;
             var candlePressure = 0.62 * bodyScore + 0.38 * closeLocation;
@@ -53,22 +71,36 @@ namespace cAlgo.Robots
             var persistence = _pressureHistory.Skip(Math.Max(0, _pressureHistory.Count - PersistenceLookback)).ToArray();
             var avgPressure = recent.Average();
 
-            var bullishBars = persistence.Count(x => x >= 0);
-            var bearishBars = persistence.Count(x => x <= 0);
+            // Zero pressure is neutral; it must not count toward both bullish and bearish persistence.
+            var bullishBars = persistence.Count(x => x > 0);
+            var bearishBars = persistence.Count(x => x < 0);
+            var previousPressure = _pressureHistory.Count >= 2 ? _pressureHistory[_pressureHistory.Count - 2] : 0.0;
 
             TradeType direction;
-            if (avgPressure >= MinAveragePressure && latestPressure >= MinLastPressure && bullishBars >= MinDirectionalBars)
+            if (avgPressure >= MinAveragePressure &&
+                latestPressure >= MinLastPressure &&
+                previousPressure >= MinLastPressure * MinPreviousPressureFraction &&
+                bullishBars >= MinDirectionalBars)
+            {
                 direction = TradeType.Buy;
-            else if (avgPressure <= -MinAveragePressure && latestPressure <= -MinLastPressure && bearishBars >= MinDirectionalBars)
+            }
+            else if (avgPressure <= -MinAveragePressure &&
+                     latestPressure <= -MinLastPressure &&
+                     previousPressure <= -MinLastPressure * MinPreviousPressureFraction &&
+                     bearishBars >= MinDirectionalBars)
+            {
                 direction = TradeType.Sell;
+            }
             else
+            {
                 return EntryCandidate.Invalid();
-
-            if (!PassCandleQuality(index, direction))
-                return EntryCandidate.Invalid();
+            }
 
             var atrPrice = _atr.Result[index];
-            if (atrPrice <= 0 || double.IsNaN(atrPrice))
+            if (atrPrice <= 0 || double.IsNaN(atrPrice) || double.IsInfinity(atrPrice))
+                return EntryCandidate.Invalid();
+
+            if (!PassCandleQuality(index, direction, atrPrice))
                 return EntryCandidate.Invalid();
 
             var momentumR = (Bars.ClosePrices[index] - Bars.ClosePrices[Math.Max(0, index - 3)]) / atrPrice;
@@ -77,7 +109,11 @@ namespace cAlgo.Robots
             if (direction == TradeType.Sell && momentumR > -0.08)
                 return EntryCandidate.Invalid();
 
-            if (!PassLocalTrend(index, direction))
+            // Do not chase already exhausted multi-bar impulses.
+            if (Math.Abs(momentumR) > 2.25)
+                return EntryCandidate.Invalid();
+
+            if (!PassLocalTrend(index, direction, atrPrice))
                 return EntryCandidate.Invalid();
             if (!PassM15Trend(direction))
                 return EntryCandidate.Invalid();
@@ -100,31 +136,52 @@ namespace cAlgo.Robots
             };
         }
 
-        private bool PassCandleQuality(int index, TradeType direction)
+        private bool PassCandleQuality(int index, TradeType direction, double atrPrice)
         {
-            var range = Bars.HighPrices[index] - Bars.LowPrices[index];
-            if (range <= Symbol.TickSize)
+            var high = Bars.HighPrices[index];
+            var low = Bars.LowPrices[index];
+            var open = Bars.OpenPrices[index];
+            var close = Bars.ClosePrices[index];
+            var range = high - low;
+            if (range <= Symbol.TickSize || atrPrice <= 0)
                 return false;
-            var body = Math.Abs(Bars.ClosePrices[index] - Bars.OpenPrices[index]);
+
+            var body = Math.Abs(close - open);
             if (body / range < MinBodyToRange)
                 return false;
-            if (direction == TradeType.Buy && Bars.ClosePrices[index] <= Bars.OpenPrices[index])
+            if (range / atrPrice > MaxEntryCandleAtr)
                 return false;
-            if (direction == TradeType.Sell && Bars.ClosePrices[index] >= Bars.OpenPrices[index])
-                return false;
+
+            var closeLocation = (close - low) / range;
+            if (direction == TradeType.Buy)
+            {
+                if (close <= open || closeLocation < 0.60)
+                    return false;
+            }
+            else
+            {
+                if (close >= open || closeLocation > 0.40)
+                    return false;
+            }
             return true;
         }
 
-        private bool PassLocalTrend(int index, TradeType direction)
+        private bool PassLocalTrend(int index, TradeType direction, double atrPrice)
         {
             var fast = _fastEma.Result[index];
             var slow = _slowEma.Result[index];
             var slopeIndex = Math.Max(0, index - EmaSlopeBars);
             var slope = fast - _fastEma.Result[slopeIndex];
+            var close = Bars.ClosePrices[index];
+            var emaGapR = atrPrice <= 0 ? 0 : Math.Abs(fast - slow) / atrPrice;
+            var extensionR = atrPrice <= 0 ? double.PositiveInfinity : Math.Abs(close - fast) / atrPrice;
+
+            if (emaGapR < MinEmaGapAtr || extensionR > MaxEmaExtensionAtr)
+                return false;
 
             if (direction == TradeType.Buy)
-                return fast > slow && slope > 0 && Bars.ClosePrices[index] > fast;
-            return fast < slow && slope < 0 && Bars.ClosePrices[index] < fast;
+                return fast > slow && slope > 0 && close > fast;
+            return fast < slow && slope < 0 && close < fast;
         }
 
         private bool PassM15Trend(TradeType direction)
@@ -136,7 +193,10 @@ namespace cAlgo.Robots
             var fast = _m15Fast.Result[i];
             var slow = _m15Slow.Result[i];
             var slope = fast - _m15Fast.Result[prev];
-            return direction == TradeType.Buy ? fast > slow && slope > 0 : fast < slow && slope < 0;
+            var close = _m15Bars.ClosePrices[i];
+            return direction == TradeType.Buy
+                ? fast > slow && slope > 0 && close > fast
+                : fast < slow && slope < 0 && close < fast;
         }
 
         private bool PassH1Trend(TradeType direction)
@@ -148,7 +208,10 @@ namespace cAlgo.Robots
             var fast = _h1Fast.Result[i];
             var slow = _h1Slow.Result[i];
             var slope = fast - _h1Fast.Result[prev];
-            return direction == TradeType.Buy ? fast > slow && slope >= 0 : fast < slow && slope <= 0;
+            var close = _h1Bars.ClosePrices[i];
+            return direction == TradeType.Buy
+                ? fast > slow && slope >= 0 && close > fast
+                : fast < slow && slope <= 0 && close < fast;
         }
 
         private bool PassDms(int index, TradeType direction)
@@ -163,7 +226,7 @@ namespace cAlgo.Robots
 
         private string GetStructureSetup(int index, TradeType direction, double atrPrice)
         {
-            if (index <= StructureLookback + 2)
+            if (index <= StructureLookback + 2 || atrPrice <= 0)
                 return null;
 
             double priorHigh = double.MinValue;
@@ -175,28 +238,37 @@ namespace cAlgo.Robots
             }
 
             var close = Bars.ClosePrices[index];
-            if (direction == TradeType.Buy && close > priorHigh)
+            var breakoutBuffer = BreakoutBufferAtr * atrPrice;
+            if (direction == TradeType.Buy && close > priorHigh + breakoutBuffer)
                 return "breakout";
-            if (direction == TradeType.Sell && close < priorLow)
+            if (direction == TradeType.Sell && close < priorLow - breakoutBuffer)
                 return "breakout";
 
             if (!AllowPullbackContinuation)
                 return null;
 
             var fast = _fastEma.Result[index];
+            var slow = _slowEma.Result[index];
+            var previousFast = _fastEma.Result[index - 1];
             var tolerance = 0.20 * atrPrice;
+            var slowPenetration = PullbackSlowPenetrationAtr * atrPrice;
+
             if (direction == TradeType.Buy)
             {
+                var trendWasIntact = Bars.ClosePrices[index - 1] > previousFast;
                 var touched = Bars.LowPrices[index] <= fast + tolerance;
+                var depthOk = Bars.LowPrices[index] >= slow - slowPenetration;
                 var reclaimed = close > fast && close > Bars.OpenPrices[index];
-                if (touched && reclaimed)
+                if (trendWasIntact && touched && depthOk && reclaimed)
                     return "pullback";
             }
             else
             {
+                var trendWasIntact = Bars.ClosePrices[index - 1] < previousFast;
                 var touched = Bars.HighPrices[index] >= fast - tolerance;
+                var depthOk = Bars.HighPrices[index] <= slow + slowPenetration;
                 var reclaimed = close < fast && close < Bars.OpenPrices[index];
-                if (touched && reclaimed)
+                if (trendWasIntact && touched && depthOk && reclaimed)
                     return "pullback";
             }
 
