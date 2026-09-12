@@ -37,6 +37,10 @@ namespace cAlgo.Robots
 
         private bool IsWithinTradingSession(DateTime utc)
         {
+            // Entry guards are reached before every new order. Rebuild day state once after startup/restart
+            // so a restart cannot reset daily loss, trade-count or consecutive-loss protection.
+            EnsureDailyStateRecovered();
+
             if (SessionMode == V3SessionMode.Off)
                 return true;
             if (SessionMode == V3SessionMode.ManualUtc)
