@@ -7,6 +7,7 @@ on:
     paths:
       - '.github/workflows/build-backtest-harmonybot-v28-commercial-final-rc.yml'
       - 'tmp/harmonybot-v26-build/fix_v28_frequency_architecture.py'
+      - 'tmp/harmonybot-v26-build/fix_v28_cost_rr.py'
   workflow_dispatch:
 
 permissions:
@@ -33,6 +34,7 @@ jobs:
           python3 tmp/harmonybot-v26-build/fix_v262_grid_guard_band.py
           python3 tmp/harmonybot-v26-build/fix_v27_commercial_rc.py
           python3 tmp/harmonybot-v26-build/fix_v28_frequency_architecture.py
+          python3 tmp/harmonybot-v26-build/fix_v28_cost_rr.py
           mkdir -p output reports secure
           cp cli-build/HarmonyBotPro_v261/HarmonyBotPro.cs output/HarmonyBotPro_v28_CommercialFinalRC.cs
           sha256sum output/HarmonyBotPro_v28_CommercialFinalRC.cs | tee output/HarmonyBotPro_v28_CommercialFinalRC.cs.sha256
@@ -68,6 +70,7 @@ jobs:
           grep -q 'PipsForFixedRisk' output/HarmonyBotPro_v28_CommercialFinalRC.cs
           grep -q 'ExecuteMarketRangeOrder' output/HarmonyBotPro_v28_CommercialFinalRC.cs
           grep -q 'RangeAwareRatioScore' output/HarmonyBotPro_v28_CommercialFinalRC.cs
+          grep -q 'EstimateRoundTurnCommissionPips' output/HarmonyBotPro_v28_CommercialFinalRC.cs
           if grep -q 'MarketOrderParameters' output/HarmonyBotPro_v28_CommercialFinalRC.cs; then exit 1; fi
 
       - name: Prepare FxPro Live USD 1:500 context
@@ -122,6 +125,7 @@ jobs:
             --MTFEnabled=true --H4FilterEnabled=false --PatternConfidence="$CONF" \
             --MaxConcurrentTrades=1 --MaxSameDirectionTrades=1 --AntiHedge=true --MaxTradesPerDay="$MAXDAY" --CooldownMinutes="$COOL" \
             --AtrPeriod=14 --SlAtrMult="$SLATR" --TpCdMult=1.0 --MinRR=2.0 --UseCostAdjustedRR=true \
+            --CommissionPerMillionPerSide=35.0 \
             --MaxSpreadPips=35.0 --MinStopLossPips=100.0 --MinTakeProfitPips=200.0 --MinStopDistancePips=15.0 \
             --MinAtrPrice=3.0 --MaxSlippagePips=30.0 --SwingDepth=5 --SwingLookback=200 --PivotScanCount=14 --MinLegAtrRatio="$MINLEG" \
             --EnableGartley=true --EnableBat=true --EnableButterfly=true --EnableCrab=true --EnableCypher=true --EnableRat=true \
@@ -167,7 +171,7 @@ jobs:
         run: |
           mkdir -p reports
           python3 - <<'PY'
-          import json,glob,os,csv,re
+          import json,glob,os,csv
           def allv(x):
               if isinstance(x,dict): return x.get('all',0)
               return x or 0
@@ -178,11 +182,7 @@ jobs:
               name=os.path.basename(p)
               profile='FREQ' if '-FREQ-' in name else 'BAL'
               window=next((x for x in ['M3','1Y','3Y'] if f'-{x}-' in name),'?')
-              rows.append({
-                'profile':profile,'window':window,'trades':n,'winrate':(100*w/n if n else 0),
-                'netprofit':allv(ts.get('netProfit')),'pf':allv(ts.get('profitFactor')),
-                'maxdd':eq.get('maxEquityDrawdownPercent',0),'commission':allv(ts.get('commissions'))
-              })
+              rows.append({'profile':profile,'window':window,'trades':n,'winrate':(100*w/n if n else 0),'netprofit':allv(ts.get('netProfit')),'pf':allv(ts.get('profitFactor')),'maxdd':eq.get('maxEquityDrawdownPercent',0),'commission':allv(ts.get('commissions'))})
           with open('reports/acceptance.csv','w',newline='') as f:
               wr=csv.DictWriter(f,fieldnames=['profile','window','trades','winrate','netprofit','pf','maxdd','commission']); wr.writeheader(); wr.writerows(rows)
           print(*rows,sep='\n')
