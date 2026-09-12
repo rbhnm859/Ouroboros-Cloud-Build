@@ -21,6 +21,16 @@ jobs:
         with:
           dotnet-version: '8.0.x'
 
+      - name: Verify source chunks
+        working-directory: tmp/harmonybotpro-mobile-build
+        shell: bash
+        run: |
+          echo "645bca6982628e4a7d02a765f308c6696fb6c471336b7738b817bad3ac324753  source7k.01" | sha256sum -c -
+          echo "32d7ea43f4c59893949c9174c1dc545875003ce1a062cd239ee5b86f2d7f671a  source7k.02" | sha256sum -c -
+          echo "3ee6e05d2ed66f0126955015defaca48854aa303f8f3e18cf53d27baac80e5e4  source7k.03" | sha256sum -c -
+          echo "2bb4aa4c88f17511e1b9d82c345ce6898ae556e58c1110f955e4d2c138e42ed4  source7k.04" | sha256sum -c -
+          echo "3eb7b8e67a39156071ef8af73beb429f2f21be842a62e112ffab814462177c4f  source7k.05" | sha256sum -c -
+
       - name: Reconstruct and verify source
         working-directory: tmp/harmonybotpro-mobile-build
         shell: bash
