@@ -8,13 +8,17 @@ namespace cAlgo.Robots
     public partial class CumulativeDeltaScalper_FX_Commercial_v3
     {
         private bool _dailyStateRecovered;
+        private DateTime _recoveredDay = DateTime.MinValue;
 
+        // Rebuild from authoritative account history before every entry decision.
+        // This intentionally does more than one-time startup recovery: when the same bot label
+        // is running on several symbols, each cBot instance must see portfolio-wide closes/trades
+        // performed by the other instances before enforcing daily limits.
         private void EnsureDailyStateRecovered()
         {
-            if (_dailyStateRecovered)
-                return;
-
             var dayStart = Server.Time.Date;
+            var firstSyncForDay = !_dailyStateRecovered || _recoveredDay != dayStart;
+
             var closedToday = History
                 .Where(h => h.Label == TradeLabel &&
                             (PortfolioSinglePosition || h.SymbolName == SymbolName) &&
@@ -22,14 +26,18 @@ namespace cAlgo.Robots
                 .OrderBy(h => h.ClosingTime)
                 .ToList();
 
+            var openToday = Positions
+                .Where(p => p.Label == TradeLabel &&
+                            (PortfolioSinglePosition || p.SymbolName == SymbolName) &&
+                            p.EntryTime >= dayStart)
+                .ToList();
+
             _currentDay = dayStart;
             _dailyRealized = closedToday.Sum(h => h.NetProfit);
-            _tradesToday = closedToday.Count + Positions.Count(p =>
-                p.Label == TradeLabel &&
-                (PortfolioSinglePosition || p.SymbolName == SymbolName) &&
-                p.EntryTime >= dayStart);
+            _tradesToday = closedToday.Count + openToday.Count;
 
-            // Account.Balance includes today's closed trades. Subtract them to reconstruct the day's starting balance.
+            // Account.Balance already includes today's closed PnL. Removing today's realised PnL
+            // reconstructs the start-of-day balance without allowing a restart to reset the loss cap.
             _dayStartEquity = Math.Max(1.0, Account.Balance - _dailyRealized);
             _consecutiveLosses = 0;
             _nextTradeTime = DateTime.MinValue;
@@ -49,9 +57,37 @@ namespace cAlgo.Robots
                 }
             }
 
+            // Recover the current-symbol bar cooldown as well. Portfolio trade-count/loss state is
+            // shared through History, but a bar index is chart-specific and therefore recovered only
+            // from entries on this symbol.
+            var latestOwnEntry = DateTime.MinValue;
+            foreach (var trade in closedToday.Where(h => h.SymbolName == SymbolName))
+                if (trade.EntryTime > latestOwnEntry)
+                    latestOwnEntry = trade.EntryTime;
+
+            foreach (var position in Positions.Where(p => p.Label == TradeLabel && p.SymbolName == SymbolName))
+                if (position.EntryTime > latestOwnEntry)
+                    latestOwnEntry = position.EntryTime;
+
+            if (latestOwnEntry == DateTime.MinValue && firstSyncForDay)
+            {
+                var latestHistoricalOwn = History
+                    .Where(h => h.Label == TradeLabel && h.SymbolName == SymbolName)
+                    .OrderByDescending(h => h.EntryTime)
+                    .FirstOrDefault();
+                if (latestHistoricalOwn != null)
+                    latestOwnEntry = latestHistoricalOwn.EntryTime;
+            }
+
+            if (latestOwnEntry != DateTime.MinValue)
+                _lastEntryBarIndex = FindBarIndexAtOrBefore(latestOwnEntry);
+            else if (firstSyncForDay)
+                _lastEntryBarIndex = -1000000;
+
             _dailyStateRecovered = true;
-            DebugLog("RECOVER day={0:yyyy-MM-dd} realized={1:F2} trades={2} consecutiveLosses={3} nextTrade={4:o}",
-                dayStart, _dailyRealized, _tradesToday, _consecutiveLosses, _nextTradeTime);
+            _recoveredDay = dayStart;
+            DebugLog("SYNC day={0:yyyy-MM-dd} realized={1:F2} trades={2} consecutiveLosses={3} nextTrade={4:o} lastEntryBar={5}",
+                dayStart, _dailyRealized, _tradesToday, _consecutiveLosses, _nextTradeTime, _lastEntryBarIndex);
         }
 
         private TradeState EnsureTradeState(Position position)
@@ -70,7 +106,7 @@ namespace cAlgo.Robots
                 PositionId = position.Id,
                 EntryBarIndex = entryIndex,
                 InitialStopPips = stopPips,
-                InitialRiskMoney = Symbol.AmountRisked(position.VolumeInUnits, stopPips) + EstimateRoundTripCommissionMoney(position.VolumeInUnits),
+                InitialRiskMoney = Symbol.AmountRisked(position.VolumeInUnits, stopPips) + EstimateRoundTripCommissionMoney(position.VolumeInUnits) + EstimateSlippageReserveMoney(position.VolumeInUnits),
                 BestFavorablePips = Math.Max(0.0, GetFavorablePips(position)),
                 OppositePressureBars = 0,
                 BreakevenApplied = IsStopAtOrBeyondEntry(position),
