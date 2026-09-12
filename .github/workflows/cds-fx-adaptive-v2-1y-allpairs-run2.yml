@@ -1,0 +1,160 @@
+name: CDS FX Adaptive v2 28 Pairs 1Y Run2
+
+on:
+  push:
+    branches:
+      - cds-fx-adaptive-v2-1y-allpairs
+    paths:
+      - '.github/workflows/cds-fx-adaptive-v2-1y-allpairs-run2.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '6.0.x'
+      - name: Build adaptive multi-FX algo
+        run: |
+          set -euo pipefail
+          PROJ='CumulativeDeltaScalper-FX-Adaptive-v2/CumulativeDeltaScalper_FX_Adaptive_v2.csproj'
+          dotnet restore "$PROJ"
+          dotnet build "$PROJ" -c Release --no-restore -p:AlgoPublish=False -p:IncludeSource=True
+          mkdir -p out
+          ALGO=$(find 'CumulativeDeltaScalper-FX-Adaptive-v2/bin/Release' -type f -name '*.algo' | head -n 1)
+          test -n "$ALGO"
+          cp "$ALGO" out/CumulativeDeltaScalper_FX_Adaptive_v2.algo
+          sha256sum out/CumulativeDeltaScalper_FX_Adaptive_v2.algo > out/CumulativeDeltaScalper_FX_Adaptive_v2.sha256.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cds-fx-adaptive-v2-algo-run2
+          path: out/
+          retention-days: 30
+
+  backtest:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      max-parallel: 14
+      matrix:
+        symbol: [AUDCAD, AUDCHF, AUDJPY, AUDNZD, AUDUSD, CADCHF, CADJPY, CHFJPY, EURAUD, EURCAD, EURCHF, EURGBP, EURJPY, EURNZD, EURUSD, GBPAUD, GBPCAD, GBPCHF, GBPJPY, GBPNZD, GBPUSD, NZDCAD, NZDCHF, NZDJPY, NZDUSD, USDCAD, USDCHF, USDJPY]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: cds-fx-adaptive-v2-algo-run2
+          path: algo
+      - name: Backtest one year
+        env:
+          SYMBOL: ${{ matrix.symbol }}
+          CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+          CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+          CTRADER_PASSWORD: ${{ secrets.CTRADER_PASSWORD }}
+        run: |
+          set -uo pipefail
+          mkdir -p "bt/cache/$SYMBOL" "bt/reports/$SYMBOL"
+          cp algo/CumulativeDeltaScalper_FX_Adaptive_v2.algo bt/
+          printf '%s' "$CTRADER_PASSWORD" | tr -d '\r\n' > bt/ctrader.pwd
+          chmod 600 bt/ctrader.pwd
+          set +e
+          docker run --rm -v "$PWD/bt:/work" \
+            -e "CTID=$CTRADER_CTID" \
+            -e "PWD-FILE=/work/ctrader.pwd" \
+            -e "ACCOUNT=$CTRADER_ACCOUNT" \
+            ghcr.io/spotware/ctrader-console:5.9.11 \
+            backtest /work/CumulativeDeltaScalper_FX_Adaptive_v2.algo --environment-variables \
+            --symbol="$SYMBOL" --period=m1 \
+            --start='09/12/2025' --end='09/12/2026' \
+            --balance=100 --data-mode=m1 \
+            --data-dir="/work/cache/$SYMBOL" \
+            --report-json="/work/reports/$SYMBOL/$SYMBOL-M1.json" \
+            --exit-on-stop 2>&1 | tee "bt/reports/$SYMBOL/console.log"
+          RC=${PIPESTATUS[0]}
+          set -e
+          rm -f bt/ctrader.pwd
+          python3 - "$SYMBOL" "$RC" <<'PY'
+          import json, sys
+          from pathlib import Path
+          symbol = sys.argv[1]
+          rc = int(sys.argv[2])
+          root = Path('bt/reports') / symbol
+          rep = root / f'{symbol}-M1.json'
+          log = root / 'console.log'
+          out = {
+              'bot':'CumulativeDeltaScalper_FX_Adaptive_v2',
+              'symbol':symbol,
+              'timeframe':'M1',
+              'start':'2025-09-12',
+              'end_exclusive':'2026-09-12',
+              'starting_balance':100.0,
+              'exit_code':rc,
+              'status':'failed',
+              'metrics':{}
+          }
+          if rep.exists():
+              try:
+                  d = json.loads(rep.read_text(errors='replace'))
+                  m = d.get('main', {}) or {}
+                  hist = (d.get('history', {}) or {}).get('items', []) or []
+                  nets=[]
+                  for t in hist:
+                      try: nets.append(float(t.get('net',0) or 0))
+                      except Exception: pass
+                  total=len(nets)
+                  wins=sum(n>0 for n in nets)
+                  losses=sum(n<0 for n in nets)
+                  gp=sum(n for n in nets if n>0)
+                  gl=-sum(n for n in nets if n<0)
+                  net=m.get('netProfit')
+                  try: net=float(net)
+                  except Exception: net=sum(nets)
+                  dd=(d.get('equity',{}) or {}).get('maxEquityDrawdownPercent')
+                  try: dd=float(dd) if dd is not None else None
+                  except Exception: dd=None
+                  streak=run=0
+                  for n in nets:
+                      if n<0:
+                          run+=1; streak=max(streak,run)
+                      elif n>0: run=0
+                  out['status']='completed' if rc==0 else 'completed_nonzero_exit'
+                  out['metrics']={
+                      'net_profit':net,
+                      'return_percent':net,
+                      'ending_balance':100.0+net,
+                      'profit_factor':(gp/gl if gl>0 else (999999.0 if gp>0 else 0.0)),
+                      'win_rate_percent':(wins/total*100 if total else None),
+                      'max_equity_drawdown_percent':dd,
+                      'total_trades':total,
+                      'wins':wins,
+                      'losses':losses,
+                      'gross_profit':gp,
+                      'gross_loss':gl,
+                      'average_trade':(sum(nets)/total if total else None),
+                      'largest_win':(max(nets) if nets else None),
+                      'largest_loss':(min(nets) if nets else None),
+                      'max_consecutive_losses':streak
+                  }
+              except Exception as e:
+                  out['parse_error']=repr(e)
+          else:
+              out['error']='report_json_missing'
+          if log.exists():
+              text=log.read_text(errors='replace')
+              out['console_tail']='\n'.join(text.splitlines()[-40:])[-10000:]
+          (root/f'summary-{symbol}.json').write_text(json.dumps(out,indent=2,ensure_ascii=False))
+          print(json.dumps(out,indent=2,ensure_ascii=False))
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: fx1y-run2-${{ matrix.symbol }}
+          path: bt/reports/${{ matrix.symbol }}/
+          retention-days: 30
