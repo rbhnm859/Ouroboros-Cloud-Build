@@ -12,8 +12,8 @@ namespace cAlgo.Robots
             if (position == null)
                 return;
 
-            TradeState state;
-            if (!_tradeStates.TryGetValue(position.Id, out state))
+            var state = EnsureTradeState(position);
+            if (state == null)
                 return;
 
             var favorablePips = GetFavorablePips(position);
@@ -34,8 +34,8 @@ namespace cAlgo.Robots
             if (position == null)
                 return;
 
-            TradeState state;
-            if (!_tradeStates.TryGetValue(position.Id, out state))
+            var state = EnsureTradeState(position);
+            if (state == null)
                 return;
 
             var heldBars = Math.Max(0, closedIndex - state.EntryBarIndex);
