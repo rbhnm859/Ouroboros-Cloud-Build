@@ -5,6 +5,12 @@ namespace cAlgo.Robots
 {
     public partial class CumulativeDeltaScalper_FX_Commercial_v3
     {
+        [Parameter("Slippage Reserve Pips", Group = "Execution", DefaultValue = 0.30, MinValue = 0.0, MaxValue = 5.0, Step = 0.05)]
+        public double SlippageReservePips { get; set; }
+
+        [Parameter("Max Entry Slippage Pips", Group = "Execution", DefaultValue = 0.80, MinValue = 0.0, MaxValue = 10.0, Step = 0.05)]
+        public double MaxEntrySlippagePips { get; set; }
+
         private void TryEnter(EntryCandidate candidate, int closedIndex)
         {
             var atrPips = _atr.Result[closedIndex] / Symbol.PipSize;
@@ -52,6 +58,7 @@ namespace cAlgo.Robots
                 return;
             }
 
+            var preExecutionPrice = candidate.Direction == TradeType.Buy ? Symbol.Ask : Symbol.Bid;
             var result = ExecuteMarketOrder(candidate.Direction, SymbolName, volume, TradeLabel, stopPips, takePips);
             if (!result.IsSuccessful || result.Position == null)
             {
@@ -64,19 +71,50 @@ namespace cAlgo.Robots
             if (!result.Position.StopLoss.HasValue || !result.Position.TakeProfit.HasValue)
             {
                 Print("[V3 CRITICAL] entry protection missing; closing position id={0}", result.Position.Id);
-                var closeResult = ClosePosition(result.Position);
-                if (!closeResult.IsSuccessful)
-                    Print("[V3 CRITICAL] emergency close failed id={0} error={1}", result.Position.Id, closeResult.Error);
+                EmergencyCloseNewPosition(result.Position, "missing_protection");
                 return;
             }
 
-            var actualStopRisk = Symbol.AmountRisked(volume, stopPips);
+            var adverseEntrySlippagePips = GetAdverseEntrySlippagePips(candidate.Direction, preExecutionPrice, result.Position.EntryPrice);
+            if (MaxEntrySlippagePips > 0 && adverseEntrySlippagePips > MaxEntrySlippagePips)
+            {
+                Print("[V3 CRITICAL] entry slippage exceeded id={0} slip={1:F2}p cap={2:F2}p", result.Position.Id, adverseEntrySlippagePips, MaxEntrySlippagePips);
+                EmergencyCloseNewPosition(result.Position, "entry_slippage_cap");
+                return;
+            }
+
+            // Re-audit using the protections actually attached to the filled position. Relative
+            // protection is based on opening price, but execution/rounding/broker rules can still
+            // make requested and realised distances differ.
+            var actualStopPips = Math.Abs(result.Position.EntryPrice - result.Position.StopLoss.Value) / Symbol.PipSize;
+            var actualTakePips = Math.Abs(result.Position.TakeProfit.Value - result.Position.EntryPrice) / Symbol.PipSize;
+            var applicableCap = GetApplicableAllInRiskCap();
+            var tolerance = 1.0 + RiskAuditTolerancePercent / 100.0;
+            var actualStopRisk = Symbol.AmountRisked(volume, actualStopPips);
+            var actualAllInRisk = actualStopRisk + EstimateRoundTripCommissionMoney(volume) + EstimateSlippageReserveMoney(volume);
+
+            if (double.IsNaN(actualAllInRisk) || double.IsInfinity(actualAllInRisk) ||
+                actualStopPips <= 0 || actualTakePips <= 0 || actualAllInRisk > applicableCap * tolerance)
+            {
+                Print("[V3 CRITICAL] post-fill risk audit failed id={0} stop={1:F2}p take={2:F2}p allInRisk={3:F2} cap={4:F2}",
+                    result.Position.Id, actualStopPips, actualTakePips, actualAllInRisk, applicableCap);
+                EmergencyCloseNewPosition(result.Position, "post_fill_risk_audit");
+                return;
+            }
+
+            if (!PassCostAwareRewardRisk(actualStopPips, actualTakePips, spreadPips))
+            {
+                Print("[V3 CRITICAL] post-fill RR audit failed id={0} stop={1:F2}p take={2:F2}p", result.Position.Id, actualStopPips, actualTakePips);
+                EmergencyCloseNewPosition(result.Position, "post_fill_rr_audit");
+                return;
+            }
+
             var state = new TradeState
             {
                 PositionId = result.Position.Id,
                 EntryBarIndex = closedIndex,
-                InitialStopPips = stopPips,
-                InitialRiskMoney = actualStopRisk + EstimateRoundTripCommissionMoney(volume),
+                InitialStopPips = actualStopPips,
+                InitialRiskMoney = actualAllInRisk,
                 BestFavorablePips = 0,
                 OppositePressureBars = 0
             };
@@ -85,8 +123,8 @@ namespace cAlgo.Robots
             _entryCount++;
             _lastEntryBarIndex = closedIndex;
 
-            DebugLog("OPEN {0} setup={1} vol={2} SL={3:F2} TP={4:F2} pressure={5:F1} momentumR={6:F2} allInRisk={7:F2}",
-                candidate.Direction, candidate.Setup, volume, stopPips, takePips, candidate.Pressure, candidate.MomentumR, state.InitialRiskMoney);
+            DebugLog("OPEN {0} setup={1} vol={2} SL={3:F2} TP={4:F2} pressure={5:F1} momentumR={6:F2} allInRisk={7:F2} slip={8:F2}p",
+                candidate.Direction, candidate.Setup, volume, actualStopPips, actualTakePips, candidate.Pressure, candidate.MomentumR, state.InitialRiskMoney, adverseEntrySlippagePips);
         }
 
         private double CalculateFailClosedVolume(TradeType direction, double stopPips)
@@ -94,20 +132,15 @@ namespace cAlgo.Robots
             if (stopPips <= 0)
                 return 0;
 
-            var hardCap = Math.Max(0.01, Account.Equity * HardRiskCapPercentOfEquity / 100.0);
-            var requestedAllInRisk = RiskMode == V3RiskMode.FixedMoney
-                ? Math.Max(0.01, FixedMoneyRisk)
-                : RiskMode == V3RiskMode.FixedLots
-                    ? hardCap
-                    : Math.Max(0.01, Account.Equity * RiskPercentPerTrade / 100.0);
-            requestedAllInRisk = Math.Min(requestedAllInRisk, hardCap);
+            var applicableCap = GetApplicableAllInRiskCap();
+            var tolerance = 1.0 + RiskAuditTolerancePercent / 100.0;
 
-            // First prove the broker minimum volume itself fits both the requested all-in risk and hard cap.
+            // First prove the broker minimum volume itself fits the requested all-in risk cap.
             // Never round an unsafe value up to minimum volume.
             var minStopRisk = Symbol.AmountRisked(Symbol.VolumeInUnitsMin, stopPips);
-            var minAllInRisk = minStopRisk + EstimateRoundTripCommissionMoney(Symbol.VolumeInUnitsMin);
-            var tolerance = 1.0 + RiskAuditTolerancePercent / 100.0;
-            var applicableCap = RiskMode == V3RiskMode.FixedLots ? hardCap : Math.Min(requestedAllInRisk, hardCap);
+            var minAllInRisk = minStopRisk +
+                               EstimateRoundTripCommissionMoney(Symbol.VolumeInUnitsMin) +
+                               EstimateSlippageReserveMoney(Symbol.VolumeInUnitsMin);
             if (minAllInRisk > applicableCap * tolerance)
             {
                 DebugLog("BLOCK min_volume_risk minVol={0} allInRisk={1:F2} cap={2:F2}", Symbol.VolumeInUnitsMin, minAllInRisk, applicableCap);
@@ -121,9 +154,11 @@ namespace cAlgo.Robots
             }
             else
             {
-                // Reserve an initial commission budget before asking the platform for fixed-risk volume.
-                var initialCommission = EstimateRoundTripCommissionMoney(Symbol.VolumeInUnitsMin);
-                var stopRiskBudget = Math.Max(0.01, requestedAllInRisk - initialCommission);
+                // Reserve estimated commission and stop-execution slippage before asking the platform
+                // for fixed-risk volume. The final normalized result is audited again below.
+                var nonStopReserve = EstimateRoundTripCommissionMoney(Symbol.VolumeInUnitsMin) +
+                                     EstimateSlippageReserveMoney(Symbol.VolumeInUnitsMin);
+                var stopRiskBudget = Math.Max(0.01, applicableCap - nonStopReserve);
                 rawVolume = Symbol.VolumeForFixedRisk(stopRiskBudget, stopPips, RoundingMode.Down);
             }
 
@@ -137,10 +172,10 @@ namespace cAlgo.Robots
                 return 0;
             }
 
-            // Recalculate with the actual normalized volume. If all-in risk is still too large,
-            // scale down and normalize DOWN again rather than accepting a larger risk than requested.
+            // Recalculate with actual normalized volume. If all-in risk remains too large, scale down
+            // and normalize DOWN again rather than silently accepting excess risk.
             var actualStopRisk = Symbol.AmountRisked(volume, stopPips);
-            var allInRisk = actualStopRisk + EstimateRoundTripCommissionMoney(volume);
+            var allInRisk = actualStopRisk + EstimateRoundTripCommissionMoney(volume) + EstimateSlippageReserveMoney(volume);
             if (allInRisk > applicableCap * tolerance && allInRisk > 0)
             {
                 volume *= applicableCap / allInRisk;
@@ -151,7 +186,7 @@ namespace cAlgo.Robots
                 return 0;
 
             actualStopRisk = Symbol.AmountRisked(volume, stopPips);
-            allInRisk = actualStopRisk + EstimateRoundTripCommissionMoney(volume);
+            allInRisk = actualStopRisk + EstimateRoundTripCommissionMoney(volume) + EstimateSlippageReserveMoney(volume);
             if (double.IsNaN(allInRisk) || double.IsInfinity(allInRisk) || allInRisk > applicableCap * tolerance)
             {
                 DebugLog("BLOCK post_normalization_risk vol={0} stopRisk={1:F2} allIn={2:F2} cap={3:F2}", volume, actualStopRisk, allInRisk, applicableCap);
@@ -161,10 +196,22 @@ namespace cAlgo.Robots
             return volume;
         }
 
+        private double GetApplicableAllInRiskCap()
+        {
+            var hardCap = Math.Max(0.01, Account.Equity * HardRiskCapPercentOfEquity / 100.0);
+            if (RiskMode == V3RiskMode.FixedLots)
+                return hardCap;
+
+            var requested = RiskMode == V3RiskMode.FixedMoney
+                ? Math.Max(0.01, FixedMoneyRisk)
+                : Math.Max(0.01, Account.Equity * RiskPercentPerTrade / 100.0);
+            return Math.Min(requested, hardCap);
+        }
+
         private bool PassCostAwareRewardRisk(double stopPips, double takePips, double spreadPips)
         {
             var commissionPips = EstimateRoundTripCommissionPips();
-            var costPips = Math.Max(0.0, spreadPips) + Math.Max(0.0, commissionPips);
+            var costPips = Math.Max(0.0, spreadPips) + Math.Max(0.0, commissionPips) + Math.Max(0.0, SlippageReservePips);
             var effectiveReward = takePips - costPips;
             var effectiveRisk = stopPips + costPips;
             if (effectiveReward <= 0 || effectiveRisk <= 0)
@@ -188,8 +235,7 @@ namespace cAlgo.Robots
             if (mid <= 0)
                 return 0;
 
-            // For USD-per-million-USD-volume commission, conversion to account currency is represented
-            // by PipValue. The pips formula below is converted back to money using Symbol.PipValue.
+            // Commission setting is USD per million USD notional per side; round trip = 2 sides.
             return 2.0 * CommissionPerMillionUsd * mid / (1000000.0 * Symbol.PipSize);
         }
 
@@ -199,6 +245,32 @@ namespace cAlgo.Robots
                 return 0;
             var pips = EstimateRoundTripCommissionPips();
             return Math.Max(0.0, pips * Symbol.PipValue * volume);
+        }
+
+        private double EstimateSlippageReserveMoney(double volume)
+        {
+            if (volume <= 0 || Symbol.PipValue <= 0)
+                return 0;
+            return Math.Max(0.0, SlippageReservePips) * Symbol.PipValue * volume;
+        }
+
+        private double GetAdverseEntrySlippagePips(TradeType direction, double requestedPrice, double fillPrice)
+        {
+            if (Symbol.PipSize <= 0 || requestedPrice <= 0 || fillPrice <= 0)
+                return 0;
+            var priceDelta = direction == TradeType.Buy
+                ? fillPrice - requestedPrice
+                : requestedPrice - fillPrice;
+            return Math.Max(0.0, priceDelta / Symbol.PipSize);
+        }
+
+        private void EmergencyCloseNewPosition(Position position, string reason)
+        {
+            var closeResult = ClosePosition(position);
+            if (!closeResult.IsSuccessful)
+                Print("[V3 CRITICAL] emergency close failed id={0} reason={1} error={2}", position.Id, reason, closeResult.Error);
+            else
+                Print("[V3 SAFETY] rejected filled position id={0} reason={1}", position.Id, reason);
         }
 
         private double CurrentSpreadPips()
