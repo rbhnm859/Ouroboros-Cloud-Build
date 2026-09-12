@@ -28,7 +28,7 @@ jobs:
           mkdir -p cli-build/HarmonyBotPro
           python3 - <<'PYCODE'
           from pathlib import Path
-          import base64, gzip, hashlib
+          import base64, gzip, hashlib, re
           root = Path('tmp/harmonybot-v26-build')
           payload = ''.join((root / f'payload.part0{i}').read_text() for i in range(1, 5))
           source = gzip.decompress(base64.b64decode(payload))
@@ -43,43 +43,23 @@ jobs:
               'long step = _symbol.VolumeInUnitsStep > 0 ? _symbol.VolumeInUnitsStep : 1;',
               'double step = _symbol.VolumeInUnitsStep > 0 ? _symbol.VolumeInUnitsStep : 1;')
 
-          old_main = '''            var marketParams = new MarketOrderParameters
-            {
-                TradeType = tt,
-                SymbolName = SymbolName,
-                Volume = vol,
-                Label = BotLabel,
-                StopLossPips = slPips,
-                TakeProfitPips = tpPips,
-                SlippagePips = MaxSlippagePips,
-                StopTriggerMethod = StopTriggerMethod.Trade,
-                Comment = "HarmonyBotPro"
-            };
-
-            return ExecuteMarketOrder(marketParams);'''
-          new_main = '''            return ExecuteMarketOrder(tt, SymbolName, vol, BotLabel, slPips, tpPips,
+          main_pattern = r'(?s)\s*var marketParams = new MarketOrderParameters\s*\{.*?Comment = "HarmonyBotPro"\s*\};\s*return ExecuteMarketOrder\(marketParams\);'
+          main_replacement = '''
+            return ExecuteMarketOrder(tt, SymbolName, vol, BotLabel, slPips, tpPips,
                 "HarmonyBotPro", false, StopTriggerMethod.Trade);'''
+          text, n_main = re.subn(main_pattern, main_replacement, text, count=1)
 
-          old_grid = '''            var marketParams = new MarketOrderParameters
-            {
-                TradeType = tt,
-                SymbolName = SymbolName,
-                Volume = vol,
-                Label = GridLabel,
-                StopLossPips = slPips,
-                TakeProfitPips = null,
-                SlippagePips = MaxSlippagePips,
-                StopTriggerMethod = StopTriggerMethod.Trade,
-                Comment = "HarmonyBotPro-G"
-            };
-
-            return ExecuteMarketOrder(marketParams);'''
-          new_grid = '''            return ExecuteMarketOrder(tt, SymbolName, vol, GridLabel, slPips, null,
+          grid_pattern = r'(?s)\s*var marketParams = new MarketOrderParameters\s*\{.*?Comment = "HarmonyBotPro-G"\s*\};\s*return ExecuteMarketOrder\(marketParams\);'
+          grid_replacement = '''
+            return ExecuteMarketOrder(tt, SymbolName, vol, GridLabel, slPips, null,
                 "HarmonyBotPro-G", false, StopTriggerMethod.Trade);'''
+          text, n_grid = re.subn(grid_pattern, grid_replacement, text, count=1)
 
-          if old_main not in text or old_grid not in text:
-              raise SystemExit('Expected market-order blocks not found')
-          text = text.replace(old_main, new_main).replace(old_grid, new_grid)
+          if n_main != 1 or n_grid != 1:
+              raise SystemExit(f'API patch mismatch: main={n_main}, grid={n_grid}')
+          if 'MarketOrderParameters' in text:
+              raise SystemExit('MarketOrderParameters remains after patch')
+
           Path('cli-build/HarmonyBotPro/HarmonyBotPro.cs').write_text(text, encoding='utf-8')
           print('patched source sha256:', hashlib.sha256(text.encode('utf-8')).hexdigest())
           PYCODE
