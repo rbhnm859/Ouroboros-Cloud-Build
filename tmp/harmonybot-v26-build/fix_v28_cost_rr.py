@@ -25,7 +25,8 @@ for patch_name in [
     'fix_v28_release_audit.py',
     'fix_v28_pattern_integrity.py',
     'fix_v28_history_accounting.py',
-    'fix_v28_dst_session.py'
+    'fix_v28_dst_session.py',
+    'fix_v28_capital_feasibility.py'
 ]:
     patch = Path('tmp/harmonybot-v26-build') / patch_name
     if not patch.exists():
