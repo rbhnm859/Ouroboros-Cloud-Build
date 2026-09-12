@@ -20,10 +20,10 @@ s=s.replace(marker,helper+marker,1)
 p.write_text(s,encoding='utf-8')
 print('Applied v28 cost-adjusted RR repricing fix')
 
-# Always finish the v28 chain with release-audit hardening. This audit now
-# includes the critical legacy ABCD reversal-direction correction plus
-# completion-level signal deduplication.
-audit = Path('tmp/harmonybot-v26-build/fix_v28_release_audit.py')
-if not audit.exists():
-    raise SystemExit('v28 release audit patch missing')
-exec(compile(audit.read_text(encoding='utf-8'), str(audit), 'exec'), {})
+# Finish the v28 chain with release-audit hardening and canonical pattern
+# integrity corrections. These are mandatory for the commercial candidate.
+for patch_name in ['fix_v28_release_audit.py', 'fix_v28_pattern_integrity.py']:
+    patch = Path('tmp/harmonybot-v26-build') / patch_name
+    if not patch.exists():
+        raise SystemExit('v28 mandatory patch missing: ' + patch_name)
+    exec(compile(patch.read_text(encoding='utf-8'), str(patch), 'exec'), {})
