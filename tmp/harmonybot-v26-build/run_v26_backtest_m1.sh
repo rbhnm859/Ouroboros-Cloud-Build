@@ -16,7 +16,7 @@ docker run --rm \
   backtest /work/HarmonyBotPro_v26_Mobile.algo --environment-variables \
   --broker=FxPro --symbol=XAUUSD --period=m15 \
   --start="$START" --end="$END" \
-  --balance=100 --data-mode="$DATA_MODE" --commission=35 --spread="$SPREAD" \
+  --balance=100 --data-mode="$DATA_MODE" --commission=35 --spread="$SPREAD" --exit-on-stop \
   --SymbolName=XAUUSD \
   --RiskPercent=1.5 --MaxDrawdown=10.0 --DailyLossLimitPercent=4.0 --WeeklyLossLimitPercent=8.0 \
   --MonthlyTargetPercent=12.0 --RiskAfterMonthlyTarget=0.5 --CloseAllOnDailyLock=false \
