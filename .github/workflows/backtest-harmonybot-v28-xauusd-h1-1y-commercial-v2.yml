@@ -1,0 +1,170 @@
+name: HarmonyBotPro v28 XAUUSD H1 1Y Commercial v2
+
+on:
+  push:
+    branches:
+      - harmonybot-v28-commercial-final-rc
+    paths:
+      - '.github/workflows/backtest-harmonybot-v28-xauusd-h1-1y-commercial-v2.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  commercial-h1-1y-v2:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download exact compiled V28 Mobile algo
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p backtest/algo backtest/reports backtest/secure
+          curl -fsSL \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/artifacts/10301368977/zip" \
+            -o backtest/v28-mobile.zip
+          unzip -oq backtest/v28-mobile.zip -d backtest/algo
+          cp backtest/algo/HarmonyBotPro_v28_CommercialFinalRC_Mobile.algo backtest/HarmonyBotPro_v28_CommercialFinalRC_Mobile.algo
+          echo 'dbcef1836cae2e36529f45771cd8e0dcf8d9733361c5bcf7444a31334fa2044d  backtest/HarmonyBotPro_v28_CommercialFinalRC_Mobile.algo' | sha256sum -c -
+
+      - name: Pull cTrader CLI and select FxPro Live USD 1:500
+        env:
+          CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+          CTRADER_PASSWORD: ${{ secrets.CTRADER_PASSWORD }}
+        run: |
+          set -euo pipefail
+          docker pull ghcr.io/spotware/ctrader-console:latest
+          printf '%s' "$CTRADER_PASSWORD" > backtest/secure/pwd
+          chmod 600 backtest/secure/pwd
+          docker run --rm \
+            -v "$PWD/backtest/secure:/secure" \
+            -e "CTID=$CTRADER_CTID" -e 'PWD-FILE=/secure/pwd' \
+            ghcr.io/spotware/ctrader-console:latest \
+            accounts --environment-variables > backtest/secure/accounts.json
+          python3 - <<'PY'
+          import json
+          d=json.load(open('backtest/secure/accounts.json',encoding='utf-8-sig'))
+          m=[x for x in d if str(x.get('Broker','')).lower()=='fxpro' and bool(x.get('Live')) and str(x.get('DepositCurrency','')).upper()=='USD' and int(x.get('Leverage',0))==500]
+          if not m: raise SystemExit('No matching FxPro Live USD 1:500 account')
+          n=str(m[0].get('Number','')).strip()
+          if not n: raise SystemExit('Selected account has no Number')
+          open('backtest/secure/account','w').write(n)
+          print('Selected broker context: FxPro / Live / USD / 1:500 (account number masked)')
+          PY
+          rm -f backtest/secure/accounts.json
+
+      - name: Run H1 1Y BAL and FREQ sequentially with M1 broker data
+        env:
+          CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+        run: |
+          set -u
+          ACCOUNT="$(cat backtest/secure/account)"
+          START='12/09/2025 00:00'
+          END='11/09/2026 23:59'
+          echo 'profile,status,exit_code' > backtest/reports/run-status.csv
+
+          run_profile() {
+            PROFILE="$1"
+            if [ "$PROFILE" = "BAL" ]; then
+              CONF=0.72; SLATR=1.00; MINLEG=0.80; ATRFAC=0.70; AGE=48; BOUNDARY=0.60; REVFLOOR=0.45; CBUF=0.06; SESSION=8; MAXDAY=4; COOL=10; ENTRY=0.85
+            else
+              CONF=0.70; SLATR=0.90; MINLEG=0.70; ATRFAC=0.65; AGE=64; BOUNDARY=0.62; REVFLOOR=0.50; CBUF=0.04; SESSION=7; MAXDAY=6; COOL=5; ENTRY=1.00
+            fi
+            OUT="HarmonyBotPro-v28-${PROFILE}-XAUUSD-H1-100USD-1Y-FxPro-Live500-M1"
+            set +e
+            docker run --rm \
+              -v "$PWD/backtest:/work" \
+              -e "CTID=$CTRADER_CTID" \
+              -e 'PWD-FILE=/work/secure/pwd' \
+              -e "ACCOUNT=$ACCOUNT" \
+              ghcr.io/spotware/ctrader-console:latest \
+              backtest /work/HarmonyBotPro_v28_CommercialFinalRC_Mobile.algo --environment-variables \
+              --broker=FxPro --symbol=XAUUSD --period=h1 \
+              --start="$START" --end="$END" \
+              --balance=100 --data-mode=m1 --commission=35 --spread=17.14 \
+              --SymbolName=XAUUSD \
+              --RiskPercent=1.5 --MaxDrawdown=10.0 --DailyLossLimitPercent=4.0 --WeeklyLossLimitPercent=8.0 \
+              --MonthlyTargetPercent=12.0 --RiskAfterMonthlyTarget=0.5 --CloseAllOnDailyLock=false \
+              --AutoReprotectOnStart=true --EmergencySlAtrMult=2.0 --EmergencyTpRR=2.0 \
+              --MaxConsecutiveLosses=3 --ConsecutiveLossCooldownMin=60 --MarginBufferPercent=20.0 \
+              --SmallAccountMode=true --SmallAccountThreshold=100.0 --SmallAccountMinSLPips=25.0 --SmallAccountMinTPPips=50.0 \
+              --AllowMinVolumeFallback=true --MinVolumeRiskCapPercent=5.0 --MicroMinVolumeRiskCapPercent=10.0 \
+              --MaxNotionalToEquityRatio=500.0 --SessionStart="$SESSION" --SessionEnd=22 \
+              --MTFEnabled=true --H4FilterEnabled=false --PatternConfidence="$CONF" \
+              --MaxConcurrentTrades=1 --MaxSameDirectionTrades=1 --AntiHedge=true --MaxTradesPerDay="$MAXDAY" --CooldownMinutes="$COOL" \
+              --AtrPeriod=14 --SlAtrMult="$SLATR" --TpCdMult=1.0 --MinRR=2.0 --UseCostAdjustedRR=true \
+              --CommissionPerMillionPerSide=35.0 --SignalDedupeBars=96 \
+              --MaxSpreadPips=35.0 --MinStopLossPips=100.0 --MinTakeProfitPips=200.0 --MinStopDistancePips=15.0 \
+              --MinAtrPrice=3.0 --MaxSlippagePips=30.0 --SwingDepth=5 --SwingLookback=200 --PivotScanCount=14 --MinLegAtrRatio="$MINLEG" \
+              --EnableGartley=true --EnableBat=true --EnableButterfly=true --EnableCrab=true --EnableCypher=true --EnableRat=false \
+              --EnableDeepGartley=true --EnableAltBat=false --EnableDeepCrab=true --EnableABCD=true --EnableShark=false --EnableFiveZero=false \
+              --GlobalMinScore=0.55 --ConsensusBonus=1.12 --FibTolerance=0.05 --MaxEntryDeviationAtr="$ENTRY" \
+              --AdaptiveFrequencyRecovery=true --SoftMtfReversalGate=true --CounterTrendConfidenceBuffer="$CBUF" \
+              --AdaptiveEntryDeviationFloor="$ENTRY" --ClosedBarProvisionalD=true --ProvisionalDMinMoveAtr=0.30 \
+              --SmallAccountGridGuard=true --CommercialRiskEngine=true --ProjectedRiskGuard=true --RiskHeadroomPercent=0.25 \
+              --CompressStopToRiskBudget=true --MaxStopCompressionRatio=0.90 --DisablePartialAtMinVolume=true \
+              --AdaptiveMinAtrFactor="$ATRFAC" --CommercialSwingDepthReduction=1 --CommercialPivotScanMin=20 \
+              --CandidateMaxAgeBars="$AGE" --DirectionDominanceMargin=0.04 --FibRangeBoundaryScore="$BOUNDARY" --ReversalTrendScoreFloor="$REVFLOOR" \
+              --MaxTradesPerPatternPercent=50 --AutoDisableLosing=true --AutoDisableWinRate=50.0 \
+              --SlUpdateStepPips=2.0 --SlUpdateCooldownSec=5 --BreakEvenTriggerPips=100.0 --BreakEvenOffsetPips=10.0 \
+              --TrailingTriggerPips=150.0 --TrailingDistancePips=90.0 --EnablePartialTP=true --Tp1RR=1.0 --Tp1ClosePercent=60.0 \
+              --BlockNewsWindow=true --BlockedWindowsGMT='12:25-12:45;14:25-14:45' --EnableFibGrid=false \
+              --report="/work/reports/${OUT}.html" --report-json="/work/reports/${OUT}.json" \
+              > "backtest/reports/${OUT}.console.txt" 2>&1
+            RC=$?
+            set -e
+            if [ "$RC" -eq 0 ]; then STATUS=success; else STATUS=failure; fi
+            echo "${PROFILE},${STATUS},${RC}" >> backtest/reports/run-status.csv
+            return 0
+          }
+
+          run_profile BAL
+          run_profile FREQ
+
+      - name: Build H1 commercial acceptance report
+        if: always()
+        run: |
+          python3 - <<'PY'
+          import json,glob,os,csv
+          def allv(x):
+              if isinstance(x,dict): return x.get('all',0) or 0
+              return x or 0
+          rows=[]
+          for p in sorted(glob.glob('backtest/reports/*.json')):
+              try: d=json.load(open(p,encoding='utf-8-sig'))
+              except Exception: continue
+              name=os.path.basename(p)
+              profile='FREQ' if '-FREQ-' in name else 'BAL'
+              ts=d.get('tradeStatistics',{}) or {}; eq=d.get('equity',{}) or {}
+              n=allv(ts.get('totalTrades')); w=allv(ts.get('winningTrades'))
+              net=allv(ts.get('netProfit')); pf=allv(ts.get('profitFactor')); dd=eq.get('maxEquityDrawdownPercent',0) or 0
+              wr=(100.0*w/n) if n else 0.0
+              rows.append({'profile':profile,'timeframe':'H1','trades':n,'winrate':wr,'netprofit':net,'profitfactor':pf,'maxdd':dd,'engineering_gate':bool(n>=20 and net>0 and pf>=1.20 and dd<=10),'commercial_target':bool(n>=50 and net>=33 and wr>=65 and pf>=2.50 and dd<=10),'file':name})
+          with open('backtest/reports/h1-commercial-acceptance.csv','w',newline='') as f:
+              fields=['profile','timeframe','trades','winrate','netprofit','profitfactor','maxdd','engineering_gate','commercial_target','file']
+              wr=csv.DictWriter(f,fieldnames=fields); wr.writeheader(); wr.writerows(rows)
+          summary={'context':{'broker':'FxPro','symbol':'XAUUSD','timeframe':'H1','starting_balance_usd':100,'leverage':500,'period':'2025-09-12 to 2026-09-11','data_mode':'m1 server data','grid':False,'anti_hedge':True,'max_concurrent_positions':1},'results':rows}
+          json.dump(summary,open('backtest/reports/h1-commercial-summary.json','w'),indent=2)
+          print(json.dumps(summary,indent=2))
+          PY
+
+      - name: Remove private account material
+        if: always()
+        run: rm -rf backtest/secure
+
+      - name: Upload H1 1Y commercial reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: HarmonyBotPro-v28-XAUUSD-H1-100USD-1Y-FxPro-Live500-Commercial-v2
+          path: backtest/reports/
+          if-no-files-found: error
+          retention-days: 30
