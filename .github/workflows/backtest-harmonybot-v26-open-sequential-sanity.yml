@@ -1,0 +1,66 @@
+name: HarmonyBotPro v26 Sequential Open Sanity
+on:
+  push:
+    branches:
+      - compile-harmonybot-v26-20260912
+    paths:
+      - '.github/workflows/backtest-harmonybot-v26-open-sequential-sanity.yml'
+permissions:
+  contents: read
+  actions: read
+jobs:
+  sanity:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - name: Prepare exact v26 and FxPro Live USD 1:500
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+          CTRADER_PASSWORD: ${{ secrets.CTRADER_PASSWORD }}
+        run: |
+          set -euo pipefail
+          mkdir -p backtest/reports backtest/algo backtest/secure
+          curl -fsSL -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" -H "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/artifacts/10297483882/zip" -o backtest/v26.zip
+          unzip -oq backtest/v26.zip -d backtest/algo
+          cp backtest/algo/HarmonyBotPro_v26_Mobile.algo backtest/HarmonyBotPro_v26_Mobile.algo
+          echo '7457dede9159e4c0cd70a695eaa47e1574b25a73f1632002a90c498851ef24a9  backtest/HarmonyBotPro_v26_Mobile.algo' | sha256sum -c -
+          docker pull ghcr.io/spotware/ctrader-console:5.9.11
+          printf '%s' "$CTRADER_PASSWORD" > backtest/secure/pwd
+          chmod 600 backtest/secure/pwd
+          docker run --rm -v "$PWD/backtest/secure:/secure" \
+            -e "CTID=$CTRADER_CTID" -e 'PWD-FILE=/secure/pwd' \
+            ghcr.io/spotware/ctrader-console:5.9.11 accounts --environment-variables > backtest/secure/accounts.json
+          python3 - <<'PY'
+          import json
+          d=json.load(open('backtest/secure/accounts.json',encoding='utf-8-sig'))
+          m=[x for x in d if str(x.get('Broker','')).lower()=='fxpro' and bool(x.get('Live')) and str(x.get('DepositCurrency','')).upper()=='USD' and int(x.get('Leverage',0))==500]
+          if not m: raise SystemExit('No matching FxPro Live USD 1:500 account')
+          open('backtest/secure/account','w').write(str(m[0]['Number']))
+          print('FxPro Live USD 1:500 selected (number masked)')
+          PY
+          rm -f backtest/secure/accounts.json
+      - name: Run D7 M3 M6 1Y 3Y sequentially using M15 open prices
+        env:
+          CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+        run: |
+          set -euo pipefail
+          chmod +x tmp/harmonybot-v26-build/run_v26_backtest_m1.sh
+          tmp/harmonybot-v26-build/run_v26_backtest_m1.sh D7 '05/09/2026 00:00' '11/09/2026 23:59' open 17.14
+          tmp/harmonybot-v26-build/run_v26_backtest_m1.sh M3 '12/06/2026 00:00' '11/09/2026 23:59' open 17.14
+          tmp/harmonybot-v26-build/run_v26_backtest_m1.sh M6 '12/03/2026 00:00' '11/09/2026 23:59' open 17.14
+          tmp/harmonybot-v26-build/run_v26_backtest_m1.sh 1Y '12/09/2025 00:00' '11/09/2026 23:59' open 17.14
+          tmp/harmonybot-v26-build/run_v26_backtest_m1.sh 3Y '12/09/2023 00:00' '11/09/2026 23:59' open 17.14
+      - name: Remove private material
+        if: always()
+        run: rm -rf backtest/secure
+      - name: Upload sanity reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: HarmonyBotPro-v26-Open-Sanity-5Windows
+          path: backtest/reports/
+          if-no-files-found: warn
+          retention-days: 30
