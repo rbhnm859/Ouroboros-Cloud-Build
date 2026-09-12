@@ -1,0 +1,448 @@
+            if (position != null)
+                ManageOpenPosition(position);
+        }
+
+        protected override void OnBar()
+        {
+            ResetDailyIfNeeded();
+            UpdateAccountPeakEquity();
+
+            DateTime newBarTime = Bars.OpenTimes.LastValue;
+            if (newBarTime == _lastProcessedBarTime)
+                return;
+
+            _lastProcessedBarTime = newBarTime;
+
+            if (!HasEnoughData())
+            {
+                ResetTickCounters();
+                Skip("warmup");
+                return;
+            }
+
+            FinalizeClosedBarPressure();
+            RecordSpreadSample();
+
+            // Consume the threshold-cross event on the bar where it actually occurs.
+            // Guards are evaluated afterwards so a blocked signal cannot become a delayed entry.
+            int signal = CheckSignal();
+            if (signal == 0)
+            {
+                Skip("signal_or_confirmation_failed");
+                return;
+            }
+
+            if (HasBlockingBotPosition())
+            {
+                Skip("portfolio_position_exists");
+                return;
+            }
+
+            string guardReason;
+            if (!CheckEntryGuards(out guardReason))
+            {
+                Skip(guardReason);
+                return;
+            }
+
+            OpenTrade(signal);
+        }
+
+        // ============================================================
+        // Validation / symbol handling
+        // ============================================================
+
+        private bool ValidateParameters()
+        {
+            if (PressureWindow < 3) return false;
+            if (CumulativePressureThreshold <= 0) return false;
+            if (HybridTickWeight < 0 || HybridTickWeight > 1) return false;
+            if (CandleCloseLocationWeight < 0 || CandleCloseLocationWeight > 1) return false;
+            if (SlAtrMultiplier <= 0 || TpAtrMultiplier <= 0) return false;
+            if (MaxLotSize <= 0) return false;
+            if (SpreadHistorySize < 5) return false;
+            if (HardRiskCapPercentOfEquity <= 0) return false;
+            return true;
+        }
+
+        private HashSet<string> BuildAllowedPairs()
+        {
+            string raw = string.IsNullOrWhiteSpace(AllowedFxPairs) ? DefaultFxPairs : AllowedFxPairs;
+
+            return new HashSet<string>(
+                raw.Split(new[] { ',', ';', ' ', '\t', '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries)
+                   .Select(NormalizeSymbolName)
+                   .Where(IsKnownFxPair),
+                StringComparer.OrdinalIgnoreCase);
+        }
+
+        private bool ValidateSymbol()
+        {
+            if (string.IsNullOrWhiteSpace(_fxPairCore))
+                return false;
+
+            if (!UseAllowedFxList)
+                return IsKnownFxPair(_fxPairCore);
+
+            return _allowedPairs.Contains(_fxPairCore);
+        }
+
+        private string DetectFxPairCore()
+        {
+            string normalized = NormalizeSymbolName(SymbolName);
+
+            foreach (string pair in _allowedPairs)
+            {
+                if (normalized.Contains(pair))
+                    return pair;
+            }
+
+            foreach (string baseCcy in KnownCurrencies)
+            {
+                foreach (string quoteCcy in KnownCurrencies)
+                {
+                    if (baseCcy == quoteCcy)
+                        continue;
+
+                    string pair = baseCcy + quoteCcy;
+                    if (normalized.Contains(pair))
+                        return pair;
+                }
+            }
+
+            return string.Empty;
+        }
+
+        private bool IsKnownFxPair(string value)
+        {
+            if (string.IsNullOrWhiteSpace(value) || value.Length != 6)
+                return false;
+
+            string baseCcy = value.Substring(0, 3);
+            string quoteCcy = value.Substring(3, 3);
+
+            return baseCcy != quoteCcy &&
+                   KnownCurrencies.Contains(baseCcy) &&
+                   KnownCurrencies.Contains(quoteCcy);
+        }
+
+        private string NormalizeSymbolName(string value)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+                return string.Empty;
+
+            return new string(value.ToUpperInvariant().Where(char.IsLetterOrDigit).ToArray());
+        }
+
+        private bool ValidateTimeFrame()
+        {
+            if (AllowM1 && TimeFrame == TimeFrame.Minute) return true;
+            if (AllowM5 && TimeFrame == TimeFrame.Minute5) return true;
+            if (AllowM15 && TimeFrame == TimeFrame.Minute15) return true;
+            if (AllowM30 && TimeFrame == TimeFrame.Minute30) return true;
+            return false;
+        }
+
+        private TimeFrame ResolveHtfTimeFrame()
+        {
+            string value = string.IsNullOrWhiteSpace(HtfTimeFrameName)
+                ? "MINUTE15"
+                : HtfTimeFrameName.Trim().ToUpperInvariant();
+
+            if (value == "M1" || value == "MINUTE" || value == "MINUTE1" || value == "1") return TimeFrame.Minute;
+            if (value == "M5" || value == "MINUTE5" || value == "5") return TimeFrame.Minute5;
+            if (value == "M15" || value == "MINUTE15" || value == "15") return TimeFrame.Minute15;
+            if (value == "M30" || value == "MINUTE30" || value == "30") return TimeFrame.Minute30;
+            if (value == "H1" || value == "HOUR" || value == "HOUR1" || value == "60") return TimeFrame.Hour;
+            if (value == "H4" || value == "HOUR4" || value == "240") return TimeFrame.Hour4;
+
+            Print(Prefix + "unknown HTF '" + HtfTimeFrameName + "', fallback M15");
+            return TimeFrame.Minute15;
+        }
+
+        private bool HasEnoughData()
+        {
+            int mainClosedIndex = Bars.ClosePrices.Count - 2;
+            int htfClosedIndex = _htfBars.ClosePrices.Count - 2;
+
+            if (mainClosedIndex < AtrPeriod + 3)
+                return false;
+
+            int requiredHtf = Math.Max(EmaPeriod + EmaSlopeBars + 3, AdxPeriod + 5);
+            if (htfClosedIndex < requiredHtf)
+                return false;
+
+            double atr = GetClosedAtrPrice();
+            if (double.IsNaN(atr) || double.IsInfinity(atr) || atr <= 0)
+                return false;
+
+            return true;
+        }
+
+        // ============================================================
+        // Pressure engine
+        // ============================================================
+
+        private void ProcessTickPressure()
+        {
+            double bid = Symbol.Bid;
+
+            if (_prevBid <= 0)
+            {
+                _prevBid = bid;
+                return;
+            }
+
+            if (bid > _prevBid)
+                _upTicks++;
+            else if (bid < _prevBid)
+                _downTicks++;
+
+            _prevBid = bid;
+        }
+
+        private void ResetTickCounters()
+        {
+            _upTicks = 0;
+            _downTicks = 0;
+            _prevBid = Symbol.Bid;
+        }
+
+        private void FinalizeClosedBarPressure()
+        {
+            int closedIndex = Bars.ClosePrices.Count - 2;
+
+            double candleScore = CalculateCandlePressure(closedIndex);
+            int tickSamples = _upTicks + _downTicks;
+            bool tickValid = _tickWindowPrimed && tickSamples >= MinTickSamplesPerBar && tickSamples > 0;
+            double tickScore = tickValid
+                ? Clamp(100.0 * (_upTicks - _downTicks) / tickSamples, -100.0, 100.0)
+                : 0.0;
+
+            double score;
+
+            if (PressureMode == CdsPressureMode.CandlePressure)
+            {
+                score = candleScore;
+            }
+            else if (PressureMode == CdsPressureMode.TickImbalance)
+            {
+                score = tickValid ? tickScore : candleScore;
+            }
+            else
+            {
+                if (tickValid)
+                {
+                    double tickWeight = Clamp(HybridTickWeight, 0.0, 1.0);
+                    score = tickWeight * tickScore + (1.0 - tickWeight) * candleScore;
+                }
+                else
+                {
+                    score = candleScore;
+                }
+            }
+
+            score = Clamp(score, -100.0, 100.0);
+
+            _pressureBuffer[_pressureIndex] = score;
+            _pressureIndex = (_pressureIndex + 1) % _pressureBuffer.Length;
+            if (_pressureFilled < _pressureBuffer.Length)
+                _pressureFilled++;
+
+            Debug(
+                "pressure=" + score.ToString("F1") +
+                " candle=" + candleScore.ToString("F1") +
+                " tick=" + tickScore.ToString("F1") +
+                " samples=" + tickSamples);
+
+            _tickWindowPrimed = true;
+            ResetTickCounters();
+        }
+
+        private double CalculateCandlePressure(int index)
+        {
+            if (index < 0)
+                return 0;
+
+            double open = Bars.OpenPrices[index];
+            double high = Bars.HighPrices[index];
+            double low = Bars.LowPrices[index];
+            double close = Bars.ClosePrices[index];
+            double range = high - low;
+
+            if (range <= Symbol.TickSize)
+                return 0;
+
+            double bodyRatio = Clamp((close - open) / range, -1.0, 1.0);
+            double closeLocation = Clamp(((close - low) - (high - close)) / range, -1.0, 1.0);
+            double closeWeight = Clamp(CandleCloseLocationWeight, 0.0, 1.0);
+            double bodyWeight = 1.0 - closeWeight;
+
+            return Clamp(100.0 * (bodyWeight * bodyRatio + closeWeight * closeLocation), -100.0, 100.0);
+        }
+
+        private double CalculateCumulativePressure()
+        {
+            double sum = 0;
+            for (int i = 0; i < _pressureFilled; i++)
+                sum += _pressureBuffer[i];
+            return sum;
+        }
+
+        private int CheckSignal()
+        {
+            if (_pressureFilled < PressureWindow)
+                return 0;
+
+            double cumulative = CalculateCumulativePressure();
+            double previous = _previousCumulativePressure;
+            _previousCumulativePressure = cumulative;
+
+            int signal = 0;
+
+            if (previous <= CumulativePressureThreshold && cumulative > CumulativePressureThreshold)
+                signal = 1;
+            else if (previous >= -CumulativePressureThreshold && cumulative < -CumulativePressureThreshold)
+                signal = -1;
+
+            if (signal == 0)
+                return 0;
+
+            int confirmations = 0;
+            if (CheckPressureMomentum(signal)) confirmations++;
+            if (CheckHtfPriceVsEma(signal)) confirmations++;
+            if (CheckHtfEmaSlope(signal)) confirmations++;
+            if (CheckHtfTrendStrength(signal)) confirmations++;
+            if (CheckExecutionQuality()) confirmations++;
+
+            Debug(
+                "signal=" + signal +
+                " cum=" + cumulative.ToString("F1") +
+                " confirmations=" + confirmations + "/5 need=" + MinConfirmations);
+
+            return confirmations >= MinConfirmations ? signal : 0;
+        }
+
+        private bool CheckPressureMomentum(int signal)
+        {
+            int bars = Math.Min(MinDirectionalBars, _pressureFilled);
+            if (bars <= 0)
+                return false;
+
+            double absSum = 0;
+
+            for (int i = 1; i <= bars; i++)
+            {
+                int idx = (_pressureIndex - i + PressureWindow) % PressureWindow;
+                double value = _pressureBuffer[idx];
+
+                if (signal > 0 && value <= 0) return false;
+                if (signal < 0 && value >= 0) return false;
+
+                absSum += Math.Abs(value);
+            }
+
+            return absSum / bars >= MinMomentumScore;
+        }
+
+        // ============================================================
+        // Indicator / market filters (closed-bar only)
+        // ============================================================
+
+        private int GetHtfClosedIndex()
+        {
+            return _htfBars.ClosePrices.Count - 2;
+        }
+
+        private double GetClosedAtrPrice()
+        {
+            int index = Bars.ClosePrices.Count - 2;
+            if (index < 0 || index >= _atr.Result.Count)
+                return 0;
+            return _atr.Result[index];
+        }
+
+        private double GetClosedAtrPips()
+        {
+            if (Symbol.PipSize <= 0)
+                return 0;
+            return GetClosedAtrPrice() / Symbol.PipSize;
+        }
+
+        private double GetMainClosedPrice()
+        {
+            int index = Bars.ClosePrices.Count - 2;
+            if (index < 0)
+                return Symbol.Bid;
+            return Bars.ClosePrices[index];
+        }
+
+        private bool CheckHtfPriceVsEma(int signal)
+        {
+            if (!UseHtfEmaFilter)
+                return true;
+
+            int idx = GetHtfClosedIndex();
+            if (idx < 0 || idx >= _htfEma.Result.Count)
+                return false;
+
+            double ema = _htfEma.Result[idx];
+            double price = GetMainClosedPrice();
+
+            if (double.IsNaN(ema) || ema <= 0)
+                return false;
+
+            return signal > 0 ? price > ema : price < ema;
+        }
+
+        private bool CheckHtfEmaSlope(int signal)
+        {
+            if (!UseHtfEmaFilter)
+                return true;
+
+            int newestIndex = GetHtfClosedIndex();
+            int oldestIndex = newestIndex - Math.Max(1, EmaSlopeBars);
+
+            if (oldestIndex < 0 || newestIndex >= _htfEma.Result.Count)
+                return false;
+
+            double newest = _htfEma.Result[newestIndex];
+            double oldest = _htfEma.Result[oldestIndex];
+
+            if (double.IsNaN(newest) || double.IsNaN(oldest))
+                return false;
+
+            return signal > 0 ? newest > oldest : newest < oldest;
+        }
+
+        private bool CheckHtfTrendStrength(int signal)
+        {
+            int idx = GetHtfClosedIndex();
+            if (idx < 0 || idx >= _htfDms.ADX.Count)
+                return false;
+
+            double adx = _htfDms.ADX[idx];
+            if (double.IsNaN(adx) || adx < AdxThreshold)
+                return false;
+
+            if (!RequireDmiDirection)
+                return true;
+
+            double diPlus = _htfDms.DIPlus[idx];
+            double diMinus = _htfDms.DIMinus[idx];
+
+            if (double.IsNaN(diPlus) || double.IsNaN(diMinus))
+                return false;
+
+            return signal > 0 ? diPlus > diMinus : diMinus > diPlus;
+        }
+
+        private double CurrentSpreadPips()
+        {
+            if (Symbol.PipSize <= 0)
+                return double.MaxValue;
+            return Symbol.Spread / Symbol.PipSize;
+        }
+
+        private void RecordSpreadSample()
+        {
