@@ -19,3 +19,10 @@ s=s.replace(marker,helper+marker,1)
 
 p.write_text(s,encoding='utf-8')
 print('Applied v28 cost-adjusted RR repricing fix')
+
+# Always finish the v28 chain with release-audit hardening so duplicate
+# harmonic completions cannot inflate trade counts or re-enter the same setup.
+audit = Path('tmp/harmonybot-v26-build/fix_v28_release_audit.py')
+if not audit.exists():
+    raise SystemExit('v28 release audit patch missing')
+exec(compile(audit.read_text(encoding='utf-8'), str(audit), 'exec'), {})
