@@ -1,0 +1,43 @@
+name: CDS FX Commercial V3 - build
+
+on:
+  push:
+    branches: [cds-fx-commercial-v3-hardening]
+    paths:
+      - 'CumulativeDeltaScalper-FX-Commercial-v3/**'
+      - '.github/workflows/cdscalper-fx-commercial-v3-build.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cds-fx-commercial-v3-build
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Build V3 .algo
+        shell: bash
+        run: |
+          set -euo pipefail
+          PROJ='CumulativeDeltaScalper-FX-Commercial-v3/CumulativeDeltaScalper_FX_Commercial_v3.csproj'
+          dotnet restore "$PROJ"
+          dotnet build "$PROJ" -c Release --no-restore -p:AlgoPublish=False -p:IncludeSource=True
+          mkdir -p out
+          ALGO=$(find CumulativeDeltaScalper-FX-Commercial-v3 -type f -name '*.algo' | head -n1)
+          test -n "$ALGO"
+          cp "$ALGO" out/CumulativeDeltaScalper_FX_Commercial_v3.algo
+          sha256sum out/CumulativeDeltaScalper_FX_Commercial_v3.algo | tee out/algo.sha256
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cds-fx-commercial-v3-algo
+          path: out/
+          retention-days: 30
