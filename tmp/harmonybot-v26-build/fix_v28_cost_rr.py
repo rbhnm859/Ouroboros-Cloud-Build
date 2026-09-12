@@ -20,9 +20,12 @@ s=s.replace(marker,helper+marker,1)
 p.write_text(s,encoding='utf-8')
 print('Applied v28 cost-adjusted RR repricing fix')
 
-# Finish the v28 chain with release-audit hardening and canonical pattern
-# integrity corrections. These are mandatory for the commercial candidate.
-for patch_name in ['fix_v28_release_audit.py', 'fix_v28_pattern_integrity.py']:
+# Mandatory commercial hardening stages after frequency/cost logic.
+for patch_name in [
+    'fix_v28_release_audit.py',
+    'fix_v28_pattern_integrity.py',
+    'fix_v28_history_accounting.py'
+]:
     patch = Path('tmp/harmonybot-v26-build') / patch_name
     if not patch.exists():
         raise SystemExit('v28 mandatory patch missing: ' + patch_name)
