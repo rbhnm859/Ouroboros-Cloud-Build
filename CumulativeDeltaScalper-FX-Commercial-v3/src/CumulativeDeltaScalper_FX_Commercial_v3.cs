@@ -24,7 +24,7 @@ namespace cAlgo.Robots
     [Robot(TimeZone = TimeZones.UTC, AccessRights = AccessRights.None)]
     public partial class CumulativeDeltaScalper_FX_Commercial_v3 : Robot
     {
-        private const string VersionName = "3.0.0-commercial-candidate";
+        private const string VersionName = "3.1.0-commercial-hardening-candidate";
 
         [Parameter("Bot Label", Group = "General", DefaultValue = "CDS_FX_COMMERCIAL_V3")]
         public string TradeLabel { get; set; }
@@ -221,6 +221,8 @@ namespace cAlgo.Robots
         private double _lastCompletedTickPressure;
         private int _lastCompletedTickSamples;
         private DateTime _currentDay;
+        // Daily realised-loss protection intentionally uses start-of-day balance so restart recovery
+        // can reproduce the same baseline from account history. Per-trade risk still uses live equity.
         private double _dayStartEquity;
         private double _dailyRealized;
         private int _tradesToday;
@@ -255,16 +257,20 @@ namespace cAlgo.Robots
             _h1Slow = Indicators.ExponentialMovingAverage(_h1Bars.ClosePrices, SlowEmaPeriod);
 
             _currentDay = Server.Time.Date;
-            _dayStartEquity = Account.Equity;
+            _dayStartEquity = Account.Balance;
             if (Bars.Count > 0)
                 _tickBarTime = Bars.OpenTimes.LastValue;
 
+            // Recover before subscribing/processing new trade events so a restart cannot briefly run
+            // with zeroed daily-loss, trade-count or consecutive-loss state.
+            EnsureDailyStateRecovered();
             Positions.Closed += OnPositionClosed;
             Print("[V3 START] {0} symbol={1} tf={2} equity={3:F2} minVol={4} step={5}", VersionName, SymbolName, TimeFrame, Account.Equity, Symbol.VolumeInUnitsMin, Symbol.VolumeInUnitsStep);
         }
 
         protected override void OnTick()
         {
+            RollTradingDayIfNeeded();
             CaptureTickPressure();
             ManageIntrabarProtection();
         }
@@ -309,6 +315,8 @@ namespace cAlgo.Robots
             var position = args.Position;
             if (position == null || position.Label != TradeLabel)
                 return;
+            if (!PortfolioSinglePosition && position.SymbolName != SymbolName)
+                return;
 
             RollTradingDayIfNeeded();
             _dailyRealized += position.NetProfit;
@@ -324,7 +332,7 @@ namespace cAlgo.Robots
             }
 
             _tradeStates.Remove(position.Id);
-            DebugLog("CLOSE id={0} net={1:F2} daily={2:F2} consecutiveLosses={3}", position.Id, position.NetProfit, _dailyRealized, _consecutiveLosses);
+            DebugLog("CLOSE id={0} symbol={1} net={2:F2} daily={3:F2} consecutiveLosses={4}", position.Id, position.SymbolName, position.NetProfit, _dailyRealized, _consecutiveLosses);
         }
 
         private bool PassGlobalEntryGuards(int closedIndex)
@@ -367,11 +375,12 @@ namespace cAlgo.Robots
                 Print("[V3 DAY] {0:yyyy-MM-dd} realized={1:F2} trades={2}", _currentDay, _dailyRealized, _tradesToday);
 
             _currentDay = today;
-            _dayStartEquity = Account.Equity;
+            _dayStartEquity = Account.Balance;
             _dailyRealized = 0;
             _tradesToday = 0;
             _consecutiveLosses = 0;
             _nextTradeTime = DateTime.MinValue;
+            _dailyStateRecovered = false;
         }
 
         private void CaptureTickPressure()
