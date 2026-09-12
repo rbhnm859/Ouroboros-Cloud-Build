@@ -1,0 +1,168 @@
+name: CDS FX Commercial V3 - Core6 1Y Costed Validation
+
+on:
+  pull_request:
+    paths:
+      - 'CumulativeDeltaScalper-FX-Commercial-v3/**'
+      - '.github/workflows/cdscalper-fx-commercial-v3-core6-1y.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cds-fx-commercial-v3-core6-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Build exact V3 candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          PROJ='CumulativeDeltaScalper-FX-Commercial-v3/CumulativeDeltaScalper_FX_Commercial_v3.csproj'
+          dotnet restore "$PROJ"
+          dotnet build "$PROJ" -c Release --no-restore -p:AlgoPublish=False -p:IncludeSource=True
+          mkdir -p out
+          ALGO=$(find CumulativeDeltaScalper-FX-Commercial-v3 -type f -name '*.algo' | head -n1)
+          test -n "$ALGO"
+          cp "$ALGO" out/CumulativeDeltaScalper_FX_Commercial_v3.algo
+          sha256sum out/CumulativeDeltaScalper_FX_Commercial_v3.algo | tee out/algo.sha256
+      - uses: actions/upload-artifact@v4
+        with:
+          name: v3-core6-build
+          path: out/
+          retention-days: 30
+
+  backtest:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      max-parallel: 6
+      matrix:
+        include:
+          - { symbol: EURUSD, spread: 0.44 }
+          - { symbol: GBPUSD, spread: 0.67 }
+          - { symbol: AUDUSD, spread: 0.61 }
+          - { symbol: USDJPY, spread: 0.37 }
+          - { symbol: USDCHF, spread: 0.73 }
+          - { symbol: USDCAD, spread: 1.00 }
+
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: v3-core6-build
+          path: bt
+
+      - name: Verify exact candidate
+        run: |
+          set -euo pipefail
+          test -s bt/CumulativeDeltaScalper_FX_Commercial_v3.algo
+          cat bt/algo.sha256
+          sha256sum bt/CumulativeDeltaScalper_FX_Commercial_v3.algo
+          mkdir -p bt/cache bt/reports
+
+      - name: Pull official cTrader CLI
+        run: docker pull ghcr.io/spotware/ctrader-console:5.9.11
+
+      - name: Create credential file
+        env:
+          CTRADER_PASSWORD: ${{ secrets.CTRADER_PASSWORD }}
+        run: |
+          test -n "${CTRADER_PASSWORD:-}" || { echo 'Missing CTRADER_PASSWORD'; exit 1; }
+          printf '%s' "$CTRADER_PASSWORD" > bt/ctrader.pwd
+          chmod 600 bt/ctrader.pwd
+
+      - name: Backtest ${{ matrix.symbol }} M1 full year with costs
+        env:
+          CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+          CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+        run: |
+          set -o pipefail
+          test -n "${CTRADER_CTID:-}" || { echo 'Missing CTRADER_CTID'; exit 1; }
+          test -n "${CTRADER_ACCOUNT:-}" || { echo 'Missing CTRADER_ACCOUNT'; exit 1; }
+          docker run --rm \
+            -v "$PWD/bt:/work" \
+            -e "CTID=$CTRADER_CTID" \
+            -e 'PWD-FILE=/work/ctrader.pwd' \
+            -e "ACCOUNT=$CTRADER_ACCOUNT" \
+            ghcr.io/spotware/ctrader-console:5.9.11 \
+            backtest /work/CumulativeDeltaScalper_FX_Commercial_v3.algo \
+            --environment-variables --exit-on-stop \
+            --broker=FxPro \
+            --symbol=${{ matrix.symbol }} \
+            --period=m1 \
+            --start='12/09/2025' \
+            --end='12/09/2026' \
+            --balance=100 \
+            --spread=${{ matrix.spread }} \
+            --commission=35 \
+            --commission-type=UsdPerMillionUsdVolume \
+            --precise-conversion \
+            --data-mode=m1 \
+            --data-dir=/work/cache \
+            --report="/work/reports/${{ matrix.symbol }}-1Y-M1-costed.html" \
+            --report-json="/work/reports/${{ matrix.symbol }}-1Y-M1-costed.json" \
+            2>&1 | tee "bt/reports/${{ matrix.symbol }}-1Y-M1-costed.log"
+          test -s "bt/reports/${{ matrix.symbol }}-1Y-M1-costed.json"
+
+      - name: Produce freeze-gate scorecard
+        env:
+          SYMBOL: ${{ matrix.symbol }}
+          SPREAD: ${{ matrix.spread }}
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import json, os
+          symbol=os.environ['SYMBOL']; spread=float(os.environ['SPREAD'])
+          p=Path(f'bt/reports/{symbol}-1Y-M1-costed.json')
+          d=json.loads(p.read_text())
+          m=d.get('main',{}); e=d.get('equity',{}); t=d.get('tradeStatistics',{})
+          def a(k, default=0):
+              v=t.get(k,default); v=v.get('all',default) if isinstance(v,dict) else v
+              try:return float(v)
+              except:return float(default)
+          trades=int(a('totalTrades')); wins=int(a('winningTrades')); losses=int(a('losingTrades'))
+          net=a('netProfit'); pf=a('profitFactor'); comm=a('commissions'); swaps=a('swaps'); avg=a('averageTrade')
+          dd=float(e.get('maxEquityDrawdownPercent') or 0); start=float(m.get('startingCapital') or 100); end=float(m.get('endingBalance') or start+net)
+          wr=100*wins/trades if trades else 0; roi=100*net/start if start else 0
+          sample_ok=trades>=50
+          full_gate=net>0 and pf>=1.10 and dd<=12 and sample_ok
+          out='\n'.join([
+            f'# V3 Core6 1Y — {symbol}','',
+            f'- Spread: {spread:.2f} pips', '- Commission: 35 USD / million USD volume', '- Data: FxPro server M1',
+            f'- Trades: {trades}',f'- Wins/Losses: {wins}/{losses}',f'- Win rate: {wr:.2f}%',
+            f'- Net profit: ${net:.2f}',f'- ROI: {roi:.2f}%',f'- Ending balance: ${end:.2f}',
+            f'- Profit factor: {pf:.3f}',f'- Max equity drawdown: {dd:.2f}%',f'- Commissions: ${comm:.2f}',f'- Swaps: ${swaps:.2f}',f'- Average trade: ${avg:.3f}',
+            f'- Sample gate (>=50): {"PASS" if sample_ok else "INSUFFICIENT"}',
+            f'- Preliminary one-year quality gate: {"PASS" if full_gate else "FAIL"}',''])
+          outp=Path(f'bt/reports/{symbol}-1Y-M1-scorecard.md'); outp.write_text(out)
+          print(out)
+          Path(os.environ['GITHUB_STEP_SUMMARY']).open('a').write(out+'\n')
+          PY
+
+      - name: Remove credentials
+        if: always()
+        run: rm -f bt/ctrader.pwd
+
+      - name: Upload Core6 evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: v3-core6-${{ matrix.symbol }}-1y-m1
+          path: |
+            bt/reports/${{ matrix.symbol }}-1Y-M1-costed.html
+            bt/reports/${{ matrix.symbol }}-1Y-M1-costed.json
+            bt/reports/${{ matrix.symbol }}-1Y-M1-costed.log
+            bt/reports/${{ matrix.symbol }}-1Y-M1-scorecard.md
+          if-no-files-found: warn
+          retention-days: 30
