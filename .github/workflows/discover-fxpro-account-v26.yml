@@ -1,0 +1,38 @@
+name: Discover FxPro account for HarmonyBot v26
+on:
+  push:
+    branches:
+      - compile-harmonybot-v26-20260912
+    paths:
+      - '.github/workflows/discover-fxpro-account-v26.yml'
+permissions:
+  contents: read
+jobs:
+  discover:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Pull cTrader CLI
+        run: docker pull ghcr.io/spotware/ctrader-console:5.9.11
+      - name: Create password file
+        env:
+          CTRADER_PASSWORD: ${{ secrets.CTRADER_PASSWORD }}
+        run: |
+          test -n "${CTRADER_PASSWORD:-}"
+          printf '%s' "$CTRADER_PASSWORD" > "$RUNNER_TEMP/ctrader.pwd"
+          chmod 600 "$RUNNER_TEMP/ctrader.pwd"
+      - name: List FxPro accounts
+        env:
+          CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/ctrader-work"
+          cp "$RUNNER_TEMP/ctrader.pwd" "$RUNNER_TEMP/ctrader-work/ctrader.pwd"
+          docker run --rm \
+            -v "$RUNNER_TEMP/ctrader-work:/work" \
+            -e "CTID=$CTRADER_CTID" \
+            -e 'PWD-FILE=/work/ctrader.pwd' \
+            ghcr.io/spotware/ctrader-console:5.9.11 \
+            accounts --broker=fxpro --environment-variables
+      - name: Remove credentials
+        if: always()
+        run: rm -f "$RUNNER_TEMP/ctrader.pwd" "$RUNNER_TEMP/ctrader-work/ctrader.pwd"
