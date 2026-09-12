@@ -1,0 +1,38 @@
+name: CDS FX Adaptive v2 - export exact source
+
+on:
+  push:
+    branches: [cds-fx-adaptive-v2-1y-screening]
+    paths: ['.github/workflows/cdscalper-fx-adaptive-v2-export-source.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Extract exact embedded source
+        shell: python
+        run: |
+          import re, base64, gzip, pathlib, hashlib
+          p = pathlib.Path('.github/workflows/cdscalper-fx-adaptive-v2-1y-screening.yml')
+          text = p.read_text(encoding='utf-8')
+          m = re.search(r"printf '%s' '([A-Za-z0-9+/=]+)'", text)
+          if not m:
+              raise SystemExit('embedded source payload not found')
+          raw = gzip.decompress(base64.b64decode(m.group(1)))
+          out = pathlib.Path('export/CumulativeDeltaScalper_FX_Adaptive_v2.cs')
+          out.parent.mkdir(parents=True, exist_ok=True)
+          out.write_bytes(raw)
+          print('lines=', raw.count(b'\n') + 1)
+          print('sha256=', hashlib.sha256(raw).hexdigest())
+          print('bytes=', len(raw))
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cds-fx-adaptive-v2-exact-source
+          path: export/CumulativeDeltaScalper_FX_Adaptive_v2.cs
+          retention-days: 30

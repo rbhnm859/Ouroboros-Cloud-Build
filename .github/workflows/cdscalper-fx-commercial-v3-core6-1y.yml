@@ -1,0 +1,21 @@
+name: CDS FX Commercial V3 - Core6 1Y Costed Validation
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/cdscalper-fx-commercial-v3-core6-1y.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cds-fx-commercial-v3-core6-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  superseded:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Full28 supersedes Core6
+        run: echo 'Core6 one-year validation is superseded by CDS FX Commercial V3.1 Full28 1Y Costed Validation.'

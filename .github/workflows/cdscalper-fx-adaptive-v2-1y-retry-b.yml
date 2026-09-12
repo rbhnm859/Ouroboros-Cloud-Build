@@ -1,0 +1,114 @@
+name: CDS FX Adaptive v2 - 1Y retry B
+
+on:
+  push:
+    branches: [cds-fx-adaptive-v2-1y-screening]
+    paths: ['.github/workflows/cdscalper-fx-adaptive-v2-1y-retry-b.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: cds-fx-adaptive-v2-1y-retry-b
+  cancel-in-progress: true
+
+jobs:
+  backtest:
+    name: Retry B ${{ matrix.symbol }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        include:
+          - { symbol: AUDJPY, spread: 1.42 }
+          - { symbol: EURCAD, spread: 1.41 }
+          - { symbol: GBPAUD, spread: 2.30 }
+          - { symbol: GBPCAD, spread: 2.29 }
+          - { symbol: GBPCHF, spread: 1.21 }
+          - { symbol: GBPJPY, spread: 2.30 }
+          - { symbol: GBPNZD, spread: 2.68 }
+          - { symbol: NZDCAD, spread: 2.40 }
+          - { symbol: NZDCHF, spread: 1.18 }
+          - { symbol: NZDJPY, spread: 1.92 }
+          - { symbol: NZDUSD, spread: 1.08 }
+          - { symbol: USDCAD, spread: 1.00 }
+          - { symbol: USDCHF, spread: 0.73 }
+          - { symbol: USDJPY, spread: 0.37 }
+
+    steps:
+      - name: Download exact compiled V2 artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: cds-fx-adaptive-v2-algo
+          path: bt
+          github-token: ${{ github.token }}
+          repository: rbhnm859/Ouroboros-Cloud-Build
+          run-id: 34699409145
+
+      - name: Verify cBot artifact
+        run: |
+          test -f bt/CumulativeDeltaScalper_FX_Adaptive_v2.algo
+          cat bt/algo.sha256
+          sha256sum bt/CumulativeDeltaScalper_FX_Adaptive_v2.algo
+          mkdir -p bt/cache bt/reports
+
+      - name: Pull official cTrader CLI
+        run: docker pull ghcr.io/spotware/ctrader-console:5.9.11
+
+      - name: Create credential file
+        env:
+          CTRADER_PASSWORD: ${{ secrets.CTRADER_PASSWORD }}
+        run: |
+          test -n "${CTRADER_PASSWORD:-}" || { echo 'Missing CTRADER_PASSWORD'; exit 1; }
+          printf '%s' "$CTRADER_PASSWORD" > bt/ctrader.pwd
+          chmod 600 bt/ctrader.pwd
+
+      - name: Low-concurrency costed backtest
+        env:
+          CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+          CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+        run: |
+          test -n "${CTRADER_CTID:-}" || { echo 'Missing CTRADER_CTID'; exit 1; }
+          test -n "${CTRADER_ACCOUNT:-}" || { echo 'Missing CTRADER_ACCOUNT'; exit 1; }
+          docker run --rm \
+            -v "$PWD/bt:/work" \
+            -e "CTID=$CTRADER_CTID" \
+            -e 'PWD-FILE=/work/ctrader.pwd' \
+            -e "ACCOUNT=$CTRADER_ACCOUNT" \
+            ghcr.io/spotware/ctrader-console:5.9.11 \
+            backtest /work/CumulativeDeltaScalper_FX_Adaptive_v2.algo \
+            --environment-variables --exit-on-stop \
+            --broker=FxPro \
+            --symbol=${{ matrix.symbol }} \
+            --period=m1 \
+            --start='12/09/2025' \
+            --end='12/09/2026' \
+            --balance=100 \
+            --spread=${{ matrix.spread }} \
+            --commission=35 \
+            --data-mode=m1 \
+            --data-dir=/work/cache \
+            --SummaryLogging=false \
+            --report="/work/reports/${{ matrix.symbol }}-1Y-M1-costed.html" \
+            --report-json="/work/reports/${{ matrix.symbol }}-1Y-M1-costed.json" \
+            2>&1 | tee "bt/reports/${{ matrix.symbol }}-1Y-M1-costed.log"
+
+      - name: Remove credentials
+        if: always()
+        run: rm -f bt/ctrader.pwd
+
+      - name: Upload costed report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cds-v2-retry-b-${{ matrix.symbol }}-1y-m1
+          path: |
+            bt/reports/${{ matrix.symbol }}-1Y-M1-costed.html
+            bt/reports/${{ matrix.symbol }}-1Y-M1-costed.json
+            bt/reports/${{ matrix.symbol }}-1Y-M1-costed.log
+          if-no-files-found: warn
+          retention-days: 30
