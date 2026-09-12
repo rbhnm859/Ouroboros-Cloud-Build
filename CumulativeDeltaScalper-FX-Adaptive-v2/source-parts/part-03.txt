@@ -1,0 +1,448 @@
+                }
+            }
+
+            if (_openTradeTime == DateTime.MinValue)
+                _openTradeTime = position.EntryTime;
+
+            if (_openTradeDirection == 0)
+                _openTradeDirection = position.TradeType == TradeType.Buy ? 1 : -1;
+
+            if (_initialRiskPips <= 0)
+            {
+                if (position.StopLoss.HasValue)
+                    _initialRiskPips = Math.Abs(position.EntryPrice - position.StopLoss.Value) / Symbol.PipSize;
+                else
+                    _initialRiskPips = Math.Max(0.1, GetClosedAtrPips() * SlAtrMultiplier);
+            }
+
+            if (MaxTradeBars > 0)
+            {
+                int maxSeconds = MaxTradeBars * GetChartTimeframeMinutes() * 60;
+                if (Server.Time >= _openTradeTime.AddSeconds(maxSeconds))
+                {
+                    ClosePositionWithLog(position, "TIME_EXIT");
+                    return;
+                }
+            }
+
+            if (UseAdversePressureExit && _pressureFilled >= PressureWindow)
+            {
+                double cumulative = CalculateCumulativePressure();
+                bool adverse =
+                    (_openTradeDirection > 0 && cumulative <= -AdversePressureThreshold) ||
+                    (_openTradeDirection < 0 && cumulative >= AdversePressureThreshold);
+
+                if (adverse)
+                {
+                    ClosePositionWithLog(position, "ADVERSE_PRESSURE");
+                    return;
+                }
+            }
+
+            if (UseBreakeven && !_breakevenApplied)
+                TryApplyBreakeven(position);
+
+            if (UseAtrTrailing)
+                TryApplyAtrTrailing(position);
+        }
+
+        private bool CheckCriticalExit(out string reason)
+        {
+            reason = string.Empty;
+
+            if (MaxFloatingLossMoney > 0 && GetScopeFloatingPnl() <= -MaxFloatingLossMoney)
+            {
+                reason = "FLOATING_LOSS_GUARD";
+                return true;
+            }
+
+            double dailyLossLimitByPercent = _dayStartBalance * MaxDailyLossPercent / 100.0;
+            double dailyLossLimit = MaxDailyLossMoney > 0
+                ? Math.Min(dailyLossLimitByPercent, MaxDailyLossMoney)
+                : dailyLossLimitByPercent;
+
+            if (dailyLossLimit > 0 && _dailyClosedPnl + GetScopeFloatingPnl() <= -dailyLossLimit)
+            {
+                reason = "DAILY_LOSS_GUARD";
+                return true;
+            }
+
+            if (IsAccountEquityDrawdownHit())
+            {
+                reason = "ACCOUNT_EQUITY_DD_GUARD";
+                return true;
+            }
+
+            return false;
+        }
+
+        private bool IsAccountEquityDrawdownHit()
+        {
+            if (MaxAccountEquityDrawdownPercent <= 0 || _accountPeakEquity <= 0)
+                return false;
+
+            double ddPct = (_accountPeakEquity - Account.Equity) / _accountPeakEquity * 100.0;
+            return ddPct >= MaxAccountEquityDrawdownPercent;
+        }
+
+        private void UpdateAccountPeakEquity()
+        {
+            if (Account.Equity > _accountPeakEquity)
+                _accountPeakEquity = Account.Equity;
+        }
+
+        private double GetPositionProfitPips(Position position)
+        {
+            if (position.TradeType == TradeType.Buy)
+                return (Symbol.Bid - position.EntryPrice) / Symbol.PipSize;
+
+            return (position.EntryPrice - Symbol.Ask) / Symbol.PipSize;
+        }
+
+        private void TryApplyBreakeven(Position position)
+        {
+            if (_initialRiskPips <= 0)
+                return;
+
+            double profitPips = GetPositionProfitPips(position);
+            if (profitPips < _initialRiskPips * BreakevenTriggerR)
+                return;
+
+            double newStop = position.TradeType == TradeType.Buy
+                ? position.EntryPrice + BreakevenPlusPips * Symbol.PipSize
+                : position.EntryPrice - BreakevenPlusPips * Symbol.PipSize;
+
+            newStop = NormalizePrice(newStop);
+
+            if (!IsStopImprovement(position, newStop))
+                return;
+
+            if (!CanSetStopPrice(position.TradeType, newStop))
+                return;
+
+            TradeResult result = ModifyPosition(position, newStop, position.TakeProfit);
+            if (result.IsSuccessful)
+            {
+                _breakevenApplied = true;
+                Debug("breakeven applied SL=" + newStop);
+            }
+            else
+            {
+                Debug("breakeven failed: " + result.Error);
+            }
+        }
+
+        private void TryApplyAtrTrailing(Position position)
+        {
+            if (_initialRiskPips <= 0)
+                return;
+
+            double profitPips = GetPositionProfitPips(position);
+            if (profitPips < _initialRiskPips * TrailingStartR)
+                return;
+
+            double atrPrice = GetClosedAtrPrice();
+            if (double.IsNaN(atrPrice) || atrPrice <= 0)
+                return;
+
+            double distance = atrPrice * TrailingAtrMultiplier;
+            double newStop = position.TradeType == TradeType.Buy
+                ? Symbol.Bid - distance
+                : Symbol.Ask + distance;
+
+            newStop = NormalizePrice(newStop);
+
+            if (!IsStopImprovement(position, newStop))
+                return;
+
+            if (!CanSetStopPrice(position.TradeType, newStop))
+                return;
+
+            TradeResult result = ModifyPosition(position, newStop, position.TakeProfit);
+            if (!result.IsSuccessful)
+                Debug("trailing failed: " + result.Error);
+        }
+
+        private bool IsStopAtOrBeyondBreakeven(Position position)
+        {
+            if (!position.StopLoss.HasValue)
+                return false;
+
+            if (position.TradeType == TradeType.Buy)
+                return position.StopLoss.Value >= position.EntryPrice;
+
+            return position.StopLoss.Value <= position.EntryPrice;
+        }
+
+        private bool IsStopImprovement(Position position, double newStop)
+        {
+            if (!position.StopLoss.HasValue)
+                return true;
+
+            double minimumImprovement = Math.Max(Symbol.TickSize, 0.1 * Symbol.PipSize);
+
+            if (position.TradeType == TradeType.Buy)
+                return newStop > position.StopLoss.Value + minimumImprovement;
+
+            return newStop < position.StopLoss.Value - minimumImprovement;
+        }
+
+        private bool CanSetStopPrice(TradeType tradeType, double stopPrice)
+        {
+            if (stopPrice <= 0)
+                return false;
+
+            double current = tradeType == TradeType.Buy ? Symbol.Bid : Symbol.Ask;
+
+            if (tradeType == TradeType.Buy && stopPrice >= current)
+                return false;
+
+            if (tradeType == TradeType.Sell && stopPrice <= current)
+                return false;
+
+            double priceDistance = Math.Abs(current - stopPrice);
+            double distancePips = priceDistance / Symbol.PipSize;
+
+            if (Symbol.MinDistanceType == SymbolMinDistanceType.Pips)
+            {
+                double min = Math.Max(0, Symbol.MinStopLossDistance) + BrokerDistanceBufferPips;
+                return distancePips >= min;
+            }
+
+            double percent = current > 0 ? priceDistance / current * 100.0 : 0;
+            return percent >= Symbol.MinStopLossDistance;
+        }
+
+        private double NormalizePrice(double price)
+        {
+            return Math.Round(price, Symbol.Digits, MidpointRounding.AwayFromZero);
+        }
+
+        private void ClosePositionWithLog(Position position, string reason)
+        {
+            TradeResult result = ClosePosition(position);
+            if (result.IsSuccessful)
+                Debug("position closed reason=" + reason);
+            else
+                Debug("close failed reason=" + reason + " error=" + result.Error);
+        }
+
+        // ============================================================
+        // Daily state / restart recovery
+        // ============================================================
+
+        private bool IsInScope(string symbolName, string label)
+        {
+            if (label != TradeLabel)
+                return false;
+
+            if (PortfolioSinglePosition)
+                return true;
+
+            return symbolName == SymbolName;
+        }
+
+        private double GetScopeFloatingPnl()
+        {
+            return Positions
+                .Where(p => IsInScope(p.SymbolName, p.Label))
+                .Sum(p => p.NetProfit);
+        }
+
+        private void ResetDailyIfNeeded()
+        {
+            DateTime today = Server.Time.Date;
+            if (today == _currentDay)
+                return;
+
+            PrintSummary("day_end_" + _currentDay.ToString("yyyy-MM-dd"));
+            _currentDay = today;
+            RebuildDailyStateFromHistory();
+        }
+
+        private void RebuildDailyStateFromHistory()
+        {
+            DateTime dayStart = Server.Time.Date;
+
+            var closedToday = History
+                .Where(h => IsInScope(h.SymbolName, h.Label) && h.ClosingTime >= dayStart)
+                .OrderBy(h => h.ClosingTime)
+                .ToList();
+
+            _dailyClosedPnl = closedToday.Sum(h => h.NetProfit);
+            _dailyTradeCount = closedToday.Count;
+
+            foreach (Position p in Positions.Where(p => IsInScope(p.SymbolName, p.Label) && p.EntryTime >= dayStart))
+                _dailyTradeCount++;
+
+            _dayStartBalance = Math.Max(1.0, Account.Balance - _dailyClosedPnl);
+
+            _consecutiveLosses = 0;
+            _lastLossTime = DateTime.MinValue;
+
+            for (int i = closedToday.Count - 1; i >= 0; i--)
+            {
+                HistoricalTrade trade = closedToday[i];
+
+                if (trade.NetProfit < 0)
+                {
+                    _consecutiveLosses++;
+                    if (_lastLossTime == DateTime.MinValue)
+                        _lastLossTime = trade.ClosingTime;
+                }
+                else if (trade.NetProfit > 0)
+                {
+                    break;
+                }
+            }
+
+            if (closedToday.Count > 0)
+            {
+                HistoricalTrade latest = closedToday[closedToday.Count - 1];
+                if (latest.ClosingTime > _lastTradeTime)
+                    _lastTradeTime = latest.ClosingTime;
+            }
+
+            foreach (Position p in Positions.Where(p => IsInScope(p.SymbolName, p.Label)))
+            {
+                if (p.EntryTime > _lastTradeTime)
+                    _lastTradeTime = p.EntryTime;
+            }
+
+            Debug(
+                "daily state rebuilt trades=" + _dailyTradeCount +
+                " closedPnl=" + _dailyClosedPnl.ToString("F2") +
+                " consecutiveLosses=" + _consecutiveLosses +
+                " dayStartBalance~=" + _dayStartBalance.ToString("F2"));
+        }
+
+        private void OnPositionOpened(PositionOpenedEventArgs args)
+        {
+            Position p = args.Position;
+            if (!IsInScope(p.SymbolName, p.Label))
+                return;
+
+            if (p.EntryTime >= Server.Time.Date)
+                _dailyTradeCount++;
+
+            if (p.EntryTime > _lastTradeTime)
+                _lastTradeTime = p.EntryTime;
+
+            if (p.SymbolName == SymbolName)
+            {
+                _openTradeTime = p.EntryTime;
+                _openTradeDirection = p.TradeType == TradeType.Buy ? 1 : -1;
+            }
+
+            Debug("opened symbol=" + p.SymbolName + " dailyTrades=" + _dailyTradeCount);
+        }
+
+        private void OnPositionClosed(PositionClosedEventArgs args)
+        {
+            Position p = args.Position;
+            if (!IsInScope(p.SymbolName, p.Label))
+                return;
+
+            if (p.EntryTime.Date == Server.Time.Date || Server.Time.Date == _currentDay)
+                _dailyClosedPnl += p.NetProfit;
+
+            if (p.NetProfit < 0)
+            {
+                _consecutiveLosses++;
+                _lastLossTime = Server.Time;
+            }
+            else if (p.NetProfit > 0)
+            {
+                _consecutiveLosses = 0;
+            }
+
+            if (p.SymbolName == SymbolName)
+            {
+                _openTradeDirection = 0;
+                _openTradeTime = DateTime.MinValue;
+                _initialRiskPips = 0;
+                _breakevenApplied = false;
+            }
+
+            Debug(
+                "closed symbol=" + p.SymbolName +
+                " pnl=" + p.NetProfit.ToString("F2") +
+                " dailyPnl=" + _dailyClosedPnl.ToString("F2") +
+                " consecutiveLosses=" + _consecutiveLosses);
+        }
+
+        // ============================================================
+        // Utilities / diagnostics
+        // ============================================================
+
+        private int GetChartTimeframeMinutes()
+        {
+            if (TimeFrame == TimeFrame.Minute) return 1;
+            if (TimeFrame == TimeFrame.Minute5) return 5;
+            if (TimeFrame == TimeFrame.Minute15) return 15;
+            if (TimeFrame == TimeFrame.Minute30) return 30;
+            return 1;
+        }
+
+        private double Clamp(double value, double min, double max)
+        {
+            return Math.Max(min, Math.Min(max, value));
+        }
+
+        private void Skip(string reason)
+        {
+            if (string.IsNullOrWhiteSpace(reason))
+                reason = "unknown";
+
+            Count(_skipReasons, reason);
+            Debug("skip=" + reason);
+        }
+
+        private void Entry(string reason)
+        {
+            if (string.IsNullOrWhiteSpace(reason))
+                reason = "entry";
+
+            Count(_entryReasons, reason);
+        }
+
+        private void Count(Dictionary<string, int> map, string key)
+        {
+            int value;
+            if (map.TryGetValue(key, out value))
+                map[key] = value + 1;
+            else
+                map[key] = 1;
+        }
+
+        private void PrintSummary(string tag)
+        {
+            if (!SummaryLogging)
+                return;
+
+            Print(
+                Prefix + "summary " + tag +
+                " tradesToday=" + _dailyTradeCount +
+                " pnlToday=" + _dailyClosedPnl.ToString("F2") +
+                " skips=" + FormatTopCounts(_skipReasons, 10) +
+                " entries=" + FormatTopCounts(_entryReasons, 4));
+        }
+
+        private string FormatTopCounts(Dictionary<string, int> map, int maxItems)
+        {
+            if (map.Count == 0)
+                return "none";
+
+            return string.Join(",",
+                map.OrderByDescending(kv => kv.Value)
+                   .Take(Math.Max(1, maxItems))
+                   .Select(kv => kv.Key + ":" + kv.Value));
+        }
+
+        private void Debug(string message)
+        {
+            if (DebugLogging)
+                Print(Prefix + message);
+        }
+    }
+}
