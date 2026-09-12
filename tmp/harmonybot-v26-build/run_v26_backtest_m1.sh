@@ -3,8 +3,10 @@ set -euo pipefail
 LABEL="$1"
 START="$2"
 END="$3"
+DATA_MODE="${4:-m1}"
+SPREAD="${5:-17.14}"
 ACCOUNT="$(cat backtest/secure/account)"
-OUT="HarmonyBotPro-v26-XAUUSD-M15-100-${LABEL}-FxPro-Live500-M1"
+OUT="HarmonyBotPro-v26-XAUUSD-M15-100-${LABEL}-FxPro-Live500-${DATA_MODE}"
 docker run --rm \
   -v "$PWD/backtest:/work" \
   -e "CTID=$CTRADER_CTID" \
@@ -14,7 +16,7 @@ docker run --rm \
   backtest /work/HarmonyBotPro_v26_Mobile.algo --environment-variables \
   --broker=FxPro --symbol=XAUUSD --period=m15 \
   --start="$START" --end="$END" \
-  --balance=100 --data-mode=m1 --commission=35 --spread=17.14 \
+  --balance=100 --data-mode="$DATA_MODE" --commission=35 --spread="$SPREAD" \
   --SymbolName=XAUUSD \
   --RiskPercent=1.5 --MaxDrawdown=10.0 --DailyLossLimitPercent=4.0 --WeeklyLossLimitPercent=8.0 \
   --MonthlyTargetPercent=12.0 --RiskAfterMonthlyTarget=0.5 --CloseAllOnDailyLock=false \
