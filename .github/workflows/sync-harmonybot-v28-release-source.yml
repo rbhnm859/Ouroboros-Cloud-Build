@@ -1,0 +1,55 @@
+name: Sync HarmonyBotPro v28 Release Source
+
+on:
+  push:
+    branches:
+      - harmonybot-v28-commercial-final-rc
+    paths:
+      - '.github/workflows/sync-harmonybot-v28-release-source.yml'
+      - 'tmp/harmonybot-v26-build/fix_v28_frequency_architecture.py'
+      - 'tmp/harmonybot-v26-build/fix_v28_cost_rr.py'
+      - 'tmp/harmonybot-v26-build/fix_v28_release_audit.py'
+      - 'tmp/harmonybot-v26-build/fix_v28_pattern_integrity.py'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  sync-source:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Generate exact V28 source from audited patch chain
+        run: |
+          set -euo pipefail
+          python3 tmp/harmonybot-v26-build/build_v261_frequency.py
+          python3 tmp/harmonybot-v26-build/fix_v261_mtf_overload.py
+          python3 tmp/harmonybot-v26-build/fix_v262_frequency_safe.py
+          python3 tmp/harmonybot-v26-build/fix_v262_grid_guard_band.py
+          python3 tmp/harmonybot-v26-build/fix_v27_commercial_rc.py
+          python3 tmp/harmonybot-v26-build/fix_v28_frequency_architecture.py
+          python3 tmp/harmonybot-v26-build/fix_v28_cost_rr.py
+          mkdir -p releases/HarmonyBotPro-v28
+          cp cli-build/HarmonyBotPro_v261/HarmonyBotPro.cs releases/HarmonyBotPro-v28/HarmonyBotPro_v28_CommercialFinalRC.cs
+          sha256sum releases/HarmonyBotPro-v28/HarmonyBotPro_v28_CommercialFinalRC.cs
+          grep -q 'EstimateExecutionReservePips' releases/HarmonyBotPro-v28/HarmonyBotPro_v28_CommercialFinalRC.cs
+          grep -q 'ExecuteMarketRangeOrder' releases/HarmonyBotPro-v28/HarmonyBotPro_v28_CommercialFinalRC.cs
+          grep -q 'EnableFibGrid = false' releases/HarmonyBotPro-v28/HarmonyBotPro_v28_CommercialFinalRC.cs
+
+      - name: Commit source only when generated V28 changed
+        run: |
+          set -euo pipefail
+          if git diff --quiet -- releases/HarmonyBotPro-v28/HarmonyBotPro_v28_CommercialFinalRC.cs; then
+            echo 'Release source already matches generated V28.'
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add releases/HarmonyBotPro-v28/HarmonyBotPro_v28_CommercialFinalRC.cs
+          git commit -m 'Sync V28 release source with compiled patch chain'
+          git push origin HEAD:harmonybot-v28-commercial-final-rc
