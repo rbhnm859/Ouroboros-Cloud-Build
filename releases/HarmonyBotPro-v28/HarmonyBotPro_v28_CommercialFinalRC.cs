@@ -494,6 +494,7 @@ namespace cAlgo.Robots
         // ============================================================
         protected override void OnStart()
         {
+            EnableFibGrid = false; // v28 Commercial Final RC forbids Grid/DCA/Recovery
             try
             {
                 _symbol = Symbols.GetSymbol(SymbolName);
@@ -756,7 +757,7 @@ namespace cAlgo.Robots
                 double? orderTpPips = tpPips;
                 double volumeInUnits;
 
-                bool useGridForThisTrade = EnableFibGrid && !(SmallAccountGridGuard && IsGridGuardAccount());
+                bool useGridForThisTrade = false; // v28 commercial: Grid forbidden
                 _pendingPrimaryUseGrid = useGridForThisTrade;
 
                 if (useGridForThisTrade)
@@ -770,7 +771,7 @@ namespace cAlgo.Robots
                 {
                     _lastPrimaryRiskPips = 0;
                     volumeInUnits = CalculateVolumeByRisk(slPips, riskBudgetPct);
-                    if (EnableFibGrid && SmallAccountGridGuard && IsGridGuardAccount())
+                    if (false)
                         Print("[GRID-GUARD] Small account mode: primary trade uses normal SL/TP; grid disabled for this position.");
                 }
 
@@ -1572,8 +1573,9 @@ namespace cAlgo.Robots
             if (minVol <= 0) return false;
 
             double riskAmount = Account.Equity * riskBudgetPct / 100.0;
+            double executionReservePips = EstimateExecutionReservePips();
             double maxPips;
-            try { maxPips = _symbol.PipsForFixedRisk(riskAmount, minVol); }
+            try { maxPips = _symbol.PipsForFixedRisk(riskAmount, minVol) - executionReservePips; }
             catch { return false; }
 
             double floorPips = Math.Max(EffectiveMinStopLossPips(), MinStopDistancePips);
@@ -1583,10 +1585,10 @@ namespace cAlgo.Robots
                 double requiredEquity = EstimateRequiredEquityForRisk(minVol, floorPips, riskBudgetPct);
                 if ((Server.Time - _lastVolumeWarnTime).TotalMinutes >= 5)
                 {
-                    Print("[RISK-BLOCK] minVol={0} riskBudget={1:F2}% cannot support minSL={2:F1} pips (max={3:F1}).",
-                        minVol, riskBudgetPct, floorPips, maxPips);
-                    Print("[CAPITAL-FEASIBILITY] equity={0:F2} requiredEquity={1:F2} minVol={2} structuralSL={3:F1} riskBudget={4:F2}%.",
-                        Account.Equity, requiredEquity, minVol, floorPips, riskBudgetPct);
+                    Print("[RISK-BLOCK] minVol={0} riskBudget={1:F2}% cannot support minSL={2:F1} pips after execution reserve={3:F1} (maxStop={4:F1}).",
+                        minVol, riskBudgetPct, floorPips, executionReservePips, maxPips);
+                    Print("[CAPITAL-FEASIBILITY] equity={0:F2} requiredEquity={1:F2} minVol={2} structuralSL={3:F1} executionReserve={4:F1} riskBudget={5:F2}%.",
+                        Account.Equity, requiredEquity, minVol, floorPips, executionReservePips, riskBudgetPct);
                     _lastVolumeWarnTime = Server.Time;
                 }
                 return false;
@@ -1600,10 +1602,10 @@ namespace cAlgo.Robots
                 {
                     _diagCapitalInfeasible++;
                     double requiredEquity = EstimateRequiredEquityForRisk(minVol, slPips, riskBudgetPct);
-                    Print("[RISK-BLOCK] SL compression {0:P1} exceeds limit {1:P1}; original={2:F1} max={3:F1}.",
-                        compression, MaxStopCompressionRatio, slPips, maxPips);
-                    Print("[CAPITAL-FEASIBILITY] equity={0:F2} requiredEquity={1:F2} minVol={2} structuralSL={3:F1} riskBudget={4:F2}%.",
-                        Account.Equity, requiredEquity, minVol, slPips, riskBudgetPct);
+                    Print("[RISK-BLOCK] SL compression {0:P1} exceeds limit {1:P1}; original={2:F1} maxStop={3:F1} executionReserve={4:F1}.",
+                        compression, MaxStopCompressionRatio, slPips, maxPips, executionReservePips);
+                    Print("[CAPITAL-FEASIBILITY] equity={0:F2} requiredEquity={1:F2} minVol={2} structuralSL={3:F1} executionReserve={4:F1} riskBudget={5:F2}%.",
+                        Account.Equity, requiredEquity, minVol, slPips, executionReservePips, riskBudgetPct);
                     return false;
                 }
 
@@ -1619,12 +1621,21 @@ namespace cAlgo.Robots
             return true;
         }
 
+        private double EstimateExecutionReservePips()
+        {
+            double slip = Math.Max(0.0, MaxSlippagePips);
+            double commission = Math.Max(0.0, EstimateRoundTurnCommissionPips());
+            double reserve = slip + commission;
+            return double.IsNaN(reserve) || double.IsInfinity(reserve) ? slip : reserve;
+        }
+
         private double EstimateRequiredEquityForRisk(double volumeInUnits, double slPips, double riskBudgetPct)
         {
             if (_symbol == null || volumeInUnits <= 0 || slPips <= 0 || riskBudgetPct <= 0) return double.MaxValue;
             try
             {
-                double riskMoney = _symbol.AmountRisked(volumeInUnits, slPips);
+                double allInPips = slPips + EstimateExecutionReservePips();
+                double riskMoney = _symbol.AmountRisked(volumeInUnits, allInPips);
                 if (riskMoney <= 0 || double.IsNaN(riskMoney) || double.IsInfinity(riskMoney)) return double.MaxValue;
                 return riskMoney / (riskBudgetPct / 100.0);
             }
@@ -1643,8 +1654,9 @@ namespace cAlgo.Robots
             if (pct <= 0) return 0;
 
             double riskAmount = equity * pct / 100.0;
+            double allInRiskPips = slPips + (CommercialRiskEngine ? EstimateExecutionReservePips() : 0.0);
             double vol;
-            try { vol = _symbol.VolumeForFixedRisk(riskAmount, slPips, RoundingMode.Down); }
+            try { vol = _symbol.VolumeForFixedRisk(riskAmount, allInRiskPips, RoundingMode.Down); }
             catch { return 0; }
             if (double.IsNaN(vol) || double.IsInfinity(vol) || vol <= 0) return 0;
 
@@ -1658,7 +1670,7 @@ namespace cAlgo.Robots
 
             double minVol = _symbol.VolumeInUnitsMin;
             double minRisk;
-            try { minRisk = _symbol.AmountRisked(minVol, slPips); }
+            try { minRisk = _symbol.AmountRisked(minVol, allInRiskPips); }
             catch { return 0; }
             double minRiskPct = equity > 0 ? minRisk / equity * 100.0 : double.MaxValue;
 
@@ -1730,13 +1742,6 @@ namespace cAlgo.Robots
                 return false;
             }
             return true;
-        }
-
-        private bool IsGridGuardAccount()
-        {
-            if (!SmallAccountMode) return false;
-            double guardThreshold = Math.Max(SmallAccountThreshold, SmallAccountThreshold * 2.0);
-            return Account.Equity <= guardThreshold + 1e-9;
         }
 
         private bool IsSmallAccountMode()
