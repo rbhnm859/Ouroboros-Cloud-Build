@@ -46,3 +46,6 @@ for patch_name in [
     if not patch.exists():
         raise SystemExit('v28 mandatory patch missing: ' + patch_name)
     exec(compile(patch.read_text(encoding='utf-8'), str(patch), 'exec'), {})
+
+# Rebuild marker: v28 all-in execution-risk reserve is applied by the mandatory
+# capital-feasibility stage above (SL + slippage proxy + round-turn commission).
