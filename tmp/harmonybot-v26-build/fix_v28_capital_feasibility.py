@@ -10,8 +10,16 @@ s = p.read_text(encoding='utf-8')
 # Commercial execution hardening: broker-native AmountRisked/PipsForFixedRisk do
 # not include commission and cannot guarantee stop fills through a price gap.
 # Reserve configured slippage plus estimated round-turn commission inside the
-# same risk budget. This deliberately blocks a trade when $100/min-volume cannot
-# support the all-in loss budget instead of raising risk or forcing volume.
+# same risk budget.
+#
+# v28 deadlock fix: after a losing streak the dynamic risk reducer can lower the
+# temporary budget below the broker minimum-volume all-in risk. Previously that
+# permanently blocked every later signal, so the strategy could never recover
+# from the reduced-risk state even when AllowMinVolumeFallback=true. The fallback
+# is now honored only when the minimum-volume all-in risk remains <= the ORIGINAL
+# configured RiskPercent as well as the configured min-volume cap. This never
+# increases risk above the user's base RiskPercent and therefore cannot be used
+# as risk inflation.
 
 # 1) Counter.
 needle = '        private long _diagDuplicateBlocked;\n'
@@ -21,16 +29,17 @@ if needle not in s:
 s = s.replace(needle, insert, 1)
 
 # 2) Reserve execution uncertainty and commission before deciding how many stop
-# pips minimum volume can carry. This is intentionally conservative.
+# pips minimum volume can carry.
 old = '''            double riskAmount = Account.Equity * riskBudgetPct / 100.0;\n            double maxPips;\n            try { maxPips = _symbol.PipsForFixedRisk(riskAmount, minVol); }\n            catch { return false; }\n\n            double floorPips = Math.Max(EffectiveMinStopLossPips(), MinStopDistancePips);\n'''
 new = '''            double riskAmount = Account.Equity * riskBudgetPct / 100.0;\n            double executionReservePips = EstimateExecutionReservePips();\n            double maxPips;\n            try { maxPips = _symbol.PipsForFixedRisk(riskAmount, minVol) - executionReservePips; }\n            catch { return false; }\n\n            double floorPips = Math.Max(EffectiveMinStopLossPips(), MinStopDistancePips);\n'''
 if old not in s:
     raise SystemExit('execution-reserve insertion point missing')
 s = s.replace(old, new, 1)
 
-# 3) When even the minimum allowed SL cannot fit the all-in risk budget.
+# 3) When the dynamic budget cannot carry minimum volume, honor the already-
+# configured fallback only if its all-in risk does not exceed base RiskPercent.
 old = '''            if (double.IsNaN(maxPips) || double.IsInfinity(maxPips) || maxPips < floorPips)\n            {\n                if ((Server.Time - _lastVolumeWarnTime).TotalMinutes >= 5)\n                {\n                    Print("[RISK-BLOCK] minVol={0} riskBudget={1:F2}% cannot support minSL={2:F1} pips (max={3:F1}).",\n                        minVol, riskBudgetPct, floorPips, maxPips);\n                    _lastVolumeWarnTime = Server.Time;\n                }\n                return false;\n            }\n'''
-new = '''            if (double.IsNaN(maxPips) || double.IsInfinity(maxPips) || maxPips < floorPips)\n            {\n                _diagCapitalInfeasible++;\n                double requiredEquity = EstimateRequiredEquityForRisk(minVol, floorPips, riskBudgetPct);\n                if ((Server.Time - _lastVolumeWarnTime).TotalMinutes >= 5)\n                {\n                    Print("[RISK-BLOCK] minVol={0} riskBudget={1:F2}% cannot support minSL={2:F1} pips after execution reserve={3:F1} (maxStop={4:F1}).",\n                        minVol, riskBudgetPct, floorPips, executionReservePips, maxPips);\n                    Print("[CAPITAL-FEASIBILITY] equity={0:F2} requiredEquity={1:F2} minVol={2} structuralSL={3:F1} executionReserve={4:F1} riskBudget={5:F2}%.",\n                        Account.Equity, requiredEquity, minVol, floorPips, executionReservePips, riskBudgetPct);\n                    _lastVolumeWarnTime = Server.Time;\n                }\n                return false;\n            }\n'''
+new = '''            if (double.IsNaN(maxPips) || double.IsInfinity(maxPips) || maxPips < floorPips)\n            {\n                double minVolAllInRiskPct = double.MaxValue;\n                try\n                {\n                    double minVolAllInRisk = _symbol.AmountRisked(minVol, floorPips + executionReservePips);\n                    if (Account.Equity > 0) minVolAllInRiskPct = 100.0 * minVolAllInRisk / Account.Equity;\n                }\n                catch { }\n\n                double configuredFallbackCap = IsMicroAccount() ? MicroMinVolumeRiskCapPercent : MinVolumeRiskCapPercent;\n                double fallbackCapPct = Math.Min(Math.Max(0.0, RiskPercent), Math.Max(0.0, configuredFallbackCap));\n                bool safeMinVolumeFallback = AllowMinVolumeFallback && minVolAllInRiskPct <= fallbackCapPct + 1e-9;\n\n                if (safeMinVolumeFallback)\n                {\n                    maxPips = floorPips;\n                    if ((Server.Time - _lastVolumeWarnTime).TotalMinutes >= 5)\n                    {\n                        Print("[RISK-FALLBACK] dynamicBudget={0:F2}% below broker min-volume requirement; using minVol={1} allInRisk={2:F2}% <= baseCap={3:F2}%.",\n                            riskBudgetPct, minVol, minVolAllInRiskPct, fallbackCapPct);\n                        _lastVolumeWarnTime = Server.Time;\n                    }\n                }\n                else\n                {\n                    _diagCapitalInfeasible++;\n                    double requiredEquity = EstimateRequiredEquityForRisk(minVol, floorPips, riskBudgetPct);\n                    if ((Server.Time - _lastVolumeWarnTime).TotalMinutes >= 5)\n                    {\n                        Print("[RISK-BLOCK] minVol={0} riskBudget={1:F2}% cannot support minSL={2:F1} pips after execution reserve={3:F1} (maxStop={4:F1}).",\n                            minVol, riskBudgetPct, floorPips, executionReservePips, maxPips);\n                        Print("[CAPITAL-FEASIBILITY] equity={0:F2} requiredEquity={1:F2} minVol={2} structuralSL={3:F1} executionReserve={4:F1} riskBudget={5:F2}%.",\n                            Account.Equity, requiredEquity, minVol, floorPips, executionReservePips, riskBudgetPct);\n                        _lastVolumeWarnTime = Server.Time;\n                    }\n                    return false;\n                }\n            }\n'''
 if old not in s:
     raise SystemExit('capital minimum-SL risk block missing')
 s = s.replace(old, new, 1)
@@ -43,8 +52,7 @@ if old not in s:
 s = s.replace(old, new, 1)
 
 # 5) Helper uses broker-native AmountRisked and adds execution reserve inside the
-# same budget. Commission estimator is injected by fix_v28_cost_rr.py earlier in
-# the audited chain.
+# same budget. Commission estimator is injected by fix_v28_cost_rr.py earlier.
 marker = '''        private double CalculateVolumeByRisk(double slPips, double riskBudgetPct)\n'''
 helper = '''        private double EstimateExecutionReservePips()\n        {\n            double slip = Math.Max(0.0, MaxSlippagePips);\n            double commission = Math.Max(0.0, EstimateRoundTurnCommissionPips());\n            double reserve = slip + commission;\n            return double.IsNaN(reserve) || double.IsInfinity(reserve) ? slip : reserve;\n        }\n\n        private double EstimateRequiredEquityForRisk(double volumeInUnits, double slPips, double riskBudgetPct)\n        {\n            if (_symbol == null || volumeInUnits <= 0 || slPips <= 0 || riskBudgetPct <= 0) return double.MaxValue;\n            try\n            {\n                double allInPips = slPips + EstimateExecutionReservePips();\n                double riskMoney = _symbol.AmountRisked(volumeInUnits, allInPips);\n                if (riskMoney <= 0 || double.IsNaN(riskMoney) || double.IsInfinity(riskMoney)) return double.MaxValue;\n                return riskMoney / (riskBudgetPct / 100.0);\n            }\n            catch { return double.MaxValue; }\n        }\n\n'''
 if marker not in s:
@@ -71,10 +79,11 @@ if old not in s:
     raise SystemExit('capital diagnostic final line missing')
 s = s.replace(old, new, 1)
 
-for token in ['EstimateExecutionReservePips', 'allInRiskPips', 'executionReserve=', 'EstimateRequiredEquityForRisk', '[CAPITAL-FEASIBILITY]', '_diagCapitalInfeasible']:
+for token in ['EstimateExecutionReservePips', 'allInRiskPips', 'executionReserve=', 'EstimateRequiredEquityForRisk', '[CAPITAL-FEASIBILITY]', '_diagCapitalInfeasible', '[RISK-FALLBACK]']:
     if token not in s:
         raise SystemExit('capital feasibility audit missing: ' + token)
 
 p.write_text(s, encoding='utf-8')
 print('Applied v28 minimum-capital feasibility diagnostics')
 print('Applied v28 all-in execution-risk reserve (SL + slippage + commission)')
+print('Fixed v28 dynamic-risk/min-volume deadlock without exceeding base RiskPercent')
