@@ -1,0 +1,150 @@
+name: Audit HarmonyBotPro v28 XAUUSD Sizing
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [harmonybot-v28-commercial-final-rc]
+    paths:
+      - '.github/workflows/audit-harmonybot-v28-xauusd-sizing.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  sizing-audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Build FxPro XAUUSD specification probe
+        run: |
+          set -euo pipefail
+          mkdir -p audit/probe audit/reports audit/secure
+          cat > audit/probe/SymbolProbe.csproj <<'EOF'
+          <Project Sdk="Microsoft.NET.Sdk">
+            <PropertyGroup>
+              <TargetFramework>net6.0</TargetFramework>
+              <ImplicitUsings>disable</ImplicitUsings>
+              <Nullable>disable</Nullable>
+              <AlgoName>V28SymbolProbe</AlgoName>
+              <AlgoBuild>true</AlgoBuild>
+              <AlgoPublish>false</AlgoPublish>
+              <IncludeSource>false</IncludeSource>
+            </PropertyGroup>
+            <ItemGroup><PackageReference Include="cTrader.Automate" Version="1.0.19" /></ItemGroup>
+          </Project>
+          EOF
+          cat > audit/probe/SymbolProbe.cs <<'EOF'
+          using cAlgo.API;
+          namespace cAlgo.Robots
+          {
+              [Robot(TimeZone = TimeZones.UTC, AccessRights = AccessRights.None)]
+              public class V28SymbolProbe : Robot
+              {
+                  protected override void OnStart()
+                  {
+                      Print("[V28-SPEC] name={0} digits={1} pipSize={2:R} tickSize={3:R} pipValue={4:R} tickValue={5:R} lotSize={6:R} volMin={7:R} volStep={8:R} volMax={9:R}", Symbol.Name, Symbol.Digits, Symbol.PipSize, Symbol.TickSize, Symbol.PipValue, Symbol.TickValue, Symbol.LotSize, Symbol.VolumeInUnitsMin, Symbol.VolumeInUnitsStep, Symbol.VolumeInUnitsMax);
+                      var riskUsd = 100.0 * 0.015;
+                      var minVol = Symbol.VolumeInUnitsMin;
+                      var sl100 = Symbol.AmountRisked(minVol, 100.0);
+                      var sl25 = Symbol.AmountRisked(minVol, 25.0);
+                      var slip30 = Symbol.AmountRisked(minVol, 30.0);
+                      var pipsAtRisk = Symbol.PipsForFixedRisk(riskUsd, minVol);
+                      Print("[V28-RISK] equity=100 riskPct=1.5 riskUsd={0:R} minVol={1:R} risk25p={2:R} risk100p={3:R} slip30p={4:R} pipsFor1.5usd={5:R}", riskUsd, minVol, sl25, sl100, slip30, pipsAtRisk);
+                      Stop();
+                  }
+              }
+          }
+          EOF
+          dotnet restore audit/probe/SymbolProbe.csproj
+          dotnet build audit/probe/SymbolProbe.csproj -c Release --no-restore -p:AlgoPublish=false -p:IncludeSource=false | tee audit/reports/probe-build.log
+          ALGO=$(find audit/probe -type f -name '*.algo' | head -n1)
+          test -n "$ALGO"
+          cp "$ALGO" audit/V28SymbolProbe.algo
+
+      - name: Select exact FxPro Live USD 1:500 account
+        env:
+          CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+          CTRADER_PASSWORD: ${{ secrets.CTRADER_PASSWORD }}
+        run: |
+          set -euo pipefail
+          docker pull ghcr.io/spotware/ctrader-console:latest
+          printf '%s' "$CTRADER_PASSWORD" > audit/secure/pwd
+          chmod 600 audit/secure/pwd
+          docker run --rm -v "$PWD/audit/secure:/secure" -e "CTID=$CTRADER_CTID" -e 'PWD-FILE=/secure/pwd' ghcr.io/spotware/ctrader-console:latest accounts --environment-variables > audit/secure/accounts.json
+          python3 - <<'PY'
+          import json
+          d=json.load(open('audit/secure/accounts.json',encoding='utf-8-sig'))
+          m=[x for x in d if str(x.get('Broker','')).lower()=='fxpro' and bool(x.get('Live')) and str(x.get('DepositCurrency','')).upper()=='USD' and int(x.get('Leverage',0))==500]
+          if not m: raise SystemExit('No matching FxPro Live USD 1:500 account')
+          open('audit/secure/account','w').write(str(m[0]['Number']))
+          print('Selected FxPro / Live / USD / 1:500 (account masked)')
+          PY
+          rm -f audit/secure/accounts.json
+
+      - name: Probe actual XAUUSD contract specification
+        env:
+          CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+        run: |
+          set -euo pipefail
+          ACCOUNT=$(cat audit/secure/account)
+          docker run --rm -v "$PWD/audit:/work" -e "CTID=$CTRADER_CTID" -e 'PWD-FILE=/work/secure/pwd' -e "ACCOUNT=$ACCOUNT" ghcr.io/spotware/ctrader-console:latest \
+            backtest /work/V28SymbolProbe.algo --environment-variables --broker=FxPro --symbol=XAUUSD --period=m15 --start='10/09/2026 00:00' --end='10/09/2026 23:59' --balance=100 --data-mode=open \
+            > audit/reports/xauusd-spec-console.txt 2>&1
+          grep -E '\[V28-(SPEC|RISK)\]' audit/reports/xauusd-spec-console.txt | tee audit/reports/xauusd-spec.txt
+          test $(grep -c '\[V28-SPEC\]' audit/reports/xauusd-spec.txt) -ge 1
+          test $(grep -c '\[V28-RISK\]' audit/reports/xauusd-spec.txt) -ge 1
+
+      - name: Audit V28 preset consistency and sizing assumptions
+        run: |
+          python3 - <<'PY'
+          import json,re,pathlib
+          wf=pathlib.Path('.github/workflows/backtest-harmonybot-v28-xauusd-m15-1y-m1-allin.yml').read_text()
+          src=pathlib.Path('releases/HarmonyBotPro-v28/HarmonyBotPro_v28_CommercialFinalRC.cs').read_text()
+          spec=pathlib.Path('audit/reports/xauusd-spec.txt').read_text()
+          def param(name):
+              m=re.search(r'--'+re.escape(name)+r'=([^ \\\n]+)',wf)
+              return m.group(1).strip('"\'') if m else None
+          checks={
+            'symbol':param('SymbolName'), 'risk_percent':param('RiskPercent'), 'min_sl_pips':param('MinStopLossPips'),
+            'small_min_sl_pips':param('SmallAccountMinSLPips'), 'max_slippage_pips':param('MaxSlippagePips'),
+            'commission_cli':param('commission'), 'commission_internal':param('CommissionPerMillionPerSide'),
+            'max_positions':param('MaxConcurrentTrades'), 'anti_hedge':param('AntiHedge'), 'grid':param('EnableFibGrid'),
+            'data_mode':param('data-mode'), 'period':param('period'), 'balance':param('balance')}
+          issues=[]
+          if checks['max_positions']!='1': issues.append('FAIL: MaxConcurrentTrades is not 1')
+          if str(checks['anti_hedge']).lower()!='true': issues.append('FAIL: AntiHedge is not true')
+          if str(checks['grid']).lower()!='false': issues.append('FAIL: EnableFibGrid is not false')
+          if checks['data_mode']!='m1': issues.append('FAIL: validation is not M1 data')
+          if checks['period']!='m15': issues.append('FAIL: timeframe is not M15')
+          if checks['balance']!='100': issues.append('FAIL: balance is not $100')
+          # Important configuration mismatch: small-account floor is 25 pips while global floor is forced to 100 pips.
+          try:
+              if float(checks['min_sl_pips']) > float(checks['small_min_sl_pips']):
+                  issues.append('REVIEW: global MinStopLossPips exceeds SmallAccountMinSLPips; verify runtime small-account override order')
+          except: pass
+          # Build sanity and M1 workflows must not silently use different entry-deviation semantics.
+          build=pathlib.Path('.github/workflows/build-backtest-harmonybot-v28-commercial-final-rc.yml').read_text()
+          if '--MaxEntryDeviationAtr=0.5' in build and '--MaxEntryDeviationAtr="$ENTRY"' in wf:
+              issues.append('REVIEW: open-price build sanity fixes MaxEntryDeviationAtr=0.5 while M1 uses profile ENTRY=0.85/1.00')
+          out={'preset':checks,'probe_lines':spec.splitlines(),'issues':issues,'interpretation':'No risk relaxation applied. Audit only.'}
+          pathlib.Path('audit/reports/v28-parameter-sizing-audit.json').write_text(json.dumps(out,indent=2))
+          print(json.dumps(out,indent=2))
+          PY
+
+      - name: Remove account material
+        if: always()
+        run: rm -rf audit/secure
+
+      - name: Upload sizing audit
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: HarmonyBotPro-v28-XAUUSD-Parameter-Sizing-Audit
+          path: audit/reports/
+          retention-days: 30
