@@ -46,7 +46,7 @@ jobs:
           sha256sum output/HarmonyBotPro_v28_12Pattern_Grid_Seal_Mobile.algo | tee output/algo.sha256
           grep -q 'Enable Fib Grid' output/HarmonyBotPro_v28_12Pattern_Grid_Seal.cs
           grep -q 'GridMaxTotalRiskPercent' output/HarmonyBotPro_v28_12Pattern_Grid_Seal.cs
-          if grep -q 'EnableFibGrid = false;' output/HarmonyBotPro_v28_12Pattern_Grid_Seal.cs; then echo 'FATAL: forced Grid disable remains'; exit 1; fi
+          if grep -q 'v28 Commercial Final RC forbids Grid' output/HarmonyBotPro_v28_12Pattern_Grid_Seal.cs; then echo 'FATAL: legacy forced Grid prohibition remains'; exit 1; fi
       - name: Select FxPro Live USD 1:500
         env:
           CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
