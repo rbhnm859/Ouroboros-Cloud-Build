@@ -3,7 +3,9 @@ name: V28 XAUUSD Multi-Timeframe Commercial Screening
 on:
   push:
     branches: [harmonybot-v28-commercial-final-rc]
-    paths: ['.github/workflows/screen-harmonybot-v28-xauusd-timeframes.yml']
+    paths:
+      - '.github/workflows/screen-harmonybot-v28-xauusd-timeframes.yml'
+      - 'tmp/harmonybot-v26-build/fix_v28_capital_feasibility.py'
   workflow_dispatch:
 
 permissions:
@@ -13,8 +15,8 @@ permissions:
 # Diagnostic screening only. Full V28 source/features are preserved; Grid is isolated OFF
 # during this screening so timeframe quality is not confused with grid exposure.
 # Any promoted Candidate/RC must restore and regression-test the complete feature set.
-# 2026-09-15: rerun validates the dynamic-risk/min-volume deadlock fix; fallback may
-# never exceed the user's original RiskPercent and therefore is not risk inflation.
+# 2026-09-15: validates the dynamic-risk/min-volume deadlock fix and CS0103 regression fix;
+# fallback may never exceed the user's original RiskPercent and is not risk inflation.
 jobs:
   timeframe-screen:
     runs-on: ubuntu-latest
