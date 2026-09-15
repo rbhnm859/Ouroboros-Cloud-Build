@@ -39,12 +39,14 @@ jobs:
           EOF
           dotnet restore cli-build/HarmonyBotPro_v261/HarmonyBotPro.csproj
           dotnet build cli-build/HarmonyBotPro_v261/HarmonyBotPro.csproj -c Release --no-restore -p:AlgoPublish=false -p:IncludeSource=false 2>&1 | tee build.log
-          ! grep -q ' error CS' build.log
-          ALGO=$(find cli-build/HarmonyBotPro_v261 -type f -name '*.algo' | head -n1); test -n "$ALGO"
+          if grep -q ' error CS' build.log; then echo 'C# compile error detected'; exit 1; fi
+          ALGO=$(find cli-build/HarmonyBotPro_v261 -type f -name '*.algo' | head -n1)
+          if [ -z "$ALGO" ]; then echo 'No .algo artifact produced'; exit 1; fi
           cp "$ALGO" output/HarmonyBotPro_v28_12Pattern_Grid_Seal_Mobile.algo
           cp cli-build/HarmonyBotPro_v261/HarmonyBotPro.cs output/HarmonyBotPro_v28_12Pattern_Grid_Seal.cs
           sha256sum output/HarmonyBotPro_v28_12Pattern_Grid_Seal_Mobile.algo | tee output/algo.sha256
-          grep -q 'Enable Fib Grid' output/HarmonyBotPro_v28_12Pattern_Grid_Seal.cs
+          test -s output/HarmonyBotPro_v28_12Pattern_Grid_Seal_Mobile.algo
+          grep -q 'EnableFibGrid' output/HarmonyBotPro_v28_12Pattern_Grid_Seal.cs
           grep -q 'GridMaxTotalRiskPercent' output/HarmonyBotPro_v28_12Pattern_Grid_Seal.cs
       - name: Select FxPro Live USD 1:500
         env:
