@@ -1,0 +1,103 @@
+name: V28 XAUUSD 12-Pattern Grid Commercial Seal M1
+
+on:
+  push:
+    branches: [harmonybot-v28-commercial-final-rc]
+    paths: ['.github/workflows/seal-harmonybot-v28-xauusd-12pattern-grid-m1.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  seal-m1:
+    runs-on: ubuntu-latest
+    timeout-minutes: 330
+    strategy:
+      fail-fast: false
+      matrix:
+        profile: [BAL, FREQ]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with: { dotnet-version: '8.0.x' }
+      - name: Generate restored V28 source and compile Mobile algo
+        run: |
+          set -euo pipefail
+          python3 tmp/harmonybot-v26-build/build_v261_frequency.py
+          python3 tmp/harmonybot-v26-build/fix_v261_mtf_overload.py
+          python3 tmp/harmonybot-v26-build/fix_v262_frequency_safe.py
+          python3 tmp/harmonybot-v26-build/fix_v262_grid_guard_band.py
+          python3 tmp/harmonybot-v26-build/fix_v27_commercial_rc.py
+          python3 tmp/harmonybot-v26-build/fix_v28_frequency_architecture.py
+          python3 tmp/harmonybot-v26-build/fix_v28_cost_rr.py
+          mkdir -p output reports secure
+          cat > cli-build/HarmonyBotPro_v261/HarmonyBotPro.csproj <<'EOF'
+          <Project Sdk="Microsoft.NET.Sdk"><PropertyGroup><TargetFramework>net6.0</TargetFramework><ImplicitUsings>disable</ImplicitUsings><Nullable>disable</Nullable><AlgoName>HarmonyBotPro_v28_12Pattern_Grid_Seal</AlgoName><AlgoBuild>true</AlgoBuild><AlgoPublish>false</AlgoPublish><IncludeSource>false</IncludeSource></PropertyGroup><ItemGroup><PackageReference Include="cTrader.Automate" Version="1.0.19" /></ItemGroup></Project>
+          EOF
+          dotnet restore cli-build/HarmonyBotPro_v261/HarmonyBotPro.csproj
+          dotnet build cli-build/HarmonyBotPro_v261/HarmonyBotPro.csproj -c Release --no-restore -p:AlgoPublish=false -p:IncludeSource=false 2>&1 | tee build.log
+          ! grep -q ' error CS' build.log
+          ALGO=$(find cli-build/HarmonyBotPro_v261 -type f -name '*.algo' | head -n1); test -n "$ALGO"
+          cp "$ALGO" output/HarmonyBotPro_v28_12Pattern_Grid_Seal_Mobile.algo
+          cp cli-build/HarmonyBotPro_v261/HarmonyBotPro.cs output/HarmonyBotPro_v28_12Pattern_Grid_Seal.cs
+          sha256sum output/HarmonyBotPro_v28_12Pattern_Grid_Seal_Mobile.algo | tee output/algo.sha256
+          grep -q 'Enable Fib Grid' output/HarmonyBotPro_v28_12Pattern_Grid_Seal.cs
+          grep -q 'GridMaxTotalRiskPercent' output/HarmonyBotPro_v28_12Pattern_Grid_Seal.cs
+          if grep -q 'EnableFibGrid = false;' output/HarmonyBotPro_v28_12Pattern_Grid_Seal.cs; then echo 'FATAL: forced Grid disable remains'; exit 1; fi
+      - name: Select FxPro Live USD 1:500
+        env:
+          CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+          CTRADER_PASSWORD: ${{ secrets.CTRADER_PASSWORD }}
+        run: |
+          set -euo pipefail
+          docker pull ghcr.io/spotware/ctrader-console:latest
+          printf '%s' "$CTRADER_PASSWORD" > secure/pwd; chmod 600 secure/pwd
+          docker run --rm -v "$PWD/secure:/secure" -e "CTID=$CTRADER_CTID" -e 'PWD-FILE=/secure/pwd' ghcr.io/spotware/ctrader-console:latest accounts --environment-variables > secure/accounts.json
+          python3 - <<'PY'
+          import json
+          d=json.load(open('secure/accounts.json',encoding='utf-8-sig'))
+          m=[x for x in d if str(x.get('Broker','')).lower()=='fxpro' and bool(x.get('Live')) and str(x.get('DepositCurrency','')).upper()=='USD' and int(x.get('Leverage',0))==500]
+          if not m: raise SystemExit('No FxPro Live USD 1:500 account')
+          open('secure/account','w').write(str(m[0]['Number']))
+          print('FxPro Live USD 1:500 selected (masked)')
+          PY
+          rm secure/accounts.json
+      - name: Run XAUUSD M15 1Y M1 12-pattern Grid seal
+        env:
+          CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+        run: |
+          set -euo pipefail
+          ACCOUNT=$(cat secure/account); PROFILE='${{ matrix.profile }}'
+          if [ "$PROFILE" = BAL ]; then CONF=.72; SLATR=1.00; MINLEG=.80; SESSION=8; MAXDAY=4; COOL=10; ENTRY=.85; else CONF=.70; SLATR=.90; MINLEG=.70; SESSION=7; MAXDAY=6; COOL=5; ENTRY=1.00; fi
+          OUT="reports/V28-${PROFILE}-XAUUSD-M15-100USD-1Y-M1-12PATTERN-GRID"
+          docker run --rm -v "$PWD/output:/work/output" -v "$PWD/reports:/work/reports" -v "$PWD/secure:/secure" -e "CTID=$CTRADER_CTID" -e 'PWD-FILE=/secure/pwd' -e "ACCOUNT=$ACCOUNT" ghcr.io/spotware/ctrader-console:latest backtest /work/output/HarmonyBotPro_v28_12Pattern_Grid_Seal_Mobile.algo --environment-variables --exit-on-stop --broker=FxPro --symbol=XAUUSD --period=m15 --start='12/09/2025 00:00' --end='11/09/2026 23:59' --balance=100 --data-mode=m1 --commission=35 --spread=17.14 --SymbolName=XAUUSD --RiskPercent=1.5 --MaxDrawdown=10 --DailyLossLimitPercent=4 --WeeklyLossLimitPercent=8 --SmallAccountMode=true --SmallAccountThreshold=100 --SmallAccountMinSLPips=25 --SmallAccountMinTPPips=50 --AllowMinVolumeFallback=true --MinVolumeRiskCapPercent=5 --MicroMinVolumeRiskCapPercent=10 --SessionStart="$SESSION" --SessionEnd=22 --MTFEnabled=true --H4FilterEnabled=false --PatternConfidence="$CONF" --AntiHedge=true --MaxTradesPerDay="$MAXDAY" --CooldownMinutes="$COOL" --AtrPeriod=14 --SlAtrMult="$SLATR" --MinRR=2 --UseCostAdjustedRR=true --CommissionPerMillionPerSide=35 --MaxSpreadPips=35 --MinStopLossPips=100 --MinTakeProfitPips=200 --MinStopDistancePips=15 --MinAtrPrice=3 --MaxSlippagePips=30 --SwingDepth=5 --SwingLookback=200 --PivotScanCount=14 --MinLegAtrRatio="$MINLEG" --EnableGartley=true --EnableBat=true --EnableButterfly=true --EnableCrab=true --EnableCypher=true --EnableRat=true --EnableDeepGartley=true --EnableAltBat=true --EnableDeepCrab=true --EnableABCD=true --EnableShark=true --EnableFiveZero=true --GlobalMinScore=.55 --ConsensusBonus=1.12 --FibTolerance=.05 --MaxEntryDeviationAtr="$ENTRY" --AdaptiveFrequencyRecovery=true --SoftMtfReversalGate=true --ClosedBarProvisionalD=true --ProvisionalDMinMoveAtr=.30 --SmallAccountGridGuard=false --CommercialRiskEngine=true --ProjectedRiskGuard=true --RiskHeadroomPercent=.25 --CompressStopToRiskBudget=true --MaxStopCompressionRatio=.90 --DisablePartialAtMinVolume=true --EnableFibGrid=true --GridMaxLevels=5 --GridMaxTotalRiskPercent=10 --GridCooldownMinutes=15 --GridMinStepPips=20 --GridMaxAddsPerDay=6 --report="/work/${OUT}.html" --report-json="/work/${OUT}.json" > "${OUT}.console.txt" 2>&1
+      - name: Summarize commercial metrics
+        if: always()
+        run: |
+          python3 - <<'PY'
+          import json,glob,os,re
+          for p in glob.glob('reports/*.json'):
+            d=json.load(open(p)); ts=d.get('tradeStatistics',{}); eq=d.get('equity',{})
+            def v(x): return x.get('all',0) if isinstance(x,dict) else (x or 0)
+            n=v(ts.get('totalTrades')); w=v(ts.get('winningTrades')); net=v(ts.get('netProfit')); pf=v(ts.get('profitFactor')); dd=eq.get('maxEquityDrawdownPercent',0)
+            out={'file':os.path.basename(p),'trades':n,'wins':w,'winRatePct':100*w/n if n else 0,'netProfit':net,'returnPct':net,'profitFactor':pf,'expectancyPerTrade':net/n if n else 0,'maxEquityDDPct':dd,'sealGate':bool(n>=100 and net>0 and pf>=1.5 and dd<=10)}
+            json.dump(out,open('reports/summary.json','w'),indent=2); print(json.dumps(out,indent=2))
+          for p in glob.glob('reports/*.console.txt'):
+            txt=open(p,errors='ignore').read()
+            lines=[x for x in txt.splitlines() if any(k in x for k in ['[GRID','[TRADE]','[COMMERCIAL-DIAG]','[RISK-BLOCK]'])]
+            open('reports/grid-diagnostics.txt','w').write('\n'.join(lines[-3000:]))
+          PY
+      - name: Remove credentials
+        if: always()
+        run: rm -rf secure
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: V28-${{ matrix.profile }}-XAUUSD-M15-100USD-1Y-M1-12Pattern-Grid-Seal
+          path: |
+            output/
+            reports/
+            build.log
+          retention-days: 30
