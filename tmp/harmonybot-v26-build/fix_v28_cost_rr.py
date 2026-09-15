@@ -17,24 +17,17 @@ helper='''        private double EstimateRoundTurnCommissionPips()\n        {\n 
 if marker not in s: raise SystemExit('cost helper marker missing')
 s=s.replace(marker,helper+marker,1)
 
-# v28 compile/safety hardening: the frequency patch referenced a removed helper.
-# For this commercial single-position branch Grid is forbidden, so force the
-# execution decision off rather than silently falling back to averaging logic.
+# V28 Fibonacci Grid is an intentional core strategy module. Preserve the explicit
+# EnableFibGrid switch instead of forcing Grid off at compile/runtime.
 s=s.replace('bool useGridForThisTrade = EnableFibGrid && !(SmallAccountGridGuard && IsGridGuardAccount());',
-            'bool useGridForThisTrade = false; // v28 commercial: Grid forbidden')
+            'bool useGridForThisTrade = EnableFibGrid; // v28 Fibonacci Grid core module')
 s=s.replace('if (EnableFibGrid && SmallAccountGridGuard && IsGridGuardAccount())',
-            'if (false)')
-
-# Hard-disable the legacy grid engine at runtime even if a preset tries to enable it.
-onstart='''        protected override void OnStart()\n        {\n'''
-if onstart not in s: raise SystemExit('OnStart marker missing for no-grid enforcement')
-s=s.replace(onstart, onstart + '''            EnableFibGrid = false; // v28 Commercial Final RC forbids Grid/DCA/Recovery\n''', 1)
+            'if (false) // removed legacy helper; presets control Grid availability')
 
 p.write_text(s,encoding='utf-8')
 print('Applied v28 cost-adjusted RR repricing fix')
-print('Applied v28 no-grid compile/runtime hardening')
+print('Restored v28 Fibonacci Grid core module; no forced runtime disable')
 
-# Mandatory commercial hardening stages after frequency/cost logic.
 for patch_name in [
     'fix_v28_release_audit.py',
     'fix_v28_pattern_integrity.py',
@@ -47,5 +40,4 @@ for patch_name in [
         raise SystemExit('v28 mandatory patch missing: ' + patch_name)
     exec(compile(patch.read_text(encoding='utf-8'), str(patch), 'exec'), {})
 
-# Rebuild marker: v28 all-in execution-risk reserve is applied by the mandatory
-# capital-feasibility stage above (SL + slippage proxy + round-turn commission).
+# v28 all-in execution-risk reserve remains applied by capital-feasibility stage.
