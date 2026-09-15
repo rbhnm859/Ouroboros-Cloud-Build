@@ -10,6 +10,7 @@ permissions:
   contents: read
   actions: read
 
+# FINAL-SEAL-ONLY: 12 patterns + small-account + Fibonacci Grid, BAL/FREQ parallel.
 jobs:
   seal-m1:
     runs-on: ubuntu-latest
@@ -77,7 +78,7 @@ jobs:
         if: always()
         run: |
           python3 - <<'PY'
-          import json,glob,os,re
+          import json,glob,os
           for p in glob.glob('reports/*.json'):
             d=json.load(open(p)); ts=d.get('tradeStatistics',{}); eq=d.get('equity',{})
             def v(x): return x.get('all',0) if isinstance(x,dict) else (x or 0)
@@ -85,8 +86,7 @@ jobs:
             out={'file':os.path.basename(p),'trades':n,'wins':w,'winRatePct':100*w/n if n else 0,'netProfit':net,'returnPct':net,'profitFactor':pf,'expectancyPerTrade':net/n if n else 0,'maxEquityDDPct':dd,'sealGate':bool(n>=100 and net>0 and pf>=1.5 and dd<=10)}
             json.dump(out,open('reports/summary.json','w'),indent=2); print(json.dumps(out,indent=2))
           for p in glob.glob('reports/*.console.txt'):
-            txt=open(p,errors='ignore').read()
-            lines=[x for x in txt.splitlines() if any(k in x for k in ['[GRID','[TRADE]','[COMMERCIAL-DIAG]','[RISK-BLOCK]'])]
+            txt=open(p,errors='ignore').read(); lines=[x for x in txt.splitlines() if any(k in x for k in ['[GRID','[TRADE]','[COMMERCIAL-DIAG]','[RISK-BLOCK]'])]
             open('reports/grid-diagnostics.txt','w').write('\n'.join(lines[-3000:]))
           PY
       - name: Remove credentials
