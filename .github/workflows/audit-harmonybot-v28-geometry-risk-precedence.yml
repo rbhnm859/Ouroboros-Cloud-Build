@@ -24,11 +24,26 @@ jobs:
           python3 tmp/harmonybot-v26-build/fix_v27_commercial_rc.py
           python3 tmp/harmonybot-v26-build/fix_v28_frequency_architecture.py
           python3 tmp/harmonybot-v26-build/fix_v28_cost_rr.py
+          mkdir -p cli-build/HarmonyBotPro_v261
+          cat > cli-build/HarmonyBotPro_v261/HarmonyBotPro.csproj <<'EOF'
+          <Project Sdk="Microsoft.NET.Sdk">
+            <PropertyGroup>
+              <TargetFramework>net6.0</TargetFramework>
+              <ImplicitUsings>disable</ImplicitUsings>
+              <Nullable>disable</Nullable>
+              <AlgoName>HarmonyBotPro_v28_GeometryAudit</AlgoName>
+              <AlgoBuild>true</AlgoBuild>
+              <AlgoPublish>false</AlgoPublish>
+              <IncludeSource>false</IncludeSource>
+            </PropertyGroup>
+            <ItemGroup><PackageReference Include="cTrader.Automate" Version="1.0.19" /></ItemGroup>
+          </Project>
+          EOF
       - name: Compile before audit
         run: |
           set -euo pipefail
           dotnet restore cli-build/HarmonyBotPro_v261/HarmonyBotPro.csproj
-          dotnet build cli-build/HarmonyBotPro_v261/HarmonyBotPro.csproj -c Release --no-restore 2>&1 | tee audit-build.log
+          dotnet build cli-build/HarmonyBotPro_v261/HarmonyBotPro.csproj -c Release --no-restore -p:AlgoPublish=false -p:IncludeSource=false 2>&1 | tee audit-build.log
           ! grep -q ' error CS' audit-build.log
       - name: Audit geometry engine and stop precedence
         run: |
@@ -41,7 +56,6 @@ jobs:
           for i,line in enumerate(lines,1):
             for k in keys:
               if k.lower() in line.lower(): hits[k].append({'line':i,'text':line.strip()[:500]})
-          # Explicitly capture method bodies/nearby contexts that determine stop precedence and pattern validation.
           contexts=[]
           for i,line in enumerate(lines):
             if any(x in line for x in ['EffectiveMinStopLossPips','ValidatePattern','DetectPattern','FibTolerance','MinLegAtrRatio']):
@@ -54,8 +68,7 @@ jobs:
             'has_prz_logic':bool(re.search(r'\bPRZ\b|Potential Reversal Zone',s,re.I)),
             'has_time_symmetry':bool(re.search(r'time.{0,20}symmetr|symmetr.{0,20}time',s,re.I)),
             'has_pivot_quality':bool(re.search(r'pivot.{0,20}quality|quality.{0,20}pivot',s,re.I)),
-            'hits':hits,
-            'contexts':contexts[:80]
+            'hits':hits,'contexts':contexts[:80]
           }
           Path('audit').mkdir(exist_ok=True)
           Path('audit/geometry-risk-audit.json').write_text(json.dumps(findings,indent=2),encoding='utf-8')
