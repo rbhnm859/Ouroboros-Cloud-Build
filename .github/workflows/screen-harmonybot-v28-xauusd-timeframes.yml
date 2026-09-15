@@ -13,6 +13,8 @@ permissions:
 # Diagnostic screening only. Full V28 source/features are preserved; Grid is isolated OFF
 # during this screening so timeframe quality is not confused with grid exposure.
 # Any promoted Candidate/RC must restore and regression-test the complete feature set.
+# 2026-09-15: rerun validates the dynamic-risk/min-volume deadlock fix; fallback may
+# never exceed the user's original RiskPercent and therefore is not risk inflation.
 jobs:
   timeframe-screen:
     runs-on: ubuntu-latest
@@ -74,7 +76,7 @@ jobs:
         if: always()
         run: |
           python3 - <<'PY'
-          import json,glob,os
+          import json,glob
           tf='${{ matrix.period }}'
           for p in glob.glob('reports/*.json'):
             d=json.load(open(p)); ts=d.get('tradeStatistics',{}); eq=d.get('equity',{})
@@ -83,7 +85,7 @@ jobs:
             out={'timeframe':tf,'trades':n,'wins':w,'winRatePct':100*w/n if n else 0,'netProfit':net,'profitFactor':pf,'expectancy':exp,'maxEquityDDPct':dd,'commercialGate':bool(n>=100 and net>0 and pf>=1.5 and exp>0 and dd<=10)}
             json.dump(out,open('reports/summary.json','w'),indent=2); print(json.dumps(out,indent=2))
           for p in glob.glob('reports/*.console.txt'):
-            txt=open(p,errors='ignore').read(); keys=['RISK-BLOCK','COMMERCIAL-DIAG','CAPITAL','MTF','PATTERN','SIGNAL','ENTRY','TRADE']
+            txt=open(p,errors='ignore').read(); keys=['RISK-BLOCK','RISK-FALLBACK','COMMERCIAL-DIAG','CAPITAL','MTF','PATTERN','SIGNAL','ENTRY','TRADE']
             lines=[x for x in txt.splitlines() if any(k in x.upper() for k in keys)]
             open('reports/diagnostics.txt','w').write('\n'.join(lines[-5000:]))
           PY
