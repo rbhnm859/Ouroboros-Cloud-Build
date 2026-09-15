@@ -1,0 +1,71 @@
+name: V28 Geometry and Risk Precedence Audit
+on:
+  push:
+    branches: [harmonybot-v28-commercial-final-rc]
+    paths: ['.github/workflows/audit-harmonybot-v28-geometry-risk-precedence.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with: {dotnet-version: '8.0.x'}
+      - name: Generate hardened V28 source
+        run: |
+          set -euo pipefail
+          python3 tmp/harmonybot-v26-build/build_v261_frequency.py
+          python3 tmp/harmonybot-v26-build/fix_v261_mtf_overload.py
+          python3 tmp/harmonybot-v26-build/fix_v262_frequency_safe.py
+          python3 tmp/harmonybot-v26-build/fix_v262_grid_guard_band.py
+          python3 tmp/harmonybot-v26-build/fix_v27_commercial_rc.py
+          python3 tmp/harmonybot-v26-build/fix_v28_frequency_architecture.py
+          python3 tmp/harmonybot-v26-build/fix_v28_cost_rr.py
+      - name: Compile before audit
+        run: |
+          set -euo pipefail
+          dotnet restore cli-build/HarmonyBotPro_v261/HarmonyBotPro.csproj
+          dotnet build cli-build/HarmonyBotPro_v261/HarmonyBotPro.csproj -c Release --no-restore 2>&1 | tee audit-build.log
+          ! grep -q ' error CS' audit-build.log
+      - name: Audit geometry engine and stop precedence
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re,json
+          p=Path('cli-build/HarmonyBotPro_v261/HarmonyBotPro.cs'); s=p.read_text(encoding='utf-8')
+          keys=['FibTolerance','MinLegAtrRatio','PatternConfidence','GlobalMinScore','SmallAccountMinSLPips','MinStopLossPips','EffectiveMinStopLossPips','EffectiveMinTakeProfitPips','Geometry','PRZ','ABCD','Pivot','MTF','capitalInfeasible','EnableFibGrid']
+          lines=s.splitlines(); hits={k:[] for k in keys}
+          for i,line in enumerate(lines,1):
+            for k in keys:
+              if k.lower() in line.lower(): hits[k].append({'line':i,'text':line.strip()[:500]})
+          # Explicitly capture method bodies/nearby contexts that determine stop precedence and pattern validation.
+          contexts=[]
+          for i,line in enumerate(lines):
+            if any(x in line for x in ['EffectiveMinStopLossPips','ValidatePattern','DetectPattern','FibTolerance','MinLegAtrRatio']):
+              contexts.append({'line':i+1,'context':'\n'.join(lines[max(0,i-4):min(len(lines),i+18)])})
+          findings={
+            'source_lines':len(lines),
+            'has_grid_core':('EnableFibGrid' in s),
+            'has_all_in_reserve':('EstimateExecutionReservePips' in s),
+            'has_independent_geometry_stage':bool(re.search(r'(Pass|Validate|Evaluate).*Geometry|Geometry.*(Pass|Validate|Evaluate)',s,re.I)),
+            'has_prz_logic':bool(re.search(r'\bPRZ\b|Potential Reversal Zone',s,re.I)),
+            'has_time_symmetry':bool(re.search(r'time.{0,20}symmetr|symmetr.{0,20}time',s,re.I)),
+            'has_pivot_quality':bool(re.search(r'pivot.{0,20}quality|quality.{0,20}pivot',s,re.I)),
+            'hits':hits,
+            'contexts':contexts[:80]
+          }
+          Path('audit').mkdir(exist_ok=True)
+          Path('audit/geometry-risk-audit.json').write_text(json.dumps(findings,indent=2),encoding='utf-8')
+          Path('audit/geometry-risk-audit.txt').write_text('\n'.join([f"source_lines={findings['source_lines']}",f"grid_core={findings['has_grid_core']}",f"all_in_reserve={findings['has_all_in_reserve']}",f"independent_geometry_stage={findings['has_independent_geometry_stage']}",f"prz_logic={findings['has_prz_logic']}",f"time_symmetry={findings['has_time_symmetry']}",f"pivot_quality={findings['has_pivot_quality']}"])+"\n",encoding='utf-8')
+          print(Path('audit/geometry-risk-audit.txt').read_text())
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: V28-geometry-risk-precedence-audit
+          path: |
+            audit/
+            audit-build.log
+          retention-days: 30
