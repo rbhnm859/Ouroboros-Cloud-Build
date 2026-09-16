@@ -14,7 +14,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-dotnet@v4
         with: {dotnet-version: '8.0.x'}
-      - name: Generate hardened V28 source
+      - name: Generate hardened V28.1 source
         run: |
           set -euo pipefail
           python3 tmp/harmonybot-v26-build/build_v261_frequency.py
@@ -24,6 +24,7 @@ jobs:
           python3 tmp/harmonybot-v26-build/fix_v27_commercial_rc.py
           python3 tmp/harmonybot-v26-build/fix_v28_frequency_architecture.py
           python3 tmp/harmonybot-v26-build/fix_v28_cost_rr.py
+          python3 tmp/harmonybot-v26-build/fix_v281_geometry_quality_engine.py
           mkdir -p cli-build/HarmonyBotPro_v261
           cat > cli-build/HarmonyBotPro_v261/HarmonyBotPro.csproj <<'EOF'
           <Project Sdk="Microsoft.NET.Sdk">
@@ -31,7 +32,7 @@ jobs:
               <TargetFramework>net6.0</TargetFramework>
               <ImplicitUsings>disable</ImplicitUsings>
               <Nullable>disable</Nullable>
-              <AlgoName>HarmonyBotPro_v28_GeometryAudit</AlgoName>
+              <AlgoName>HarmonyBotPro_v281_GeometryAudit</AlgoName>
               <AlgoBuild>true</AlgoBuild>
               <AlgoPublish>false</AlgoPublish>
               <IncludeSource>false</IncludeSource>
@@ -39,52 +40,59 @@ jobs:
             <ItemGroup><PackageReference Include="cTrader.Automate" Version="1.0.19" /></ItemGroup>
           </Project>
           EOF
+      - name: Validate V28.1 geometry payload
+        run: |
+          set -euo pipefail
+          for token in 'Geometry Quality Engine' 'GeometryQualityScore' 'PrzConfluence' 'TimeSymmetry' 'PivotQuality' 'capitalInfeasible' 'EnableFibGrid'; do grep -q "$token" cli-build/HarmonyBotPro_v261/HarmonyBotPro.cs; done
       - name: Compile before audit
         run: |
           set -euo pipefail
           dotnet restore cli-build/HarmonyBotPro_v261/HarmonyBotPro.csproj
           dotnet build cli-build/HarmonyBotPro_v261/HarmonyBotPro.csproj -c Release --no-restore -p:AlgoPublish=false -p:IncludeSource=false 2>&1 | tee audit-build.log
           ! grep -q ' error CS' audit-build.log
-      - name: Export merged V28 source
+      - name: Export merged V28.1 source
         run: |
           set -euo pipefail
           mkdir -p export
-          cp cli-build/HarmonyBotPro_v261/HarmonyBotPro.cs export/HarmonyBotPro_V28.cs
-          sha256sum export/HarmonyBotPro_V28.cs | tee export/HarmonyBotPro_V28.cs.sha256
-          test -s export/HarmonyBotPro_V28.cs
+          cp cli-build/HarmonyBotPro_v261/HarmonyBotPro.cs export/HarmonyBotPro_V281.cs
+          sha256sum export/HarmonyBotPro_V281.cs | tee export/HarmonyBotPro_V281.cs.sha256
+          test -s export/HarmonyBotPro_V281.cs
       - name: Audit geometry engine and stop precedence
         run: |
           python3 - <<'PY'
           from pathlib import Path
           import re,json
           p=Path('cli-build/HarmonyBotPro_v261/HarmonyBotPro.cs'); s=p.read_text(encoding='utf-8')
-          keys=['FibTolerance','MinLegAtrRatio','PatternConfidence','GlobalMinScore','SmallAccountMinSLPips','MinStopLossPips','EffectiveMinStopLossPips','EffectiveMinTakeProfitPips','Geometry','PRZ','ABCD','Pivot','MTF','capitalInfeasible','EnableFibGrid']
+          keys=['FibTolerance','MinLegAtrRatio','PatternConfidence','GlobalMinScore','SmallAccountMinSLPips','MinStopLossPips','EffectiveMinStopLossPips','EffectiveMinTakeProfitPips','GeometryQualityScore','PrzConfluence','TimeSymmetry','PivotQuality','ABCD','MTF','capitalInfeasible','EnableFibGrid']
           lines=s.splitlines(); hits={k:[] for k in keys}
           for i,line in enumerate(lines,1):
             for k in keys:
               if k.lower() in line.lower(): hits[k].append({'line':i,'text':line.strip()[:500]})
           contexts=[]
           for i,line in enumerate(lines):
-            if any(x in line for x in ['EffectiveMinStopLossPips','ValidatePattern','DetectPattern','FibTolerance','MinLegAtrRatio']):
+            if any(x in line for x in ['EffectiveMinStopLossPips','GeometryQualityScore','FibTolerance','MinLegAtrRatio']):
               contexts.append({'line':i+1,'context':'\n'.join(lines[max(0,i-4):min(len(lines),i+18)])})
           findings={
             'source_lines':len(lines),
             'has_grid_core':('EnableFibGrid' in s),
             'has_all_in_reserve':('EstimateExecutionReservePips' in s),
-            'has_independent_geometry_stage':bool(re.search(r'(Pass|Validate|Evaluate).*Geometry|Geometry.*(Pass|Validate|Evaluate)',s,re.I)),
-            'has_prz_logic':bool(re.search(r'\bPRZ\b|Potential Reversal Zone',s,re.I)),
-            'has_time_symmetry':bool(re.search(r'time.{0,20}symmetr|symmetr.{0,20}time',s,re.I)),
-            'has_pivot_quality':bool(re.search(r'pivot.{0,20}quality|quality.{0,20}pivot',s,re.I)),
-            'hits':hits,'contexts':contexts[:80]
+            'has_geometry_quality':('GeometryQualityScore' in s),
+            'has_prz_logic':('PrzConfluence' in s),
+            'has_time_symmetry':('TimeSymmetry' in s),
+            'has_pivot_quality':('PivotQuality' in s),
+            'small_account_min_sl_25':bool(re.search(r'SmallAccountMinSLPips[^\n]{0,160}(?:25(?:\.0+)?)',s,re.I)),
+            'global_min_sl_100':bool(re.search(r'MinStopLossPips[^\n]{0,160}(?:100(?:\.0+)?)',s,re.I)),
+            'hits':hits,'contexts':contexts[:100]
           }
           Path('audit').mkdir(exist_ok=True)
           Path('audit/geometry-risk-audit.json').write_text(json.dumps(findings,indent=2),encoding='utf-8')
-          Path('audit/geometry-risk-audit.txt').write_text('\n'.join([f"source_lines={findings['source_lines']}",f"grid_core={findings['has_grid_core']}",f"all_in_reserve={findings['has_all_in_reserve']}",f"independent_geometry_stage={findings['has_independent_geometry_stage']}",f"prz_logic={findings['has_prz_logic']}",f"time_symmetry={findings['has_time_symmetry']}",f"pivot_quality={findings['has_pivot_quality']}"])+"\n",encoding='utf-8')
-          print(Path('audit/geometry-risk-audit.txt').read_text())
+          summary='\n'.join(f'{k}={v}' for k,v in findings.items() if isinstance(v,(bool,int)))+'\n'
+          Path('audit/geometry-risk-audit.txt').write_text(summary,encoding='utf-8')
+          print(summary)
           PY
       - uses: actions/upload-artifact@v4
         with:
-          name: V28-merged-source-geometry-risk-audit
+          name: V281-merged-source-geometry-risk-audit
           path: |
             export/
             audit/
