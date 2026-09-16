@@ -13,8 +13,9 @@ once(r'(\s*\[Parameter\("Signal Dedupe Bars"[^\n]*\)\]\s*\n\s*public int SignalD
 once(r'(\s*public int CompletionIndex \{ get; set; \}\s*\n)',r'\1        public double GeometryQuality { get; set; }\n        public double PrzConfluence { get; set; }\n        public double TimeSymmetry { get; set; }\n        public double PivotQuality { get; set; }\n','signal geometry fields')
 once(r'(\s*private long _diagDuplicateBlocked;\s*\n)',r'\1        private long _diagGeometryValidated;\n        private long _diagGeometryRejectedQuality;\n','geometry counters')
 
-# Hardened source may change Candidate modifiers/indentation. Anchor on the class declaration and first SwingPoint X field.
-once(r'((?:private|internal|public)?\s*(?:sealed\s+)?class\s+Candidate\s*\{\s*)(public\s+SwingPoint\s+X\s*;)',r'\1public double GeometryQuality;\n            public double PrzConfluence;\n            public double TimeSymmetry;\n            public double PivotQuality;\n            \2','Candidate class',re.S)
+# Candidate layout has changed across hardening passes. Anchor only on the unique class declaration,
+# then insert fields immediately after its opening brace instead of depending on the first member shape.
+once(r'((?:private|internal|public)?\s*(?:sealed\s+)?class\s+Candidate\s*\{)',r'\1\n            public double GeometryQuality;\n            public double PrzConfluence;\n            public double TimeSymmetry;\n            public double PivotQuality;','Candidate class',re.S)
 
 # Calculate geometry while Match locals are alive, immediately before Candidate construction.
 once(r'(\s*)return new Candidate\s*\{\s*\n(\s*)X\s*=\s*isShark \|\| isFiveZero \? x : \(isAbcd \? a : x\),',r'\1double geometryQuality = GeometryQualityScore(\n\1    isShark || isFiveZero ? x : (isAbcd ? a : x), a, b, c, d, atr, geometry,\n\1    out double przScore, out double timeScore, out double pivotScore);\n\n\1return new Candidate\n\1{\n\2GeometryQuality = geometryQuality,\n\2PrzConfluence = przScore,\n\2TimeSymmetry = timeScore,\n\2PivotQuality = pivotScore,\n\2X = isShark || isFiveZero ? x : (isAbcd ? a : x),','Candidate construction')
@@ -34,4 +35,4 @@ for token in ['Geometry Quality Engine','GeometryQualityScore(SwingPoint','PrzCo
     if token not in s: raise SystemExit('geometry engine missing token: '+token)
 if 'PatternMatch' in s or 'GeometryQualityScore(Pivot ' in s: raise SystemExit('obsolete geometry dependency remains')
 p.write_text(s,encoding='utf-8')
-print('Applied V28.1 Geometry Quality Engine with hardened Candidate discovery')
+print('Applied V28.1 Geometry Quality Engine with class-only Candidate anchor')
