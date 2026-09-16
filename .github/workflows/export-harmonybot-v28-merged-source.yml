@@ -1,0 +1,71 @@
+name: Export HarmonyBot V28 Merged Source
+on:
+  push:
+    branches: [harmonybot-v28-commercial-final-rc]
+    paths: ['.github/workflows/export-harmonybot-v28-merged-source.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  export-source:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Generate complete hardened V28 source
+        run: |
+          set -euo pipefail
+          python3 tmp/harmonybot-v26-build/build_v261_frequency.py
+          python3 tmp/harmonybot-v26-build/fix_v261_mtf_overload.py
+          python3 tmp/harmonybot-v26-build/fix_v262_frequency_safe.py
+          python3 tmp/harmonybot-v26-build/fix_v262_grid_guard_band.py
+          python3 tmp/harmonybot-v26-build/fix_v27_commercial_rc.py
+          python3 tmp/harmonybot-v26-build/fix_v28_frequency_architecture.py
+          python3 tmp/harmonybot-v26-build/fix_v28_cost_rr.py
+      - name: Apply mandatory V28 audit hardening
+        run: |
+          set -euo pipefail
+          python3 tmp/harmonybot-v26-build/fix_v28_release_audit.py
+          python3 tmp/harmonybot-v26-build/fix_v28_pattern_integrity.py
+          python3 tmp/harmonybot-v26-build/fix_v28_history_accounting.py
+          python3 tmp/harmonybot-v26-build/fix_v28_dst_session.py
+          python3 tmp/harmonybot-v26-build/fix_v28_capital_feasibility.py
+      - name: Compile merged source
+        run: |
+          set -euo pipefail
+          mkdir -p cli-build/HarmonyBotPro_v261
+          cat > cli-build/HarmonyBotPro_v261/HarmonyBotPro.csproj <<'EOF'
+          <Project Sdk="Microsoft.NET.Sdk">
+            <PropertyGroup>
+              <TargetFramework>net6.0</TargetFramework>
+              <ImplicitUsings>disable</ImplicitUsings>
+              <Nullable>disable</Nullable>
+              <AlgoName>HarmonyBotPro_V28</AlgoName>
+              <AlgoBuild>true</AlgoBuild>
+              <AlgoPublish>false</AlgoPublish>
+              <IncludeSource>false</IncludeSource>
+            </PropertyGroup>
+            <ItemGroup><PackageReference Include="cTrader.Automate" Version="1.0.19" /></ItemGroup>
+          </Project>
+          EOF
+          dotnet restore cli-build/HarmonyBotPro_v261/HarmonyBotPro.csproj
+          dotnet build cli-build/HarmonyBotPro_v261/HarmonyBotPro.csproj -c Release --no-restore -p:AlgoPublish=false -p:IncludeSource=false 2>&1 | tee V28-source-build.log
+          ! grep -q ' error CS' V28-source-build.log
+      - name: Package source
+        run: |
+          set -euo pipefail
+          mkdir -p export
+          cp cli-build/HarmonyBotPro_v261/HarmonyBotPro.cs export/HarmonyBotPro_V28.cs
+          sha256sum export/HarmonyBotPro_V28.cs | tee export/HarmonyBotPro_V28.cs.sha256
+          test -s export/HarmonyBotPro_V28.cs
+      - uses: actions/upload-artifact@v4
+        with:
+          name: HarmonyBotPro-V28-Merged-Source
+          path: |
+            export/HarmonyBotPro_V28.cs
+            export/HarmonyBotPro_V28.cs.sha256
+            V28-source-build.log
+          retention-days: 30
