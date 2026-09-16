@@ -37,14 +37,14 @@ repl='''                _diagSignalsDetected++;\n                if (EnableGeome
 if needle not in s: raise SystemExit('geometry funnel insertion point missing')
 s=s.replace(needle,repl,1)
 
-# Commercial diagnostics are formatted across two lines by release audit. Replace
-# the complete stable tail instead of matching a brittle isolated argument suffix.
-old='''                Print("[COMMERCIAL-DIAG] signals={0} orders={1} compressed={2} riskBlocked={3} partialSkipped={4} atrBlocked={5} budgetBlocked={6} mtfBlocked={7} geometryBlocked={8} volumeBlocked={9} duplicateBlocked={10}",\n                    _diagSignalsDetected, _diagOrdersOpened, _diagRiskCompressed, _diagRiskBlocked, _diagPartialSkipped,\n                    _diagAtrBlocked, _diagBudgetBlocked, _diagMtfBlocked, _diagGeometryBlocked, _diagVolumeBlocked, _diagDuplicateBlocked);\n'''
-new='''                Print("[COMMERCIAL-DIAG] signals={0} orders={1} compressed={2} riskBlocked={3} partialSkipped={4} atrBlocked={5} budgetBlocked={6} mtfBlocked={7} geometryBlocked={8} volumeBlocked={9} duplicateBlocked={10} geometryValid={11} geometryQualityRejected={12}",\n                    _diagSignalsDetected, _diagOrdersOpened, _diagRiskCompressed, _diagRiskBlocked, _diagPartialSkipped,\n                    _diagAtrBlocked, _diagBudgetBlocked, _diagMtfBlocked, _diagGeometryBlocked, _diagVolumeBlocked, _diagDuplicateBlocked, _diagGeometryValidated, _diagGeometryRejectedQuality);\n'''
+# Capital-feasibility hardening runs before this patch and extends the diagnostic
+# with capitalInfeasible={11}. Extend that actual final block atomically.
+old='''                Print("[COMMERCIAL-DIAG] signals={0} orders={1} compressed={2} riskBlocked={3} partialSkipped={4} atrBlocked={5} budgetBlocked={6} mtfBlocked={7} geometryBlocked={8} volumeBlocked={9} duplicateBlocked={10} capitalInfeasible={11}",\n                    _diagSignalsDetected, _diagOrdersOpened, _diagRiskCompressed, _diagRiskBlocked, _diagPartialSkipped,\n                    _diagAtrBlocked, _diagBudgetBlocked, _diagMtfBlocked, _diagGeometryBlocked, _diagVolumeBlocked, _diagDuplicateBlocked, _diagCapitalInfeasible);\n'''
+new='''                Print("[COMMERCIAL-DIAG] signals={0} orders={1} compressed={2} riskBlocked={3} partialSkipped={4} atrBlocked={5} budgetBlocked={6} mtfBlocked={7} geometryBlocked={8} volumeBlocked={9} duplicateBlocked={10} capitalInfeasible={11} geometryValid={12} geometryQualityRejected={13}",\n                    _diagSignalsDetected, _diagOrdersOpened, _diagRiskCompressed, _diagRiskBlocked, _diagPartialSkipped,\n                    _diagAtrBlocked, _diagBudgetBlocked, _diagMtfBlocked, _diagGeometryBlocked, _diagVolumeBlocked, _diagDuplicateBlocked, _diagCapitalInfeasible, _diagGeometryValidated, _diagGeometryRejectedQuality);\n'''
 if old not in s: raise SystemExit('geometry commercial diagnostic block missing')
 s=s.replace(old,new,1)
 
-for token in ['Geometry Quality Engine','GeometryQualityScore','PrzConfluence','TimeSymmetry','PivotQuality','_diagGeometryValidated','_diagGeometryRejectedQuality','EnableFibGrid','geometryValid={11}','geometryQualityRejected={12}']:
+for token in ['Geometry Quality Engine','GeometryQualityScore','PrzConfluence','TimeSymmetry','PivotQuality','_diagGeometryValidated','_diagGeometryRejectedQuality','EnableFibGrid','capitalInfeasible={11}','geometryValid={12}','geometryQualityRejected={13}']:
     if token not in s: raise SystemExit('geometry engine missing token: '+token)
 
 p.write_text(s,encoding='utf-8')
