@@ -1,0 +1,118 @@
+name: HarmonyBot V28.1 XAUUSD $100 Fair 1Y Sweep
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [harmonybot-v28-commercial-final-rc]
+    paths: ['.github/workflows/backtest-harmonybot-v281-xauusd-100-1y-fair-sweep.yml']
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: harmonybot-v281-xauusd-100-1y-fair-sweep
+  cancel-in-progress: true
+
+jobs:
+  backtest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        period: [m1, m5, m15, m30, h1]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with: {dotnet-version: '8.0.x'}
+      - name: Generate hardened V28.1 source
+        run: |
+          set -euo pipefail
+          python3 tmp/harmonybot-v26-build/build_v261_frequency.py
+          python3 tmp/harmonybot-v26-build/fix_v261_mtf_overload.py
+          python3 tmp/harmonybot-v26-build/fix_v262_frequency_safe.py
+          python3 tmp/harmonybot-v26-build/fix_v262_grid_guard_band.py
+          python3 tmp/harmonybot-v26-build/fix_v27_commercial_rc.py
+          python3 tmp/harmonybot-v26-build/fix_v28_frequency_architecture.py
+          python3 tmp/harmonybot-v26-build/fix_v28_cost_rr.py
+          python3 tmp/harmonybot-v26-build/fix_v281_geometry_quality_engine.py
+          mkdir -p cli-build/HarmonyBotPro_v281
+          cp cli-build/HarmonyBotPro_v261/HarmonyBotPro.cs cli-build/HarmonyBotPro_v281/HarmonyBotPro.cs
+          cat > cli-build/HarmonyBotPro_v281/HarmonyBotPro.csproj <<'EOF'
+          <Project Sdk="Microsoft.NET.Sdk">
+            <PropertyGroup>
+              <TargetFramework>net6.0</TargetFramework><ImplicitUsings>disable</ImplicitUsings><Nullable>disable</Nullable>
+              <AlgoName>HarmonyBotPro_v281</AlgoName><AlgoBuild>true</AlgoBuild><AlgoPublish>false</AlgoPublish><IncludeSource>false</IncludeSource>
+            </PropertyGroup>
+            <ItemGroup><PackageReference Include="cTrader.Automate" Version="1.0.19" /></ItemGroup>
+          </Project>
+          EOF
+      - name: Compile gate - zero errors and nonempty algo
+        run: |
+          set -euo pipefail
+          dotnet restore cli-build/HarmonyBotPro_v281/HarmonyBotPro.csproj
+          dotnet build cli-build/HarmonyBotPro_v281/HarmonyBotPro.csproj -c Release --no-restore -p:AlgoPublish=false -p:IncludeSource=false 2>&1 | tee build-${{ matrix.period }}.log
+          ! grep -q ' error CS' build-${{ matrix.period }}.log
+          ALGO="$(find cli-build/HarmonyBotPro_v281 -type f -name '*.algo' -print -quit)"
+          test -n "$ALGO" && test -s "$ALGO"
+          mkdir -p backtest/cache backtest/reports backtest/algo
+          cp "$ALGO" backtest/algo/HarmonyBotPro_v281.algo
+          sha256sum backtest/algo/HarmonyBotPro_v281.algo | tee backtest/algo/HarmonyBotPro_v281.algo.sha256
+      - name: Pull official cTrader CLI
+        run: docker pull ghcr.io/spotware/ctrader-console:5.9.11
+      - name: Create cTrader password file
+        env:
+          CTRADER_PASSWORD: ${{ secrets.CTRADER_PASSWORD }}
+        run: |
+          test -n "${CTRADER_PASSWORD:-}" || { echo 'Missing CTRADER_PASSWORD'; exit 1; }
+          printf '%s' "$CTRADER_PASSWORD" > backtest/ctrader.pwd
+          chmod 600 backtest/ctrader.pwd
+      - name: Backtest XAUUSD $100 1Y ${{ matrix.period }}
+        env:
+          CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+          CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+        run: |
+          set -euo pipefail
+          test -n "${CTRADER_CTID:-}" && test -n "${CTRADER_ACCOUNT:-}"
+          OUT="V281-XAUUSD-100-1Y-${{ matrix.period }}"
+          docker run --rm -v "$PWD/backtest:/work" -e "CTID=$CTRADER_CTID" -e 'PWD-FILE=/work/ctrader.pwd' -e "ACCOUNT=$CTRADER_ACCOUNT" ghcr.io/spotware/ctrader-console:5.9.11 \
+            backtest /work/algo/HarmonyBotPro_v281.algo --environment-variables \
+            --broker=fxpro --symbol=XAUUSD --period=${{ matrix.period }} \
+            --start='17/09/2025' --end='16/09/2026' --balance=100 --data-mode=m1 --data-dir=/work/cache \
+            --commission=35 --commission-type=UsdPerMillionUsdVolume --precise-conversion \
+            --SymbolName=XAUUSD --RiskPercent=1.0 --MaxDrawdown=10.0 --MinStopLossPips=100.0 --SmallAccountMinSLPips=25.0 \
+            --report="/work/reports/${OUT}.html" --report-json="/work/reports/${OUT}.json"
+      - name: Parse commercial metrics
+        if: always()
+        run: |
+          python3 - <<'PY'
+          import json,glob,os
+          for p in glob.glob('backtest/reports/*.json'):
+            d=json.load(open(p,encoding='utf-8-sig'))
+            h=d.get('history',{}) if isinstance(d,dict) else {}
+            items=h.get('items',[]) if isinstance(h,dict) else []
+            profits=[]
+            for x in items:
+              if isinstance(x,dict):
+                for k in ('netProfit','net_profit','profit','NetProfit'):
+                  if isinstance(x.get(k),(int,float)):
+                    profits.append(float(x[k])); break
+            wins=sum(v>0 for v in profits); losses=sum(v<0 for v in profits)
+            gp=sum(v for v in profits if v>0); gl=-sum(v for v in profits if v<0)
+            out={'file':os.path.basename(p),'trades':len(profits),'win_rate':(100*wins/len(profits) if profits else None),'net':sum(profits),'pf':(gp/gl if gl>0 else None),'expectancy':(sum(profits)/len(profits) if profits else None)}
+            print(json.dumps(out,ensure_ascii=False))
+          PY
+      - name: Remove credentials
+        if: always()
+        run: rm -f backtest/ctrader.pwd
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: V281-XAUUSD-100-1Y-${{ matrix.period }}
+          path: |
+            backtest/reports/
+            backtest/algo/HarmonyBotPro_v281.algo.sha256
+            build-${{ matrix.period }}.log
+          if-no-files-found: warn
+          retention-days: 30
