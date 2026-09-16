@@ -22,12 +22,7 @@ repl='''                Confidence = finalScore,\n                PatternName = 
 if needle not in s: raise SystemExit('geometry signal assignment point missing')
 s=s.replace(needle,repl,1)
 
-# Insert inside HarmonicPatternDetector before the detector's closing brace.
-# Method-signature anchors proved brittle across hardened V28 patch generations.
-# The next top-level class declaration is a stable structural boundary.
 helper='''        private double GeometryQualityScore(Pivot x, Pivot a, Pivot b, Pivot c, Pivot d, double atrPrice, double ratioScore, out double prz, out double time, out double pivot)\n        {\n            double eps = 1e-9;\n            double xa = Math.Abs(a.Price - x.Price);\n            double ab = Math.Abs(b.Price - a.Price);\n            double cd = Math.Abs(d.Price - c.Price);\n            double vol = Math.Max(Math.Abs(atrPrice), eps);\n            double dFromX = Math.Abs(d.Price - x.Price);\n            double dFromA = Math.Abs(d.Price - a.Price);\n            double projectionGap = Math.Min(dFromX, dFromA);\n            prz = 1.0 / (1.0 + projectionGap / Math.Max(vol, eps));\n            double tXA = Math.Max(1.0, a.Index - x.Index);\n            double tAB = Math.Max(1.0, b.Index - a.Index);\n            double tBC = Math.Max(1.0, c.Index - b.Index);\n            double tCD = Math.Max(1.0, d.Index - c.Index);\n            double timeErr = (Math.Abs(tXA - tCD) / Math.Max(tXA, tCD) + Math.Abs(tAB - tBC) / Math.Max(tAB, tBC)) * 0.5;\n            time = Math.Max(0.0, Math.Min(1.0, 1.0 - timeErr));\n            double minLeg = Math.Min(xa, Math.Min(ab, cd));\n            pivot = Math.Max(0.0, Math.Min(1.0, minLeg / Math.Max(vol * 2.0, eps)));\n            double fib = Math.Max(0.0, Math.Min(1.0, ratioScore));\n            return Math.Max(0.0, Math.Min(1.0, fib * 0.45 + prz * 0.25 + time * 0.15 + pivot * 0.15));\n        }\n\n'''
-# Locate detector class then find the next class declaration and insert immediately
-# before the detector closing brace preceding it.
 det=s.find('class HarmonicPatternDetector')
 if det < 0: raise SystemExit('HarmonicPatternDetector class missing')
 next_class=s.find('\n    public class ', det+1)
@@ -42,16 +37,14 @@ repl='''                _diagSignalsDetected++;\n                if (EnableGeome
 if needle not in s: raise SystemExit('geometry funnel insertion point missing')
 s=s.replace(needle,repl,1)
 
-needle='''volumeBlocked={9} duplicateBlocked={10}'''
-repl='''volumeBlocked={9} duplicateBlocked={10} geometryValid={11} geometryQualityRejected={12}'''
-if needle not in s: raise SystemExit('geometry diagnostic format point missing')
-s=s.replace(needle,repl,1)
-needle='''_diagGeometryBlocked, _diagVolumeBlocked, _diagDuplicateBlocked);'''
-repl='''_diagGeometryBlocked, _diagVolumeBlocked, _diagDuplicateBlocked, _diagGeometryValidated, _diagGeometryRejectedQuality);'''
-if needle not in s: raise SystemExit('geometry diagnostic args point missing')
-s=s.replace(needle,repl,1)
+# Commercial diagnostics are formatted across two lines by release audit. Replace
+# the complete stable tail instead of matching a brittle isolated argument suffix.
+old='''                Print("[COMMERCIAL-DIAG] signals={0} orders={1} compressed={2} riskBlocked={3} partialSkipped={4} atrBlocked={5} budgetBlocked={6} mtfBlocked={7} geometryBlocked={8} volumeBlocked={9} duplicateBlocked={10}",\n                    _diagSignalsDetected, _diagOrdersOpened, _diagRiskCompressed, _diagRiskBlocked, _diagPartialSkipped,\n                    _diagAtrBlocked, _diagBudgetBlocked, _diagMtfBlocked, _diagGeometryBlocked, _diagVolumeBlocked, _diagDuplicateBlocked);\n'''
+new='''                Print("[COMMERCIAL-DIAG] signals={0} orders={1} compressed={2} riskBlocked={3} partialSkipped={4} atrBlocked={5} budgetBlocked={6} mtfBlocked={7} geometryBlocked={8} volumeBlocked={9} duplicateBlocked={10} geometryValid={11} geometryQualityRejected={12}",\n                    _diagSignalsDetected, _diagOrdersOpened, _diagRiskCompressed, _diagRiskBlocked, _diagPartialSkipped,\n                    _diagAtrBlocked, _diagBudgetBlocked, _diagMtfBlocked, _diagGeometryBlocked, _diagVolumeBlocked, _diagDuplicateBlocked, _diagGeometryValidated, _diagGeometryRejectedQuality);\n'''
+if old not in s: raise SystemExit('geometry commercial diagnostic block missing')
+s=s.replace(old,new,1)
 
-for token in ['Geometry Quality Engine','GeometryQualityScore','PrzConfluence','TimeSymmetry','PivotQuality','_diagGeometryValidated','_diagGeometryRejectedQuality','EnableFibGrid']:
+for token in ['Geometry Quality Engine','GeometryQualityScore','PrzConfluence','TimeSymmetry','PivotQuality','_diagGeometryValidated','_diagGeometryRejectedQuality','EnableFibGrid','geometryValid={11}','geometryQualityRejected={12}']:
     if token not in s: raise SystemExit('geometry engine missing token: '+token)
 
 p.write_text(s,encoding='utf-8')
