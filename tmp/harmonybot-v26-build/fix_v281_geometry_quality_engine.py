@@ -17,14 +17,36 @@ insert=needle+'''        private long _diagGeometryValidated;\n        private l
 if needle not in s: raise SystemExit('geometry diag fields point missing')
 s=s.replace(needle,insert,1)
 
+# Geometry must be calculated inside MatchPattern, where x/a/b/c/d, atrPrice and
+# geometry are in scope. Persist it on PatternMatch and copy it to Signal later.
+needle='''        public string PatternName { get; set; }\n        public TradeDirection Direction { get; set; }\n'''
+if needle in s:
+    insert=needle+'''        public double GeometryQuality { get; set; }\n        public double PrzConfluence { get; set; }\n        public double TimeSymmetry { get; set; }\n        public double PivotQuality { get; set; }\n'''
+    s=s.replace(needle,insert,1)
+else:
+    # PatternMatch property order differs in some payloads; anchor on its class.
+    cls=s.find('class PatternMatch')
+    if cls < 0: raise SystemExit('PatternMatch class missing')
+    brace=s.find('{',cls)
+    s=s[:brace+1]+'''\n        public double GeometryQuality { get; set; }\n        public double PrzConfluence { get; set; }\n        public double TimeSymmetry { get; set; }\n        public double PivotQuality { get; set; }\n'''+s[brace+1:]
+
+# Find the PatternMatch construction in MatchPattern and add in-scope geometry.
+match_anchor='''            return new PatternMatch\n            {\n'''
+idx=s.find(match_anchor)
+if idx < 0: raise SystemExit('PatternMatch construction missing')
+end=s.find('            };',idx)
+if end < 0: raise SystemExit('PatternMatch construction end missing')
+block=s[idx:end]
+if 'GeometryQuality =' not in block:
+    addition='''                GeometryQuality = GeometryQualityScore(x, a, b, c, d, atrPrice, geometry, out double przScore, out double timeScore, out double pivotScore),\n                PrzConfluence = przScore,\n                TimeSymmetry = timeScore,\n                PivotQuality = pivotScore,\n'''
+    # Insert immediately after opening initializer; C# permits any property order.
+    s=s[:idx+len(match_anchor)]+addition+s[idx+len(match_anchor):]
+
 needle='''                Confidence = finalScore,\n                PatternName = best.PatternName,\n                CompletionIndex = referencePoint.Index\n            };\n'''
-repl='''                Confidence = finalScore,\n                PatternName = best.PatternName,\n                CompletionIndex = referencePoint.Index,\n                GeometryQuality = GeometryQualityScore(x, a, b, c, d, atrPrice, geometry, out double przScore, out double timeScore, out double pivotScore),\n                PrzConfluence = przScore,\n                TimeSymmetry = timeScore,\n                PivotQuality = pivotScore\n            };\n'''
+repl='''                Confidence = finalScore,\n                PatternName = best.PatternName,\n                CompletionIndex = referencePoint.Index,\n                GeometryQuality = best.GeometryQuality,\n                PrzConfluence = best.PrzConfluence,\n                TimeSymmetry = best.TimeSymmetry,\n                PivotQuality = best.PivotQuality\n            };\n'''
 if needle not in s: raise SystemExit('geometry signal assignment point missing')
 s=s.replace(needle,repl,1)
 
-# Detector uses SwingPoint as its pivot model. Keep the geometry helper bound to
-# that real source type so the generated source compiles without introducing a
-# fictitious Pivot dependency.
 helper='''        private double GeometryQualityScore(SwingPoint x, SwingPoint a, SwingPoint b, SwingPoint c, SwingPoint d, double atrPrice, double ratioScore, out double prz, out double time, out double pivot)\n        {\n            double eps = 1e-9;\n            double xa = Math.Abs(a.Price - x.Price);\n            double ab = Math.Abs(b.Price - a.Price);\n            double cd = Math.Abs(d.Price - c.Price);\n            double vol = Math.Max(Math.Abs(atrPrice), eps);\n            double dFromX = Math.Abs(d.Price - x.Price);\n            double dFromA = Math.Abs(d.Price - a.Price);\n            double projectionGap = Math.Min(dFromX, dFromA);\n            prz = 1.0 / (1.0 + projectionGap / Math.Max(vol, eps));\n            double tXA = Math.Max(1.0, a.Index - x.Index);\n            double tAB = Math.Max(1.0, b.Index - a.Index);\n            double tBC = Math.Max(1.0, c.Index - b.Index);\n            double tCD = Math.Max(1.0, d.Index - c.Index);\n            double timeErr = (Math.Abs(tXA - tCD) / Math.Max(tXA, tCD) + Math.Abs(tAB - tBC) / Math.Max(tAB, tBC)) * 0.5;\n            time = Math.Max(0.0, Math.Min(1.0, 1.0 - timeErr));\n            double minLeg = Math.Min(xa, Math.Min(ab, cd));\n            pivot = Math.Max(0.0, Math.Min(1.0, minLeg / Math.Max(vol * 2.0, eps)));\n            double fib = Math.Max(0.0, Math.Min(1.0, ratioScore));\n            return Math.Max(0.0, Math.Min(1.0, fib * 0.45 + prz * 0.25 + time * 0.15 + pivot * 0.15));\n        }\n\n'''
 det=s.find('class HarmonicPatternDetector')
 if det < 0: raise SystemExit('HarmonicPatternDetector class missing')
@@ -45,9 +67,14 @@ new='''                Print("[COMMERCIAL-DIAG] signals={0} orders={1} compresse
 if old not in s: raise SystemExit('geometry commercial diagnostic block missing')
 s=s.replace(old,new,1)
 
-for token in ['Geometry Quality Engine','GeometryQualityScore(SwingPoint','PrzConfluence','TimeSymmetry','PivotQuality','_diagGeometryValidated','_diagGeometryRejectedQuality','EnableFibGrid','capitalInfeasible={11}','geometryValid={12}','geometryQualityRejected={13}']:
+for token in ['Geometry Quality Engine','GeometryQualityScore(SwingPoint','PrzConfluence','TimeSymmetry','PivotQuality','_diagGeometryValidated','_diagGeometryRejectedQuality','EnableFibGrid','capitalInfeasible={11}','geometryValid={12}','geometryQualityRejected={13}','GeometryQuality = best.GeometryQuality']:
     if token not in s: raise SystemExit('geometry engine missing token: '+token)
 if 'GeometryQualityScore(Pivot ' in s: raise SystemExit('obsolete Pivot geometry signature remains')
+# Regression guard: signal construction must not reference MatchPattern locals.
+signal_start=s.find('Confidence = finalScore')
+signal_end=s.find('};',signal_start)
+if signal_start >= 0 and 'GeometryQualityScore(x, a, b, c, d' in s[signal_start:signal_end]:
+    raise SystemExit('out-of-scope geometry calculation remains in Signal construction')
 
 p.write_text(s,encoding='utf-8')
-print('Applied V28.1 independent Harmonic Geometry Quality Engine')
+print('Applied V28.1 independent Harmonic Geometry Quality Engine with in-scope PatternMatch scoring')
