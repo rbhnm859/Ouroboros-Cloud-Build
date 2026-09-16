@@ -25,14 +25,17 @@ jobs:
           python3 tmp/harmonybot-v26-build/fix_v27_commercial_rc.py
           python3 tmp/harmonybot-v26-build/fix_v28_frequency_architecture.py
           python3 tmp/harmonybot-v26-build/fix_v28_cost_rr.py
-      - name: Apply mandatory V28 audit hardening
+      - name: Apply remaining mandatory V28 hardening
         run: |
           set -euo pipefail
-          python3 tmp/harmonybot-v26-build/fix_v28_release_audit.py
-          python3 tmp/harmonybot-v26-build/fix_v28_pattern_integrity.py
-          python3 tmp/harmonybot-v26-build/fix_v28_history_accounting.py
-          python3 tmp/harmonybot-v26-build/fix_v28_dst_session.py
-          python3 tmp/harmonybot-v26-build/fix_v28_capital_feasibility.py
+          # fix_v28_cost_rr.py already applies release audit, pattern integrity,
+          # history accounting, DST session and capital feasibility hardening.
+          # Re-applying those non-idempotent patches corrupts the generated source.
+          test -s cli-build/HarmonyBotPro_v261/HarmonyBotPro.cs
+          grep -q 'Signal Dedupe Bars' cli-build/HarmonyBotPro_v261/HarmonyBotPro.cs
+          grep -q 'CompletionIndex' cli-build/HarmonyBotPro_v261/HarmonyBotPro.cs
+          grep -q 'reciprocalIdeal' cli-build/HarmonyBotPro_v261/HarmonyBotPro.cs
+          grep -q 'capitalInfeasible' cli-build/HarmonyBotPro_v261/HarmonyBotPro.cs
       - name: Compile merged source
         run: |
           set -euo pipefail
