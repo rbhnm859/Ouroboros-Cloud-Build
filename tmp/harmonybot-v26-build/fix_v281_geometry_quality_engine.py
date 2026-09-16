@@ -22,8 +22,15 @@ repl='''                Confidence = finalScore,\n                PatternName = 
 if needle not in s: raise SystemExit('geometry signal assignment point missing')
 s=s.replace(needle,repl,1)
 
-# Insert immediately before whichever ratio helper exists in the hardened source.
-markers=['''        private double RangeAwareRatioScore(double actual, double ideal, double min, double max)\n''','''        private double RatioScore(double actual, double ideal)\n''']
+# Insert inside HarmonicPatternDetector immediately before a stable math helper.
+# Hardened source keeps the legacy parameter names value/ideal even when ratio scoring is upgraded.
+markers=[
+'''        private double RangeAwareRatioScore(double value, double ideal, double min, double max)\n''',
+'''        private double RangeAwareRatioScore(double actual, double ideal, double min, double max)\n''',
+'''        private double RatioScore(double value, double ideal)\n''',
+'''        private double RatioScore(double actual, double ideal)\n''',
+'''        private double SymmetryScore(double a, double b)\n'''
+]
 helper='''        private double GeometryQualityScore(Pivot x, Pivot a, Pivot b, Pivot c, Pivot d, double atrPrice, double ratioScore, out double prz, out double time, out double pivot)\n        {\n            double eps = 1e-9;\n            double xa = Math.Abs(a.Price - x.Price);\n            double ab = Math.Abs(b.Price - a.Price);\n            double cd = Math.Abs(d.Price - c.Price);\n            double vol = Math.Max(Math.Abs(atrPrice), eps);\n            double dFromX = Math.Abs(d.Price - x.Price);\n            double dFromA = Math.Abs(d.Price - a.Price);\n            double projectionGap = Math.Min(dFromX, dFromA);\n            prz = 1.0 / (1.0 + projectionGap / Math.Max(vol, eps));\n            double tXA = Math.Max(1.0, a.Index - x.Index);\n            double tAB = Math.Max(1.0, b.Index - a.Index);\n            double tBC = Math.Max(1.0, c.Index - b.Index);\n            double tCD = Math.Max(1.0, d.Index - c.Index);\n            double timeErr = (Math.Abs(tXA - tCD) / Math.Max(tXA, tCD) + Math.Abs(tAB - tBC) / Math.Max(tAB, tBC)) * 0.5;\n            time = Math.Max(0.0, Math.Min(1.0, 1.0 - timeErr));\n            double minLeg = Math.Min(xa, Math.Min(ab, cd));\n            pivot = Math.Max(0.0, Math.Min(1.0, minLeg / Math.Max(vol * 2.0, eps)));\n            double fib = Math.Max(0.0, Math.Min(1.0, ratioScore));\n            return Math.Max(0.0, Math.Min(1.0, fib * 0.45 + prz * 0.25 + time * 0.15 + pivot * 0.15));\n        }\n\n'''
 marker=next((m for m in markers if m in s),None)
 if marker is None: raise SystemExit('geometry helper marker missing')
