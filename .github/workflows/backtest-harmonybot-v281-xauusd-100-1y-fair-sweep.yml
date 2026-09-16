@@ -79,8 +79,8 @@ jobs:
           docker run --rm -v "$PWD/backtest:/work" -e "CTID=$CTRADER_CTID" -e 'PWD-FILE=/work/ctrader.pwd' -e "ACCOUNT=$CTRADER_ACCOUNT" ghcr.io/spotware/ctrader-console:5.9.11 \
             backtest /work/algo/HarmonyBotPro_v281.algo --environment-variables \
             --broker=fxpro --symbol=XAUUSD --period=${{ matrix.period }} \
-            --start='17/09/2025' --end='16/09/2026' --balance=100 --data-mode=m1 --data-dir=/work/cache \
-            --commission=35 --commission-type=UsdPerMillionUsdVolume --precise-conversion \
+            --start='17/09/2025' --end='16/09/2026' --balance=100 --data-mode=m1 \
+            --commission=35 \
             --SymbolName=XAUUSD --RiskPercent=1.0 --MaxDrawdown=10.0 --MinStopLossPips=100.0 --SmallAccountMinSLPips=25.0 \
             --report="/work/reports/${OUT}.html" --report-json="/work/reports/${OUT}.json"
       - name: Parse commercial metrics
@@ -98,8 +98,7 @@ jobs:
                 for k in ('netProfit','net_profit','profit','NetProfit'):
                   if isinstance(x.get(k),(int,float)):
                     profits.append(float(x[k])); break
-            wins=sum(v>0 for v in profits); losses=sum(v<0 for v in profits)
-            gp=sum(v for v in profits if v>0); gl=-sum(v for v in profits if v<0)
+            wins=sum(v>0 for v in profits); gp=sum(v for v in profits if v>0); gl=-sum(v for v in profits if v<0)
             out={'file':os.path.basename(p),'trades':len(profits),'win_rate':(100*wins/len(profits) if profits else None),'net':sum(profits),'pf':(gp/gl if gl>0 else None),'expectancy':(sum(profits)/len(profits) if profits else None)}
             print(json.dumps(out,ensure_ascii=False))
           PY
