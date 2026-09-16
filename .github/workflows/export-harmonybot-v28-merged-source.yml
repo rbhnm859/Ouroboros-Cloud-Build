@@ -2,7 +2,9 @@ name: Export HarmonyBot V28 Merged Source
 on:
   push:
     branches: [harmonybot-v28-commercial-final-rc]
-    paths: ['.github/workflows/export-harmonybot-v28-merged-source.yml']
+    paths:
+      - '.github/workflows/export-harmonybot-v28-merged-source.yml'
+      - 'tmp/harmonybot-v26-build/fix_v281_geometry_quality_engine.py'
   workflow_dispatch:
 permissions:
   contents: read
@@ -37,15 +39,7 @@ jobs:
           mkdir -p cli-build/HarmonyBotPro_v261
           cat > cli-build/HarmonyBotPro_v261/HarmonyBotPro.csproj <<'EOF'
           <Project Sdk="Microsoft.NET.Sdk">
-            <PropertyGroup>
-              <TargetFramework>net6.0</TargetFramework>
-              <ImplicitUsings>disable</ImplicitUsings>
-              <Nullable>disable</Nullable>
-              <AlgoName>HarmonyBotPro_V28</AlgoName>
-              <AlgoBuild>true</AlgoBuild>
-              <AlgoPublish>false</AlgoPublish>
-              <IncludeSource>false</IncludeSource>
-            </PropertyGroup>
+            <PropertyGroup><TargetFramework>net6.0</TargetFramework><ImplicitUsings>disable</ImplicitUsings><Nullable>disable</Nullable><AlgoName>HarmonyBotPro_V28</AlgoName><AlgoBuild>true</AlgoBuild><AlgoPublish>false</AlgoPublish><IncludeSource>false</IncludeSource></PropertyGroup>
             <ItemGroup><PackageReference Include="cTrader.Automate" Version="1.0.19" /></ItemGroup>
           </Project>
           EOF
