@@ -23,7 +23,9 @@ once(r'(\s*)return new Candidate\s*\{\s*\n(\s*)X\s*=\s*([^,\n]+),',r'\1double ge
 once(r'(Confidence\s*=\s*finalScore,\s*\n\s*PatternName\s*=\s*best\.PatternName,\s*\n\s*CompletionIndex\s*=\s*referencePoint\.Index)(\s*\n\s*\};)',r'\1,\n                GeometryQuality = best.GeometryQuality,\n                PrzConfluence = best.PrzConfluence,\n                TimeSymmetry = best.TimeSymmetry,\n                PivotQuality = best.PivotQuality\2','signal geometry assignment')
 
 helper='''        private double GeometryQualityScore(SwingPoint x, SwingPoint a, SwingPoint b, SwingPoint c, SwingPoint d, double atrPrice, double ratioScore, out double prz, out double time, out double pivot)\n        {\n            const double eps = 1e-9;\n            if (a == null || b == null || c == null || d == null) { prz=0; time=0; pivot=0; return 0; }\n            if (x == null) x=a;\n            double xa=Math.Abs(a.Price-x.Price), ab=Math.Abs(b.Price-a.Price), cd=Math.Abs(d.Price-c.Price);\n            double vol=Math.Max(Math.Abs(atrPrice),eps);\n            double projectionGap=Math.Min(Math.Abs(d.Price-x.Price),Math.Abs(d.Price-a.Price));\n            prz=1.0/(1.0+projectionGap/vol);\n            double tXA=Math.Max(1.0,a.Index-x.Index), tAB=Math.Max(1.0,b.Index-a.Index);\n            double tBC=Math.Max(1.0,c.Index-b.Index), tCD=Math.Max(1.0,d.Index-c.Index);\n            double timeErr=(Math.Abs(tXA-tCD)/Math.Max(tXA,tCD)+Math.Abs(tAB-tBC)/Math.Max(tAB,tBC))*0.5;\n            time=Math.Max(0.0,Math.Min(1.0,1.0-timeErr));\n            pivot=Math.Max(0.0,Math.Min(1.0,Math.Min(xa,Math.Min(ab,cd))/Math.Max(vol*2.0,eps)));\n            double fib=Math.Max(0.0,Math.Min(1.0,ratioScore));\n            return Math.Max(0.0,Math.Min(1.0,fib*0.45+prz*0.25+time*0.15+pivot*0.15));\n        }\n\n'''
-once(r'(\s*// =+\s*\n\s*//\s*Swing Points)',helper+r'\1','geometry helper')
+# Insert the helper immediately before the already-discovered Candidate nested class. This is a stable
+# structural boundary inside HarmonicPatternDetector and does not depend on mutable section comments.
+once(r'(\s*(?:private|internal|public)?\s*(?:sealed\s+)?class\s+Candidate\s*\{)',helper+r'\1','geometry helper',re.S)
 
 once(r'(\s*_diagSignalsDetected\+\+;\s*\n)(\s*PruneExecutedSignalKeys\(signalIndex\);)',r'\1                if (EnableGeometryQualityEngine)\n                {\n                    if (signal.GeometryQuality < MinGeometryQuality) { _diagGeometryRejectedQuality++; _diagGeometryBlocked++; return; }\n                    _diagGeometryValidated++;\n                }\n\n\2','geometry funnel')
 
@@ -35,4 +37,4 @@ for token in ['Geometry Quality Engine','GeometryQualityScore(SwingPoint','PrzCo
     if token not in s: raise SystemExit('geometry engine missing token: '+token)
 if 'PatternMatch' in s or 'GeometryQualityScore(Pivot ' in s: raise SystemExit('obsolete geometry dependency remains')
 p.write_text(s,encoding='utf-8')
-print('Applied V28.1 Geometry Quality Engine with flexible Candidate construction anchor')
+print('Applied V28.1 Geometry Quality Engine with structural helper anchor')
