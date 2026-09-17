@@ -11,8 +11,9 @@ targets=['ManageGridBaskets','RefreshEmaCache','CalculateEma','CalculateAtr','Bu
 
 onstart=re.search(r'(?m)^\s*protected\s+override\s+void\s+OnStart\s*\(',s)
 if not onstart: raise SystemExit('OnStart missing')
-fields=''.join('        private long _s7Calls_%s, _s7Ticks_%s;\n'%(x,x) for x in targets if x!='BuildSwingPoints')
-fields+='        private static long _s7Calls_BuildSwingPoints, _s7Ticks_BuildSwingPoints;\n'
+# All counters are instance fields. BuildSwingPoints is invoked from generated helper scope
+# where instance access is valid; using static counters caused the Stage7 #1 CS0103 failure.
+fields=''.join('        private long _s7Calls_%s, _s7Ticks_%s;\n'%(x,x) for x in targets)
 s=s[:onstart.start()]+fields+s[onstart.start():]
 
 def method_span(src,name):
@@ -27,14 +28,18 @@ def method_span(src,name):
     raise SystemExit(name+' unbalanced')
 
 # Stopwatch.GetTimestamp has very low overhead. A try/finally guarantees elapsed-time
-# accounting for early returns while preserving the original return values/exceptions.
+# accounting for early returns while preserving original return values/exceptions.
 for name in targets:
     m,end=method_span(s,name); indent=m.group(1); brace=s.find('{',m.start())
+    # If the target itself is static, do not instrument it with instance fields: profile its
+    # callers instead. Current hardened candidate is expected to expose these as instance methods.
+    decl=s[m.start():brace]
+    if re.search(r'\bstatic\b',decl):
+        raise SystemExit(name+' is static; Stage7 requires caller-side instrumentation')
     body=s[brace+1:end-1]
     pre='\n%s    _s7Calls_%s++;\n%s    long _s7t0_%s = System.Diagnostics.Stopwatch.GetTimestamp();\n%s    try\n%s    {'%(indent,name,indent,name,indent,indent)
     post='\n%s    }\n%s    finally { _s7Ticks_%s += System.Diagnostics.Stopwatch.GetTimestamp() - _s7t0_%s; }\n%s'%(indent,indent,name,name,indent)
-    wrapped=pre+body+post
-    s=s[:brace+1]+wrapped+s[end-1:]
+    s=s[:brace+1]+pre+body+post+s[end-1:]
 
 onstop=re.search(r'(?m)^(\s*)protected\s+override\s+void\s+OnStop\s*\(\s*\)\s*\n\s*\{',s)
 if not onstop: raise SystemExit('OnStop missing')
