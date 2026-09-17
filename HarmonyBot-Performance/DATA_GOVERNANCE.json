@@ -1,5 +1,5 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "project": "HarmonyBot",
   "stable_baseline": "V29.2",
   "engineering_candidate": "V29.3-Grid-Risk-Cap-Hotfix-RC",
@@ -9,9 +9,16 @@
     "exposed_data_may_be_used_for_final_holdout": false,
     "validation_is_pass_fail_only": true,
     "final_holdout_can_return_to_optimization": false,
-    "unknown_prior_exposure_invalidates_true_holdout_claim": true
+    "unknown_prior_exposure_invalidates_true_holdout_claim": true,
+    "zero_trade_window_counts_as_positive_evidence": false
   },
   "exposed_data": [
+    {
+      "start": "2021-01-04",
+      "end": "2022-12-30",
+      "status": "EXPOSED_AFTER_PHASE1",
+      "reason": "Used by Phase-1 Development and server-tick Validation. These dates remain legal Development evidence only and can never be Final Holdout."
+    },
     {
       "start": "2023-09-10",
       "end": "2026-09-16",
@@ -25,13 +32,15 @@
       "start": "2021-01-04",
       "evaluation_start": "2021-01-11T00:00:00Z",
       "end": "2021-06-30",
-      "purpose": "candidate family discovery / coarse structural search"
+      "status": "EXPOSED_DEVELOPMENT",
+      "purpose": "candidate family discovery / structural and local parameter search"
     },
     {
       "id": "DEV-B",
       "start": "2021-07-01",
       "evaluation_start": "2021-07-08T00:00:00Z",
       "end": "2021-12-31",
+      "status": "EXPOSED_DEVELOPMENT",
       "purpose": "candidate family discovery / cross-regime development"
     },
     {
@@ -39,15 +48,25 @@
       "start": "2022-01-03",
       "evaluation_start": "2022-01-10T00:00:00Z",
       "end": "2022-06-30",
+      "status": "EXPOSED_DEVELOPMENT",
       "purpose": "candidate family discovery / cross-regime development"
     }
   ],
-  "validation": {
-    "id": "VAL",
+  "retired_validation": {
+    "id": "VAL-1",
     "start": "2022-07-01",
     "evaluation_start": "2022-07-08T00:00:00Z",
     "end": "2022-12-30",
-    "purpose": "PASS_FAIL_ONLY"
+    "status": "EXPOSED_RETIRED_VALIDATION",
+    "result": "Phase-1 candidates B_NO_PARTIAL and D_H4_ALIGN both produced zero baskets and failed Stage-1. This interval may not be reused for candidate acceptance or tuning."
+  },
+  "next_validation": {
+    "id": "VAL-2",
+    "start": "2020-07-01",
+    "evaluation_start": "2020-07-08T00:00:00Z",
+    "end": "2020-12-31",
+    "status": "AUDITABLY_UNEXPOSED_PENDING_DATA_AVAILABILITY",
+    "purpose": "PASS_FAIL_ONLY for the next preset-only development cycle; if broker history is unavailable, mark DATA_UNAVAILABLE and HOLD rather than substituting exposed data."
   },
   "final_holdout": {
     "id": "HOLDOUT",
@@ -55,7 +74,7 @@
     "evaluation_start": "2023-01-09T00:00:00Z",
     "end": "2023-08-31",
     "status": "UNTOUCHED_NOT_AUTHORIZED",
-    "purpose": "single-use final holdout after full design freeze"
+    "purpose": "single-use final holdout after full design and parameter freeze"
   },
-  "fallback": "If any clean partition lacks FxPro/cTrader historical data, record DATA_UNAVAILABLE or INSUFFICIENT_TRUE_HOLDOUT_DATA. Never substitute exposed 2023-09-10..2026-09-16 data."
+  "fallback": "If any clean validation or final-holdout partition lacks FxPro/cTrader historical data, record DATA_UNAVAILABLE or INSUFFICIENT_TRUE_HOLDOUT_DATA. Never substitute exposed data."
 }
