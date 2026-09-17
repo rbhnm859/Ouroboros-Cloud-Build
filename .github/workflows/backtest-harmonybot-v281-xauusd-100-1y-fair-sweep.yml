@@ -70,7 +70,7 @@ jobs:
           CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
         run: |
           set -euo pipefail
-          docker run --rm -v "$PWD/backtest:/work" -e "CTID=$CTRADER_CTID" -e 'PWD-FILE=/work/ctrader.pwd' ghcr.io/spotware/ctrader-console:5.9.11 accounts --environment-variables > backtest/accounts.json
+          docker run --rm -v "$PWD/backtest:/work" ghcr.io/spotware/ctrader-console:5.9.11 accounts --ctid="$CTRADER_CTID" --pwd-file=/work/ctrader.pwd > backtest/accounts.json
           python3 - <<'PY'
           import json,os
           data=json.load(open('backtest/accounts.json',encoding='utf-8-sig')); expected=os.environ.get('CTRADER_ACCOUNT','').strip(); match=None
@@ -82,16 +82,24 @@ jobs:
           number=str(match.get('Number','')).strip()
           if not number: raise SystemExit('Trading account number missing')
           with open(os.environ['GITHUB_ENV'],'a') as f: f.write('CTRADER_ACCOUNT_NUMBER='+number+'\n')
-          print('account_profile_verified=FxPro Demo USD 1:500 $100; using trading account Number as required by cTrader CLI')
+          print('account_profile_verified=FxPro Demo USD 1:500 $100')
           PY
           rm -f backtest/accounts.json
+      - name: Preflight account and XAUUSD access
+        env: {CTRADER_CTID: '${{ secrets.CTRADER_CTID }}'}
+        run: |
+          set -euo pipefail
+          docker run --rm -v "$PWD/backtest:/work" ghcr.io/spotware/ctrader-console:5.9.11 symbols --ctid="$CTRADER_CTID" --pwd-file=/work/ctrader.pwd --account="$CTRADER_ACCOUNT_NUMBER" --broker=fxpro > backtest/symbols.txt
+          grep -qi 'XAUUSD' backtest/symbols.txt
+          rm -f backtest/symbols.txt
+          echo 'preflight_verified=account_resolves_and_XAUUSD_available'
       - name: Backtest XAUUSD $100 1Y ${{ matrix.period }}
         env: {CTRADER_CTID: '${{ secrets.CTRADER_CTID }}'}
         run: |
           set -euo pipefail
           OUT="V281-XAUUSD-100-1Y-${{ matrix.period }}"
-          docker run --rm -v "$PWD/backtest:/work" -e "CTID=$CTRADER_CTID" -e 'PWD-FILE=/work/ctrader.pwd' -e "ACCOUNT=$CTRADER_ACCOUNT_NUMBER" ghcr.io/spotware/ctrader-console:5.9.11 \
-            backtest /work/algo/HarmonyBotPro_v281.algo --environment-variables \
+          docker run --rm -v "$PWD/backtest:/work" ghcr.io/spotware/ctrader-console:5.9.11 \
+            backtest /work/algo/HarmonyBotPro_v281.algo --ctid="$CTRADER_CTID" --pwd-file=/work/ctrader.pwd --account="$CTRADER_ACCOUNT_NUMBER" \
             --broker=fxpro --symbol=XAUUSD --period=${{ matrix.period }} --start='17/09/2025' --end='16/09/2026' --balance=100 --data-mode=m1 --commission=35 \
             --SymbolName=XAUUSD --RiskPercent=1.0 --MaxDrawdown=10.0 --MinStopLossPips=100.0 --SmallAccountMinSLPips=25.0 \
             --EnableAltBat=true --EnableFiveZero=true --EnableFibGrid=true \
@@ -116,7 +124,7 @@ jobs:
           PY
       - name: Remove credentials
         if: always()
-        run: rm -f backtest/ctrader.pwd backtest/accounts.json
+        run: rm -f backtest/ctrader.pwd backtest/accounts.json backtest/symbols.txt
       - uses: actions/upload-artifact@v4
         if: always()
         with:
