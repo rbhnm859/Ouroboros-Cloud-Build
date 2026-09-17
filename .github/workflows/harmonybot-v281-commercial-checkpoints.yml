@@ -5,7 +5,7 @@ on:
       checkpoint:
         description: 'D1, D7, M1, M6, or Y1'
         required: true
-        default: D7
+        default: M1
         type: choice
         options: [D1, D7, M1, M6, Y1]
 permissions:
@@ -76,16 +76,44 @@ jobs:
             Y1) S=17/09/2025; E=16/09/2026; K=6600;;
           esac
           echo "START=$S" >> "$GITHUB_ENV"; echo "END=$E" >> "$GITHUB_ENV"; echo "KILL=$K" >> "$GITHUB_ENV"
-      - name: Backtest checkpoint and capture completed report
+      - name: Backtest checkpoint with report-aware shutdown
         env:
           CTRADER_PASSWORD: ${{ secrets.CTRADER_PASSWORD }}
           CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
           CP: ${{ inputs.checkpoint }}
         run: |
-          set -uo pipefail; T0=$(date +%s); set +e
-          timeout --signal=TERM --kill-after=20s "$KILL" docker run --rm -v "$PWD/seal:/work" ghcr.io/spotware/ctrader-console:5.9.11 backtest /work/algo/HarmonyBotPro_v281_commercial.algo --ctid="$CTRADER_CTID" --pwd-file=/work/ctrader.pwd --account="$CTRADER_ACCOUNT_NUMBER" --symbol=XAUUSD --period=m1 --start="$START" --end="$END" --balance=100 --data-mode=m1 --data-dir=/work/data --commission=35 --spread=1 --SymbolName=XAUUSD --RiskPercent=1.0 --MaxDrawdown=10 --MinStopLossPips=100 --SmallAccountMode=true --SmallAccountMinSLPips=25 --EnableAltBat=true --EnableFiveZero=true --EnableFibGrid=true --MinRR=2 --report="/work/reports/$CP.html" --report-json="/work/reports/$CP.json" 2>&1 | tee "seal/logs/$CP.log"
-          RC=${PIPESTATUS[0]}; set -e
-          printf 'exit_code=%s\nseconds=%s\n' "$RC" "$(($(date +%s)-T0))" > "seal/$CP-timing.txt"
+          set -euo pipefail
+          T0=$(date +%s); C="v281-${CP,,}-${GITHUB_RUN_ID}"
+          rm -f "seal/reports/$CP.json" "seal/logs/$CP.log"
+          docker run --name "$C" -v "$PWD/seal:/work" ghcr.io/spotware/ctrader-console:5.9.11 backtest /work/algo/HarmonyBotPro_v281_commercial.algo --ctid="$CTRADER_CTID" --pwd-file=/work/ctrader.pwd --account="$CTRADER_ACCOUNT_NUMBER" --symbol=XAUUSD --period=m1 --start="$START" --end="$END" --balance=100 --data-mode=m1 --data-dir=/work/data --commission=35 --spread=1 --SymbolName=XAUUSD --RiskPercent=1.0 --MaxDrawdown=10 --MinStopLossPips=100 --SmallAccountMode=true --SmallAccountMinSLPips=25 --EnableAltBat=true --EnableFiveZero=true --EnableFibGrid=true --MinRR=2 --report="/work/reports/$CP.html" --report-json="/work/reports/$CP.json" > "seal/logs/$CP.log" 2>&1 &
+          PID=$!
+          DONE=0
+          for ((i=0;i<KILL;i+=2)); do
+            if test -s "seal/reports/$CP.json" && python3 - "$CP" <<'PY'
+          import json,sys
+          p='seal/reports/'+sys.argv[1]+'.json'
+          try:
+              d=json.load(open(p,encoding='utf-8-sig'))
+              assert 'TotalTrades' in d and 'Equity' in d
+          except Exception:
+              raise SystemExit(1)
+          PY
+            then DONE=1; break; fi
+            if ! kill -0 "$PID" 2>/dev/null; then break; fi
+            sleep 2
+          done
+          if [ "$DONE" = 1 ]; then
+            sleep 2
+            docker rm -f "$C" >/dev/null 2>&1 || true
+            wait "$PID" 2>/dev/null || true
+            RC=0
+          else
+            docker rm -f "$C" >/dev/null 2>&1 || true
+            wait "$PID" 2>/dev/null || true
+            RC=124
+          fi
+          printf 'exit_code=%s\nseconds=%s\nreport_aware_shutdown=%s\n' "$RC" "$(($(date +%s)-T0))" "$DONE" > "seal/$CP-timing.txt"
+          test "$DONE" = 1
           test -s "seal/reports/$CP.json"
       - name: Build checkpoint summary
         if: always()
@@ -96,14 +124,14 @@ jobs:
           import json,pathlib,re,os
           cp=os.environ['CP']; p=pathlib.Path(f'seal/reports/{cp}.json'); log=pathlib.Path(f'seal/logs/{cp}.log')
           t=log.read_text(errors='ignore') if log.exists() else ''
-          def num(key, default=0.0):
-              m=re.findall(r'"'+re.escape(key)+r'"\s*:\s*(-?\d+(?:\.\d+)?)',t)
-              return float(m[-1]) if m else default
-          def integer(key): return int(num(key,0))
+          d={}
+          if p.exists():
+              try: d=json.load(open(p,encoding='utf-8-sig'))
+              except Exception: pass
+          def val(key,default=0.0): return d.get(key,default)
           diag=re.findall(r'\[COMMERCIAL-DIAG\].*',t)
-          trades=integer('TotalTrades'); wins=integer('WinningTrades'); losses=integer('LosingTrades')
-          equity=num('Equity'); net=num('NetProfit'); dd=num('MaxEquityDrawdownPercentages')
-          pfm=re.findall(r'"ProfitFactor"\s*:\s*(-?\d+(?:\.\d+)?)',t); pf=float(pfm[-1]) if pfm else None
+          trades=int(val('TotalTrades',0)); wins=int(val('WinningTrades',0)); losses=int(val('LosingTrades',0))
+          equity=float(val('Equity',0)); net=float(val('NetProfit',0)); dd=float(val('MaxEquityDrawdownPercentages',0)); pf=val('ProfitFactor',None)
           wr=(wins/trades*100) if trades else 0
           avg_rm=re.findall(r'Avg R\s*:\s*(-?\d+(?:\.\d+)?)',t); avg_r=float(avg_rm[-1]) if avg_rm else None
           expm=re.findall(r'Expectancy\s*:\s*(-?\d+(?:\.\d+)?)R',t); expectancy_r=float(expm[-1]) if expm else None
