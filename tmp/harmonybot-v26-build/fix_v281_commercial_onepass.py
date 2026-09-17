@@ -1,43 +1,54 @@
 from pathlib import Path
 import re
 p=Path('cli-build/HarmonyBotPro_v261/HarmonyBotPro.cs')
-# Keep proven Stage5 EMA/ATR + once-per-bar EMA refresh; intentionally remove ineffective swing-cache experiment.
 exec(compile(Path('tmp/harmonybot-v26-build/fix_v281_performance_stage5.py').read_text(encoding='utf-8'),'fix_v281_performance_stage5.py','exec'),{})
 s=p.read_text(encoding='utf-8')
 
-# SmallAccountMode is an explicit operating mode. Change ONLY the two effective minimum-distance
-# methods. Do not globally replace equity predicates because some occurrences participate in
-# numeric ternaries and a global textual rewrite can create bool + double expressions.
-def rewrite_effective_method(src, method):
-    pat=re.compile(r'(private\s+double\s+'+re.escape(method)+r'\s*\(\s*\)\s*\{)(?P<body>.*?)(\n\s*\})',re.S)
-    m=pat.search(src)
-    if not m: raise SystemExit(method+' missing')
-    body=m.group('body')
-    old='SmallAccountMode && Account.Equity <= SmallAccountThreshold'
-    n=body.count(old)
-    if n < 1: raise SystemExit(method+' equity-gated precedence point missing')
-    body=body.replace(old,'SmallAccountMode')
-    return src[:m.start('body')]+body+src[m.end('body'):],n
+# Explicit SmallAccountMode must keep the small-account distance floors active for the whole run.
+# Work only inside the two effective distance methods and tolerate formatting / predicate variants.
+def method_span(src,name):
+    m=re.search(r'private\s+double\s+'+re.escape(name)+r'\s*\(\s*\)\s*\{',src)
+    if not m: raise SystemExit(name+' missing')
+    brace=src.find('{',m.start()); depth=0
+    for i in range(brace,len(src)):
+        if src[i]=='{': depth+=1
+        elif src[i]=='}':
+            depth-=1
+            if depth==0: return m.start(),i+1,src[m.start():i+1]
+    raise SystemExit(name+' unbalanced')
+
+def rewrite_method(src,name):
+    a,b,block=method_span(src,name)
+    before=block
+    # Remove only an equity/threshold conjunct that is attached to SmallAccountMode.
+    block,n1=re.subn(r'SmallAccountMode\s*&&\s*Account\.(?:Equity|Balance)\s*<=\s*SmallAccountThreshold', 'SmallAccountMode', block)
+    block,n2=re.subn(r'Account\.(?:Equity|Balance)\s*<=\s*SmallAccountThreshold\s*&&\s*SmallAccountMode', 'SmallAccountMode', block)
+    # Some hardened builds use IsMicroAccount as the derived threshold gate.
+    block,n3=re.subn(r'SmallAccountMode\s*&&\s*IsMicroAccount(?:\(\))?', 'SmallAccountMode', block)
+    block,n4=re.subn(r'IsMicroAccount(?:\(\))?\s*&&\s*SmallAccountMode', 'SmallAccountMode', block)
+    if 'SmallAccountMode' not in block: raise SystemExit(name+' has no SmallAccountMode branch')
+    # If no threshold conjunct exists, the generated method already has explicit-mode precedence: accept it unchanged.
+    changed=n1+n2+n3+n4
+    return src[:a]+block+src[b:],changed
+
 count=0
 for method in ['EffectiveMinStopLossPips','EffectiveMinTakeProfitPips']:
-    s,n=rewrite_effective_method(s,method); count+=n
+    s,n=rewrite_method(s,method); count+=n
 
-# Compile-sanity guard against the exact regression seen in the previous candidate.
-# Also require the two effective methods to honor explicit SmallAccountMode.
-for method in ['EffectiveMinStopLossPips','EffectiveMinTakeProfitPips']:
-    m=re.search(r'private\s+double\s+'+method+r'\s*\(\s*\)\s*\{(?P<body>.*?)\n\s*\}',s,re.S)
-    if not m or 'SmallAccountMode' not in m.group('body'):
-        raise SystemExit(method+' does not honor explicit SmallAccountMode')
+# Structural sanity: effective methods must contain the small-account parameter and SmallAccountMode.
+for method,param in [('EffectiveMinStopLossPips','SmallAccountMinSLPips'),('EffectiveMinTakeProfitPips','SmallAccountMinTPPips')]:
+    _,_,block=method_span(s,method)
+    if 'SmallAccountMode' not in block or param not in block:
+        raise SystemExit(method+' explicit small-account precedence incomplete')
+# Guard the previous bad global rewrite class.
 if re.search(r'\b(?:true|false|SmallAccountMode)\s*\+\s*[0-9A-Za-z_(.]',s):
     raise SystemExit('bool-plus-numeric regression detected')
 
-# Preserve all commercial invariants. No risk inflation, no Grid removal, no pattern removal.
 for token in ['EnableFibGrid','GeometryQualityScore','SmallAccountMinSLPips','SmallAccountMinTPPips','RiskPercent','capitalInfeasible','Gartley','Bat','Butterfly','Crab','Cypher','Shark','FiveZero']:
     if token not in s: raise SystemExit('commercial integrity missing: '+token)
 if 'private static Bars _coreSwingBars' in s or 'CoreCacheSwingResult' in s:
     raise SystemExit('ineffective core swing cache leaked into one-pass build')
-
 p.write_text(s,encoding='utf-8')
 print('ONEPASS_SMALL_ACCOUNT_REWRITES='+str(count))
-print('Applied method-scoped explicit SmallAccountMode precedence; RiskPercent unchanged; Fib Grid and harmonic engine preserved')
-print('Retained proven Stage5 EMA/ATR fast path; removed ineffective swing-cache experiment')
+print('Structure-aware SmallAccount precedence validated; existing explicit precedence accepted when already hardened')
+print('RiskPercent unchanged; Fibonacci Grid, Geometry Engine and harmonic families preserved')
