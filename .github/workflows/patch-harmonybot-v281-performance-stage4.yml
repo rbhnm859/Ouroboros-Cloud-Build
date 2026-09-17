@@ -1,0 +1,91 @@
+name: HarmonyBot V28.1 Stage4 EMA ATR Cache A-B Gate
+on:
+  workflow_dispatch:
+  push:
+    branches: [harmonybot-v28-commercial-final-rc]
+    paths: ['.github/workflows/patch-harmonybot-v281-performance-stage4.yml','tmp/harmonybot-v26-build/fix_v281_performance_stage4.py']
+permissions: {contents: read, actions: read}
+concurrency: {group: harmonybot-v281-stage4-ab, cancel-in-progress: true}
+jobs:
+  stage4:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with: {dotnet-version: '8.0.x'}
+      - name: Generate Stage4 V28.1
+        run: |
+          set -euo pipefail
+          python3 tmp/harmonybot-v26-build/build_v261_frequency.py
+          python3 tmp/harmonybot-v26-build/fix_v261_mtf_overload.py
+          python3 tmp/harmonybot-v26-build/fix_v262_frequency_safe.py
+          python3 tmp/harmonybot-v26-build/fix_v262_grid_guard_band.py
+          python3 tmp/harmonybot-v26-build/fix_v27_commercial_rc.py
+          python3 tmp/harmonybot-v26-build/fix_v28_frequency_architecture.py
+          python3 tmp/harmonybot-v26-build/fix_v28_cost_rr.py
+          python3 tmp/harmonybot-v26-build/fix_v281_geometry_quality_engine.py
+          mkdir -p perf-stage4/{algo,data,reports,logs,build}
+          python3 tmp/harmonybot-v26-build/fix_v281_performance_stage4.py | tee perf-stage4/patch.log
+          cp cli-build/HarmonyBotPro_v261/HarmonyBotPro.cs perf-stage4/build/HarmonyBotPro.cs
+          grep -q '\[PERF-STAGE4\]' perf-stage4/build/HarmonyBotPro.cs
+          grep -q EnableFibGrid perf-stage4/build/HarmonyBotPro.cs
+          grep -q GeometryQualityScore perf-stage4/build/HarmonyBotPro.cs
+      - name: Compile zero-error
+        run: |
+          cat > perf-stage4/build/HarmonyBotPro.csproj <<'EOF'
+          <Project Sdk="Microsoft.NET.Sdk"><PropertyGroup><TargetFramework>net6.0</TargetFramework><ImplicitUsings>disable</ImplicitUsings><Nullable>disable</Nullable><AlgoName>HarmonyBotPro_v281_stage4</AlgoName><AlgoBuild>true</AlgoBuild><AlgoPublish>false</AlgoPublish><IncludeSource>false</IncludeSource></PropertyGroup><ItemGroup><PackageReference Include="cTrader.Automate" Version="1.0.19" /></ItemGroup></Project>
+          EOF
+          dotnet restore perf-stage4/build/HarmonyBotPro.csproj
+          dotnet build perf-stage4/build/HarmonyBotPro.csproj -c Release --no-restore 2>&1 | tee perf-stage4/build.log
+          ! grep -q ' error CS' perf-stage4/build.log
+          A=$(find perf-stage4/build -name '*.algo' -type f -print -quit); test -s "$A"; cp "$A" perf-stage4/algo/HarmonyBotPro_v281_stage4.algo; sha256sum perf-stage4/algo/*.algo > perf-stage4/algo.sha256
+      - name: Resolve FxPro account and route
+        env: {CTRADER_PASSWORD: '${{ secrets.CTRADER_PASSWORD }}', CTRADER_CTID: '${{ secrets.CTRADER_CTID }}', CTRADER_ACCOUNT: '${{ secrets.CTRADER_ACCOUNT }}'}
+        run: |
+          set -euo pipefail
+          docker pull ghcr.io/spotware/ctrader-console:5.9.11
+          printf '%s' "$CTRADER_PASSWORD" > perf-stage4/ctrader.pwd; chmod 600 perf-stage4/ctrader.pwd
+          docker run --rm -v "$PWD/perf-stage4:/work" ghcr.io/spotware/ctrader-console:5.9.11 accounts --ctid="$CTRADER_CTID" --pwd-file=/work/ctrader.pwd > perf-stage4/accounts.json
+          python3 - <<'PY'
+          import json,os
+          a=json.load(open('perf-stage4/accounts.json',encoding='utf-8-sig')); e=os.environ['CTRADER_ACCOUNT'].strip(); m=next((x for x in a if str(x.get('Number',''))==e or str(x.get('Id',''))==e),None)
+          if not m or m.get('Broker','').lower()!='fxpro' or m.get('Live') is not False or m.get('DepositCurrency')!='USD' or int(m.get('Leverage',0))!=500 or abs(float(m.get('Balance',0))-100)>0.01: raise SystemExit('account mismatch')
+          open(os.environ['GITHUB_ENV'],'a').write('CTRADER_ACCOUNT_NUMBER='+str(m['Number'])+'\n')
+          PY
+          if docker run --rm -v "$PWD/perf-stage4:/work" ghcr.io/spotware/ctrader-console:5.9.11 symbols --ctid="$CTRADER_CTID" --pwd-file=/work/ctrader.pwd --account="$CTRADER_ACCOUNT_NUMBER" > perf-stage4/symbols.txt 2>/dev/null && grep -qi XAUUSD perf-stage4/symbols.txt; then echo 'CTRADER_BROKER_ARG=' >> "$GITHUB_ENV"; else docker run --rm -v "$PWD/perf-stage4:/work" ghcr.io/spotware/ctrader-console:5.9.11 symbols --ctid="$CTRADER_CTID" --pwd-file=/work/ctrader.pwd --account="$CTRADER_ACCOUNT_NUMBER" --broker=fxpro > perf-stage4/symbols.txt; grep -qi XAUUSD perf-stage4/symbols.txt; echo 'CTRADER_BROKER_ARG=--broker=fxpro' >> "$GITHUB_ENV"; fi
+      - name: Exact 1-day Stage4 A-B equivalence and speed
+        env: {CTRADER_CTID: '${{ secrets.CTRADER_CTID }}'}
+        run: |
+          set -uo pipefail; T0=$(date +%s); set +e
+          timeout --signal=TERM --kill-after=20s 600 docker run --rm -v "$PWD/perf-stage4:/work" ghcr.io/spotware/ctrader-console:5.9.11 backtest /work/algo/HarmonyBotPro_v281_stage4.algo --ctid="$CTRADER_CTID" --pwd-file=/work/ctrader.pwd --account="$CTRADER_ACCOUNT_NUMBER" $CTRADER_BROKER_ARG --symbol=XAUUSD --period=m1 --start='15/09/2026' --end='16/09/2026' --balance=100 --data-mode=m1 --data-dir=/work/data --commission=35 --spread=1 --SymbolName=XAUUSD --RiskPercent=1.0 --MaxDrawdown=10 --MinStopLossPips=100 --SmallAccountMode=true --SmallAccountMinSLPips=25 --EnableAltBat=true --EnableFiveZero=true --EnableFibGrid=true --report=/work/reports/stage4-1d.html --report-json=/work/reports/stage4-1d.json 2>&1 | tee perf-stage4/logs/stage4-1d.log
+          RC=${PIPESTATUS[0]}; set -e; DT=$(($(date +%s)-T0)); printf 'exit_code=%s\nseconds=%s\n' "$RC" "$DT" > perf-stage4/timing.txt; exit 0
+      - name: Assess exact baseline equivalence
+        if: always()
+        run: |
+          python3 - <<'PY'
+          import json,pathlib,re
+          log=pathlib.Path('perf-stage4/logs/stage4-1d.log').read_text(errors='ignore') if pathlib.Path('perf-stage4/logs/stage4-1d.log').exists() else ''
+          tm=pathlib.Path('perf-stage4/timing.txt').read_text() if pathlib.Path('perf-stage4/timing.txt').exists() else ''
+          sec=int(re.search(r'seconds=(\d+)',tm).group(1)) if re.search(r'seconds=(\d+)',tm) else None
+          checks={'equity_104_30':'Current Equity : 104.30' in log,'net_4_30':'Net PnL        : 4.30 USD (4.30%)' in log,'trades_1':bool(re.search(r'Trades\s+: 1\b',log)),'wins_1_0':'Wins / Losses  : 1 / 0' in log,'avgR_4_13':'Avg R          : 4.13' in log,'cypher_sell':'[TRADE] Cypher Sell vol=1' in log,'funnel_exact':'signals=35 orders=1 compressed=1 riskBlocked=22 partialSkipped=1 atrBlocked=453 budgetBlocked=0 mtfBlocked=0 geometryBlocked=12 volumeBlocked=0 duplicateBlocked=0 capitalInfeasible=22 geometryValid=23 geometryQualityRejected=12' in log}
+          perf=re.findall(r'\[PERF-STAGE4\].*',log)
+          out={'baseline_seconds':910,'stage4_seconds':sec,'speedup':(910/sec if sec else None),'semantic_equivalence':all(checks.values()),'checks':checks,'perf':perf[-1] if perf else '', 'status':'PERF_VALIDATED' if all(checks.values()) and sec and sec<600 else 'NOT_VALIDATED'}
+          json.dump(out,open('perf-stage4/assessment.json','w'),indent=2); print(json.dumps(out,indent=2))
+          PY
+      - name: Cleanup
+        if: always()
+        run: rm -f perf-stage4/ctrader.pwd perf-stage4/accounts.json perf-stage4/symbols.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: V281-STAGE4-EMA-ATR-CACHE-AB
+          path: |
+            perf-stage4/patch.log
+            perf-stage4/build.log
+            perf-stage4/algo.sha256
+            perf-stage4/timing.txt
+            perf-stage4/assessment.json
+            perf-stage4/reports/
+            perf-stage4/logs/
+          retention-days: 30
