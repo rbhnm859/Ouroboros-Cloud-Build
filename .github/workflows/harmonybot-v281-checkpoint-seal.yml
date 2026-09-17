@@ -1,0 +1,100 @@
+name: HarmonyBot V28.1 Checkpoint Seal D1-D7-M1-M3
+on:
+  push:
+    branches: [harmonybot-v28-commercial-final-rc]
+    paths: ['.github/workflows/harmonybot-v281-checkpoint-seal.yml']
+  workflow_dispatch:
+jobs:
+  checkpoint:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {label: D1, start: '15/09/2026', end: '16/09/2026', timeout: 480}
+          - {label: D7, start: '09/09/2026', end: '16/09/2026', timeout: 1200}
+          - {label: M1, start: '17/08/2026', end: '16/09/2026', timeout: 2400}
+          - {label: M3, start: '17/06/2026', end: '16/09/2026', timeout: 5400}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with: {dotnet-version: '8.0.x'}
+      - name: Generate V28.1 Stage5
+        run: |
+          set -euo pipefail
+          python3 tmp/harmonybot-v26-build/build_v261_frequency.py
+          python3 tmp/harmonybot-v26-build/fix_v261_mtf_overload.py
+          python3 tmp/harmonybot-v26-build/fix_v262_frequency_safe.py
+          python3 tmp/harmonybot-v26-build/fix_v262_grid_guard_band.py
+          python3 tmp/harmonybot-v26-build/fix_v27_commercial_rc.py
+          python3 tmp/harmonybot-v26-build/fix_v28_frequency_architecture.py
+          python3 tmp/harmonybot-v26-build/fix_v28_cost_rr.py
+          python3 tmp/harmonybot-v26-build/fix_v281_geometry_quality_engine.py
+          python3 tmp/harmonybot-v26-build/fix_v281_performance_stage5.py
+          mkdir -p checkpoint/{build,algo,reports,logs,data}
+          cp cli-build/HarmonyBotPro_v261/HarmonyBotPro.cs checkpoint/build/HarmonyBotPro.cs
+      - name: Compile
+        run: |
+          cat > checkpoint/build/HarmonyBotPro.csproj <<'EOF'
+          <Project Sdk="Microsoft.NET.Sdk"><PropertyGroup><TargetFramework>net6.0</TargetFramework><ImplicitUsings>disable</ImplicitUsings><Nullable>disable</Nullable><AlgoName>HarmonyBotPro_v281_checkpoint</AlgoName><AlgoBuild>true</AlgoBuild><AlgoPublish>false</AlgoPublish><IncludeSource>false</IncludeSource></PropertyGroup><ItemGroup><PackageReference Include="cTrader.Automate" Version="1.0.19" /></ItemGroup></Project>
+          EOF
+          dotnet restore checkpoint/build/HarmonyBotPro.csproj
+          dotnet build checkpoint/build/HarmonyBotPro.csproj -c Release --no-restore 2>&1 | tee checkpoint/build.log
+          ! grep -q ' error CS' checkpoint/build.log
+          A=$(find checkpoint/build -name '*.algo' -type f -print -quit); test -s "$A"; cp "$A" checkpoint/algo/HarmonyBotPro_v281_checkpoint.algo
+      - name: Resolve account
+        env:
+          CTRADER_PASSWORD: ${{ secrets.CTRADER_PASSWORD }}
+          CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+          CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+        run: |
+          docker pull ghcr.io/spotware/ctrader-console:5.9.11
+          printf '%s' "$CTRADER_PASSWORD" > checkpoint/ctrader.pwd; chmod 600 checkpoint/ctrader.pwd
+          docker run --rm -v "$PWD/checkpoint:/work" ghcr.io/spotware/ctrader-console:5.9.11 accounts --ctid="$CTRADER_CTID" --pwd-file=/work/ctrader.pwd > checkpoint/accounts.json
+          N=$(python3 - <<'PY'
+          import json,os
+          a=json.load(open('checkpoint/accounts.json',encoding='utf-8-sig')); e=os.environ['CTRADER_ACCOUNT'].strip(); m=next((x for x in a if str(x.get('Number',''))==e or str(x.get('Id',''))==e),None)
+          if not m or m.get('Broker','').lower()!='fxpro' or m.get('Live') is not False or m.get('DepositCurrency')!='USD' or int(m.get('Leverage',0))!=500: raise SystemExit('account mismatch')
+          print(m['Number'])
+          PY
+          ); echo "CTRADER_ACCOUNT_NUMBER=$N" >> "$GITHUB_ENV"
+      - name: Backtest ${{ matrix.label }}
+        env:
+          CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+        run: |
+          set -uo pipefail; T0=$(date +%s); set +e
+          timeout --signal=TERM --kill-after=20s ${{ matrix.timeout }} docker run --rm -v "$PWD/checkpoint:/work" ghcr.io/spotware/ctrader-console:5.9.11 backtest /work/algo/HarmonyBotPro_v281_checkpoint.algo --ctid="$CTRADER_CTID" --pwd-file=/work/ctrader.pwd --account="$CTRADER_ACCOUNT_NUMBER" --symbol=XAUUSD --period=m1 --start='${{ matrix.start }}' --end='${{ matrix.end }}' --balance=100 --data-mode=m1 --data-dir=/work/data --commission=35 --spread=1 --SymbolName=XAUUSD --RiskPercent=1.0 --MaxDrawdown=10 --MinStopLossPips=100 --SmallAccountMode=true --SmallAccountMinSLPips=25 --EnableAltBat=true --EnableFiveZero=true --EnableFibGrid=true --MinRR=2 --report=/work/reports/${{ matrix.label }}.html --report-json=/work/reports/${{ matrix.label }}.json 2>&1 | tee checkpoint/logs/${{ matrix.label }}.log
+          RC=${PIPESTATUS[0]}; set -e; printf 'exit_code=%s\nseconds=%s\n' "$RC" "$(($(date +%s)-T0))" > checkpoint/${{ matrix.label }}-timing.txt
+      - name: Summarize checkpoint
+        if: always()
+        run: |
+          python3 - <<'PY'
+          import json,pathlib,re
+          label='${{ matrix.label }}'; p=pathlib.Path(f'checkpoint/reports/{label}.json'); log=pathlib.Path(f'checkpoint/logs/{label}.log')
+          d={}
+          if p.exists():
+            try:d=json.load(open(p))
+            except:pass
+          text=log.read_text(errors='ignore') if log.exists() else ''
+          def n(k,default=0):
+            try:return float(d.get(k,default) or default)
+            except:return default
+          eq=n('Equity',100); net=n('NetProfit',eq-100); tr=int(n('TotalTrades')); w=int(n('WinningTrades')); dd=n('MaxEquityDrawdownPercentages',999); pf=n('ProfitFactor'); wr=100*w/tr if tr else 0
+          rs=re.findall(r'Avg R\s+:\s+(-?[0-9.]+)',text); rr=float(rs[-1]) if rs else 0
+          out={'checkpoint':label,'equity':eq,'net_profit':net,'return_pct':eq-100,'profit_factor':pf,'max_equity_dd_pct':dd,'trades':tr,'wins':w,'win_rate_pct':wr,'avg_R':rr,'complete_report':p.exists()}
+          pathlib.Path(f'checkpoint/{label}-summary.json').write_text(json.dumps(out,indent=2)); print(json.dumps(out,indent=2))
+          PY
+      - name: Cleanup credentials
+        if: always()
+        run: rm -f checkpoint/ctrader.pwd checkpoint/accounts.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: V281-CHECKPOINT-${{ matrix.label }}
+          path: |
+            checkpoint/${{ matrix.label }}-summary.json
+            checkpoint/${{ matrix.label }}-timing.txt
+            checkpoint/reports/${{ matrix.label }}.*
+            checkpoint/logs/${{ matrix.label }}.log
+          retention-days: 30
