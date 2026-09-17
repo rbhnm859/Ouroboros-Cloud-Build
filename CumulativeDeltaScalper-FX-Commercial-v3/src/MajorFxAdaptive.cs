@@ -36,15 +36,31 @@ namespace cAlgo.Robots
             public double MinMomentumR { get; set; }
         }
 
+        private FxAdaptiveProfile _cachedFxProfile;
+        private string _cachedFxProfilePair = string.Empty;
+        private bool _cachedFxAdaptiveMode;
+        private int _cachedAtrRegimeIndex = -1;
+        private int _cachedAtrRegimeLookback = -1;
+        private double _cachedAtrRegimeRatio = 1.0;
+
         private FxAdaptiveProfile GetFxAdaptiveProfile()
         {
-            if (!MajorFxAdaptiveMode)
-                return BaselineFxProfile();
-
             var pair = CanonicalSymbolName();
+            if (_cachedFxProfile != null && _cachedFxProfilePair == pair && _cachedFxAdaptiveMode == MajorFxAdaptiveMode)
+                return _cachedFxProfile;
+
+            _cachedFxProfilePair = pair;
+            _cachedFxAdaptiveMode = MajorFxAdaptiveMode;
+
+            if (!MajorFxAdaptiveMode)
+            {
+                _cachedFxProfile = BaselineFxProfile();
+                return _cachedFxProfile;
+            }
+
             if (pair == "EURUSD" || pair == "USDJPY")
             {
-                return new FxAdaptiveProfile
+                _cachedFxProfile = new FxAdaptiveProfile
                 {
                     Name = "Tier1Major",
                     PressureScale = 0.95,
@@ -59,11 +75,12 @@ namespace cAlgo.Robots
                     PullbackDepthScale = 0.90,
                     MinMomentumR = 0.07
                 };
+                return _cachedFxProfile;
             }
 
             if (pair == "GBPUSD" || pair == "USDCHF" || pair == "USDCAD" || pair == "AUDUSD" || pair == "NZDUSD")
             {
-                return new FxAdaptiveProfile
+                _cachedFxProfile = new FxAdaptiveProfile
                 {
                     Name = "Major",
                     PressureScale = 1.00,
@@ -78,11 +95,12 @@ namespace cAlgo.Robots
                     PullbackDepthScale = 0.90,
                     MinMomentumR = 0.08
                 };
+                return _cachedFxProfile;
             }
 
             if (pair.EndsWith("JPY", StringComparison.Ordinal) || pair.StartsWith("JPY", StringComparison.Ordinal))
             {
-                return new FxAdaptiveProfile
+                _cachedFxProfile = new FxAdaptiveProfile
                 {
                     Name = "JpyCross",
                     PressureScale = 1.05,
@@ -97,9 +115,10 @@ namespace cAlgo.Robots
                     PullbackDepthScale = 0.80,
                     MinMomentumR = 0.10
                 };
+                return _cachedFxProfile;
             }
 
-            return new FxAdaptiveProfile
+            _cachedFxProfile = new FxAdaptiveProfile
             {
                 Name = "Cross",
                 PressureScale = 1.08,
@@ -114,6 +133,7 @@ namespace cAlgo.Robots
                 PullbackDepthScale = 0.80,
                 MinMomentumR = 0.10
             };
+            return _cachedFxProfile;
         }
 
         private static FxAdaptiveProfile BaselineFxProfile()
@@ -140,9 +160,17 @@ namespace cAlgo.Robots
             if (_atr == null || index <= 1)
                 return 1.0;
 
+            if (_cachedAtrRegimeIndex == index && _cachedAtrRegimeLookback == AtrRegimeLookback)
+                return _cachedAtrRegimeRatio;
+
             var current = _atr.Result[index];
             if (current <= 0 || double.IsNaN(current) || double.IsInfinity(current))
-                return 1.0;
+            {
+                _cachedAtrRegimeIndex = index;
+                _cachedAtrRegimeLookback = AtrRegimeLookback;
+                _cachedAtrRegimeRatio = 1.0;
+                return _cachedAtrRegimeRatio;
+            }
 
             var start = Math.Max(1, index - Math.Max(20, AtrRegimeLookback));
             double sum = 0.0;
@@ -157,10 +185,18 @@ namespace cAlgo.Robots
                 }
             }
 
-            if (count < 10)
-                return 1.0;
-            var average = sum / count;
-            return average <= 0 ? 1.0 : current / average;
+            var ratio = 1.0;
+            if (count >= 10)
+            {
+                var average = sum / count;
+                if (average > 0)
+                    ratio = current / average;
+            }
+
+            _cachedAtrRegimeIndex = index;
+            _cachedAtrRegimeLookback = AtrRegimeLookback;
+            _cachedAtrRegimeRatio = ratio;
+            return ratio;
         }
 
         private bool PassAdaptiveFxRegime(int index)
