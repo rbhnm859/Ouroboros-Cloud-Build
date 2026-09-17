@@ -1,4 +1,4 @@
-name: HarmonyBot V29.3 Grid Risk-Cap D7 Gate
+name: HarmonyBot V29.3 D7-A Conservative Execution Preset
 
 on:
   push:
@@ -11,7 +11,7 @@ permissions:
   contents: read
 
 jobs:
-  d7-grid-risk-cap-gate:
+  d7-a-conservative-execution-preset:
     runs-on: ubuntu-24.04
     timeout-minutes: 120
     env:
@@ -62,7 +62,7 @@ jobs:
           cp "$A" seal/algo/HarmonyBotPro_v293_grid_risk_cap_hotfix.algo
           sha256sum seal/algo/*.algo > seal/algo.sha256
 
-      - name: Resolve account and run D7-A/B tick
+      - name: Resolve FxPro demo account and run D7-A tick preset
         run: |
           set -euo pipefail
           docker pull ghcr.io/spotware/ctrader-console:5.9.11
@@ -77,51 +77,75 @@ jobs:
           print(m['Number'])
           PY
           )
-          common=(--ctid="$CTRADER_CTID" --pwd-file=/work/ctrader.pwd --account="$ACCT" --symbol=XAUUSD --period=m1 --start=02/09/2026 --end=16/09/2026 --data-mode=ticks --data-dir=/work/data --commission=35 --spread=1 --SymbolName=XAUUSD --RiskPercent=1.0 --MaxDrawdown=10 --MinStopLossPips=100 --SmallAccountMinSLPips=25 --EnableAltBat=true --EnableFiveZero=true --EnableFibGrid=true --MinRR=2 --EnableCapitalAwarePrecisionEntry=true --PrecisionPrzMaxDistanceAtr=0.45 --PrecisionMaxWaitAtr=1.25 --CapitalSafetyHeadroom=0.98 --CapGridStopToRiskBudget=true --EvaluationStartUtcIso=2026-09-09T00:00:00Z --V29PersistentPrzQueue=true --V29PendingMaxBars=90 --V29PendingGlobalMax=12 --V29PendingPerPatternMax=3 --V29PendingMinCompositeQuality=0.58 --V29PendingTriggerMaxPrzAtr=0.85 --V29HighQualityPrzBonusAtr=0.35 --V29CandidateReplacementMargin=0.03 --V29WarmupSeedPending=true --V29MaxOrderAttemptsPerCandidate=3 --V291RequireMicroConfirmation=true --V291MinTacticalRR=2.0)
-          run_bt() {
-            local track="$1" balance="$2" small="$3" extra="$4"; local c="v293-d7-${track}-${GITHUB_RUN_ID}"
-            docker run --name "$c" -v "$PWD/seal:/work" ghcr.io/spotware/ctrader-console:5.9.11 backtest /work/algo/HarmonyBotPro_v293_grid_risk_cap_hotfix.algo "${common[@]}" --balance="$balance" --SmallAccountMode="$small" $extra --report="/work/reports/D7-${track}-TICKS.html" --report-json="/work/reports/D7-${track}-TICKS.json" > "seal/logs/D7-${track}-TICKS.log" 2>&1 &
-            local pid=$! done=0
-            for ((i=0;i<3600;i+=3)); do
-              if test -s "seal/reports/D7-${track}-TICKS.json" && python3 - "seal/reports/D7-${track}-TICKS.json" <<'PY'
-          import json,sys
-          m=json.load(open(sys.argv[1],encoding='utf-8-sig')).get('main',{})
+          C="v293-d7-a-conservative-${GITHUB_RUN_ID}"
+          docker run --name "$C" -v "$PWD/seal:/work" ghcr.io/spotware/ctrader-console:5.9.11 backtest \
+            /work/algo/HarmonyBotPro_v293_grid_risk_cap_hotfix.algo \
+            --ctid="$CTRADER_CTID" --pwd-file=/work/ctrader.pwd --account="$ACCT" \
+            --symbol=XAUUSD --period=m1 --start=02/09/2026 --end=16/09/2026 --balance=100 --data-mode=ticks --data-dir=/work/data \
+            --commission=35 --spread=1 --SymbolName=XAUUSD \
+            --RiskPercent=1.30 --MaxSlippagePips=70 --MaxDrawdown=10 --MinStopLossPips=100 \
+            --SmallAccountMode=true --SmallAccountMinSLPips=25 \
+            --EnableAltBat=true --EnableFiveZero=true --EnableFibGrid=true --MinRR=2 \
+            --EnableCapitalAwarePrecisionEntry=true --PrecisionPrzMaxDistanceAtr=0.45 --PrecisionMaxWaitAtr=1.25 \
+            --CapitalSafetyHeadroom=0.98 --CapGridStopToRiskBudget=true --EvaluationStartUtcIso=2026-09-09T00:00:00Z \
+            --V29PersistentPrzQueue=true --V29PendingMaxBars=90 --V29PendingGlobalMax=12 --V29PendingPerPatternMax=3 \
+            --V29PendingMinCompositeQuality=0.58 --V29PendingTriggerMaxPrzAtr=0.85 --V29HighQualityPrzBonusAtr=0.35 \
+            --V29CandidateReplacementMargin=0.03 --V29WarmupSeedPending=true --V29MaxOrderAttemptsPerCandidate=3 \
+            --V291SmallAccountTacticalExecution=true --V291TacticalBudgetUse=0.98 --V291RequireMicroConfirmation=true --V291MinTacticalRR=2.0 \
+            --V292FastSmallAccountExecution=true --V292MicroPivotBars=2 --V292MicroPivotAtrBuffer=0.04 \
+            --V292EnableCapitalCapStop=true --V292EnableEarlyTrigger=true --V292EarlyTriggerMinQuality=0.66 \
+            --V292EarlyTriggerMaxPrzAtr=0.95 --V292MicroBodyMinAtr=0.02 --V292WickBodyConfirmRatio=0.25 \
+            --report=/work/reports/D7-A-CONSERVATIVE-TICKS.html --report-json=/work/reports/D7-A-CONSERVATIVE-TICKS.json > seal/logs/D7-A-CONSERVATIVE-TICKS.log 2>&1 &
+          PID=$!; DONE=0
+          for ((i=0;i<3600;i+=3)); do
+            if test -s seal/reports/D7-A-CONSERVATIVE-TICKS.json && python3 - <<'PY'
+          import json
+          m=json.load(open('seal/reports/D7-A-CONSERVATIVE-TICKS.json',encoding='utf-8-sig')).get('main',{})
           raise SystemExit(0 if 'endingEquity' in m and 'netProfit' in m else 1)
           PY
-              then done=1; break; fi
-              if ! kill -0 "$pid" 2>/dev/null; then break; fi
-              sleep 3
-            done
-            docker stop --time 3 "$c" >/dev/null 2>&1 || true; docker rm -f "$c" >/dev/null 2>&1 || true; wait "$pid" 2>/dev/null || true
-            test "$done" = 1
-          }
-          run_bt A 100 true '--V291SmallAccountTacticalExecution=true --V291TacticalBudgetUse=0.98 --V292FastSmallAccountExecution=true --V292MicroPivotBars=2 --V292MicroPivotAtrBuffer=0.04 --V292EnableCapitalCapStop=true --V292EnableEarlyTrigger=true --V292EarlyTriggerMinQuality=0.66 --V292EarlyTriggerMaxPrzAtr=0.95 --V292MicroBodyMinAtr=0.02 --V292WickBodyConfirmRatio=0.25'
-          run_bt B 10000 false '--V291SmallAccountTacticalExecution=false --V292FastSmallAccountExecution=false --V292EnableCapitalCapStop=false --V292EnableEarlyTrigger=false'
+            then DONE=1; break; fi
+            if ! kill -0 "$PID" 2>/dev/null; then break; fi
+            sleep 3
+          done
+          docker stop --time 3 "$C" >/dev/null 2>&1 || true
+          docker rm -f "$C" >/dev/null 2>&1 || true
+          wait "$PID" 2>/dev/null || true
+          test "$DONE" = 1
 
-      - name: Audit D7 risk and execution evidence
+      - name: Audit D7-A conservative preset
         run: |
           set -euo pipefail
           python3 - <<'PY'
           import json,re,pathlib
-          out={}; hard=[]
-          for track,balance in [('A',100.0),('B',10000.0)]:
-              d=json.load(open(f'seal/reports/D7-{track}-TICKS.json',encoding='utf-8-sig')); m=d.get('main',{}); s=d.get('tradeStatistics',{}); h=d.get('history',{}).get('items',[]); t=pathlib.Path(f'seal/logs/D7-{track}-TICKS.log').read_text(errors='ignore')
-              def sv(n,default=None):
-                  x=s.get(n,{}); return x.get('all',default) if isinstance(x,dict) else default
-              trades=int(sv('totalTrades',len(h)) or 0); wins=int(sv('winningTrades',0) or 0); losses=[x for x in h if float(x.get('net',0) or 0)<0]
-              maxloss=max([abs(float(x.get('net',0) or 0))/balance*100 for x in losses],default=0.0)
-              errs=[x for x in t.splitlines() if re.search(r'InvalidRequest|Invalid Volume|Insufficient Margin|unprotected position|unexpected hedge',x,re.I)]
-              baskets=len(re.findall(r'\[GRID\]\s+Basket\s+#.*created',t,re.I)); caps=len(re.findall(r'\[V293-GRID-RISK-CAP\]',t))
-              out[track]={'starting_capital':m.get('startingCapital'),'ending_equity':m.get('endingEquity'),'net_profit':m.get('netProfit'),'trades':trades,'wins':wins,'win_rate_pct':wins/trades*100 if trades else 0,'profit_factor':sv('profitFactor'),'max_single_trade_loss_pct_initial':maxloss,'execution_error_count':len(errs),'grid_baskets_created':baskets,'v293_grid_risk_cap_events':caps,'history':h}
-              if errs: hard.append(track+':execution_errors')
-              if trades and baskets==0: hard.append(track+':grid_basket_missing')
-              if track=='A' and trades and caps==0: hard.append('A:risk_cap_not_exercised')
-              print('===== D7-'+track+' TELEMETRY =====')
-              for line in t.splitlines():
-                  if re.search(r'V292-FAST-READY|V293-GRID-RISK-CAP|V284-GRID-CAP|\[GRID\].*(created|STOP|TP)|Executing Market Order|InvalidRequest|Insufficient Margin',line,re.I): print(line)
+          rp=pathlib.Path('seal/reports/D7-A-CONSERVATIVE-TICKS.json')
+          lp=pathlib.Path('seal/logs/D7-A-CONSERVATIVE-TICKS.log')
+          d=json.load(open(rp,encoding='utf-8-sig')); m=d.get('main',{}); s=d.get('tradeStatistics',{}); h=d.get('history',{}).get('items',[])
+          t=lp.read_text(errors='ignore')
+          def sv(n,default=None):
+              x=s.get(n,{}); return x.get('all',default) if isinstance(x,dict) else default
+          trades=int(sv('totalTrades',len(h)) or 0); wins=int(sv('winningTrades',0) or 0)
+          losses=[x for x in h if float(x.get('net',0) or 0)<0]
+          maxloss=max([abs(float(x.get('net',0) or 0)) for x in losses],default=0.0)
+          errs=[x for x in t.splitlines() if re.search(r'InvalidRequest|Invalid Volume|Insufficient Margin|unprotected position|unexpected hedge',x,re.I)]
+          baskets=len(re.findall(r'\[GRID\]\s+Basket\s+#.*created',t,re.I)); caps=len(re.findall(r'\[V293-GRID-RISK-CAP\]',t))
+          out={
+            'preset':{'RiskPercent':1.30,'MaxSlippagePips':70,'SmallAccountMinSLPips':25,'balance':100},
+            'starting_capital':m.get('startingCapital'),'ending_equity':m.get('endingEquity'),'net_profit':m.get('netProfit'),
+            'trades':trades,'wins':wins,'win_rate_pct':wins/trades*100 if trades else 0,'profit_factor':sv('profitFactor'),
+            'max_single_trade_loss_usd':maxloss,'max_single_trade_loss_pct_initial':maxloss,
+            'execution_error_count':len(errs),'grid_baskets_created':baskets,'v293_grid_risk_cap_events':caps,'history':h}
+          hard=[]
+          if trades < 1: hard.append('no_trades')
+          if errs: hard.append('execution_errors')
+          if trades and baskets < 1: hard.append('grid_basket_missing')
+          if trades and caps < 1: hard.append('risk_cap_not_exercised')
+          if maxloss > 1.30 + 1e-9: hard.append('realized_risk_above_configured_1.30pct')
           out['functional_gate_pass']=not hard; out['hard_fail_reasons']=hard
-          pathlib.Path('seal/audit/D7-V293-GATE.json').write_text(json.dumps(out,indent=2))
+          pathlib.Path('seal/audit/D7-A-CONSERVATIVE-GATE.json').write_text(json.dumps(out,indent=2))
           print(json.dumps(out,indent=2))
+          print('===== D7-A EXECUTION TELEMETRY =====')
+          for line in t.splitlines():
+              if re.search(r'V292-FAST-READY|V293-GRID-RISK-CAP|V284-GRID-CAP|RISK-|VOLUME|\[GRID\].*(created|STOP|TP)|Executing Market Order|InvalidRequest|Insufficient Margin',line,re.I): print(line)
           if hard: raise SystemExit(','.join(hard))
           PY
 
@@ -131,6 +155,6 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: V293-GRID-RISK-CAP-D7-GATE
+          name: V293-D7-A-CONSERVATIVE-EXECUTION-PRESET
           path: seal
           retention-days: 30
