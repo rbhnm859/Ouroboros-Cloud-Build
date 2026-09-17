@@ -1,4 +1,5 @@
 name: HarmonyBot V28.1 Core HotPath D1 Gate
+# Structural matcher validation rerun: 2026-09-17
 on:
   push:
     branches: [harmonybot-v28-commercial-final-rc]
@@ -65,17 +66,19 @@ jobs:
         run: |
           python3 - <<'PY'
           import json,pathlib,re,sys
-          p=pathlib.Path('core/reports/D1.json'); log=pathlib.Path('core/logs/D1.log'); t=log.read_text(errors='ignore') if log.exists() else ''
-          d=json.load(open(p)) if p.exists() else {}
-          # cTrader report values are nested; derive verified semantic metrics from performance log where available.
+          log=pathlib.Path('core/logs/D1.log'); t=log.read_text(errors='ignore') if log.exists() else ''
+          timing_path=pathlib.Path('core/D1-timing.txt')
+          if not timing_path.exists(): raise SystemExit('D1 did not execute; no timing evidence')
           eqm=re.findall(r'Current Equity\s*:\s*\$?([0-9.]+)',t); netm=re.findall(r'Net Profit\s*:\s*\$?(-?[0-9.]+)',t); trm=re.findall(r'Trades\s*:\s*([0-9]+)',t); wm=re.findall(r'Wins/Losses\s*:\s*([0-9]+)\s*/\s*([0-9]+)',t); rm=re.findall(r'Avg R\s*:\s*(-?[0-9.]+)',t); cm=re.findall(r'\[PERF-CORE\] SwingParamCache hits=([0-9]+) misses=([0-9]+)',t)
           eq=float(eqm[-1]) if eqm else None; net=float(netm[-1]) if netm else None; trades=int(trm[-1]) if trm else None; wins=int(wm[-1][0]) if wm else None; avgR=float(rm[-1]) if rm else None
-          timing=dict(x.split('=',1) for x in pathlib.Path('core/D1-timing.txt').read_text().splitlines()); sec=int(timing['seconds'])
+          timing=dict(x.split('=',1) for x in timing_path.read_text().splitlines()); sec=int(timing['seconds'])
           out={'equity':eq,'net_profit':net,'trades':trades,'wins':wins,'avg_R':avgR,'seconds':sec,'cache_hits':int(cm[-1][0]) if cm else None,'cache_misses':int(cm[-1][1]) if cm else None}
           pathlib.Path('core/D1-CORE-EVIDENCE.json').write_text(json.dumps(out,indent=2)); print(json.dumps(out,indent=2))
           semantic=(eq is not None and abs(eq-104.30)<0.02 and net is not None and abs(net-4.30)<0.02 and trades==1 and wins==1 and avgR is not None and abs(avgR-4.13)<0.02)
-          print('SEMANTIC_EQUIVALENCE=',semantic); print('REAL_SPEEDUP=',sec < 440); print('CACHE_ACTIVE=',bool(cm and int(cm[-1][0])>0))
+          active=bool(cm and int(cm[-1][0])>0)
+          print('SEMANTIC_EQUIVALENCE=',semantic); print('REAL_SPEEDUP=',sec < 440); print('CACHE_ACTIVE=',active)
           if not semantic: sys.exit(2)
+          if not active: sys.exit(3)
           PY
       - name: Cleanup
         if: always()
