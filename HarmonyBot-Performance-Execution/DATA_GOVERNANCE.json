@@ -1,0 +1,39 @@
+{
+  "spec_version": "PERFORMANCE-EXECUTION-2026-09-18",
+  "source_baseline": "HarmonyBot V29.3 Grid Risk-Cap Hotfix RC",
+  "engineering_freeze": "PASS_PROTECTED",
+  "exposed_data": {
+    "conservative_union": {
+      "start": "2023-09-10",
+      "end": "2026-09-16",
+      "status": "EXPOSED",
+      "reason": "Auditable HarmonyBot 3Y workflows plus V29 development/M1/D7/IS/OOS/payoff/root-cause work"
+    },
+    "rules": [
+      "Never use exposed data as Final Holdout",
+      "Never retune parameters against failed historical OOS",
+      "Historical exposed data may be used only as diagnostic/root-cause evidence"
+    ]
+  },
+  "unexposed_audit": {
+    "repository_search_2021": "NO_HARMONYBOT_DATE_EXPOSURE_FOUND",
+    "repository_search_2022": "NO_HARMONYBOT_DATE_EXPOSURE_FOUND",
+    "classification": "AUDITABLY_UNEXPOSED",
+    "caveat": "Any off-repository prior use invalidates this classification"
+  },
+  "development": [
+    {"id":"DEV-A","start":"2021-01-04","evaluation_start":"2021-01-11T00:00:00Z","end":"2021-06-30","role":"DEVELOPMENT"},
+    {"id":"DEV-B","start":"2021-07-01","evaluation_start":"2021-07-08T00:00:00Z","end":"2021-12-31","role":"DEVELOPMENT"},
+    {"id":"DEV-C","start":"2022-01-03","evaluation_start":"2022-01-10T00:00:00Z","end":"2022-06-30","role":"DEVELOPMENT"}
+  ],
+  "validation": {"id":"VAL","start":"2022-07-01","evaluation_start":"2022-07-08T00:00:00Z","end":"2022-12-30","role":"PASS_FAIL_ONLY"},
+  "final_holdout": {
+    "id":"HOLDOUT",
+    "start":"2023-01-02",
+    "evaluation_start":"2023-01-09T00:00:00Z",
+    "end":"2023-08-31",
+    "role":"FINAL_HOLDOUT_ONE_USE_ONLY",
+    "status":"UNTOUCHED_NOT_AUTHORIZED_YET"
+  },
+  "fallback_policy": "If required FxPro/cTrader history is unavailable, mark DATA_UNAVAILABLE or INSUFFICIENT_TRUE_HOLDOUT_DATA. Never substitute exposed periods."
+}
