@@ -1,0 +1,113 @@
+name: HarmonyBot V28.1 M1 Performance Diagnostic
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [harmonybot-v28-commercial-final-rc]
+    paths: ['.github/workflows/diagnose-harmonybot-v281-m1-performance.yml']
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: harmonybot-v281-m1-performance-diagnostic
+  cancel-in-progress: true
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with: {dotnet-version: '8.0.x'}
+      - name: Generate identical hardened V28.1 source
+        run: |
+          set -euo pipefail
+          python3 tmp/harmonybot-v26-build/build_v261_frequency.py
+          python3 tmp/harmonybot-v26-build/fix_v261_mtf_overload.py
+          python3 tmp/harmonybot-v26-build/fix_v262_frequency_safe.py
+          python3 tmp/harmonybot-v26-build/fix_v262_grid_guard_band.py
+          python3 tmp/harmonybot-v26-build/fix_v27_commercial_rc.py
+          python3 tmp/harmonybot-v26-build/fix_v28_frequency_architecture.py
+          python3 tmp/harmonybot-v26-build/fix_v28_cost_rr.py
+          python3 tmp/harmonybot-v26-build/fix_v281_geometry_quality_engine.py
+          mkdir -p cli-build/HarmonyBotPro_v281 backtest/{algo,data,logs,reports}
+          cp cli-build/HarmonyBotPro_v261/HarmonyBotPro.cs cli-build/HarmonyBotPro_v281/HarmonyBotPro.cs
+          cat > cli-build/HarmonyBotPro_v281/HarmonyBotPro.csproj <<'EOF'
+          <Project Sdk="Microsoft.NET.Sdk"><PropertyGroup><TargetFramework>net6.0</TargetFramework><ImplicitUsings>disable</ImplicitUsings><Nullable>disable</Nullable><AlgoName>HarmonyBotPro_v281</AlgoName><AlgoBuild>true</AlgoBuild><AlgoPublish>false</AlgoPublish><IncludeSource>false</IncludeSource></PropertyGroup><ItemGroup><PackageReference Include="cTrader.Automate" Version="1.0.19" /></ItemGroup></Project>
+          EOF
+      - name: Compile diagnostic binary - zero errors
+        run: |
+          set -euo pipefail
+          dotnet restore cli-build/HarmonyBotPro_v281/HarmonyBotPro.csproj
+          dotnet build cli-build/HarmonyBotPro_v281/HarmonyBotPro.csproj -c Release --no-restore -p:AlgoPublish=false -p:IncludeSource=false 2>&1 | tee build.log
+          ! grep -q ' error CS' build.log
+          ALGO="$(find cli-build/HarmonyBotPro_v281 -type f -name '*.algo' -print -quit)"
+          test -n "$ALGO" && test -s "$ALGO"
+          cp "$ALGO" backtest/algo/HarmonyBotPro_v281.algo
+          sha256sum backtest/algo/HarmonyBotPro_v281.algo > backtest/algo.sha256
+      - name: Pull cTrader CLI and authenticate
+        env:
+          CTRADER_PASSWORD: ${{ secrets.CTRADER_PASSWORD }}
+          CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+          CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+        run: |
+          set -euo pipefail
+          docker pull ghcr.io/spotware/ctrader-console:5.9.11
+          printf '%s' "$CTRADER_PASSWORD" > backtest/ctrader.pwd; chmod 600 backtest/ctrader.pwd
+          docker run --rm -v "$PWD/backtest:/work" ghcr.io/spotware/ctrader-console:5.9.11 accounts --ctid="$CTRADER_CTID" --pwd-file=/work/ctrader.pwd > backtest/accounts.json
+          python3 - <<'PY'
+          import json,os
+          a=json.load(open('backtest/accounts.json',encoding='utf-8-sig')); e=os.environ['CTRADER_ACCOUNT'].strip(); m=next((x for x in a if str(x.get('Number','')).strip()==e or str(x.get('Id','')).strip()==e),None)
+          if not m: raise SystemExit('configured account missing')
+          if m.get('Broker','').lower()!='fxpro' or m.get('Live') is not False or m.get('DepositCurrency')!='USD' or int(m.get('Leverage',0))!=500 or abs(float(m.get('Balance',0))-100)>0.01: raise SystemExit('account profile mismatch')
+          with open(os.environ['GITHUB_ENV'],'a') as f:f.write('CTRADER_ACCOUNT_NUMBER='+str(m['Number']).strip()+'\n')
+          PY
+      - name: Preflight XAUUSD route
+        env: {CTRADER_CTID: '${{ secrets.CTRADER_CTID }}'}
+        run: |
+          set -euo pipefail
+          if docker run --rm -v "$PWD/backtest:/work" ghcr.io/spotware/ctrader-console:5.9.11 symbols --ctid="$CTRADER_CTID" --pwd-file=/work/ctrader.pwd --account="$CTRADER_ACCOUNT_NUMBER" > backtest/symbols.txt 2>backtest/symbols.err && grep -qi XAUUSD backtest/symbols.txt; then echo 'CTRADER_BROKER_ARG=' >> "$GITHUB_ENV"; elif docker run --rm -v "$PWD/backtest:/work" ghcr.io/spotware/ctrader-console:5.9.11 symbols --ctid="$CTRADER_CTID" --pwd-file=/work/ctrader.pwd --account="$CTRADER_ACCOUNT_NUMBER" --broker=fxpro > backtest/symbols.txt 2>backtest/symbols.err && grep -qi XAUUSD backtest/symbols.txt; then echo 'CTRADER_BROKER_ARG=--broker=fxpro' >> "$GITHUB_ENV"; else cat backtest/symbols.err >&2; exit 82; fi
+      - name: Staged M1 benchmark 1d 7d 30d 90d
+        env: {CTRADER_CTID: '${{ secrets.CTRADER_CTID }}'}
+        run: |
+          set -u
+          printf 'window,start,end,status,seconds,report_bytes,log_bytes\n' > backtest/timing.csv
+          for SPEC in '1d|15/09/2026|16/09/2026' '7d|09/09/2026|16/09/2026' '30d|17/08/2026|16/09/2026' '90d|18/06/2026|16/09/2026'; do
+            IFS='|' read -r W S E <<< "$SPEC"; T0=$(date +%s); LOG="backtest/logs/${W}.log"; JSON="/work/reports/${W}.json"; HTML="/work/reports/${W}.html"
+            echo "START $W $(date -u +%FT%TZ)" | tee "$LOG"
+            set +e
+            timeout --signal=TERM --kill-after=30s 1200 docker run --rm -v "$PWD/backtest:/work" ghcr.io/spotware/ctrader-console:5.9.11 backtest /work/algo/HarmonyBotPro_v281.algo --ctid="$CTRADER_CTID" --pwd-file=/work/ctrader.pwd --account="$CTRADER_ACCOUNT_NUMBER" $CTRADER_BROKER_ARG --symbol=XAUUSD --period=m1 --start="$S" --end="$E" --balance=100 --data-mode=m1 --data-dir=/work/data --commission=35 --spread=1 --SymbolName=XAUUSD --RiskPercent=1.0 --MaxDrawdown=10.0 --MinStopLossPips=100.0 --SmallAccountMode=true --SmallAccountMinSLPips=25.0 --EnableAltBat=true --EnableFiveZero=true --EnableFibGrid=true --report="$HTML" --report-json="$JSON" 2>&1 | tee -a "$LOG"
+            RC=${PIPESTATUS[0]}; set -e; DT=$(($(date +%s)-T0)); [ "$RC" -eq 0 ] && ST=success || ST="failed-$RC"; RB=$(stat -c%s "backtest/reports/${W}.json" 2>/dev/null || echo 0); LB=$(stat -c%s "$LOG" 2>/dev/null || echo 0); printf '%s,%s,%s,%s,%s,%s,%s\n' "$W" "$S" "$E" "$ST" "$DT" "$RB" "$LB" | tee -a backtest/timing.csv
+            [ "$RC" -eq 124 ] && { echo "TIMEOUT at $W; stopping larger windows" | tee -a "$LOG"; break; }
+          done
+          cat backtest/timing.csv
+      - name: Diagnose scaling
+        if: always()
+        run: |
+          python3 - <<'PY'
+          import csv,json,os
+          p='backtest/timing.csv'; rows=list(csv.DictReader(open(p))) if os.path.exists(p) else []
+          out={'rows':rows,'diagnosis':'no benchmark rows'}
+          if rows:
+            bad=[r for r in rows if r['status']!='success']; out['diagnosis']='timeout_or_cli_failure' if bad else 'completed_windows_compare_seconds_per_day'
+          json.dump(out,open('backtest/diagnosis.json','w'),indent=2); print(json.dumps(out,indent=2))
+          PY
+      - name: Remove credentials
+        if: always()
+        run: rm -f backtest/ctrader.pwd backtest/accounts.json backtest/symbols.txt backtest/symbols.err
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: V281-M1-PERFORMANCE-DIAGNOSTIC
+          path: |
+            backtest/timing.csv
+            backtest/diagnosis.json
+            backtest/logs/
+            backtest/reports/
+            backtest/algo.sha256
+            build.log
+          if-no-files-found: warn
+          retention-days: 30
