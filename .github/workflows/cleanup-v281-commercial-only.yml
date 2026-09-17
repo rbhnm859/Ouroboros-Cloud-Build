@@ -1,0 +1,47 @@
+name: V28.1 Commercial Workflow Cleanup
+
+on:
+  push:
+    branches: [harmonybot-v28-commercial-final-rc]
+    paths: ['.github/workflows/cleanup-v281-commercial-only.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: v281-commercial-workflow-cleanup
+  cancel-in-progress: false
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: harmonybot-v28-commercial-final-rc
+          fetch-depth: 0
+      - name: Keep only V28.1 commercial sweep
+        shell: bash
+        run: |
+          set -euo pipefail
+          KEEP='.github/workflows/backtest-harmonybot-v281-xauusd-100-1y-fair-sweep.yml'
+          SELF='.github/workflows/cleanup-v281-commercial-only.yml'
+          test -f "$KEEP"
+          shopt -s nullglob
+          removed=0
+          for f in .github/workflows/*.yml .github/workflows/*.yaml; do
+            [[ "$f" == "$KEEP" || "$f" == "$SELF" ]] && continue
+            git rm -- "$f"
+            removed=$((removed+1))
+          done
+          echo "legacy_workflows_removed=$removed"
+          git rm -- "$SELF"
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          if git diff --cached --quiet; then
+            echo 'No legacy workflows to remove.'
+            exit 0
+          fi
+          git commit -m 'V28.1: isolate commercial backtest workflow'
+          git push origin HEAD:harmonybot-v28-commercial-final-rc
