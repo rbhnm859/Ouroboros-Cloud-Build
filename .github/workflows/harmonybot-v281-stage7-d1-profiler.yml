@@ -1,0 +1,97 @@
+name: HarmonyBot V28.1 Stage7 D1 Runtime Profiler
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  profile-d1:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+      - name: Generate profiled commercial candidate
+        run: |
+          set -euo pipefail
+          python3 tmp/harmonybot-v26-build/build_v261_frequency.py
+          python3 tmp/harmonybot-v26-build/fix_v261_mtf_overload.py
+          python3 tmp/harmonybot-v26-build/fix_v262_frequency_safe.py
+          python3 tmp/harmonybot-v26-build/fix_v262_grid_guard_band.py
+          python3 tmp/harmonybot-v26-build/fix_v27_commercial_rc.py
+          python3 tmp/harmonybot-v26-build/fix_v28_frequency_architecture.py
+          python3 tmp/harmonybot-v26-build/fix_v28_cost_rr.py
+          python3 tmp/harmonybot-v26-build/fix_v281_geometry_quality_engine.py
+          python3 tmp/harmonybot-v26-build/fix_v281_performance_stage7_profile.py
+          mkdir -p profile/{build,algo,reports,logs,data}
+          cp cli-build/HarmonyBotPro_v261/HarmonyBotPro.cs profile/build/HarmonyBotPro.cs
+          grep -q '[PERF-STAGE7]' profile/build/HarmonyBotPro.cs
+          grep -q 'EnableFibGrid' profile/build/HarmonyBotPro.cs
+          grep -q 'GeometryQualityScore' profile/build/HarmonyBotPro.cs
+      - name: Compile zero-error
+        run: |
+          cat > profile/build/HarmonyBotPro.csproj <<'EOF'
+          <Project Sdk="Microsoft.NET.Sdk"><PropertyGroup><TargetFramework>net6.0</TargetFramework><ImplicitUsings>disable</ImplicitUsings><Nullable>disable</Nullable><AlgoName>HarmonyBotPro_v281_stage7</AlgoName><AlgoBuild>true</AlgoBuild><AlgoPublish>false</AlgoPublish><IncludeSource>false</IncludeSource></PropertyGroup><ItemGroup><PackageReference Include="cTrader.Automate" Version="1.0.19" /></ItemGroup></Project>
+          EOF
+          dotnet restore profile/build/HarmonyBotPro.csproj
+          dotnet build profile/build/HarmonyBotPro.csproj -c Release --no-restore 2>&1 | tee profile/build.log
+          ! grep -q ' error CS' profile/build.log
+          A=$(find profile/build -name '*.algo' -type f -print -quit); test -s "$A"; cp "$A" profile/algo/HarmonyBotPro_v281_stage7.algo
+          sha256sum profile/algo/*.algo > profile/algo.sha256
+      - name: Resolve exact FxPro demo account
+        env:
+          CTRADER_PASSWORD: ${{ secrets.CTRADER_PASSWORD }}
+          CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+          CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+        run: |
+          docker pull ghcr.io/spotware/ctrader-console:5.9.11
+          printf '%s' "$CTRADER_PASSWORD" > profile/ctrader.pwd; chmod 600 profile/ctrader.pwd
+          docker run --rm -v "$PWD/profile:/work" ghcr.io/spotware/ctrader-console:5.9.11 accounts --ctid="$CTRADER_CTID" --pwd-file=/work/ctrader.pwd > profile/accounts.json
+          N=$(python3 - <<'PY'
+          import json,os
+          a=json.load(open('profile/accounts.json',encoding='utf-8-sig')); e=os.environ['CTRADER_ACCOUNT'].strip(); m=next((x for x in a if str(x.get('Number',''))==e or str(x.get('Id',''))==e),None)
+          if not m or m.get('Broker','').lower()!='fxpro' or m.get('Live') is not False or m.get('DepositCurrency')!='USD' or int(m.get('Leverage',0))!=500: raise SystemExit('account mismatch')
+          print(m['Number'])
+          PY
+          )
+          echo "CTRADER_ACCOUNT_NUMBER=$N" >> "$GITHUB_ENV"
+      - name: Profile exact D1
+        env:
+          CTRADER_PASSWORD: ${{ secrets.CTRADER_PASSWORD }}
+          CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+        run: |
+          set -uo pipefail; T0=$(date +%s); set +e
+          timeout --signal=TERM --kill-after=20s 300 docker run --rm -v "$PWD/profile:/work" ghcr.io/spotware/ctrader-console:5.9.11 backtest /work/algo/HarmonyBotPro_v281_stage7.algo --ctid="$CTRADER_CTID" --pwd-file=/work/ctrader.pwd --account="$CTRADER_ACCOUNT_NUMBER" --symbol=XAUUSD --period=m1 --start='15/09/2026' --end='16/09/2026' --balance=100 --data-mode=m1 --data-dir=/work/data --commission=35 --spread=1 --SymbolName=XAUUSD --RiskPercent=1.0 --MaxDrawdown=10 --MinStopLossPips=100 --SmallAccountMode=true --SmallAccountMinSLPips=25 --EnableAltBat=true --EnableFiveZero=true --EnableFibGrid=true --MinRR=2 --report=/work/reports/D1.html --report-json=/work/reports/D1.json 2>&1 | tee profile/logs/D1.log
+          RC=${PIPESTATUS[0]}; set -e
+          printf 'exit_code=%s\nseconds=%s\n' "$RC" "$(($(date +%s)-T0))" > profile/D1-timing.txt
+          exit 0
+      - name: Extract profiler evidence
+        if: always()
+        run: |
+          python3 - <<'PY'
+          import pathlib,re,json
+          t=pathlib.Path('profile/logs/D1.log').read_text(errors='ignore') if pathlib.Path('profile/logs/D1.log').exists() else ''
+          rows=[]
+          for name,calls,ms in re.findall(r'\[PERF-STAGE7\]\s+(\w+)\s+calls=(\d+)\s+ms=([0-9.]+)',t): rows.append({'method':name,'calls':int(calls),'ms':float(ms)})
+          rows.sort(key=lambda x:x['ms'],reverse=True)
+          diag=re.findall(r'\[COMMERCIAL-DIAG\].*',t)
+          perf={k:v for k,v in re.findall(r'(Initial Equity|Current Equity|Net PnL|Trades|Win Rate|Avg R)\s*:\s*([^\n]+)',t)}
+          out={'hotpaths':rows,'performance':perf,'last_funnel':diag[-1] if diag else None}
+          pathlib.Path('profile/STAGE7-EVIDENCE.json').write_text(json.dumps(out,indent=2)); print(json.dumps(out,indent=2))
+          PY
+      - name: Cleanup secrets
+        if: always()
+        run: rm -f profile/ctrader.pwd profile/accounts.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: V281-STAGE7-D1-PROFILER
+          path: |
+            profile/STAGE7-EVIDENCE.json
+            profile/D1-timing.txt
+            profile/reports/D1.*
+            profile/logs/D1.log
+            profile/algo.sha256
+            profile/build.log
+          retention-days: 30
