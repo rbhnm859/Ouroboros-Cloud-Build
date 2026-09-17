@@ -1,0 +1,81 @@
+{
+  "source_version": "V29.3-Grid-Risk-Cap-Hotfix-RC",
+  "source_change_authorized": false,
+  "ranking": [
+    "reject_if_any_reliable_DD_gt_10pct",
+    "maximize_worst_window_PF",
+    "maximize_median_window_PF",
+    "maximize_cross_window_positive_expectancy_stability",
+    "maximize_win_rate",
+    "maximize_return",
+    "then_frequency_RR_profitable_months"
+  ],
+  "stage1_gate": {
+    "max_drawdown_pct_lte": 10.0,
+    "profit_factor_gt": 1.0,
+    "net_profit_gt": 0.0,
+    "expectancy_gt": 0.0
+  },
+  "fixed": {
+    "RiskPercent_full_bot": 1.0,
+    "RiskPercent_small_capital": 1.4,
+    "MaxDrawdown": 10.0,
+    "MaxSlippagePips_full_bot": 30,
+    "MaxSlippagePips_small_capital": 70,
+    "SmallAccountMinSLPips": 25,
+    "CommercialRiskEngine": true,
+    "CapGridStopToRiskBudget": true,
+    "EnableFibGrid": true,
+    "GridProfitFib": 1.618,
+    "GridStopFib": 1.618,
+    "MinRR": 2.0,
+    "CapitalSafetyHeadroom": 0.98,
+    "AntiHedge": true,
+    "notes": "No candidate may raise risk percent, leverage, grid exposure, or force broker minimum volume."
+  },
+  "families": [
+    {
+      "id": "BASE",
+      "name": "Frozen V29.3 reference",
+      "overrides": {},
+      "hypothesis": "Reference only; not assumed commercial."
+    },
+    {
+      "id": "A",
+      "name": "Pattern Selection - Cypher restriction probe",
+      "overrides": {"EnableCypher": false},
+      "hypothesis": "If Cypher weakness is structural, removing it should raise PF floor across clean Development windows without causing unacceptable frequency collapse."
+    },
+    {
+      "id": "B",
+      "name": "Winner Capture - partial TP simplification",
+      "overrides": {"EnablePartialTP": false},
+      "hypothesis": "If winner truncation is material, disabling non-grid partial TP should improve average winner and realized RR while preserving DD."
+    },
+    {
+      "id": "C",
+      "name": "Tail / Stop Geometry - modest ATR contraction",
+      "overrides": {"SlAtrMult": 1.0},
+      "hypothesis": "A modest stop-geometry contraction may reduce loser expansion without risk amplification."
+    },
+    {
+      "id": "D",
+      "name": "Regime / HTF Alignment - strict H1/H4",
+      "overrides": {"H4FilterEnabled": true, "SoftMtfReversalGate": false},
+      "hypothesis": "If counter-trend/regime mismatch causes negative expectancy, strict directional alignment should raise PF floor even at lower frequency."
+    }
+  ],
+  "combination_family_E": {
+    "status": "LOCKED_PENDING_INDIVIDUAL_EVIDENCE",
+    "rule": "May combine only factors that independently improve Development PF floor and preserve DD <=10%; do not predefine an interaction candidate."
+  },
+  "source_patch_gate": {
+    "v29_4_allowed_only_if": [
+      "clean Development evidence shows repeated performance failure not expressible by existing parameters",
+      "required rule is cross-window rather than tailored to known losses",
+      "minimum necessary patch is defined",
+      "V29.3 remains technically stable baseline"
+    ],
+    "examples": ["cross-window MAE kill switch", "time/invalidation exit", "pattern-specific threshold unavailable in V29.3"]
+  }
+}
