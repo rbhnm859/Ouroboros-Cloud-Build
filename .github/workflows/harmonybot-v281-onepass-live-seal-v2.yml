@@ -1,5 +1,5 @@
 name: HarmonyBot V28.1 OnePass Live Seal V2
-# corrected SmallAccount method-scoped precedence run 2026-09-17
+# structure-aware SmallAccount precedence commercial run
 on:
   push:
     branches: [harmonybot-v28-commercial-final-rc]
@@ -74,6 +74,7 @@ jobs:
       - name: Extract checkpoint evidence
         if: always()
         run: |
+          mkdir -p seal
           python3 - <<'PY'
           import json,pathlib,re
           n='${{ matrix.name }}'; p=pathlib.Path('seal/logs/'+n+'.log'); t=p.read_text(errors='ignore') if p.exists() else ''
