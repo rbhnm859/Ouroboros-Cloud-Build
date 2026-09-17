@@ -1,0 +1,104 @@
+name: HarmonyBot V28.1 One-Pass Commercial Seal
+on:
+  push:
+    branches: [harmonybot-v28-commercial-final-rc]
+    paths: ['.github/workflows/harmonybot-v281-onepass-commercial-seal.yml']
+  workflow_dispatch:
+jobs:
+  seal:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with: {dotnet-version: '8.0.x'}
+      - name: Generate optimized V28.1
+        run: |
+          set -euo pipefail
+          python3 tmp/harmonybot-v26-build/build_v261_frequency.py
+          python3 tmp/harmonybot-v26-build/fix_v261_mtf_overload.py
+          python3 tmp/harmonybot-v26-build/fix_v262_frequency_safe.py
+          python3 tmp/harmonybot-v26-build/fix_v262_grid_guard_band.py
+          python3 tmp/harmonybot-v26-build/fix_v27_commercial_rc.py
+          python3 tmp/harmonybot-v26-build/fix_v28_frequency_architecture.py
+          python3 tmp/harmonybot-v26-build/fix_v28_cost_rr.py
+          python3 tmp/harmonybot-v26-build/fix_v281_geometry_quality_engine.py
+          python3 tmp/harmonybot-v26-build/fix_v281_performance_stage5.py
+          mkdir -p seal/{build,algo,reports,logs,data}
+          cp cli-build/HarmonyBotPro_v261/HarmonyBotPro.cs seal/build/HarmonyBotPro.cs
+          grep -q EnableFibGrid seal/build/HarmonyBotPro.cs
+          grep -q GeometryQualityScore seal/build/HarmonyBotPro.cs
+      - name: Compile zero-error
+        run: |
+          cat > seal/build/HarmonyBotPro.csproj <<'EOF'
+          <Project Sdk="Microsoft.NET.Sdk"><PropertyGroup><TargetFramework>net6.0</TargetFramework><ImplicitUsings>disable</ImplicitUsings><Nullable>disable</Nullable><AlgoName>HarmonyBotPro_v281_seal</AlgoName><AlgoBuild>true</AlgoBuild><AlgoPublish>false</AlgoPublish><IncludeSource>false</IncludeSource></PropertyGroup><ItemGroup><PackageReference Include="cTrader.Automate" Version="1.0.19" /></ItemGroup></Project>
+          EOF
+          dotnet restore seal/build/HarmonyBotPro.csproj
+          dotnet build seal/build/HarmonyBotPro.csproj -c Release --no-restore 2>&1 | tee seal/build.log
+          ! grep -q ' error CS' seal/build.log
+          A=$(find seal/build -name '*.algo' -type f -print -quit); test -s "$A"; cp "$A" seal/algo/HarmonyBotPro_v281_seal.algo; sha256sum seal/algo/*.algo > seal/algo.sha256
+      - name: Resolve FxPro account
+        env:
+          CTRADER_PASSWORD: ${{ secrets.CTRADER_PASSWORD }}
+          CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+          CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+        run: |
+          set -euo pipefail
+          docker pull ghcr.io/spotware/ctrader-console:5.9.11
+          printf '%s' "$CTRADER_PASSWORD" > seal/ctrader.pwd; chmod 600 seal/ctrader.pwd
+          docker run --rm -v "$PWD/seal:/work" ghcr.io/spotware/ctrader-console:5.9.11 accounts --ctid="$CTRADER_CTID" --pwd-file=/work/ctrader.pwd > seal/accounts.json
+          CTRADER_ACCOUNT_NUMBER=$(python3 - <<'PY'
+          import json,os
+          a=json.load(open('seal/accounts.json',encoding='utf-8-sig')); e=os.environ['CTRADER_ACCOUNT'].strip(); m=next((x for x in a if str(x.get('Number',''))==e or str(x.get('Id',''))==e),None)
+          if not m or m.get('Broker','').lower()!='fxpro' or m.get('Live') is not False or m.get('DepositCurrency')!='USD' or int(m.get('Leverage',0))!=500 or abs(float(m.get('Balance',0))-100)>0.01: raise SystemExit('account mismatch')
+          print(m['Number'])
+          PY
+          )
+          echo "CTRADER_ACCOUNT_NUMBER=$CTRADER_ACCOUNT_NUMBER" >> "$GITHUB_ENV"
+      - name: One-pass commercial 1Y seal backtest
+        env:
+          CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+        run: |
+          set -uo pipefail; T0=$(date +%s); set +e
+          timeout --signal=TERM --kill-after=20s 5400 docker run --rm -v "$PWD/seal:/work" ghcr.io/spotware/ctrader-console:5.9.11 backtest /work/algo/HarmonyBotPro_v281_seal.algo --ctid="$CTRADER_CTID" --pwd-file=/work/ctrader.pwd --account="$CTRADER_ACCOUNT_NUMBER" --symbol=XAUUSD --period=m1 --start='17/09/2025' --end='16/09/2026' --balance=100 --data-mode=m1 --data-dir=/work/data --commission=35 --spread=1 --SymbolName=XAUUSD --RiskPercent=1.0 --MaxDrawdown=10 --MinStopLossPips=100 --SmallAccountMode=true --SmallAccountMinSLPips=25 --EnableAltBat=true --EnableFiveZero=true --EnableFibGrid=true --MinRR=2 --report=/work/reports/seal-1y.html --report-json=/work/reports/seal-1y.json 2>&1 | tee seal/logs/seal-1y.log
+          RC=${PIPESTATUS[0]}; set -e; echo "exit_code=$RC" > seal/timing.txt; echo "seconds=$(($(date +%s)-T0))" >> seal/timing.txt
+      - name: Evaluate requested commercial gate
+        run: |
+          python3 - <<'PY'
+          import json,re,pathlib,calendar
+          p=pathlib.Path('seal/reports/seal-1y.json'); log=pathlib.Path('seal/logs/seal-1y.log').read_text(errors='ignore')
+          d={}
+          if p.exists():
+            try: d=json.load(open(p))
+            except: pass
+          eq=float(d.get('Equity',100) or 100); net=float(d.get('NetProfit',0) or 0); trades=int(d.get('TotalTrades',0) or 0); wins=int(d.get('WinningTrades',0) or 0); losses=int(d.get('LosingTrades',0) or 0); dd=float(d.get('MaxEquityDrawdownPercentages',999) or 999)
+          pf=d.get('ProfitFactor',0); pf=float(pf) if isinstance(pf,(int,float)) else 0
+          ret=(eq/100-1)*100; wr=100*wins/trades if trades else 0
+          rr=[]
+          for x in re.findall(r'Avg R\s+:\s+(-?[0-9.]+)',log):
+            try: rr.append(float(x))
+            except: pass
+          avgr=rr[-1] if rr else 0
+          # Profitable months requires trade/history month evidence; do not fabricate if report lacks it.
+          month_pnl={}
+          for m,pnl in re.findall(r'(20\d\d-[01]\d).*?Net PnL\s*[:=]\s*(-?[0-9.]+)',log): month_pnl[m]=month_pnl.get(m,0)+float(pnl)
+          profitable_months=sum(v>0 for v in month_pnl.values()) if month_pnl else None
+          checks={'return_ge_100':ret>=100,'pf_ge_2_5':pf>=2.5,'dd_le_10':dd<=10,'winrate_ge_65':wr>=65,'trades_ge_200':trades>=200,'rr_ge_2':avgr>=2,'profitable_months_ge_10':profitable_months is not None and profitable_months>=10,'net_ge_100_initial':net>=100}
+          out={'equity':eq,'net_profit':net,'return_pct':ret,'profit_factor':pf,'max_equity_dd_pct':dd,'trades':trades,'wins':wins,'losses':losses,'win_rate_pct':wr,'avg_R':avgr,'profitable_months':profitable_months,'checks':checks,'SEALED':all(checks.values())}
+          json.dump(out,open('seal/commercial-gate.json','w'),indent=2); print(json.dumps(out,indent=2))
+          PY
+      - name: Cleanup
+        if: always()
+        run: rm -f seal/ctrader.pwd seal/accounts.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: V281-ONEPASS-COMMERCIAL-SEAL
+          path: |
+            seal/build.log
+            seal/algo.sha256
+            seal/timing.txt
+            seal/commercial-gate.json
+            seal/reports/
+            seal/logs/
+          retention-days: 30
