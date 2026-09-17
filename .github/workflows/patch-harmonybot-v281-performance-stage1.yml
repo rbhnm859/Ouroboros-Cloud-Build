@@ -3,7 +3,7 @@ on:
   workflow_dispatch:
   push:
     branches: [harmonybot-v28-commercial-final-rc]
-    paths: ['.github/workflows/patch-harmonybot-v281-performance-stage1.yml']
+    paths: ['.github/workflows/patch-harmonybot-v281-performance-stage1.yml','tmp/harmonybot-v26-build/fix_v281_performance_stage3.py']
 permissions: {contents: read, actions: read}
 concurrency: {group: harmonybot-v281-stage3-runtime, cancel-in-progress: true}
 jobs:
