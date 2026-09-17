@@ -1,0 +1,103 @@
+name: HarmonyBot V28.1 OnePass Live Seal V2
+on:
+  push:
+    branches: [harmonybot-v28-commercial-final-rc]
+    paths: ['.github/workflows/harmonybot-v281-onepass-live-seal-v2.yml']
+  workflow_dispatch:
+jobs:
+  checkpoint:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {name: D1, start: '15/09/2026', end: '16/09/2026', kill: 900}
+          - {name: D7, start: '09/09/2026', end: '16/09/2026', kill: 2400}
+          - {name: M1, start: '17/08/2026', end: '16/09/2026', kill: 4200}
+          - {name: M3, start: '17/06/2026', end: '16/09/2026', kill: 6300}
+          - {name: Y1, start: '17/09/2025', end: '16/09/2026', kill: 6300}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with: {dotnet-version: '8.0.x'}
+      - name: Generate one-pass commercial candidate
+        run: |
+          set -euo pipefail
+          python3 tmp/harmonybot-v26-build/build_v261_frequency.py
+          python3 tmp/harmonybot-v26-build/fix_v261_mtf_overload.py
+          python3 tmp/harmonybot-v26-build/fix_v262_frequency_safe.py
+          python3 tmp/harmonybot-v26-build/fix_v262_grid_guard_band.py
+          python3 tmp/harmonybot-v26-build/fix_v27_commercial_rc.py
+          python3 tmp/harmonybot-v26-build/fix_v28_frequency_architecture.py
+          python3 tmp/harmonybot-v26-build/fix_v28_cost_rr.py
+          python3 tmp/harmonybot-v26-build/fix_v281_geometry_quality_engine.py
+          python3 tmp/harmonybot-v26-build/fix_v281_commercial_onepass.py
+          mkdir -p seal/{build,algo,reports,logs,data}
+          cp cli-build/HarmonyBotPro_v261/HarmonyBotPro.cs seal/build/HarmonyBotPro.cs
+          grep -q 'EnableFibGrid' seal/build/HarmonyBotPro.cs
+          grep -q 'GeometryQualityScore' seal/build/HarmonyBotPro.cs
+          grep -q 'SmallAccountMinSLPips' seal/build/HarmonyBotPro.cs
+          ! grep -q 'CoreCacheSwingResult' seal/build/HarmonyBotPro.cs
+      - name: Compile zero-error
+        run: |
+          cat > seal/build/HarmonyBotPro.csproj <<'EOF'
+          <Project Sdk="Microsoft.NET.Sdk"><PropertyGroup><TargetFramework>net6.0</TargetFramework><ImplicitUsings>disable</ImplicitUsings><Nullable>disable</Nullable><AlgoName>HarmonyBotPro_v281_onepass</AlgoName><AlgoBuild>true</AlgoBuild><AlgoPublish>false</AlgoPublish><IncludeSource>false</IncludeSource></PropertyGroup><ItemGroup><PackageReference Include="cTrader.Automate" Version="1.0.19" /></ItemGroup></Project>
+          EOF
+          dotnet restore seal/build/HarmonyBotPro.csproj
+          dotnet build seal/build/HarmonyBotPro.csproj -c Release --no-restore 2>&1 | tee seal/build.log
+          ! grep -q ' error CS' seal/build.log
+          A=$(find seal/build -name '*.algo' -type f -print -quit); test -s "$A"; cp "$A" seal/algo/HarmonyBotPro_v281_onepass.algo; sha256sum seal/algo/*.algo > seal/algo.sha256
+      - name: Resolve exact FxPro demo account
+        env:
+          CTRADER_PASSWORD: ${{ secrets.CTRADER_PASSWORD }}
+          CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+          CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+        run: |
+          docker pull ghcr.io/spotware/ctrader-console:5.9.11
+          printf '%s' "$CTRADER_PASSWORD" > seal/ctrader.pwd; chmod 600 seal/ctrader.pwd
+          docker run --rm -v "$PWD/seal:/work" ghcr.io/spotware/ctrader-console:5.9.11 accounts --ctid="$CTRADER_CTID" --pwd-file=/work/ctrader.pwd > seal/accounts.json
+          N=$(python3 - <<'PY'
+          import json,os
+          a=json.load(open('seal/accounts.json',encoding='utf-8-sig')); e=os.environ['CTRADER_ACCOUNT'].strip(); m=next((x for x in a if str(x.get('Number',''))==e or str(x.get('Id',''))==e),None)
+          if not m or m.get('Broker','').lower()!='fxpro' or m.get('Live') is not False or m.get('DepositCurrency')!='USD' or int(m.get('Leverage',0))!=500: raise SystemExit('account mismatch')
+          print(m['Number'])
+          PY
+          ); echo "CTRADER_ACCOUNT_NUMBER=$N" >> "$GITHUB_ENV"
+      - name: Backtest ${{ matrix.name }}
+        env: {CTRADER_CTID: '${{ secrets.CTRADER_CTID }}'}
+        run: |
+          set -uo pipefail; T0=$(date +%s); set +e
+          timeout --signal=TERM --kill-after=20s ${{ matrix.kill }} docker run --rm -v "$PWD/seal:/work" ghcr.io/spotware/ctrader-console:5.9.11 backtest /work/algo/HarmonyBotPro_v281_onepass.algo --ctid="$CTRADER_CTID" --pwd-file=/work/ctrader.pwd --account="$CTRADER_ACCOUNT_NUMBER" --symbol=XAUUSD --period=m1 --start='${{ matrix.start }}' --end='${{ matrix.end }}' --balance=100 --data-mode=m1 --data-dir=/work/data --commission=35 --spread=1 --SymbolName=XAUUSD --RiskPercent=1.0 --MaxDrawdown=10 --MinStopLossPips=100 --SmallAccountMode=true --SmallAccountMinSLPips=25 --EnableAltBat=true --EnableFiveZero=true --EnableFibGrid=true --MinRR=2 --report=/work/reports/${{ matrix.name }}.html --report-json=/work/reports/${{ matrix.name }}.json 2>&1 | tee seal/logs/${{ matrix.name }}.log
+          RC=${PIPESTATUS[0]}; set -e; printf 'exit_code=%s\nseconds=%s\n' "$RC" "$(($(date +%s)-T0))" > seal/${{ matrix.name }}-timing.txt
+      - name: Extract checkpoint evidence
+        if: always()
+        run: |
+          python3 - <<'PY'
+          import json,pathlib,re
+          n='${{ matrix.name }}'; p=pathlib.Path('seal/logs/'+n+'.log'); t=p.read_text(errors='ignore') if p.exists() else ''
+          def last(pattern,cast=float):
+            m=re.findall(pattern,t,re.I); return cast(m[-1]) if m else None
+          eq=last(r'Current Equity\s*:\s*\$?([0-9.]+)'); net=last(r'(?:Net PnL|Net Profit)\s*:\s*\$?(-?[0-9.]+)'); trades=last(r'Trades\s*:\s*([0-9]+)',int)
+          wl=re.findall(r'Wins\s*/\s*Losses\s*:\s*([0-9]+)\s*/\s*([0-9]+)',t,re.I); wins=int(wl[-1][0]) if wl else None; losses=int(wl[-1][1]) if wl else None
+          wr=(100*wins/trades) if trades and wins is not None else None; avgr=last(r'Avg R\s*:\s*(-?[0-9.]+)'); dd=last(r'Max Equity DD\s*%?\s*[:=]\s*([0-9.]+)')
+          pf=last(r'(?:Profit Factor|PF)\s*[:=]\s*([0-9.]+)')
+          tm=pathlib.Path('seal/'+n+'-timing.txt'); timing=dict(x.split('=',1) for x in tm.read_text().splitlines()) if tm.exists() else {}
+          diag=re.findall(r'\[COMMERCIAL-DIAG\].*',t); out={'checkpoint':n,'equity':eq,'net_profit':net,'return_pct':(eq-100 if eq is not None else None),'trades':trades,'wins':wins,'losses':losses,'win_rate':wr,'profit_factor':pf,'avg_R':avgr,'max_equity_dd_pct':dd,'exit_code':timing.get('exit_code'),'seconds':int(timing['seconds']) if timing.get('seconds') else None,'last_funnel':diag[-1] if diag else None}
+          pathlib.Path('seal/'+n+'-EVIDENCE.json').write_text(json.dumps(out,indent=2)); print(json.dumps(out,indent=2))
+          PY
+      - name: Cleanup secrets
+        if: always()
+        run: rm -f seal/ctrader.pwd seal/accounts.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: V281-ONEPASS-${{ matrix.name }}
+          path: |
+            seal/${{ matrix.name }}-EVIDENCE.json
+            seal/${{ matrix.name }}-timing.txt
+            seal/reports/${{ matrix.name }}.*
+            seal/logs/${{ matrix.name }}.log
+            seal/algo.sha256
+            seal/build.log
+          retention-days: 30
