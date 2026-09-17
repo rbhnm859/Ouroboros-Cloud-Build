@@ -1,5 +1,5 @@
 name: HarmonyBot V28.1 Core HotPath D1 Gate
-# Detector-scoped cache validation rerun: 2026-09-17
+# Static detector hot-path validation: 2026-09-17
 on:
   push:
     branches: [harmonybot-v28-commercial-final-rc]
@@ -30,6 +30,7 @@ jobs:
           grep -q 'EnableFibGrid' core/build/HarmonyBotPro.cs
           grep -q 'GeometryQualityScore' core/build/HarmonyBotPro.cs
           grep -q 'CoreCacheSwingResult' core/build/HarmonyBotPro.cs
+          grep -q 'private static Bars _coreSwingBars' core/build/HarmonyBotPro.cs
       - name: Compile zero-error
         run: |
           cat > core/build/HarmonyBotPro.csproj <<'EOF'
