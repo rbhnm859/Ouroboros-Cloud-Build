@@ -1,10 +1,11 @@
-name: Inspect linked cTrader accounts sanitized v26
+name: Inspect linked cTrader accounts sanitized v28
 on:
   push:
     branches:
-      - compile-harmonybot-v26-20260912
+      - harmonybot-v28-commercial-final-rc
     paths:
       - '.github/workflows/discover-ctrader-accounts-sanitized-v26.yml'
+  workflow_dispatch:
 permissions:
   contents: read
 jobs:
@@ -13,10 +14,11 @@ jobs:
     steps:
       - name: Pull cTrader CLI
         run: docker pull ghcr.io/spotware/ctrader-console:5.9.11
-      - name: Capture and sanitize account list
+      - name: Capture linked account list
         env:
           CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
           CTRADER_PASSWORD: ${{ secrets.CTRADER_PASSWORD }}
+          EXPECTED_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/ct"
@@ -27,15 +29,18 @@ jobs:
             -e 'PWD-FILE=/work/pwd' \
             ghcr.io/spotware/ctrader-console:5.9.11 \
             accounts --environment-variables > "$RUNNER_TEMP/ct/accounts.json"
-          python3 - "$RUNNER_TEMP/ct/accounts.json" <<'PY'
+          python3 - "$RUNNER_TEMP/ct/accounts.json" "$EXPECTED_ACCOUNT" <<'PY'
           import json,sys,re
-          p=sys.argv[1]
+          p,expected=sys.argv[1],sys.argv[2].strip()
           raw=open(p,encoding='utf-8-sig').read().strip()
           try:
               data=json.loads(raw)
           except Exception:
               print('Unable to parse account list; bytes=',len(raw)); sys.exit(1)
           print('linked_account_count=',len(data) if isinstance(data,list) else 'unknown')
+          found = expected and expected in raw
+          print('configured_account_linked=', bool(found))
+          # Keep IDs masked in logs while retaining broker/environment/currency/leverage metadata.
           sensitive=re.compile(r'(account|login|id|number)',re.I)
           def clean(x):
               if isinstance(x,dict):
