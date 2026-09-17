@@ -1,0 +1,94 @@
+name: HarmonyBot V28.1 Core HotPath D1 Gate
+on:
+  push:
+    branches: [harmonybot-v28-commercial-final-rc]
+    paths: ['.github/workflows/harmonybot-v281-core-hotpath-d1-gate.yml']
+  workflow_dispatch:
+jobs:
+  d1:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with: {dotnet-version: '8.0.x'}
+      - name: Generate core optimized V28.1
+        run: |
+          set -euo pipefail
+          python3 tmp/harmonybot-v26-build/build_v261_frequency.py
+          python3 tmp/harmonybot-v26-build/fix_v261_mtf_overload.py
+          python3 tmp/harmonybot-v26-build/fix_v262_frequency_safe.py
+          python3 tmp/harmonybot-v26-build/fix_v262_grid_guard_band.py
+          python3 tmp/harmonybot-v26-build/fix_v27_commercial_rc.py
+          python3 tmp/harmonybot-v26-build/fix_v28_frequency_architecture.py
+          python3 tmp/harmonybot-v26-build/fix_v28_cost_rr.py
+          python3 tmp/harmonybot-v26-build/fix_v281_geometry_quality_engine.py
+          python3 tmp/harmonybot-v26-build/fix_v281_core_hotpath_onepass.py
+          mkdir -p core/{build,algo,reports,logs,data}
+          cp cli-build/HarmonyBotPro_v261/HarmonyBotPro.cs core/build/HarmonyBotPro.cs
+          grep -q 'EnableFibGrid' core/build/HarmonyBotPro.cs
+          grep -q 'GeometryQualityScore' core/build/HarmonyBotPro.cs
+          grep -q '\[PERF-CORE\]' core/build/HarmonyBotPro.cs
+      - name: Compile zero-error
+        run: |
+          cat > core/build/HarmonyBotPro.csproj <<'EOF'
+          <Project Sdk="Microsoft.NET.Sdk"><PropertyGroup><TargetFramework>net6.0</TargetFramework><ImplicitUsings>disable</ImplicitUsings><Nullable>disable</Nullable><AlgoName>HarmonyBotPro_v281_core</AlgoName><AlgoBuild>true</AlgoBuild><AlgoPublish>false</AlgoPublish><IncludeSource>false</IncludeSource></PropertyGroup><ItemGroup><PackageReference Include="cTrader.Automate" Version="1.0.19" /></ItemGroup></Project>
+          EOF
+          dotnet restore core/build/HarmonyBotPro.csproj
+          dotnet build core/build/HarmonyBotPro.csproj -c Release --no-restore 2>&1 | tee core/build.log
+          ! grep -q ' error CS' core/build.log
+          A=$(find core/build -name '*.algo' -type f -print -quit); test -s "$A"; cp "$A" core/algo/HarmonyBotPro_v281_core.algo; sha256sum core/algo/*.algo > core/algo.sha256
+      - name: Resolve FxPro account
+        env:
+          CTRADER_PASSWORD: ${{ secrets.CTRADER_PASSWORD }}
+          CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+          CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+        run: |
+          docker pull ghcr.io/spotware/ctrader-console:5.9.11
+          printf '%s' "$CTRADER_PASSWORD" > core/ctrader.pwd; chmod 600 core/ctrader.pwd
+          docker run --rm -v "$PWD/core:/work" ghcr.io/spotware/ctrader-console:5.9.11 accounts --ctid="$CTRADER_CTID" --pwd-file=/work/ctrader.pwd > core/accounts.json
+          N=$(python3 - <<'PY'
+          import json,os
+          a=json.load(open('core/accounts.json',encoding='utf-8-sig')); e=os.environ['CTRADER_ACCOUNT'].strip(); m=next((x for x in a if str(x.get('Number',''))==e or str(x.get('Id',''))==e),None)
+          if not m or m.get('Broker','').lower()!='fxpro' or m.get('Live') is not False or m.get('DepositCurrency')!='USD' or int(m.get('Leverage',0))!=500: raise SystemExit('account mismatch')
+          print(m['Number'])
+          PY
+          ); echo "CTRADER_ACCOUNT_NUMBER=$N" >> "$GITHUB_ENV"
+      - name: D1 core regression backtest
+        env: {CTRADER_CTID: '${{ secrets.CTRADER_CTID }}'}
+        run: |
+          set -uo pipefail; T0=$(date +%s); set +e
+          timeout --signal=TERM --kill-after=20s 480 docker run --rm -v "$PWD/core:/work" ghcr.io/spotware/ctrader-console:5.9.11 backtest /work/algo/HarmonyBotPro_v281_core.algo --ctid="$CTRADER_CTID" --pwd-file=/work/ctrader.pwd --account="$CTRADER_ACCOUNT_NUMBER" --symbol=XAUUSD --period=m1 --start='15/09/2026' --end='16/09/2026' --balance=100 --data-mode=m1 --data-dir=/work/data --commission=35 --spread=1 --SymbolName=XAUUSD --RiskPercent=1.0 --MaxDrawdown=10 --MinStopLossPips=100 --SmallAccountMode=true --SmallAccountMinSLPips=25 --EnableAltBat=true --EnableFiveZero=true --EnableFibGrid=true --MinRR=2 --report=/work/reports/D1.html --report-json=/work/reports/D1.json 2>&1 | tee core/logs/D1.log
+          RC=${PIPESTATUS[0]}; set -e; printf 'exit_code=%s\nseconds=%s\n' "$RC" "$(($(date +%s)-T0))" > core/D1-timing.txt
+      - name: Evaluate raw D1 semantic and speed evidence
+        if: always()
+        run: |
+          python3 - <<'PY'
+          import json,pathlib,re,sys
+          p=pathlib.Path('core/reports/D1.json'); log=pathlib.Path('core/logs/D1.log'); t=log.read_text(errors='ignore') if log.exists() else ''
+          d=json.load(open(p)) if p.exists() else {}
+          # cTrader report values are nested; derive verified semantic metrics from performance log where available.
+          eqm=re.findall(r'Current Equity\s*:\s*\$?([0-9.]+)',t); netm=re.findall(r'Net Profit\s*:\s*\$?(-?[0-9.]+)',t); trm=re.findall(r'Trades\s*:\s*([0-9]+)',t); wm=re.findall(r'Wins/Losses\s*:\s*([0-9]+)\s*/\s*([0-9]+)',t); rm=re.findall(r'Avg R\s*:\s*(-?[0-9.]+)',t); cm=re.findall(r'\[PERF-CORE\] SwingParamCache hits=([0-9]+) misses=([0-9]+)',t)
+          eq=float(eqm[-1]) if eqm else None; net=float(netm[-1]) if netm else None; trades=int(trm[-1]) if trm else None; wins=int(wm[-1][0]) if wm else None; avgR=float(rm[-1]) if rm else None
+          timing=dict(x.split('=',1) for x in pathlib.Path('core/D1-timing.txt').read_text().splitlines()); sec=int(timing['seconds'])
+          out={'equity':eq,'net_profit':net,'trades':trades,'wins':wins,'avg_R':avgR,'seconds':sec,'cache_hits':int(cm[-1][0]) if cm else None,'cache_misses':int(cm[-1][1]) if cm else None}
+          pathlib.Path('core/D1-CORE-EVIDENCE.json').write_text(json.dumps(out,indent=2)); print(json.dumps(out,indent=2))
+          semantic=(eq is not None and abs(eq-104.30)<0.02 and net is not None and abs(net-4.30)<0.02 and trades==1 and wins==1 and avgR is not None and abs(avgR-4.13)<0.02)
+          print('SEMANTIC_EQUIVALENCE=',semantic); print('REAL_SPEEDUP=',sec < 440); print('CACHE_ACTIVE=',bool(cm and int(cm[-1][0])>0))
+          if not semantic: sys.exit(2)
+          PY
+      - name: Cleanup
+        if: always()
+        run: rm -f core/ctrader.pwd core/accounts.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: V281-CORE-HOTPATH-D1-GATE
+          path: |
+            core/D1-CORE-EVIDENCE.json
+            core/D1-timing.txt
+            core/reports/D1.*
+            core/logs/D1.log
+            core/algo.sha256
+            core/build.log
+          retention-days: 30
