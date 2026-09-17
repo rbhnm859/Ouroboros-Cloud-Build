@@ -83,7 +83,7 @@ jobs:
             --ctid="$CTRADER_CTID" --pwd-file=/work/ctrader.pwd --account="$ACCT" \
             --symbol=XAUUSD --period=m1 --start=02/09/2026 --end=16/09/2026 --balance=100 --data-mode=ticks --data-dir=/work/data \
             --commission=35 --spread=1 --SymbolName=XAUUSD \
-            --RiskPercent=1.30 --MaxSlippagePips=70 --MaxDrawdown=10 --MinStopLossPips=100 \
+            --RiskPercent=1.40 --MaxSlippagePips=70 --MaxDrawdown=10 --MinStopLossPips=100 \
             --SmallAccountMode=true --SmallAccountMinSLPips=25 \
             --EnableAltBat=true --EnableFiveZero=true --EnableFibGrid=true --MinRR=2 \
             --EnableCapitalAwarePrecisionEntry=true --PrecisionPrzMaxDistanceAtr=0.45 --PrecisionMaxWaitAtr=1.25 \
@@ -129,7 +129,7 @@ jobs:
           errs=[x for x in t.splitlines() if re.search(r'InvalidRequest|Invalid Volume|Insufficient Margin|unprotected position|unexpected hedge',x,re.I)]
           baskets=len(re.findall(r'\[GRID\]\s+Basket\s+#.*created',t,re.I)); caps=len(re.findall(r'\[V293-GRID-RISK-CAP\]',t))
           out={
-            'preset':{'RiskPercent':1.30,'MaxSlippagePips':70,'SmallAccountMinSLPips':25,'balance':100},
+            'preset':{'RiskPercent':1.40,'MaxSlippagePips':70,'SmallAccountMinSLPips':25,'balance':100},
             'starting_capital':m.get('startingCapital'),'ending_equity':m.get('endingEquity'),'net_profit':m.get('netProfit'),
             'trades':trades,'wins':wins,'win_rate_pct':wins/trades*100 if trades else 0,'profit_factor':sv('profitFactor'),
             'max_single_trade_loss_usd':maxloss,'max_single_trade_loss_pct_initial':maxloss,
@@ -139,7 +139,7 @@ jobs:
           if errs: hard.append('execution_errors')
           if trades and baskets < 1: hard.append('grid_basket_missing')
           if trades and caps < 1: hard.append('risk_cap_not_exercised')
-          if maxloss > 1.30 + 1e-9: hard.append('realized_risk_above_configured_1.30pct')
+          if maxloss > 1.40 + 1e-9: hard.append('realized_risk_above_configured_1.40pct')
           out['functional_gate_pass']=not hard; out['hard_fail_reasons']=hard
           pathlib.Path('seal/audit/D7-A-CONSERVATIVE-GATE.json').write_text(json.dumps(out,indent=2))
           print(json.dumps(out,indent=2))
