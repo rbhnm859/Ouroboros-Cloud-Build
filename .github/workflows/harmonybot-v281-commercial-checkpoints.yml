@@ -5,7 +5,7 @@ on:
       checkpoint:
         description: 'D1, D7, M1, M6, or Y1'
         required: true
-        default: D1
+        default: D7
         type: choice
         options: [D1, D7, M1, M6, Y1]
 permissions:
@@ -95,13 +95,19 @@ jobs:
           python3 - <<'PY'
           import json,pathlib,re,os
           cp=os.environ['CP']; p=pathlib.Path(f'seal/reports/{cp}.json'); log=pathlib.Path(f'seal/logs/{cp}.log')
-          r=json.loads(p.read_text(errors='ignore')) if p.exists() else {}
           t=log.read_text(errors='ignore') if log.exists() else ''
+          def num(key, default=0.0):
+              m=re.findall(r'"'+re.escape(key)+r'"\s*:\s*(-?\d+(?:\.\d+)?)',t)
+              return float(m[-1]) if m else default
+          def integer(key): return int(num(key,0))
           diag=re.findall(r'\[COMMERCIAL-DIAG\].*',t)
-          trades=int(r.get('TotalTrades') or 0); wins=int(r.get('WinningTrades') or 0); losses=int(r.get('LosingTrades') or 0)
-          equity=float(r.get('Equity') or 0); net=float(r.get('NetProfit') or 0); dd=float(r.get('MaxEquityDrawdownPercentages') or 0)
-          pf=r.get('ProfitFactor'); wr=(wins/trades*100) if trades else 0
-          out={'checkpoint':cp,'equity':equity,'net_profit':net,'return_pct':net,'trades':trades,'wins':wins,'losses':losses,'win_rate_pct':wr,'profit_factor':pf,'max_equity_dd_pct':dd,'funnel':diag[-1] if diag else None,'commercial_gate':{'return_ge_100':net>=100,'pf_ge_2_5':isinstance(pf,(int,float)) and pf>=2.5,'dd_le_10':dd<=10,'winrate_ge_65':wr>=65,'trades_ge_200':trades>=200}}
+          trades=integer('TotalTrades'); wins=integer('WinningTrades'); losses=integer('LosingTrades')
+          equity=num('Equity'); net=num('NetProfit'); dd=num('MaxEquityDrawdownPercentages')
+          pfm=re.findall(r'"ProfitFactor"\s*:\s*(-?\d+(?:\.\d+)?)',t); pf=float(pfm[-1]) if pfm else None
+          wr=(wins/trades*100) if trades else 0
+          avg_rm=re.findall(r'Avg R\s*:\s*(-?\d+(?:\.\d+)?)',t); avg_r=float(avg_rm[-1]) if avg_rm else None
+          expm=re.findall(r'Expectancy\s*:\s*(-?\d+(?:\.\d+)?)R',t); expectancy_r=float(expm[-1]) if expm else None
+          out={'checkpoint':cp,'equity':equity,'net_profit':net,'return_pct':net,'trades':trades,'wins':wins,'losses':losses,'win_rate_pct':wr,'profit_factor':pf,'avg_r':avg_r,'expectancy_r':expectancy_r,'max_equity_dd_pct':dd,'funnel':diag[-1] if diag else None,'commercial_gate':{'return_ge_100':net>=100,'pf_ge_2_5':isinstance(pf,(int,float)) and pf>=2.5,'dd_le_10':dd<=10,'winrate_ge_65':wr>=65,'trades_ge_200':trades>=200,'rr_ge_2':isinstance(avg_r,(int,float)) and avg_r>=2}}
           pathlib.Path(f'seal/{cp}-SUMMARY.json').write_text(json.dumps(out,indent=2)); print(json.dumps(out,indent=2))
           PY
       - name: Cleanup secrets
