@@ -47,12 +47,15 @@ jobs:
           docker pull ghcr.io/spotware/ctrader-console:5.9.11
           printf '%s' "$CTRADER_PASSWORD" > perf-stage4/ctrader.pwd; chmod 600 perf-stage4/ctrader.pwd
           docker run --rm -v "$PWD/perf-stage4:/work" ghcr.io/spotware/ctrader-console:5.9.11 accounts --ctid="$CTRADER_CTID" --pwd-file=/work/ctrader.pwd > perf-stage4/accounts.json
-          python3 - <<'PY'
+          CTRADER_ACCOUNT_NUMBER=$(python3 - <<'PY'
           import json,os
           a=json.load(open('perf-stage4/accounts.json',encoding='utf-8-sig')); e=os.environ['CTRADER_ACCOUNT'].strip(); m=next((x for x in a if str(x.get('Number',''))==e or str(x.get('Id',''))==e),None)
           if not m or m.get('Broker','').lower()!='fxpro' or m.get('Live') is not False or m.get('DepositCurrency')!='USD' or int(m.get('Leverage',0))!=500 or abs(float(m.get('Balance',0))-100)>0.01: raise SystemExit('account mismatch')
-          open(os.environ['GITHUB_ENV'],'a').write('CTRADER_ACCOUNT_NUMBER='+str(m['Number'])+'\n')
+          print(m['Number'])
           PY
+          )
+          export CTRADER_ACCOUNT_NUMBER
+          echo "CTRADER_ACCOUNT_NUMBER=$CTRADER_ACCOUNT_NUMBER" >> "$GITHUB_ENV"
           if docker run --rm -v "$PWD/perf-stage4:/work" ghcr.io/spotware/ctrader-console:5.9.11 symbols --ctid="$CTRADER_CTID" --pwd-file=/work/ctrader.pwd --account="$CTRADER_ACCOUNT_NUMBER" > perf-stage4/symbols.txt 2>/dev/null && grep -qi XAUUSD perf-stage4/symbols.txt; then echo 'CTRADER_BROKER_ARG=' >> "$GITHUB_ENV"; else docker run --rm -v "$PWD/perf-stage4:/work" ghcr.io/spotware/ctrader-console:5.9.11 symbols --ctid="$CTRADER_CTID" --pwd-file=/work/ctrader.pwd --account="$CTRADER_ACCOUNT_NUMBER" --broker=fxpro > perf-stage4/symbols.txt; grep -qi XAUUSD perf-stage4/symbols.txt; echo 'CTRADER_BROKER_ARG=--broker=fxpro' >> "$GITHUB_ENV"; fi
       - name: Exact 1-day Stage4 A-B equivalence and speed
         env: {CTRADER_CTID: '${{ secrets.CTRADER_CTID }}'}
