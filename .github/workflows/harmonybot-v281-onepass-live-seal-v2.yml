@@ -1,4 +1,5 @@
 name: HarmonyBot V28.1 OnePass Live Seal V2
+# corrected SmallAccount method-scoped precedence run 2026-09-17
 on:
   push:
     branches: [harmonybot-v28-commercial-final-rc]
@@ -80,10 +81,9 @@ jobs:
             m=re.findall(pattern,t,re.I); return cast(m[-1]) if m else None
           eq=last(r'Current Equity\s*:\s*\$?([0-9.]+)'); net=last(r'(?:Net PnL|Net Profit)\s*:\s*\$?(-?[0-9.]+)'); trades=last(r'Trades\s*:\s*([0-9]+)',int)
           wl=re.findall(r'Wins\s*/\s*Losses\s*:\s*([0-9]+)\s*/\s*([0-9]+)',t,re.I); wins=int(wl[-1][0]) if wl else None; losses=int(wl[-1][1]) if wl else None
-          wr=(100*wins/trades) if trades and wins is not None else None; avgr=last(r'Avg R\s*:\s*(-?[0-9.]+)'); dd=last(r'Max Equity DD\s*%?\s*[:=]\s*([0-9.]+)')
-          pf=last(r'(?:Profit Factor|PF)\s*[:=]\s*([0-9.]+)')
-          tm=pathlib.Path('seal/'+n+'-timing.txt'); timing=dict(x.split('=',1) for x in tm.read_text().splitlines()) if tm.exists() else {}
-          diag=re.findall(r'\[COMMERCIAL-DIAG\].*',t); out={'checkpoint':n,'equity':eq,'net_profit':net,'return_pct':(eq-100 if eq is not None else None),'trades':trades,'wins':wins,'losses':losses,'win_rate':wr,'profit_factor':pf,'avg_R':avgr,'max_equity_dd_pct':dd,'exit_code':timing.get('exit_code'),'seconds':int(timing['seconds']) if timing.get('seconds') else None,'last_funnel':diag[-1] if diag else None}
+          wr=(100*wins/trades) if trades and wins is not None else None; avgr=last(r'Avg R\s*:\s*(-?[0-9.]+)'); dd=last(r'Max Equity DD\s*%?\s*[:=]\s*([0-9.]+)'); pf=last(r'(?:Profit Factor|PF)\s*[:=]\s*([0-9.]+)')
+          tm=pathlib.Path('seal/'+n+'-timing.txt'); timing=dict(x.split('=',1) for x in tm.read_text().splitlines()) if tm.exists() else {}; diag=re.findall(r'\[COMMERCIAL-DIAG\].*',t)
+          out={'checkpoint':n,'equity':eq,'net_profit':net,'return_pct':(eq-100 if eq is not None else None),'trades':trades,'wins':wins,'losses':losses,'win_rate':wr,'profit_factor':pf,'avg_R':avgr,'max_equity_dd_pct':dd,'exit_code':timing.get('exit_code'),'seconds':int(timing['seconds']) if timing.get('seconds') else None,'last_funnel':diag[-1] if diag else None}
           pathlib.Path('seal/'+n+'-EVIDENCE.json').write_text(json.dumps(out,indent=2)); print(json.dumps(out,indent=2))
           PY
       - name: Cleanup secrets
