@@ -31,55 +31,20 @@ jobs:
           python3 tmp/harmonybot-v26-build/fix_v281_geometry_quality_engine.py
           mkdir -p perf-stage1/{baseline,patched,algo,data,reports,logs}
           cp cli-build/HarmonyBotPro_v261/HarmonyBotPro.cs perf-stage1/baseline/HarmonyBotPro.cs
-      - name: Apply semantics-preserving Stage1 patch
+      - name: Preserve source for Stage1 gate
         run: |
           set -euo pipefail
-          python3 - <<'PY'
-          from pathlib import Path
-          import re,json
-          src=Path('perf-stage1/baseline/HarmonyBotPro.cs').read_text()
-          out=src
-          changes=[]
-          # Safe optimization 1: materialize Positions lookup once in grid rebuild instead of repeating LINQ enumeration.
-          m=re.search(r'(\s+private\s+void\s+RebuildGridBasketsFromOpenPositions\s*\([^)]*\)\s*\{)',out)
-          if m:
-            start=m.end(); depth=1; i=start
-            while i<len(out) and depth:
-              depth += (out[i]=='{')-(out[i]=='}'); i+=1
-            body=out[start:i-1]
-            # Replace repeated Positions.Where(...).ToList() identical expressions with one local only when >=2 exact occurrences.
-            pats=re.findall(r'Positions\.Where\([^;\n]+?\)\.ToList\(\)',body)
-            if pats:
-              from collections import Counter
-              expr,n=Counter(pats).most_common(1)[0]
-              if n>=2:
-                body='\n            var __perfOpenPositions = '+expr+';'+body.replace(expr,'__perfOpenPositions')
-                out=out[:start]+body+out[i-1:]; changes.append({'method':'RebuildGridBasketsFromOpenPositions','change':'cache repeated identical Positions.Where().ToList()','occurrences':n})
-          # Safe optimization 2: replace LINQ Count() on ICollection-like Positions with Count property only for exact Positions.Count().
-          n=out.count('Positions.Count()')
-          if n:
-            out=out.replace('Positions.Count()','Positions.Count'); changes.append({'method':'global','change':'Positions.Count() -> Positions.Count','occurrences':n})
-          Path('perf-stage1/patched/HarmonyBotPro.cs').write_text(out)
-          Path('perf-stage1/patch-manifest.json').write_text(json.dumps({'changes':changes,'baseline_chars':len(src),'patched_chars':len(out)},indent=2))
-          if not changes:
-            print('No mechanically safe Stage1 rewrite matched; preserving source and continuing profiling gate.')
-          print(Path('perf-stage1/patch-manifest.json').read_text())
-          PY
+          cp perf-stage1/baseline/HarmonyBotPro.cs perf-stage1/patched/HarmonyBotPro.cs
+          printf '{"changes":[],"mode":"baseline-equivalence-and-routing-fix"}\n' > perf-stage1/patch-manifest.json
       - name: Feature and semantic surface integrity
         run: |
           set -euo pipefail
+          cmp perf-stage1/baseline/HarmonyBotPro.cs perf-stage1/patched/HarmonyBotPro.cs
           for S in perf-stage1/baseline/HarmonyBotPro.cs perf-stage1/patched/HarmonyBotPro.cs; do
             grep -q GeometryQualityScore "$S"; grep -Eq 'FibGrid|Fibonacci' "$S"; grep -Eq 'Gartley|Butterfly|Bat' "$S"; grep -q SmallAccountMinSLPips "$S"; grep -q capitalInfeasible "$S"
           done
-          python3 - <<'PY'
-          import re,json,pathlib
-          a=pathlib.Path('perf-stage1/baseline/HarmonyBotPro.cs').read_text(); b=pathlib.Path('perf-stage1/patched/HarmonyBotPro.cs').read_text()
-          keys=['RiskPercent','MaxDrawdown','MinStopLossPips','SmallAccountMinSLPips','EnableFibGrid','EnableAltBat','EnableFiveZero']
-          d={k:(len(re.findall(k,a)),len(re.findall(k,b))) for k in keys}
-          json.dump(d,open('perf-stage1/integrity.json','w'),indent=2)
-          if any(x!=y for x,y in d.values()): raise SystemExit('semantic surface changed')
-          PY
-      - name: Compile patched V28.1 zero-error
+          printf '{"source_identical":true}\n' > perf-stage1/integrity.json
+      - name: Compile V28.1 zero-error
         run: |
           set -euo pipefail
           mkdir -p perf-stage1/build
@@ -91,7 +56,7 @@ jobs:
           dotnet build perf-stage1/build/HarmonyBotPro.csproj -c Release --no-restore 2>&1 | tee perf-stage1/build.log
           ! grep -q ' error CS' perf-stage1/build.log
           A=$(find perf-stage1/build -type f -name '*.algo' -print -quit); test -s "$A"; cp "$A" perf-stage1/algo/HarmonyBotPro_v281_perf1.algo; sha256sum perf-stage1/algo/*.algo > perf-stage1/algo.sha256
-      - name: cTrader auth and XAUUSD preflight
+      - name: Resolve cTrader account
         env: {CTRADER_PASSWORD: '${{ secrets.CTRADER_PASSWORD }}', CTRADER_CTID: '${{ secrets.CTRADER_CTID }}', CTRADER_ACCOUNT: '${{ secrets.CTRADER_ACCOUNT }}'}
         run: |
           set -euo pipefail
@@ -102,10 +67,15 @@ jobs:
           import json,os
           a=json.load(open('perf-stage1/accounts.json',encoding='utf-8-sig')); e=os.environ['CTRADER_ACCOUNT'].strip(); m=next((x for x in a if str(x.get('Number','')).strip()==e or str(x.get('Id','')).strip()==e),None)
           if not m or m.get('Broker','').lower()!='fxpro' or m.get('Live') is not False or m.get('DepositCurrency')!='USD' or int(m.get('Leverage',0))!=500 or abs(float(m.get('Balance',0))-100)>0.01: raise SystemExit('account mismatch')
-          open(os.environ['GITHUB_ENV'],'a').write('CTRADER_ACCOUNT_NUMBER='+str(m['Number']).strip()+'\n')
+          with open(os.environ['GITHUB_ENV'],'a') as f: f.write('CTRADER_ACCOUNT_NUMBER='+str(m['Number']).strip()+'\n')
           PY
+      - name: XAUUSD route preflight
+        env: {CTRADER_CTID: '${{ secrets.CTRADER_CTID }}'}
+        run: |
+          set -euo pipefail
+          test -n "$CTRADER_ACCOUNT_NUMBER"
           if docker run --rm -v "$PWD/perf-stage1:/work" ghcr.io/spotware/ctrader-console:5.9.11 symbols --ctid="$CTRADER_CTID" --pwd-file=/work/ctrader.pwd --account="$CTRADER_ACCOUNT_NUMBER" > perf-stage1/symbols.txt 2>/dev/null && grep -qi XAUUSD perf-stage1/symbols.txt; then echo 'CTRADER_BROKER_ARG=' >> "$GITHUB_ENV"; else docker run --rm -v "$PWD/perf-stage1:/work" ghcr.io/spotware/ctrader-console:5.9.11 symbols --ctid="$CTRADER_CTID" --pwd-file=/work/ctrader.pwd --account="$CTRADER_ACCOUNT_NUMBER" --broker=fxpro > perf-stage1/symbols.txt; grep -qi XAUUSD perf-stage1/symbols.txt; echo 'CTRADER_BROKER_ARG=--broker=fxpro' >> "$GITHUB_ENV"; fi
-      - name: Exact 1-day patched performance gate
+      - name: Exact 1-day baseline equivalence performance gate
         env: {CTRADER_CTID: '${{ secrets.CTRADER_CTID }}'}
         run: |
           set -uo pipefail
@@ -120,7 +90,7 @@ jobs:
           import json,pathlib,re
           p=pathlib.Path('perf-stage1/reports/patched-1d.json'); t=pathlib.Path('perf-stage1/timing.txt').read_text() if pathlib.Path('perf-stage1/timing.txt').exists() else ''
           sec=int(re.search(r'seconds=(\d+)',t).group(1)) if re.search(r'seconds=(\d+)',t) else None
-          out={'baseline_seconds':1210,'patched_seconds':sec,'speedup':(1210/sec if sec else None),'baseline_reference':{'trades':1,'net':4.30,'equity_dd_pct':2.0},'report_present':p.exists()}
+          out={'baseline_seconds':1210,'current_seconds':sec,'speed_ratio':(1210/sec if sec else None),'baseline_reference':{'trades':1,'net':4.30,'equity_dd_pct':2.0},'report_present':p.exists(),'source_identical':True}
           if p.exists():
             r=json.load(open(p,encoding='utf-8-sig')); out['report_keys']=list(r)[:30]
           json.dump(out,open('perf-stage1/assessment.json','w'),indent=2); print(json.dumps(out,indent=2))
