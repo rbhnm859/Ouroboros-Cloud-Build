@@ -40,9 +40,6 @@ namespace cAlgo.Robots
             if (_pressureHistory.Count > 0 || currentClosedIndex <= 1)
                 return;
 
-            // Reconstruct enough deterministic closed-bar history after startup/restart. Historical
-            // raw tick direction is intentionally not guessed; candle/tick-volume features are fully
-            // available in both bar-data backtests and live charts.
             var needed = Math.Max(PressureWindow, PersistenceLookback) + 12;
             var start = Math.Max(1, currentClosedIndex - needed);
             for (var i = start; i < currentClosedIndex; i++)
@@ -72,8 +69,6 @@ namespace cAlgo.Robots
             var volumeAvg = volumeCount == 0 ? volumeNow : volumeSum / volumeCount;
             var volumeImpulse = Clamp(volumeNow / Math.Max(1.0, volumeAvg), 0.65, 1.35);
 
-            // Commercial default is deterministic across m1 server-data backtests, restart and live.
-            // Raw tick direction is optional/experimental until separately validated with tick-mode data.
             var useTick = UseLiveTickPressure && allowCurrentTickPressure && _lastCompletedTickSamples >= 8;
             var tickScore = useTick ? _lastCompletedTickPressure : 0.0;
             var tickWeight = useTick ? 0.25 : 0.0;
@@ -94,27 +89,29 @@ namespace cAlgo.Robots
         {
             if (_pressureHistory.Count < Math.Max(PressureWindow, PersistenceLookback))
                 return EntryCandidate.Invalid();
+            if (!PassAdaptiveFxRegime(index))
+                return EntryCandidate.Invalid();
 
             var recent = _pressureHistory.Skip(Math.Max(0, _pressureHistory.Count - PressureWindow)).ToArray();
             var persistence = _pressureHistory.Skip(Math.Max(0, _pressureHistory.Count - PersistenceLookback)).ToArray();
             var avgPressure = recent.Average();
-
-            // Zero pressure is neutral; it must not count toward both bullish and bearish persistence.
             var bullishBars = persistence.Count(x => x > 0);
             var bearishBars = persistence.Count(x => x < 0);
             var previousPressure = _pressureHistory.Count >= 2 ? _pressureHistory[_pressureHistory.Count - 2] : 0.0;
+            var minAveragePressure = EffectiveMinAveragePressure(index);
+            var minLastPressure = EffectiveMinLastPressure(index);
 
             TradeType direction;
-            if (avgPressure >= MinAveragePressure &&
-                latestPressure >= MinLastPressure &&
-                previousPressure >= MinLastPressure * MinPreviousPressureFraction &&
+            if (avgPressure >= minAveragePressure &&
+                latestPressure >= minLastPressure &&
+                previousPressure >= minLastPressure * MinPreviousPressureFraction &&
                 bullishBars >= MinDirectionalBars)
             {
                 direction = TradeType.Buy;
             }
-            else if (avgPressure <= -MinAveragePressure &&
-                     latestPressure <= -MinLastPressure &&
-                     previousPressure <= -MinLastPressure * MinPreviousPressureFraction &&
+            else if (avgPressure <= -minAveragePressure &&
+                     latestPressure <= -minLastPressure &&
+                     previousPressure <= -minLastPressure * MinPreviousPressureFraction &&
                      bearishBars >= MinDirectionalBars)
             {
                 direction = TradeType.Sell;
@@ -132,12 +129,11 @@ namespace cAlgo.Robots
                 return EntryCandidate.Invalid();
 
             var momentumR = (Bars.ClosePrices[index] - Bars.ClosePrices[Math.Max(0, index - 3)]) / atrPrice;
-            if (direction == TradeType.Buy && momentumR < 0.08)
+            var minMomentumR = EffectiveMinMomentumR();
+            if (direction == TradeType.Buy && momentumR < minMomentumR)
                 return EntryCandidate.Invalid();
-            if (direction == TradeType.Sell && momentumR > -0.08)
+            if (direction == TradeType.Sell && momentumR > -minMomentumR)
                 return EntryCandidate.Invalid();
-
-            // Do not chase already exhausted multi-bar impulses.
             if (Math.Abs(momentumR) > 2.25)
                 return EntryCandidate.Invalid();
 
@@ -154,6 +150,7 @@ namespace cAlgo.Robots
             if (setup == null)
                 return EntryCandidate.Invalid();
 
+            LogAdaptiveFxProfile(index);
             return new EntryCandidate
             {
                 IsValid = true,
@@ -177,7 +174,7 @@ namespace cAlgo.Robots
             var body = Math.Abs(close - open);
             if (body / range < MinBodyToRange)
                 return false;
-            if (range / atrPrice > MaxEntryCandleAtr)
+            if (range / atrPrice > EffectiveMaxEntryCandleAtr(index))
                 return false;
 
             var closeLocation = (close - low) / range;
@@ -204,7 +201,7 @@ namespace cAlgo.Robots
             var emaGapR = atrPrice <= 0 ? 0 : Math.Abs(fast - slow) / atrPrice;
             var extensionR = atrPrice <= 0 ? double.PositiveInfinity : Math.Abs(close - fast) / atrPrice;
 
-            if (emaGapR < MinEmaGapAtr || extensionR > MaxEmaExtensionAtr)
+            if (emaGapR < MinEmaGapAtr || extensionR > EffectiveMaxEmaExtensionAtr(index))
                 return false;
 
             if (direction == TradeType.Buy)
@@ -245,7 +242,7 @@ namespace cAlgo.Robots
         private bool PassDms(int index, TradeType direction)
         {
             var adx = _dms.ADX[index];
-            if (double.IsNaN(adx) || adx < MinAdx)
+            if (double.IsNaN(adx) || adx < EffectiveMinAdx())
                 return false;
             if (direction == TradeType.Buy)
                 return _dms.DIPlus[index] > _dms.DIMinus[index];
@@ -266,7 +263,7 @@ namespace cAlgo.Robots
             }
 
             var close = Bars.ClosePrices[index];
-            var breakoutBuffer = BreakoutBufferAtr * atrPrice;
+            var breakoutBuffer = EffectiveBreakoutBufferAtr(index) * atrPrice;
             if (direction == TradeType.Buy && close > priorHigh + breakoutBuffer)
                 return "breakout";
             if (direction == TradeType.Sell && close < priorLow - breakoutBuffer)
@@ -279,7 +276,7 @@ namespace cAlgo.Robots
             var slow = _slowEma.Result[index];
             var previousFast = _fastEma.Result[index - 1];
             var tolerance = 0.20 * atrPrice;
-            var slowPenetration = PullbackSlowPenetrationAtr * atrPrice;
+            var slowPenetration = EffectivePullbackSlowPenetrationAtr() * atrPrice;
 
             if (direction == TradeType.Buy)
             {
