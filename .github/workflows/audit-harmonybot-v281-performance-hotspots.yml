@@ -1,0 +1,81 @@
+name: HarmonyBot V28.1 Performance Hotspot Audit
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [harmonybot-v28-commercial-final-rc]
+    paths: ['.github/workflows/audit-harmonybot-v281-performance-hotspots.yml']
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Generate identical hardened V28.1 source
+        run: |
+          set -euo pipefail
+          python3 tmp/harmonybot-v26-build/build_v261_frequency.py
+          python3 tmp/harmonybot-v26-build/fix_v261_mtf_overload.py
+          python3 tmp/harmonybot-v26-build/fix_v262_frequency_safe.py
+          python3 tmp/harmonybot-v26-build/fix_v262_grid_guard_band.py
+          python3 tmp/harmonybot-v26-build/fix_v27_commercial_rc.py
+          python3 tmp/harmonybot-v26-build/fix_v28_frequency_architecture.py
+          python3 tmp/harmonybot-v26-build/fix_v28_cost_rr.py
+          python3 tmp/harmonybot-v26-build/fix_v281_geometry_quality_engine.py
+          mkdir -p performance-audit
+          cp cli-build/HarmonyBotPro_v261/HarmonyBotPro.cs performance-audit/HarmonyBotPro_V281.cs
+      - name: Static hotspot audit
+        run: |
+          python3 - <<'PY'
+          import re,json,pathlib
+          p=pathlib.Path('performance-audit/HarmonyBotPro_V281.cs'); s=p.read_text(errors='replace'); lines=s.splitlines()
+          methods=[]
+          sig=re.compile(r'^\s*(?:public|private|protected|internal)\s+(?:static\s+)?[\w<>,\[\]?\.]+\s+(\w+)\s*\([^;]*\)\s*(?:\{|$)')
+          for i,l in enumerate(lines):
+            m=sig.match(l)
+            if not m: continue
+            name=m.group(1); depth=0; started=False; end=i
+            for j in range(i,min(len(lines),i+3000)):
+              depth+=lines[j].count('{')-lines[j].count('}')
+              if '{' in lines[j]: started=True
+              if started and depth<=0: end=j; break
+            body='\n'.join(lines[i:end+1]); loops=len(re.findall(r'\b(for|foreach|while)\s*\(',body)); bars=len(re.findall(r'\bBars\b|\.Bars\b|MarketData\.GetBars',body)); linq=len(re.findall(r'\.(?:Where|Select|OrderBy|OrderByDescending|ToList|ToArray|Any|All|Count|FirstOrDefault)\s*\(',body)); alloc=len(re.findall(r'\bnew\s+(?:List|Dictionary|HashSet|Queue|Stack|\w+\[)',body)); score=loops*5+bars*3+linq*2+alloc
+            methods.append({'name':name,'start_line':i+1,'lines':end-i+1,'loops':loops,'bars_refs':bars,'linq_calls':linq,'allocations':alloc,'hotspot_score':score})
+          methods=sorted(methods,key=lambda x:(x['hotspot_score'],x['lines']),reverse=True)
+          event=[m for m in methods if m['name'] in ('OnTick','OnBar','OnBarClosed','OnTimer','OnStart')]
+          out={'source_lines':len(lines),'method_count':len(methods),'event_handlers':event,'top_hotspots':methods[:30],'signals':{
+            'marketdata_getbars_calls':len(re.findall(r'MarketData\.GetBars',s)),
+            'bars_count_loops':len(re.findall(r'for\s*\([^\n;]*;[^\n;]*(?:Bars|\.Count)',s)),
+            'linq_calls':len(re.findall(r'\.(?:Where|Select|OrderBy|OrderByDescending|ToList|ToArray)\s*\(',s)),
+            'geometry_mentions':len(re.findall(r'Geometry',s,re.I)),
+            'pivot_swing_mentions':len(re.findall(r'Pivot|SwingPoint',s,re.I)),
+            'fib_grid_mentions':len(re.findall(r'FibGrid|Fibonacci',s,re.I)),
+            'mtf_mentions':len(re.findall(r'\bMTF\b|MultiTime',s,re.I))}}
+          pathlib.Path('performance-audit/hotspots.json').write_text(json.dumps(out,indent=2),encoding='utf-8')
+          md=['# HarmonyBot V28.1 Performance Hotspot Audit','','Source lines: %d'%out['source_lines'],'Methods: %d'%out['method_count'],'','## Event handlers']
+          for x in event: md.append(f"- {x['name']} line {x['start_line']}: lines={x['lines']} loops={x['loops']} bars={x['bars_refs']} linq={x['linq_calls']} score={x['hotspot_score']}")
+          md+=['','## Top hotspots']
+          for x in methods[:20]: md.append(f"- {x['name']} line {x['start_line']}: score={x['hotspot_score']} lines={x['lines']} loops={x['loops']} bars={x['bars_refs']} linq={x['linq_calls']} alloc={x['allocations']}")
+          pathlib.Path('performance-audit/hotspots.md').write_text('\n'.join(md),encoding='utf-8')
+          print('\n'.join(md))
+          PY
+      - name: Verify commercial feature integrity
+        run: |
+          set -euo pipefail
+          S=performance-audit/HarmonyBotPro_V281.cs
+          grep -q 'GeometryQualityScore' "$S"
+          grep -Eq 'FibGrid|Fibonacci' "$S"
+          grep -Eq 'Gartley|Butterfly|Bat' "$S"
+          grep -Eq 'SmallAccountMinSLPips' "$S"
+          grep -Eq 'capitalInfeasible' "$S"
+          echo 'feature_integrity=pass' | tee performance-audit/integrity.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: V281-PERFORMANCE-HOTSPOT-AUDIT
+          path: performance-audit/
+          retention-days: 30
