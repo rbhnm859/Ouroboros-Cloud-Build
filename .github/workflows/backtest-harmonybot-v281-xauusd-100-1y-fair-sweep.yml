@@ -89,18 +89,25 @@ jobs:
         env: {CTRADER_CTID: '${{ secrets.CTRADER_CTID }}'}
         run: |
           set -euo pipefail
-          docker run --rm -v "$PWD/backtest:/work" ghcr.io/spotware/ctrader-console:5.9.11 symbols --ctid="$CTRADER_CTID" --pwd-file=/work/ctrader.pwd --account="$CTRADER_ACCOUNT_NUMBER" --broker=fxpro > backtest/symbols.txt
-          grep -qi 'XAUUSD' backtest/symbols.txt
-          rm -f backtest/symbols.txt
-          echo 'preflight_verified=account_resolves_and_XAUUSD_available'
+          if docker run --rm -v "$PWD/backtest:/work" ghcr.io/spotware/ctrader-console:5.9.11 symbols --ctid="$CTRADER_CTID" --pwd-file=/work/ctrader.pwd --account="$CTRADER_ACCOUNT_NUMBER" > backtest/symbols.txt 2>backtest/symbols.err && grep -qi 'XAUUSD' backtest/symbols.txt; then
+            echo 'CTRADER_BROKER_ARG=' >> "$GITHUB_ENV"
+            echo 'preflight_verified=account_resolves_without_broker_and_XAUUSD_available'
+          elif docker run --rm -v "$PWD/backtest:/work" ghcr.io/spotware/ctrader-console:5.9.11 symbols --ctid="$CTRADER_CTID" --pwd-file=/work/ctrader.pwd --account="$CTRADER_ACCOUNT_NUMBER" --broker=fxpro > backtest/symbols.txt 2>backtest/symbols.err && grep -qi 'XAUUSD' backtest/symbols.txt; then
+            echo 'CTRADER_BROKER_ARG=--broker=fxpro' >> "$GITHUB_ENV"
+            echo 'preflight_verified=account_resolves_with_fxpro_broker_and_XAUUSD_available'
+          else
+            cat backtest/symbols.err >&2 || true
+            exit 82
+          fi
+          rm -f backtest/symbols.txt backtest/symbols.err
       - name: Backtest XAUUSD $100 1Y ${{ matrix.period }}
         env: {CTRADER_CTID: '${{ secrets.CTRADER_CTID }}'}
         run: |
           set -euo pipefail
           OUT="V281-XAUUSD-100-1Y-${{ matrix.period }}"
           docker run --rm -v "$PWD/backtest:/work" ghcr.io/spotware/ctrader-console:5.9.11 \
-            backtest /work/algo/HarmonyBotPro_v281.algo --ctid="$CTRADER_CTID" --pwd-file=/work/ctrader.pwd --account="$CTRADER_ACCOUNT_NUMBER" \
-            --broker=fxpro --symbol=XAUUSD --period=${{ matrix.period }} --start='17/09/2025' --end='16/09/2026' --balance=100 --data-mode=m1 --commission=35 \
+            backtest /work/algo/HarmonyBotPro_v281.algo --ctid="$CTRADER_CTID" --pwd-file=/work/ctrader.pwd --account="$CTRADER_ACCOUNT_NUMBER" $CTRADER_BROKER_ARG \
+            --symbol=XAUUSD --period=${{ matrix.period }} --start='17/09/2025' --end='16/09/2026' --balance=100 --data-mode=m1 --commission=35 --spread=1 \
             --SymbolName=XAUUSD --RiskPercent=1.0 --MaxDrawdown=10.0 --MinStopLossPips=100.0 --SmallAccountMinSLPips=25.0 \
             --EnableAltBat=true --EnableFiveZero=true --EnableFibGrid=true \
             --report="/work/reports/${OUT}.html" --report-json="/work/reports/${OUT}.json"
@@ -124,7 +131,7 @@ jobs:
           PY
       - name: Remove credentials
         if: always()
-        run: rm -f backtest/ctrader.pwd backtest/accounts.json backtest/symbols.txt
+        run: rm -f backtest/ctrader.pwd backtest/accounts.json backtest/symbols.txt backtest/symbols.err
       - uses: actions/upload-artifact@v4
         if: always()
         with:
