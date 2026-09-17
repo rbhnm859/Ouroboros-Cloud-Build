@@ -1,0 +1,432 @@
+name: HarmonyBot V29.3 Performance Phase-1 Candidate Families
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/harmonybot-v293-performance-phase1.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fccde79d22c0389ba64d9bb26a2e54379d81c91e
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+      - name: Generate exact frozen V29.3 source and compile
+        run: |
+          set -euo pipefail
+          python3 tmp/harmonybot-v26-build/build_v261_frequency.py
+          python3 tmp/harmonybot-v26-build/fix_v261_mtf_overload.py
+          python3 tmp/harmonybot-v26-build/fix_v262_frequency_safe.py
+          python3 tmp/harmonybot-v26-build/fix_v262_grid_guard_band.py
+          python3 tmp/harmonybot-v26-build/fix_v27_commercial_rc.py
+          python3 tmp/harmonybot-v26-build/fix_v28_frequency_architecture.py
+          python3 tmp/harmonybot-v26-build/fix_v28_cost_rr.py
+          python3 tmp/harmonybot-v26-build/fix_v281_geometry_quality_engine.py
+          python3 tmp/harmonybot-v26-build/fix_v281_commercial_onepass.py
+          python3 tmp/harmonybot-v26-build/fix_v282_strategy_quality_rc.py
+          python3 tmp/harmonybot-v26-build/fix_v283_execution_quality.py
+          python3 tmp/harmonybot-v26-build/fix_v284_capital_aware_precision.py
+          python3 tmp/harmonybot-v26-build/fix_v29_persistent_prz_execution.py
+          python3 tmp/harmonybot-v26-build/fix_v291_small_account_execution.py
+          python3 tmp/harmonybot-v26-build/fix_v292_small_account_fast_execution.py
+          python3 tmp/harmonybot-v26-build/fix_v292_grid_lifecycle_hotfix.py
+          python3 tmp/harmonybot-v26-build/fix_v293_grid_risk_cap_hotfix.py
+          mkdir -p seal/build seal/algo
+          cp cli-build/HarmonyBotPro_v261/HarmonyBotPro.cs seal/build/HarmonyBotPro.cs
+          grep -Fq 'V29.3-Grid-Risk-Cap-Hotfix-RC' seal/build/HarmonyBotPro.cs
+          grep -Fq '[V293-GRID-RISK-CAP]' seal/build/HarmonyBotPro.cs
+          grep -Fq 'CapGridStopToRiskBudget && p.StopLoss.HasValue' seal/build/HarmonyBotPro.cs
+          cat > seal/build/HarmonyBotPro.csproj <<'CS'
+          <Project Sdk="Microsoft.NET.Sdk"><PropertyGroup><TargetFramework>net6.0</TargetFramework><ImplicitUsings>disable</ImplicitUsings><Nullable>disable</Nullable><AlgoName>HarmonyBotPro_v293_performance_phase1</AlgoName><AlgoBuild>true</AlgoBuild><AlgoPublish>false</AlgoPublish><IncludeSource>false</IncludeSource></PropertyGroup><ItemGroup><PackageReference Include="cTrader.Automate" Version="1.0.19" /></ItemGroup></Project>
+          CS
+          dotnet restore seal/build/HarmonyBotPro.csproj
+          dotnet build seal/build/HarmonyBotPro.csproj -c Release --no-restore 2>&1 | tee seal/build.log
+          ! grep -q ' error CS' seal/build.log
+          A=$(find seal/build -name '*.algo' -type f -print -quit)
+          test -n "$A"; test -s "$A"
+          cp "$A" seal/algo/HarmonyBotPro_v293_performance_phase1.algo
+          sha256sum seal/build/HarmonyBotPro.cs seal/algo/HarmonyBotPro_v293_performance_phase1.algo > seal/SHA256SUMS.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: V293-PHASE1-BUILD
+          path: seal
+          retention-days: 30
+
+  development:
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        candidate: [BASE, A_CYPHER_OFF, B_NO_PARTIAL, C_TIGHT_STOP, D_H4_ALIGN]
+        window:
+          - id: DEV-A
+            start: 04/01/2021
+            eval: 2021-01-11T00:00:00Z
+            end: 30/06/2021
+          - id: DEV-B
+            start: 01/07/2021
+            eval: 2021-07-08T00:00:00Z
+            end: 31/12/2021
+          - id: DEV-C
+            start: 03/01/2022
+            eval: 2022-01-10T00:00:00Z
+            end: 30/06/2022
+    env:
+      CTRADER_PASSWORD: ${{ secrets.CTRADER_PASSWORD }}
+      CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+      CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+      CANDIDATE: ${{ matrix.candidate }}
+      WINDOW_ID: ${{ matrix.window.id }}
+      START_DATE: ${{ matrix.window.start }}
+      EVAL_DATE: ${{ matrix.window.eval }}
+      END_DATE: ${{ matrix.window.end }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: V293-PHASE1-BUILD
+          path: seal
+      - name: Resolve FxPro demo account
+        run: |
+          set -euo pipefail
+          docker pull ghcr.io/spotware/ctrader-console:5.9.11
+          printf '%s' "$CTRADER_PASSWORD" > seal/ctrader.pwd
+          chmod 600 seal/ctrader.pwd
+          docker run --rm -v "$PWD/seal:/work" ghcr.io/spotware/ctrader-console:5.9.11 accounts --ctid="$CTRADER_CTID" --pwd-file=/work/ctrader.pwd > seal/accounts.json
+          N=$(python3 - <<'PY'
+          import json,os
+          a=json.load(open('seal/accounts.json',encoding='utf-8-sig')); e=os.environ['CTRADER_ACCOUNT'].strip()
+          m=next((x for x in a if str(x.get('Number',''))==e or str(x.get('Id',''))==e),None)
+          if not m or m.get('Broker','').lower()!='fxpro' or m.get('Live') is not False or m.get('DepositCurrency')!='USD' or int(m.get('Leverage',0))!=500:
+              raise SystemExit('account mismatch')
+          print(m['Number'])
+          PY
+          )
+          echo "CTRADER_ACCOUNT_NUMBER=$N" >> "$GITHUB_ENV"
+      - name: Resolve candidate args
+        run: |
+          set -euo pipefail
+          case "$CANDIDATE" in
+            BASE) EXTRA="";;
+            A_CYPHER_OFF) EXTRA="--EnableCypher=false";;
+            B_NO_PARTIAL) EXTRA="--EnablePartialTP=false";;
+            C_TIGHT_STOP) EXTRA="--SlAtrMult=1.0";;
+            D_H4_ALIGN) EXTRA="--H4FilterEnabled=true";;
+            *) exit 2;;
+          esac
+          echo "EXTRA_ARGS=$EXTRA" >> "$GITHUB_ENV"
+      - name: Coarse Development backtest
+        id: bt
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          mkdir -p seal/{reports,logs,data,audit}
+          C="phase1-dev-${CANDIDATE,,}-${WINDOW_ID,,}-${GITHUB_RUN_ID}"
+          docker run --name "$C" -v "$PWD/seal:/work" ghcr.io/spotware/ctrader-console:5.9.11 backtest \
+            /work/algo/HarmonyBotPro_v293_performance_phase1.algo \
+            --ctid="$CTRADER_CTID" --pwd-file=/work/ctrader.pwd --account="$CTRADER_ACCOUNT_NUMBER" \
+            --symbol=XAUUSD --period=m1 --start="$START_DATE" --end="$END_DATE" --balance=10000 --data-mode=m1 --data-dir=/work/data \
+            --commission=35 --spread=1 --SymbolName=XAUUSD \
+            --RiskPercent=1.0 --MaxSlippagePips=30 --MaxDrawdown=10 --MinStopLossPips=100 \
+            --SmallAccountMode=false --SmallAccountMinSLPips=25 \
+            --EnableAltBat=true --EnableFiveZero=true --EnableFibGrid=true --MinRR=2 \
+            --GridProfitFib=1.618 --GridStopFib=1.618 \
+            --EnableCapitalAwarePrecisionEntry=true --PrecisionPrzMaxDistanceAtr=0.45 --PrecisionMaxWaitAtr=1.25 \
+            --CapitalSafetyHeadroom=0.98 --CapGridStopToRiskBudget=true --EvaluationStartUtcIso="$EVAL_DATE" \
+            --V29PersistentPrzQueue=true --V29PendingMaxBars=90 --V29PendingGlobalMax=12 --V29PendingPerPatternMax=3 \
+            --V29PendingMinCompositeQuality=0.58 --V29PendingTriggerMaxPrzAtr=0.85 --V29HighQualityPrzBonusAtr=0.35 \
+            --V29CandidateReplacementMargin=0.03 --V29WarmupSeedPending=true --V29MaxOrderAttemptsPerCandidate=3 \
+            --V291SmallAccountTacticalExecution=false --V291RequireMicroConfirmation=true --V291MinTacticalRR=2.0 \
+            --V292FastSmallAccountExecution=false --V292EnableCapitalCapStop=false --V292EnableEarlyTrigger=false \
+            $EXTRA_ARGS \
+            --report="/work/reports/${CANDIDATE}-${WINDOW_ID}.html" --report-json="/work/reports/${CANDIDATE}-${WINDOW_ID}.json" > "seal/logs/${CANDIDATE}-${WINDOW_ID}.log" 2>&1 &
+          PID=$!; DONE=0
+          for ((i=0;i<6600;i+=5)); do
+            if test -s "seal/reports/${CANDIDATE}-${WINDOW_ID}.json" && python3 - <<PY
+          import json
+          p='seal/reports/${CANDIDATE}-${WINDOW_ID}.json'
+          m=json.load(open(p,encoding='utf-8-sig')).get('main',{})
+          raise SystemExit(0 if 'endingEquity' in m and 'netProfit' in m else 1)
+          PY
+            then DONE=1; break; fi
+            if ! kill -0 "$PID" 2>/dev/null; then break; fi
+            sleep 5
+          done
+          docker stop --time 3 "$C" >/dev/null 2>&1 || true
+          docker rm -f "$C" >/dev/null 2>&1 || true
+          wait "$PID" 2>/dev/null || true
+          if test "$DONE" != 1; then
+            printf '{"status":"DATA_UNAVAILABLE_OR_BACKTEST_FAILED","candidate":"%s","window":"%s"}\n' "$CANDIDATE" "$WINDOW_ID" > "seal/audit/${CANDIDATE}-${WINDOW_ID}-SUMMARY.json"
+            exit 1
+          fi
+      - name: Build basket and segment matrix
+        if: always()
+        run: |
+          python3 - <<'PY'
+          import json,re,pathlib,os,datetime
+          c=os.environ['CANDIDATE']; w=os.environ['WINDOW_ID']
+          rp=pathlib.Path(f'seal/reports/{c}-{w}.json'); lp=pathlib.Path(f'seal/logs/{c}-{w}.log')
+          if not rp.exists():
+              out={'status':'DATA_UNAVAILABLE_OR_BACKTEST_FAILED','candidate':c,'window':w}
+              pathlib.Path(f'seal/audit/{c}-{w}-SUMMARY.json').write_text(json.dumps(out,indent=2)); raise SystemExit(0)
+          d=json.load(open(rp,encoding='utf-8-sig')); eq=d.get('equity',{}); h=d.get('history',{}).get('items',[])
+          t=lp.read_text(errors='ignore') if lp.exists() else ''
+          groups={}
+          for x in h:
+              key=(str(x.get('label','')),str(x.get('direction','')).lower(),int(x.get('entryTime',0) or 0),round(float(x.get('entryPrice',0) or 0),5))
+              g=groups.setdefault(key,{'label':key[0],'direction':key[1],'entryTime':key[2],'entryPrice':key[3],'net':0.0,'closeTime':0,'fragments':0})
+              g['net']+=float(x.get('net',0) or 0); g['closeTime']=max(g['closeTime'],int(x.get('closeTime',0) or 0)); g['fragments']+=1
+          mains=sorted([g for g in groups.values() if g['label']=='HarmonyBotPro'],key=lambda z:z['entryTime'])
+          children=sorted([g for g in groups.values() if g['label']=='HarmonyBotPro-G'],key=lambda z:z['entryTime'])
+          patterns=re.findall(r'\[GRID\]\s+Basket\s+#\d+\s+created\s+\|\s*([^|]+?)\s*\|',t,re.I)
+          baskets=[]
+          for i,g in enumerate(mains):
+              dt=datetime.datetime.fromtimestamp(g['entryTime']/1000,datetime.timezone.utc); hour=dt.hour
+              session='LONDON' if 8<=hour<13 else ('OVERLAP' if 13<=hour<16 else ('NEW_YORK' if 16<=hour<22 else 'OTHER'))
+              baskets.append({'index':i+1,'pattern':patterns[i].strip() if i<len(patterns) else 'Unknown','direction':g['direction'],'entryTime':g['entryTime'],'closeTime':g['closeTime'],'session':session,'net':g['net'],'main_net':g['net'],'grid_net':0.0,'grid_children':0,'fragments':g['fragments'],'mfe':'UNVERIFIED_COARSE','mae':'UNVERIFIED_COARSE','trend_regime':'UNVERIFIED','volatility_regime':'UNVERIFIED','htf_alignment':'UNVERIFIED','prz_quality':'UNVERIFIED','entry_quality':'UNVERIFIED','exit_type':'UNVERIFIED'})
+          for ch in children:
+              cand=[b for b in baskets if b['direction']==ch['direction'] and b['entryTime']<=ch['entryTime']<=b['closeTime']]
+              if not cand: cand=[b for b in baskets if b['direction']==ch['direction'] and 0<=ch['entryTime']-b['entryTime']<=4*60*60*1000]
+              if cand:
+                  b=max(cand,key=lambda z:z['entryTime']); b['net']+=ch['net']; b['grid_net']+=ch['net']; b['grid_children']+=1; b['closeTime']=max(b['closeTime'],ch['closeTime'])
+          def metrics(rows):
+              vals=[r['net'] for r in rows]; wins=[x for x in vals if x>0]; losses=[x for x in vals if x<0]
+              gw=sum(wins); gl=abs(sum(losses)); pf=gw/gl if gl>0 else (999.0 if gw>0 else 0.0)
+              aw=sum(wins)/len(wins) if wins else 0.0; al=sum(losses)/len(losses) if losses else 0.0; rr=aw/abs(al) if aw>0 and al<0 else None
+              n=len(vals); net=sum(vals); exp=net/n if n else None; wr=100*len(wins)/n if n else 0.0
+              topwins=sorted(wins,reverse=True); toploss=sorted([abs(x) for x in losses],reverse=True)
+              return {'basket_count':n,'wins':len(wins),'losses':len(losses),'win_rate_pct':wr,'net':net,'profit_factor':pf,'expectancy':exp,'avg_winner':aw,'avg_loser':al,'realized_rr':rr,'largest_loss':(-max(toploss) if toploss else 0.0),'top1_loss_contribution_pct':(100*sum(toploss[:1])/sum(toploss) if toploss else 0.0),'top3_loss_contribution_pct':(100*sum(toploss[:3])/sum(toploss) if toploss else 0.0),'top5_loss_contribution_pct':(100*sum(toploss[:5])/sum(toploss) if toploss else 0.0),'top1_win_contribution_pct':(100*sum(topwins[:1])/sum(topwins) if topwins else 0.0)}
+          seg={}; dims={'pattern':lambda b:b['pattern'],'direction':lambda b:b['direction'],'grid':lambda b:'GRID_CHILD' if b['grid_children']>0 else 'NON_GRID','session':lambda b:b['session']}
+          for dim,fn in dims.items():
+              buckets={}
+              for b in baskets: buckets.setdefault(fn(b),[]).append(b)
+              seg[dim]={k:metrics(v) for k,v in buckets.items()}
+          dd=float(eq.get('maxEquityDrawdownPercent',0) or 0)
+          err_lines=[x for x in t.splitlines() if re.search(r'InvalidRequest|Invalid Volume|Insufficient Margin|unprotected position|unexpected hedge|Margin Cascade|Exposure Explosion',x,re.I)]
+          out={'status':'OK','candidate':c,'window':w,'source_version':'V29.3','source_changed':False,'data_mode':'m1_coarse','metrics':metrics(baskets),'max_dd_pct':dd,'execution_error_count':len(err_lines),'segments':seg,'baskets':baskets}
+          pathlib.Path(f'seal/audit/{c}-{w}-SUMMARY.json').write_text(json.dumps(out,indent=2)); print(json.dumps({k:v for k,v in out.items() if k!='baskets'},indent=2))
+          PY
+      - name: Cleanup credentials and cache
+        if: always()
+        run: rm -f seal/ctrader.pwd seal/accounts.json; rm -rf seal/data || true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: PHASE1-DEV-${{ matrix.candidate }}-${{ matrix.window.id }}
+          path: |
+            seal/reports
+            seal/logs
+            seal/audit
+          retention-days: 30
+
+  development_gate:
+    needs: development
+    if: always()
+    runs-on: ubuntu-24.04
+    outputs:
+      survivors: ${{ steps.gate.outputs.survivors }}
+      has_survivors: ${{ steps.gate.outputs.has_survivors }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: PHASE1-DEV-*
+          path: all
+          merge-multiple: true
+      - id: gate
+        name: Aggregate Development Gate
+        run: |
+          python3 - <<'PY'
+          import json,glob,statistics,os,pathlib
+          candidates=['BASE','A_CYPHER_OFF','B_NO_PARTIAL','C_TIGHT_STOP','D_H4_ALIGN']; windows=['DEV-A','DEV-B','DEV-C']; matrix={}; survivors=[]
+          for c in candidates:
+              rows=[]; missing=[]
+              for w in windows:
+                  p=glob.glob(f'all/audit/{c}-{w}-SUMMARY.json') or glob.glob(f'all/**/{c}-{w}-SUMMARY.json',recursive=True)
+                  if not p: missing.append(w); continue
+                  x=json.load(open(p[0]));
+                  if x.get('status')!='OK': missing.append(w); continue
+                  rows.append(x)
+              rec={'candidate':c,'missing_windows':missing,'windows':{x['window']:{'pf':x['metrics']['profit_factor'],'net':x['metrics']['net'],'expectancy':x['metrics']['expectancy'],'wr':x['metrics']['win_rate_pct'],'rr':x['metrics']['realized_rr'],'dd':x['max_dd_pct'],'baskets':x['metrics']['basket_count'],'top1_win_contribution_pct':x['metrics']['top1_win_contribution_pct']} for x in rows}}
+              if len(rows)==3:
+                  nets=[x['metrics']['net'] for x in rows]; pfs=[x['metrics']['profit_factor'] for x in rows]; dds=[x['max_dd_pct'] for x in rows]; vals=[]
+                  for x in rows: vals += [b['net'] for b in x.get('baskets',[])]
+                  wins=[v for v in vals if v>0]; losses=[v for v in vals if v<0]; gw=sum(wins); gl=abs(sum(losses)); agg_pf=gw/gl if gl>0 else (999 if gw>0 else 0); agg_net=sum(vals); agg_exp=agg_net/len(vals) if vals else None; agg_wr=100*len(wins)/len(vals) if vals else 0
+                  rec.update({'aggregate_pf':agg_pf,'aggregate_net':agg_net,'aggregate_expectancy':agg_exp,'aggregate_wr':agg_wr,'worst_window_pf':min(pfs),'median_window_pf':statistics.median(pfs),'nonnegative_windows':sum(1 for x in nets if x>=0),'max_window_dd':max(dds),'basket_count':len(vals)})
+                  rec['dev_gate_pass']=bool(max(dds)<=10 and agg_pf>1 and agg_net>0 and (agg_exp or 0)>0 and sum(1 for x in nets if x>=0)>=2)
+                  if rec['dev_gate_pass'] and c!='BASE': survivors.append(c)
+              else: rec['dev_gate_pass']=False
+              matrix[c]=rec
+          survivors.sort(key=lambda c:(matrix[c].get('worst_window_pf',-1),matrix[c].get('median_window_pf',-1),matrix[c].get('aggregate_pf',-1),matrix[c].get('aggregate_wr',-1),matrix[c].get('aggregate_net',-1)),reverse=True)
+          pathlib.Path('PHASE1-DEVELOPMENT-GATE.json').write_text(json.dumps({'survivors':survivors,'matrix':matrix,'rule':'DD<=10, aggregate PF>1, Net>0, Expectancy>0, >=2/3 nonnegative windows'},indent=2)); print(json.dumps({'survivors':survivors,'matrix':matrix},indent=2))
+          with open(os.environ['GITHUB_OUTPUT'],'a') as f:
+              f.write('survivors='+json.dumps(survivors,separators=(',',':'))+'\n'); f.write('has_survivors='+('true' if survivors else 'false')+'\n')
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: PHASE1-DEVELOPMENT-GATE
+          path: PHASE1-DEVELOPMENT-GATE.json
+          retention-days: 30
+
+  validation:
+    needs: development_gate
+    if: needs.development_gate.outputs.has_survivors == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      matrix:
+        candidate: ${{ fromJSON(needs.development_gate.outputs.survivors) }}
+    env:
+      CTRADER_PASSWORD: ${{ secrets.CTRADER_PASSWORD }}
+      CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+      CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+      CANDIDATE: ${{ matrix.candidate }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: V293-PHASE1-BUILD
+          path: seal
+      - name: Resolve FxPro demo account
+        run: |
+          set -euo pipefail
+          docker pull ghcr.io/spotware/ctrader-console:5.9.11
+          printf '%s' "$CTRADER_PASSWORD" > seal/ctrader.pwd; chmod 600 seal/ctrader.pwd
+          docker run --rm -v "$PWD/seal:/work" ghcr.io/spotware/ctrader-console:5.9.11 accounts --ctid="$CTRADER_CTID" --pwd-file=/work/ctrader.pwd > seal/accounts.json
+          N=$(python3 - <<'PY'
+          import json,os
+          a=json.load(open('seal/accounts.json',encoding='utf-8-sig')); e=os.environ['CTRADER_ACCOUNT'].strip(); m=next((x for x in a if str(x.get('Number',''))==e or str(x.get('Id',''))==e),None)
+          if not m or m.get('Broker','').lower()!='fxpro' or m.get('Live') is not False or m.get('DepositCurrency')!='USD' or int(m.get('Leverage',0))!=500: raise SystemExit('account mismatch')
+          print(m['Number'])
+          PY
+          )
+          echo "CTRADER_ACCOUNT_NUMBER=$N" >> "$GITHUB_ENV"
+      - name: Resolve candidate args
+        run: |
+          case "$CANDIDATE" in
+            A_CYPHER_OFF) EXTRA="--EnableCypher=false";;
+            B_NO_PARTIAL) EXTRA="--EnablePartialTP=false";;
+            C_TIGHT_STOP) EXTRA="--SlAtrMult=1.0";;
+            D_H4_ALIGN) EXTRA="--H4FilterEnabled=true";;
+            *) exit 2;;
+          esac
+          echo "EXTRA_ARGS=$EXTRA" >> "$GITHUB_ENV"
+      - name: Validation server-tick backtest
+        id: bt
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          mkdir -p seal/{reports,logs,data,audit}
+          C="phase1-val-${CANDIDATE,,}-${GITHUB_RUN_ID}"
+          docker run --name "$C" -v "$PWD/seal:/work" ghcr.io/spotware/ctrader-console:5.9.11 backtest \
+            /work/algo/HarmonyBotPro_v293_performance_phase1.algo \
+            --ctid="$CTRADER_CTID" --pwd-file=/work/ctrader.pwd --account="$CTRADER_ACCOUNT_NUMBER" \
+            --symbol=XAUUSD --period=m1 --start=01/07/2022 --end=30/12/2022 --balance=10000 --data-mode=ticks --data-dir=/work/data \
+            --commission=35 --spread=1 --SymbolName=XAUUSD \
+            --RiskPercent=1.0 --MaxSlippagePips=30 --MaxDrawdown=10 --MinStopLossPips=100 \
+            --SmallAccountMode=false --SmallAccountMinSLPips=25 \
+            --EnableAltBat=true --EnableFiveZero=true --EnableFibGrid=true --MinRR=2 \
+            --GridProfitFib=1.618 --GridStopFib=1.618 \
+            --EnableCapitalAwarePrecisionEntry=true --PrecisionPrzMaxDistanceAtr=0.45 --PrecisionMaxWaitAtr=1.25 \
+            --CapitalSafetyHeadroom=0.98 --CapGridStopToRiskBudget=true --EvaluationStartUtcIso=2022-07-08T00:00:00Z \
+            --V29PersistentPrzQueue=true --V29PendingMaxBars=90 --V29PendingGlobalMax=12 --V29PendingPerPatternMax=3 \
+            --V29PendingMinCompositeQuality=0.58 --V29PendingTriggerMaxPrzAtr=0.85 --V29HighQualityPrzBonusAtr=0.35 \
+            --V29CandidateReplacementMargin=0.03 --V29WarmupSeedPending=true --V29MaxOrderAttemptsPerCandidate=3 \
+            --V291SmallAccountTacticalExecution=false --V291RequireMicroConfirmation=true --V291MinTacticalRR=2.0 \
+            --V292FastSmallAccountExecution=false --V292EnableCapitalCapStop=false --V292EnableEarlyTrigger=false \
+            $EXTRA_ARGS \
+            --report="/work/reports/${CANDIDATE}-VAL.html" --report-json="/work/reports/${CANDIDATE}-VAL.json" > "seal/logs/${CANDIDATE}-VAL.log" 2>&1 &
+          PID=$!; DONE=0
+          for ((i=0;i<9600;i+=5)); do
+            if test -s "seal/reports/${CANDIDATE}-VAL.json" && python3 - <<PY
+          import json
+          m=json.load(open('seal/reports/${CANDIDATE}-VAL.json',encoding='utf-8-sig')).get('main',{})
+          raise SystemExit(0 if 'endingEquity' in m and 'netProfit' in m else 1)
+          PY
+            then DONE=1; break; fi
+            if ! kill -0 "$PID" 2>/dev/null; then break; fi
+            sleep 5
+          done
+          docker stop --time 3 "$C" >/dev/null 2>&1 || true; docker rm -f "$C" >/dev/null 2>&1 || true; wait "$PID" 2>/dev/null || true
+          test "$DONE" = 1
+      - name: Build Validation basket matrix and gate
+        if: always()
+        run: |
+          python3 - <<'PY'
+          import json,re,pathlib,os
+          c=os.environ['CANDIDATE']; rp=pathlib.Path(f'seal/reports/{c}-VAL.json'); lp=pathlib.Path(f'seal/logs/{c}-VAL.log')
+          if not rp.exists():
+              out={'candidate':c,'status':'DATA_UNAVAILABLE_OR_BACKTEST_FAILED','val_gate_pass':False}; pathlib.Path(f'seal/audit/{c}-VAL-GATE.json').write_text(json.dumps(out,indent=2)); raise SystemExit(0)
+          d=json.load(open(rp,encoding='utf-8-sig')); eq=d.get('equity',{}); h=d.get('history',{}).get('items',[]); t=lp.read_text(errors='ignore') if lp.exists() else ''
+          groups={}
+          for x in h:
+              key=(str(x.get('label','')),str(x.get('direction','')).lower(),int(x.get('entryTime',0) or 0),round(float(x.get('entryPrice',0) or 0),5)); g=groups.setdefault(key,{'label':key[0],'direction':key[1],'entryTime':key[2],'entryPrice':key[3],'net':0.0,'closeTime':0}); g['net']+=float(x.get('net',0) or 0); g['closeTime']=max(g['closeTime'],int(x.get('closeTime',0) or 0))
+          mains=sorted([g for g in groups.values() if g['label']=='HarmonyBotPro'],key=lambda z:z['entryTime']); children=sorted([g for g in groups.values() if g['label']=='HarmonyBotPro-G'],key=lambda z:z['entryTime']); baskets=[{'direction':g['direction'],'entryTime':g['entryTime'],'closeTime':g['closeTime'],'net':g['net'],'grid_children':0} for g in mains]
+          for ch in children:
+              cand=[b for b in baskets if b['direction']==ch['direction'] and b['entryTime']<=ch['entryTime']<=b['closeTime']]
+              if not cand: cand=[b for b in baskets if b['direction']==ch['direction'] and 0<=ch['entryTime']-b['entryTime']<=4*60*60*1000]
+              if cand: b=max(cand,key=lambda z:z['entryTime']); b['net']+=ch['net']; b['grid_children']+=1; b['closeTime']=max(b['closeTime'],ch['closeTime'])
+          vals=[b['net'] for b in baskets]; wins=[x for x in vals if x>0]; losses=[x for x in vals if x<0]; gw=sum(wins); gl=abs(sum(losses)); pf=gw/gl if gl>0 else (999 if gw>0 else 0); net=sum(vals); exp=net/len(vals) if vals else 0; wr=100*len(wins)/len(vals) if vals else 0; aw=sum(wins)/len(wins) if wins else 0; al=sum(losses)/len(losses) if losses else 0; rr=aw/abs(al) if aw>0 and al<0 else None; dd=float(eq.get('maxEquityDrawdownPercent',0) or 0)
+          errs=[x for x in t.splitlines() if re.search(r'InvalidRequest|Invalid Volume|Insufficient Margin|unprotected position|unexpected hedge|Margin Cascade|Exposure Explosion',x,re.I)]; topwins=sorted(wins,reverse=True); top1=100*sum(topwins[:1])/sum(topwins) if topwins else 0
+          out={'candidate':c,'status':'OK','data_mode':'ticks','basket_count':len(vals),'pf':pf,'net':net,'expectancy':exp,'win_rate_pct':wr,'realized_rr':rr,'max_dd_pct':dd,'execution_error_count':len(errs),'top1_win_contribution_pct':top1,'val_gate_pass':bool(dd<=10 and pf>1 and net>0 and exp>0 and len(errs)==0)}
+          pathlib.Path(f'seal/audit/{c}-VAL-GATE.json').write_text(json.dumps(out,indent=2)); print(json.dumps(out,indent=2))
+          PY
+      - name: Cleanup
+        if: always()
+        run: rm -f seal/ctrader.pwd seal/accounts.json; rm -rf seal/data || true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: PHASE1-VAL-${{ matrix.candidate }}
+          path: |
+            seal/reports
+            seal/logs
+            seal/audit
+          retention-days: 30
+
+  phase1_decision:
+    needs: [development_gate, validation]
+    if: always()
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: PHASE1-DEVELOPMENT-GATE
+          path: decision/dev
+      - uses: actions/download-artifact@v4
+        if: needs.development_gate.outputs.has_survivors == 'true'
+        with:
+          pattern: PHASE1-VAL-*
+          path: decision/val
+          merge-multiple: true
+      - name: Final Phase-1 decision
+        run: |
+          python3 - <<'PY'
+          import json,glob,pathlib
+          dev=json.load(open('decision/dev/PHASE1-DEVELOPMENT-GATE.json')); val=[]
+          for p in glob.glob('decision/val/**/**-VAL-GATE.json',recursive=True):
+              try: val.append(json.load(open(p)))
+              except: pass
+          passed=[x['candidate'] for x in val if x.get('val_gate_pass')]
+          if passed:
+              status='ADVANCE_TO_ROBUSTNESS'; performance_freeze='OPEN'; final='HOLD'
+          else:
+              status='PHASE1_HOLD'; performance_freeze='FAIL_STAGE1' if dev.get('survivors') else 'FAIL_DEVELOPMENT_EDGE'; final='HOLD'
+          out={'source_version':'V29.3','source_changed':False,'engineering_freeze':'PASS','phase1_status':status,'development_survivors':dev.get('survivors',[]),'validation_results':val,'validation_passed':passed,'performance_freeze':performance_freeze,'final_commercial_freeze':final,'final_holdout_status':'UNTOUCHED_NOT_RUN'}
+          pathlib.Path('PHASE1-FINAL-DECISION.json').write_text(json.dumps(out,indent=2)); print(json.dumps(out,indent=2))
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: V293-PERFORMANCE-PHASE1-DECISION
+          path: PHASE1-FINAL-DECISION.json
+          retention-days: 30
