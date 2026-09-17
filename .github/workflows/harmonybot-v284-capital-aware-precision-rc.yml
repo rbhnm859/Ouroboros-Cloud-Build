@@ -1,0 +1,194 @@
+name: HarmonyBot V28.4 Capital-Aware Precision RC
+on:
+  workflow_dispatch:
+    inputs:
+      checkpoint:
+        required: true
+        default: D7
+        type: choice
+        options: [D7, D7_LONG_WARMUP, M1]
+permissions:
+  contents: read
+jobs:
+  validate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: harmonybot-v284-capital-aware-precision-rc
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+      - name: Generate HarmonyBot V28.4
+        run: |
+          set -euo pipefail
+          python3 -m py_compile \
+            tmp/harmonybot-v26-build/fix_v282_strategy_quality_rc.py \
+            tmp/harmonybot-v26-build/fix_v283_execution_quality.py \
+            tmp/harmonybot-v26-build/fix_v284_capital_aware_precision.py
+          python3 tmp/harmonybot-v26-build/build_v261_frequency.py
+          python3 tmp/harmonybot-v26-build/fix_v261_mtf_overload.py
+          python3 tmp/harmonybot-v26-build/fix_v262_frequency_safe.py
+          python3 tmp/harmonybot-v26-build/fix_v262_grid_guard_band.py
+          python3 tmp/harmonybot-v26-build/fix_v27_commercial_rc.py
+          python3 tmp/harmonybot-v26-build/fix_v28_frequency_architecture.py
+          python3 tmp/harmonybot-v26-build/fix_v28_cost_rr.py
+          python3 tmp/harmonybot-v26-build/fix_v281_geometry_quality_engine.py
+          python3 tmp/harmonybot-v26-build/fix_v281_commercial_onepass.py
+          python3 tmp/harmonybot-v26-build/fix_v282_strategy_quality_rc.py
+          python3 tmp/harmonybot-v26-build/fix_v283_execution_quality.py
+          python3 tmp/harmonybot-v26-build/fix_v284_capital_aware_precision.py
+          mkdir -p seal/{build,algo,reports,logs,data}
+          cp cli-build/HarmonyBotPro_v261/HarmonyBotPro.cs seal/build/HarmonyBotPro.cs
+          for x in \
+            'V28.4-Capital-Aware-Precision-RC' \
+            'EnableFibGrid' \
+            'GeometryQualityScore' \
+            'EnableCapitalAwarePrecisionEntry' \
+            'EvaluationStartUtcIso' \
+            'V284PrecisionEntryReady' \
+            '[V284-NATIVE-RISK-REJECT]' \
+            '[V284-SUMMARY]' \
+            'return SmallAccountMode ? Math.Min(MinStopLossPips, SmallAccountMinSLPips)'; do
+              grep -Fq "$x" seal/build/HarmonyBotPro.cs
+          done
+      - name: Compile V28.4 zero-error
+        run: |
+          set -euo pipefail
+          cat > seal/build/HarmonyBotPro.csproj <<'EOF'
+          <Project Sdk="Microsoft.NET.Sdk"><PropertyGroup><TargetFramework>net6.0</TargetFramework><ImplicitUsings>disable</ImplicitUsings><Nullable>disable</Nullable><AlgoName>HarmonyBotPro_v284_capital_aware_precision_rc</AlgoName><AlgoBuild>true</AlgoBuild><AlgoPublish>false</AlgoPublish><IncludeSource>false</IncludeSource></PropertyGroup><ItemGroup><PackageReference Include="cTrader.Automate" Version="1.0.19" /></ItemGroup></Project>
+          EOF
+          dotnet restore seal/build/HarmonyBotPro.csproj
+          dotnet build seal/build/HarmonyBotPro.csproj -c Release --no-restore 2>&1 | tee seal/build.log
+          ! grep -q ' error CS' seal/build.log
+          A=$(find seal/build -name '*.algo' -type f -print -quit); test -n "$A"; test -s "$A"
+          cp "$A" seal/algo/HarmonyBotPro_v284_capital_aware_precision_rc.algo
+          sha256sum seal/algo/*.algo > seal/algo.sha256
+      - name: Resolve FxPro demo account
+        env:
+          CTRADER_PASSWORD: ${{ secrets.CTRADER_PASSWORD }}
+          CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+          CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+        run: |
+          set -euo pipefail
+          docker pull ghcr.io/spotware/ctrader-console:5.9.11
+          printf '%s' "$CTRADER_PASSWORD" > seal/ctrader.pwd; chmod 600 seal/ctrader.pwd
+          docker run --rm -v "$PWD/seal:/work" ghcr.io/spotware/ctrader-console:5.9.11 accounts --ctid="$CTRADER_CTID" --pwd-file=/work/ctrader.pwd > seal/accounts.json
+          N=$(python3 - <<'PY'
+          import json,os
+          a=json.load(open('seal/accounts.json',encoding='utf-8-sig'))
+          e=os.environ['CTRADER_ACCOUNT'].strip()
+          m=next((x for x in a if str(x.get('Number',''))==e or str(x.get('Id',''))==e),None)
+          if not m or m.get('Broker','').lower()!='fxpro' or m.get('Live') is not False or m.get('DepositCurrency')!='USD' or int(m.get('Leverage',0))!=500:
+              raise SystemExit('account mismatch')
+          print(m['Number'])
+          PY
+          )
+          echo "CTRADER_ACCOUNT_NUMBER=$N" >> "$GITHUB_ENV"
+      - name: Resolve warmup and evaluation dates
+        env:
+          CP: ${{ inputs.checkpoint }}
+        run: |
+          case "$CP" in
+            D7)
+              START=02/09/2026; EVAL=2026-09-09T00:00:00Z; END=16/09/2026; KILL=600;;
+            D7_LONG_WARMUP)
+              START=17/08/2026; EVAL=2026-09-09T00:00:00Z; END=16/09/2026; KILL=900;;
+            M1)
+              START=10/08/2026; EVAL=2026-08-17T00:00:00Z; END=16/09/2026; KILL=1200;;
+            *) exit 2;;
+          esac
+          echo "START=$START" >> "$GITHUB_ENV"
+          echo "EVAL=$EVAL" >> "$GITHUB_ENV"
+          echo "END=$END" >> "$GITHUB_ENV"
+          echo "KILL=$KILL" >> "$GITHUB_ENV"
+      - name: Backtest V28.4 warmup-aware
+        env:
+          CTRADER_PASSWORD: ${{ secrets.CTRADER_PASSWORD }}
+          CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+          CP: ${{ inputs.checkpoint }}
+        run: |
+          set -euo pipefail
+          T0=$(date +%s); C="v284-${CP,,}-${GITHUB_RUN_ID}"
+          rm -f "seal/reports/$CP.json" "seal/reports/$CP.html" "seal/logs/$CP.log"
+          docker run --name "$C" -v "$PWD/seal:/work" ghcr.io/spotware/ctrader-console:5.9.11 backtest \
+            /work/algo/HarmonyBotPro_v284_capital_aware_precision_rc.algo \
+            --ctid="$CTRADER_CTID" --pwd-file=/work/ctrader.pwd --account="$CTRADER_ACCOUNT_NUMBER" \
+            --symbol=XAUUSD --period=m1 --start="$START" --end="$END" --balance=100 --data-mode=m1 --data-dir=/work/data \
+            --commission=35 --spread=1 --SymbolName=XAUUSD \
+            --RiskPercent=1.0 --MaxDrawdown=10 --MinStopLossPips=100 \
+            --SmallAccountMode=true --SmallAccountMinSLPips=25 \
+            --EnableAltBat=true --EnableFiveZero=true --EnableFibGrid=true --MinRR=2 \
+            --EnableCapitalAwarePrecisionEntry=true --PrecisionPrzMaxDistanceAtr=0.45 --PrecisionMaxWaitAtr=1.25 \
+            --CapitalSafetyHeadroom=0.98 --CapGridStopToRiskBudget=true --EvaluationStartUtcIso="$EVAL" \
+            --report="/work/reports/$CP.html" --report-json="/work/reports/$CP.json" > "seal/logs/$CP.log" 2>&1 &
+          PID=$!; DONE=0; WHY=none
+          for ((i=0;i<KILL;i+=2)); do
+            if test -s "seal/reports/$CP.json" && python3 - "$CP" <<'PY'
+          import json,sys
+          d=json.load(open('seal/reports/'+sys.argv[1]+'.json',encoding='utf-8-sig'))
+          m=d.get('main',{}) if isinstance(d,dict) else {}
+          raise SystemExit(0 if ('endingEquity' in m and 'netProfit' in m) else 1)
+          PY
+            then DONE=1; WHY=report_json; break; fi
+            if grep -q 'Progress | Backtesting | 100.00 %' "seal/logs/$CP.log" 2>/dev/null && grep -q 'CBot instance .* stopped' "seal/logs/$CP.log" 2>/dev/null; then DONE=1; WHY=completed_log; break; fi
+            if ! kill -0 "$PID" 2>/dev/null; then WHY=process_exit; break; fi
+            sleep 2
+          done
+          docker stop --time 3 "$C" >/dev/null 2>&1 || true
+          docker rm -f "$C" >/dev/null 2>&1 || true
+          wait "$PID" 2>/dev/null || true
+          printf 'seconds=%s\ncompletion_detected=%s\ncompletion_source=%s\nstart=%s\nevaluation_start=%s\nend=%s\n' \
+            "$(($(date +%s)-T0))" "$DONE" "$WHY" "$START" "$EVAL" "$END" > "seal/$CP-timing.txt"
+          test "$DONE" = 1
+      - name: Build V28.4 summary
+        if: always()
+        env:
+          CP: ${{ inputs.checkpoint }}
+        run: |
+          mkdir -p seal
+          python3 - <<'PY'
+          import pathlib,re,json,os
+          cp=os.environ['CP']
+          lp=pathlib.Path(f'seal/logs/{cp}.log')
+          t=lp.read_text(errors='ignore') if lp.exists() else ''
+          def last(p,cast=float,default=None):
+              m=re.findall(p,t,re.M)
+              return cast(m[-1]) if m else default
+          trades=last(r'"TotalTrades"\s*:\s*(\d+)',int,0)
+          wins=last(r'"WinningTrades"\s*:\s*(\d+)',int,0)
+          losses=last(r'"LosingTrades"\s*:\s*(\d+)',int,0)
+          v284=(re.findall(r'\[V284-SUMMARY\].*',t) or [None])[-1]
+          out={
+            'version':'V28.4-Capital-Aware-Precision-RC','checkpoint':cp,
+            'equity':last(r'"Equity"\s*:\s*(-?[\d.]+)',float,0),
+            'net_profit':last(r'"NetProfit"\s*:\s*(-?[\d.]+)',float,0),
+            'trades':trades,'wins':wins,'losses':losses,
+            'win_rate_pct':wins/trades*100 if trades else 0,
+            'profit_factor':last(r'"ProfitFactor"\s*:\s*(-?[\d.]+)',float,None),
+            'max_dd_pct':last(r'"MaxEquityDrawdownPercentages"\s*:\s*(-?[\d.]+)',float,0),
+            'avg_r':last(r'Avg R\s*:\s*(-?[\d.]+)',float,None),
+            'expectancy_r':last(r'Expectancy\s*:\s*(-?[\d.]+)R',float,None),
+            'funnel':(re.findall(r'\[COMMERCIAL-DIAG\].*',t) or [None])[-1],
+            'v284_summary':v284,
+            'precision_ready':last(r'precisionReady=(\d+)',int,0),
+            'precision_wait':last(r'precisionWait=(\d+)',int,0),
+            'capital_hard_reject':last(r'capitalHardReject=(\d+)',int,0),
+            'native_risk_reject':last(r'nativeRiskReject=(\d+)',int,0),
+            'grid_stop_capped':last(r'gridStopCapped=(\d+)',int,0),
+            'warmup_skipped':last(r'warmupSkipped=(\d+)',int,0),
+            'effective_min_sl':last(r'effectiveMinSL=([\d.]+)',float,None)
+          }
+          pathlib.Path(f'seal/{cp}-V284-SUMMARY.json').write_text(json.dumps(out,indent=2))
+          print(json.dumps(out,indent=2))
+          PY
+      - name: Cleanup secrets
+        if: always()
+        run: rm -f seal/ctrader.pwd seal/accounts.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: V284-CAPITAL-PRECISION-${{ inputs.checkpoint }}
+          path: seal
+          retention-days: 30
