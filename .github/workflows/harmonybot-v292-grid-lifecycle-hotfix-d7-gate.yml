@@ -185,6 +185,23 @@ jobs:
           wait "$PID" 2>/dev/null || true
           test "$DONE" = 1
 
+      - name: Emit D7 stop and Grid execution telemetry
+        if: always()
+        run: |
+          python3 - <<'PY'
+          import pathlib,re
+          rx=re.compile(r'V292-FAST-READY|V291-TACTICAL|\[GRID\]|\[ORDER|\[ENTRY|STOP|SL=|stopPips=|maxStop=|risk|margin|InvalidRequest|Insufficient Margin',re.I)
+          for track in ('A','B'):
+              p=pathlib.Path(f'seal/logs/D7-{track}-TICKS.log')
+              print(f'===== D7-{track} EXECUTION TELEMETRY =====')
+              if not p.exists():
+                  print('LOG_MISSING')
+                  continue
+              lines=[line for line in p.read_text(errors='ignore').splitlines() if rx.search(line)]
+              for line in lines[-500:]: print(line)
+              print(f'===== D7-{track} TELEMETRY_LINES={len(lines)} =====')
+          PY
+
       - name: Build D7 Grid lifecycle evidence and gate
         if: always()
         run: |
