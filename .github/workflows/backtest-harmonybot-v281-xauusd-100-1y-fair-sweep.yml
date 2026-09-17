@@ -41,10 +41,7 @@ jobs:
           cp cli-build/HarmonyBotPro_v261/HarmonyBotPro.cs cli-build/HarmonyBotPro_v281/HarmonyBotPro.cs
           cat > cli-build/HarmonyBotPro_v281/HarmonyBotPro.csproj <<'EOF'
           <Project Sdk="Microsoft.NET.Sdk">
-            <PropertyGroup>
-              <TargetFramework>net6.0</TargetFramework><ImplicitUsings>disable</ImplicitUsings><Nullable>disable</Nullable>
-              <AlgoName>HarmonyBotPro_v281</AlgoName><AlgoBuild>true</AlgoBuild><AlgoPublish>false</AlgoPublish><IncludeSource>false</IncludeSource>
-            </PropertyGroup>
+            <PropertyGroup><TargetFramework>net6.0</TargetFramework><ImplicitUsings>disable</ImplicitUsings><Nullable>disable</Nullable><AlgoName>HarmonyBotPro_v281</AlgoName><AlgoBuild>true</AlgoBuild><AlgoPublish>false</AlgoPublish><IncludeSource>false</IncludeSource></PropertyGroup>
             <ItemGroup><PackageReference Include="cTrader.Automate" Version="1.0.19" /></ItemGroup>
           </Project>
           EOF
@@ -56,19 +53,18 @@ jobs:
           ! grep -q ' error CS' build-${{ matrix.period }}.log
           ALGO="$(find cli-build/HarmonyBotPro_v281 -type f -name '*.algo' -print -quit)"
           test -n "$ALGO" && test -s "$ALGO"
-          mkdir -p backtest/cache backtest/reports backtest/algo
+          mkdir -p backtest/reports backtest/algo
           cp "$ALGO" backtest/algo/HarmonyBotPro_v281.algo
           sha256sum backtest/algo/HarmonyBotPro_v281.algo | tee backtest/algo/HarmonyBotPro_v281.algo.sha256
       - name: Pull official cTrader CLI
         run: docker pull ghcr.io/spotware/ctrader-console:5.9.11
       - name: Create cTrader password file
-        env:
-          CTRADER_PASSWORD: ${{ secrets.CTRADER_PASSWORD }}
+        env: {CTRADER_PASSWORD: '${{ secrets.CTRADER_PASSWORD }}'}
         run: |
-          test -n "${CTRADER_PASSWORD:-}" || { echo 'Missing CTRADER_PASSWORD'; exit 1; }
+          test -n "${CTRADER_PASSWORD:-}" || exit 1
           printf '%s' "$CTRADER_PASSWORD" > backtest/ctrader.pwd
           chmod 600 backtest/ctrader.pwd
-      - name: Resolve configured account to cTrader internal ID
+      - name: Resolve and verify configured trading account number
         env:
           CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
           CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
@@ -77,35 +73,26 @@ jobs:
           docker run --rm -v "$PWD/backtest:/work" -e "CTID=$CTRADER_CTID" -e 'PWD-FILE=/work/ctrader.pwd' ghcr.io/spotware/ctrader-console:5.9.11 accounts --environment-variables > backtest/accounts.json
           python3 - <<'PY'
           import json,os
-          p='backtest/accounts.json'; expected=os.environ.get('CTRADER_ACCOUNT','').strip()
-          data=json.load(open(p,encoding='utf-8-sig'))
-          match=None
+          data=json.load(open('backtest/accounts.json',encoding='utf-8-sig')); expected=os.environ.get('CTRADER_ACCOUNT','').strip(); match=None
           for a in data:
-              if str(a.get('Number','')).strip()==expected or str(a.get('Id','')).strip()==expected:
-                  match=a; break
-          if not match:
-              raise SystemExit('Configured account is not linked to this cTID')
-          if match.get('Broker','').lower()!='fxpro' or match.get('Live') is not False or match.get('DepositCurrency')!='USD' or int(match.get('Leverage',0))!=500:
-              raise SystemExit('Configured account does not match FxPro Demo USD 1:500 commercial-test profile')
-          if abs(float(match.get('Balance',0))-100.0)>0.01:
-              raise SystemExit('Configured account balance is not $100')
-          internal=str(match['Id'])
-          with open(os.environ['GITHUB_ENV'],'a') as f: f.write('CTRADER_INTERNAL_ACCOUNT='+internal+'\n')
-          print('account_profile_verified=FxPro Demo USD 1:500 $100')
+              if str(a.get('Number','')).strip()==expected or str(a.get('Id','')).strip()==expected: match=a; break
+          if not match: raise SystemExit('Configured account is not linked to this cTID')
+          if match.get('Broker','').lower()!='fxpro' or match.get('Live') is not False or match.get('DepositCurrency')!='USD' or int(match.get('Leverage',0))!=500: raise SystemExit('Account profile mismatch')
+          if abs(float(match.get('Balance',0))-100.0)>0.01: raise SystemExit('Account balance mismatch')
+          number=str(match.get('Number','')).strip()
+          if not number: raise SystemExit('Trading account number missing')
+          with open(os.environ['GITHUB_ENV'],'a') as f: f.write('CTRADER_ACCOUNT_NUMBER='+number+'\n')
+          print('account_profile_verified=FxPro Demo USD 1:500 $100; using trading account Number as required by cTrader CLI')
           PY
           rm -f backtest/accounts.json
       - name: Backtest XAUUSD $100 1Y ${{ matrix.period }}
-        env:
-          CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+        env: {CTRADER_CTID: '${{ secrets.CTRADER_CTID }}'}
         run: |
           set -euo pipefail
-          test -n "${CTRADER_CTID:-}" && test -n "${CTRADER_INTERNAL_ACCOUNT:-}"
           OUT="V281-XAUUSD-100-1Y-${{ matrix.period }}"
-          docker run --rm -v "$PWD/backtest:/work" -e "CTID=$CTRADER_CTID" -e 'PWD-FILE=/work/ctrader.pwd' -e "ACCOUNT=$CTRADER_INTERNAL_ACCOUNT" ghcr.io/spotware/ctrader-console:5.9.11 \
+          docker run --rm -v "$PWD/backtest:/work" -e "CTID=$CTRADER_CTID" -e 'PWD-FILE=/work/ctrader.pwd' -e "ACCOUNT=$CTRADER_ACCOUNT_NUMBER" ghcr.io/spotware/ctrader-console:5.9.11 \
             backtest /work/algo/HarmonyBotPro_v281.algo --environment-variables \
-            --broker=fxpro --symbol=XAUUSD --period=${{ matrix.period }} \
-            --start='17/09/2025' --end='16/09/2026' --balance=100 --data-mode=m1 \
-            --commission=35 \
+            --broker=fxpro --symbol=XAUUSD --period=${{ matrix.period }} --start='17/09/2025' --end='16/09/2026' --balance=100 --data-mode=m1 --commission=35 \
             --SymbolName=XAUUSD --RiskPercent=1.0 --MaxDrawdown=10.0 --MinStopLossPips=100.0 --SmallAccountMinSLPips=25.0 \
             --EnableAltBat=true --EnableFiveZero=true --EnableFibGrid=true \
             --report="/work/reports/${OUT}.html" --report-json="/work/reports/${OUT}.json"
@@ -115,15 +102,12 @@ jobs:
           python3 - <<'PY'
           import json,glob,os
           for p in glob.glob('backtest/reports/*.json'):
-            d=json.load(open(p,encoding='utf-8-sig'))
-            h=d.get('history',{}) if isinstance(d,dict) else {}; items=h.get('items',[]) if isinstance(h,dict) else []
-            profits=[]
+            d=json.load(open(p,encoding='utf-8-sig')); h=d.get('history',{}) if isinstance(d,dict) else {}; items=h.get('items',[]) if isinstance(h,dict) else []; profits=[]
             for x in items:
               if isinstance(x,dict):
                 for k in ('netProfit','net_profit','profit','NetProfit'):
                   if isinstance(x.get(k),(int,float)): profits.append(float(x[k])); break
-            wins=sum(v>0 for v in profits); gp=sum(v for v in profits if v>0); gl=-sum(v for v in profits if v<0)
-            dd=None
+            wins=sum(v>0 for v in profits); gp=sum(v for v in profits if v>0); gl=-sum(v for v in profits if v<0); dd=None
             for k in ('maxEquityDrawdownPercent','maxEquityDrawdown','MaxEquityDrawdownPercent','maxDrawdownPercent'):
               if isinstance(d.get(k),(int,float)): dd=float(d[k]); break
             out={'file':os.path.basename(p),'trades':len(profits),'win_rate':(100*wins/len(profits) if profits else None),'net':sum(profits),'pf':(gp/gl if gl>0 else None),'expectancy':(sum(profits)/len(profits) if profits else None),'max_equity_dd':dd}
