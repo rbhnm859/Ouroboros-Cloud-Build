@@ -1,4 +1,4 @@
-name: HarmonyBot V29.3 M1 Tick Commercial Gate
+name: HarmonyBot V29.3 M1 Profitability Preset Gate
 
 on:
   push:
@@ -53,14 +53,14 @@ jobs:
           grep -Fq '[V293-GRID-RISK-CAP]' seal/build/HarmonyBotPro.cs
           grep -Fq 'CapGridStopToRiskBudget && p.StopLoss.HasValue' seal/build/HarmonyBotPro.cs
           cat > seal/build/HarmonyBotPro.csproj <<'EOF'
-          <Project Sdk="Microsoft.NET.Sdk"><PropertyGroup><TargetFramework>net6.0</TargetFramework><ImplicitUsings>disable</ImplicitUsings><Nullable>disable</Nullable><AlgoName>HarmonyBotPro_v293_m1_tick_candidate</AlgoName><AlgoBuild>true</AlgoBuild><AlgoPublish>false</AlgoPublish><IncludeSource>false</IncludeSource></PropertyGroup><ItemGroup><PackageReference Include="cTrader.Automate" Version="1.0.19" /></ItemGroup></Project>
+          <Project Sdk="Microsoft.NET.Sdk"><PropertyGroup><TargetFramework>net6.0</TargetFramework><ImplicitUsings>disable</ImplicitUsings><Nullable>disable</Nullable><AlgoName>HarmonyBotPro_v293_m1_payoff_preset</AlgoName><AlgoBuild>true</AlgoBuild><AlgoPublish>false</AlgoPublish><IncludeSource>false</IncludeSource></PropertyGroup><ItemGroup><PackageReference Include="cTrader.Automate" Version="1.0.19" /></ItemGroup></Project>
           EOF
           dotnet restore seal/build/HarmonyBotPro.csproj
           dotnet build seal/build/HarmonyBotPro.csproj -c Release --no-restore 2>&1 | tee seal/build.log
           ! grep -q ' error CS' seal/build.log
           A=$(find seal/build -name '*.algo' -type f -print -quit)
           test -n "$A"; test -s "$A"
-          cp "$A" seal/algo/HarmonyBotPro_v293_m1_tick_candidate.algo
+          cp "$A" seal/algo/HarmonyBotPro_v293_m1_payoff_preset.algo
           sha256sum seal/algo/*.algo > seal/algo.sha256
 
       - name: Resolve FxPro demo account
@@ -81,20 +81,21 @@ jobs:
           )
           echo "CTRADER_ACCOUNT_NUMBER=$N" >> "$GITHUB_ENV"
 
-      - name: M1-A tick $100 Small Capital approved execution preset
+      - name: M1-A tick $100 Small Capital payoff-repair preset
         id: track_a
         continue-on-error: true
         run: |
           set -euo pipefail
           C="v293-m1-a-${GITHUB_RUN_ID}"
           docker run --name "$C" -v "$PWD/seal:/work" ghcr.io/spotware/ctrader-console:5.9.11 backtest \
-            /work/algo/HarmonyBotPro_v293_m1_tick_candidate.algo \
+            /work/algo/HarmonyBotPro_v293_m1_payoff_preset.algo \
             --ctid="$CTRADER_CTID" --pwd-file=/work/ctrader.pwd --account="$CTRADER_ACCOUNT_NUMBER" \
             --symbol=XAUUSD --period=m1 --start=10/08/2026 --end=16/09/2026 --balance=100 --data-mode=ticks --data-dir=/work/data \
             --commission=35 --spread=1 --SymbolName=XAUUSD \
             --RiskPercent=1.40 --MaxSlippagePips=70 --MaxDrawdown=10 --MinStopLossPips=100 \
             --SmallAccountMode=true --SmallAccountMinSLPips=25 \
             --EnableAltBat=true --EnableFiveZero=true --EnableFibGrid=true --MinRR=2 \
+            --GridProfitFib=1.618 --GridStopFib=1.618 \
             --EnableCapitalAwarePrecisionEntry=true --PrecisionPrzMaxDistanceAtr=0.45 --PrecisionMaxWaitAtr=1.25 \
             --CapitalSafetyHeadroom=0.98 --CapGridStopToRiskBudget=true --EvaluationStartUtcIso=2026-08-17T00:00:00Z \
             --V29PersistentPrzQueue=true --V29PendingMaxBars=90 --V29PendingGlobalMax=12 --V29PendingPerPatternMax=3 \
@@ -121,7 +122,7 @@ jobs:
           wait "$PID" 2>/dev/null || true
           test "$DONE" = 1
 
-      - name: M1-B tick Full Bot Small Capital OFF
+      - name: M1-B tick Full Bot payoff-repair preset
         id: track_b
         if: always()
         continue-on-error: true
@@ -129,13 +130,14 @@ jobs:
           set -euo pipefail
           C="v293-m1-b-${GITHUB_RUN_ID}"
           docker run --name "$C" -v "$PWD/seal:/work" ghcr.io/spotware/ctrader-console:5.9.11 backtest \
-            /work/algo/HarmonyBotPro_v293_m1_tick_candidate.algo \
+            /work/algo/HarmonyBotPro_v293_m1_payoff_preset.algo \
             --ctid="$CTRADER_CTID" --pwd-file=/work/ctrader.pwd --account="$CTRADER_ACCOUNT_NUMBER" \
             --symbol=XAUUSD --period=m1 --start=10/08/2026 --end=16/09/2026 --balance=10000 --data-mode=ticks --data-dir=/work/data \
             --commission=35 --spread=1 --SymbolName=XAUUSD \
             --RiskPercent=1.0 --MaxSlippagePips=30 --MaxDrawdown=10 --MinStopLossPips=100 \
             --SmallAccountMode=false --SmallAccountMinSLPips=25 \
             --EnableAltBat=true --EnableFiveZero=true --EnableFibGrid=true --MinRR=2 \
+            --GridProfitFib=1.618 --GridStopFib=1.618 \
             --EnableCapitalAwarePrecisionEntry=true --PrecisionPrzMaxDistanceAtr=0.45 --PrecisionMaxWaitAtr=1.25 \
             --CapitalSafetyHeadroom=0.98 --CapGridStopToRiskBudget=true --EvaluationStartUtcIso=2026-08-17T00:00:00Z \
             --V29PersistentPrzQueue=true --V29PendingMaxBars=90 --V29PendingGlobalMax=12 --V29PendingPerPatternMax=3 \
@@ -160,7 +162,7 @@ jobs:
           wait "$PID" 2>/dev/null || true
           test "$DONE" = 1
 
-      - name: Build M1 evidence matrix and functional gates
+      - name: Build M1 evidence matrix and stage-1 profitability gate
         if: always()
         run: |
           python3 - <<'PY'
@@ -176,47 +178,51 @@ jobs:
               trades=int(sv('totalTrades',len(h)) or 0); wins=int(sv('winningTrades',0) or 0); losses=int(sv('losingTrades',0) or 0)
               win_vals=[float(x.get('net',0) or 0) for x in h if float(x.get('net',0) or 0)>0]; loss_vals=[float(x.get('net',0) or 0) for x in h if float(x.get('net',0) or 0)<0]
               avg_win=sum(win_vals)/len(win_vals) if win_vals else 0.0; avg_loss=sum(loss_vals)/len(loss_vals) if loss_vals else 0.0
-              realized_rr=(avg_win/abs(avg_loss)) if avg_win>0 and avg_loss<0 else None
-              net=float(m.get('netProfit',0) or 0); pf=sv('profitFactor')
-              gross_win=sum(win_vals); gross_loss=abs(sum(loss_vals)); derived_pf=(gross_win/gross_loss if gross_loss>0 else ('Infinity' if gross_win>0 else 0.0))
-              pts=eq.get('points',[]) or []; min_equity=min([float(x.get('minEquity',balance) or balance) for x in pts],default=float(m.get('endingEquity',balance) or balance))
-              max_dd=float(eq.get('maxEquityDrawdownPercent',0) or 0)
-              max_loss=max([abs(x)/balance*100 for x in loss_vals],default=0.0)
+              rr=(avg_win/abs(avg_loss)) if avg_win>0 and avg_loss<0 else None
+              net=float(m.get('netProfit',0) or 0); gross_win=sum(win_vals); gross_loss=abs(sum(loss_vals)); pf=(gross_win/gross_loss if gross_loss>0 else (999.0 if gross_win>0 else 0.0))
+              pts=eq.get('points',[]) or []; min_eq=min([float(x.get('minEquity',balance) or balance) for x in pts],default=float(m.get('endingEquity',balance) or balance))
+              dd=float(eq.get('maxEquityDrawdownPercent',0) or 0); max_loss=max([abs(x)/balance*100 for x in loss_vals],default=0.0)
               errs=[x for x in t.splitlines() if re.search(r'InvalidRequest|Invalid Volume|Insufficient Margin|unprotected position|unexpected hedge|Margin Cascade|Exposure Explosion',x,re.I)]
-              hs=sorted(h,key=lambda x:int(x.get('entryTime',0) or 0)); overlap=0
+              hs=sorted(h,key=lambda x:int(x.get('entryTime',0) or 0)); allowed_grid_overlap=0; unexpected_overlap=0
               for i,x in enumerate(hs):
                   e=int(x.get('entryTime',0) or 0); c=int(x.get('closeTime',0) or 0)
                   for y in hs[i+1:]:
                       ye=int(y.get('entryTime',0) or 0)
                       if ye>=c: break
-                      if ye>e: overlap+=1
-              grids_created=len(re.findall(r'\[GRID\]\s+Basket\s+#.*created',t,re.I)); grid_stop=len(re.findall(r'\[GRID\].*STOP',t,re.I)); grid_tp=len(re.findall(r'\[GRID\].*TP',t,re.I)); caps=len(re.findall(r'\[V293-GRID-RISK-CAP\]',t))
-              reported_margin=[float(x) for x in re.findall(r'marginUsed[=:]\s*([0-9.]+)',t,re.I)]
-              estimated_margin=[float(x.get('volume',0) or 0)*float(x.get('entryPrice',0) or 0)/500.0 for x in h if float(x.get('volume',0) or 0)>0 and float(x.get('entryPrice',0) or 0)>0]
+                      if ye<=e: continue
+                      same_dir=str(x.get('direction','')).lower()==str(y.get('direction','')).lower()
+                      one_grid=(x.get('label')=='HarmonyBotPro-G' or y.get('label')=='HarmonyBotPro-G')
+                      if same_dir and one_grid: allowed_grid_overlap+=1
+                      else: unexpected_overlap+=1
+              grids=len(re.findall(r'\[GRID\]\s+Basket\s+#.*created',t,re.I)); adds=len(re.findall(r'\[GRID\]\s+Basket\s+#.*add L\d+',t,re.I)); caps=len(re.findall(r'\[V293-GRID-RISK-CAP\]',t))
+              margins=[float(x.get('volume',0) or 0)*float(x.get('entryPrice',0) or 0)/500.0 for x in h if float(x.get('volume',0) or 0)>0 and float(x.get('entryPrice',0) or 0)>0]
+              loss_abs=sorted([abs(x) for x in loss_vals],reverse=True)
               OUT[track]={
-                'report_complete':True,'data_type':m.get('data',{}).get('type'),'starting_capital':m.get('startingCapital'),'ending_equity':m.get('endingEquity'),'net_profit':net,
-                'return_pct':((float(m.get('endingEquity',balance))-balance)/balance*100),'profit_factor_reported':pf,'profit_factor_derived':derived_pf,
-                'max_equity_drawdown_pct':max_dd,'win_rate_pct':wins/trades*100 if trades else 0.0,'trades':trades,'wins':wins,'losses':losses,
-                'average_winner':avg_win,'average_loser':avg_loss,'realized_rr':realized_rr,'expectancy_net_per_trade':net/trades if trades else None,
-                'minimum_equity':min_equity,'max_consecutive_losses':int(sv('maxConsecutiveLosingTrades',0) or 0),'max_single_trade_loss_pct_initial':max_loss,
-                'commission':sv('commissions'),'execution_error_count':len(errs),'execution_errors':errs[:40],'overlapping_closed_positions':overlap,
-                'grid_baskets_created':grids_created,'grid_stop_events':grid_stop,'grid_tp_events':grid_tp,'v293_grid_risk_cap_events':caps,
-                'max_margin_usage_reported':max(reported_margin) if reported_margin else None,'estimated_max_margin_usage':max(estimated_margin) if estimated_margin else 0.0,
-                'ending_margin_used':d.get('positions',{}).get('marginUsed'),'ending_free_margin':d.get('positions',{}).get('freeMargin'),'history':h,
-                'v29_summary':(re.findall(r'\[V29-SUMMARY\].*',t) or [None])[-1],
-                'v291_summary':(re.findall(r'\[V291-SUMMARY\].*',t) or [None])[-1],
-                'v292_summary':(re.findall(r'\[V292-SUMMARY\].*',t) or [None])[-1]
+                'report_complete':True,'data_type':m.get('data',{}).get('type'),'starting_capital':m.get('startingCapital'),'ending_equity':m.get('endingEquity'),
+                'net_profit':net,'return_pct':((float(m.get('endingEquity',balance))-balance)/balance*100),'profit_factor_derived':pf,'max_equity_drawdown_pct':dd,
+                'win_rate_pct':wins/trades*100 if trades else 0.0,'trades':trades,'wins':wins,'losses':losses,'average_winner':avg_win,'average_loser':avg_loss,
+                'realized_rr':rr,'expectancy_net_per_trade':net/trades if trades else None,'minimum_equity':min_eq,'max_single_trade_loss_pct_initial':max_loss,
+                'largest_loss_money':max(loss_abs) if loss_abs else 0.0,'top3_loss_contribution_pct':(sum(loss_abs[:3])/sum(loss_abs)*100 if loss_abs else 0.0),
+                'execution_error_count':len(errs),'unexpected_overlap':unexpected_overlap,'allowed_same_direction_grid_overlap':allowed_grid_overlap,
+                'grid_baskets_created':grids,'grid_add_events':adds,'v293_grid_risk_cap_events':caps,'estimated_max_margin_usage':max(margins) if margins else 0.0,
+                'ending_margin_used':d.get('positions',{}).get('marginUsed'),'ending_free_margin':d.get('positions',{}).get('freeMargin'),'history':h
               }
               if trades<1: HARD.append(f'{track}:no_trades')
               if errs: HARD.append(f'{track}:execution_errors')
-              if overlap: HARD.append(f'{track}:duplicate_or_hedge_overlap')
-              if max_dd>10.0+1e-9: HARD.append(f'{track}:dd_above_10pct')
-              if grids_created<1: HARD.append(f'{track}:grid_lifecycle_not_exercised')
+              if unexpected_overlap: HARD.append(f'{track}:unexpected_overlap')
+              if dd>10.0+1e-9: HARD.append(f'{track}:dd_above_10pct')
+              if grids<1: HARD.append(f'{track}:grid_lifecycle_not_exercised')
               if track=='A' and max_loss>risk+1e-9: HARD.append(f'A:realized_risk_above_{risk:.2f}pct')
-          OUT['functional_gate_pass']=not HARD; OUT['hard_fail_reasons']=HARD
-          pathlib.Path('seal/audit/M1-V293-DUAL-TRACK-MATRIX.json').write_text(json.dumps(OUT,indent=2))
+          B=OUT.get('B',{})
+          stage1 = bool(B) and B.get('profit_factor_derived',0)>1.0 and B.get('net_profit',-1)>0 and (B.get('realized_rr') or 0)>0.320404 and B.get('trades',0)>=15 and B.get('win_rate_pct',0)>=55.0
+          OUT['functional_gate_pass']=not HARD
+          OUT['stage1_profitability_gate_pass']=stage1 and not HARD
+          OUT['hard_fail_reasons']=HARD
+          OUT['preset']={'GridProfitFib':1.618,'GridStopFib':1.618,'source_version':'V29.3 unchanged'}
+          pathlib.Path('seal/audit/M1-V293-PAYOFF-REPAIR-MATRIX.json').write_text(json.dumps(OUT,indent=2))
           print(json.dumps(OUT,indent=2))
           if HARD: raise SystemExit(';'.join(HARD))
+          if not stage1: raise SystemExit('stage1_profitability_gate_not_met')
           PY
 
       - name: Cleanup credentials
@@ -226,6 +232,6 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: V293-M1-TICK-DUAL-TRACK-GATE
+          name: V293-M1-PAYOFF-REPAIR-PRESET-1
           path: seal
           retention-days: 30
