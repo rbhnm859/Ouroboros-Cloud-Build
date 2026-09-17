@@ -3,7 +3,6 @@ on:
   workflow_dispatch:
     inputs:
       checkpoint:
-        description: 'D7 or M1 diagnostic validation'
         required: true
         default: D7
         type: choice
@@ -21,9 +20,10 @@ jobs:
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: 8.0.x
-      - name: Generate V28.2 Strategy Quality RC
+      - name: Generate and syntax-check V28.2
         run: |
           set -euo pipefail
+          python3 -m py_compile tmp/harmonybot-v26-build/fix_v282_strategy_quality_rc.py
           python3 tmp/harmonybot-v26-build/build_v261_frequency.py
           python3 tmp/harmonybot-v26-build/fix_v261_mtf_overload.py
           python3 tmp/harmonybot-v26-build/fix_v262_frequency_safe.py
@@ -36,27 +36,26 @@ jobs:
           python3 tmp/harmonybot-v26-build/fix_v282_strategy_quality_rc.py
           mkdir -p seal/{build,algo,reports,logs,data}
           cp cli-build/HarmonyBotPro_v261/HarmonyBotPro.cs seal/build/HarmonyBotPro.cs
-          grep -Fq 'V28.2-Strategy-Quality-RC' seal/build/HarmonyBotPro.cs
-          grep -Fq 'EnableFibGrid' seal/build/HarmonyBotPro.cs
-          grep -Fq 'GeometryQualityScore' seal/build/HarmonyBotPro.cs
-          grep -Fq 'SmallAccountMinSLPips' seal/build/HarmonyBotPro.cs
+          for x in 'V28.2-Strategy-Quality-RC' 'EnableFibGrid' 'GeometryQualityScore' 'SmallAccountMinSLPips' '[V282-SUMMARY]'; do grep -Fq "$x" seal/build/HarmonyBotPro.cs; done
       - name: Compile V28.2 zero-error
         run: |
+          set -euo pipefail
           cat > seal/build/HarmonyBotPro.csproj <<'EOF'
           <Project Sdk="Microsoft.NET.Sdk"><PropertyGroup><TargetFramework>net6.0</TargetFramework><ImplicitUsings>disable</ImplicitUsings><Nullable>disable</Nullable><AlgoName>HarmonyBotPro_v282_strategy_quality_rc</AlgoName><AlgoBuild>true</AlgoBuild><AlgoPublish>false</AlgoPublish><IncludeSource>false</IncludeSource></PropertyGroup><ItemGroup><PackageReference Include="cTrader.Automate" Version="1.0.19" /></ItemGroup></Project>
           EOF
           dotnet restore seal/build/HarmonyBotPro.csproj
           dotnet build seal/build/HarmonyBotPro.csproj -c Release --no-restore 2>&1 | tee seal/build.log
           ! grep -q ' error CS' seal/build.log
-          A=$(find seal/build -name '*.algo' -type f -print -quit); test -s "$A"
+          A=$(find seal/build -name '*.algo' -type f -print -quit); test -n "$A"; test -s "$A"
           cp "$A" seal/algo/HarmonyBotPro_v282_strategy_quality_rc.algo
           sha256sum seal/algo/*.algo > seal/algo.sha256
-      - name: Resolve exact FxPro demo account
+      - name: Resolve FxPro demo account
         env:
           CTRADER_PASSWORD: ${{ secrets.CTRADER_PASSWORD }}
           CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
           CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
         run: |
+          set -euo pipefail
           docker pull ghcr.io/spotware/ctrader-console:5.9.11
           printf '%s' "$CTRADER_PASSWORD" > seal/ctrader.pwd; chmod 600 seal/ctrader.pwd
           docker run --rm -v "$PWD/seal:/work" ghcr.io/spotware/ctrader-console:5.9.11 accounts --ctid="$CTRADER_CTID" --pwd-file=/work/ctrader.pwd > seal/accounts.json
@@ -68,20 +67,21 @@ jobs:
           PY
           )
           echo "CTRADER_ACCOUNT_NUMBER=$N" >> "$GITHUB_ENV"
-      - name: Resolve diagnostic dates
+      - name: Resolve dates
         env:
           CP: ${{ inputs.checkpoint }}
         run: |
-          case "$CP" in D7) S=09/09/2026; E=16/09/2026; K=300;; M1) S=17/08/2026; E=16/09/2026; K=900;; esac
+          case "$CP" in D7) S=09/09/2026; E=16/09/2026; K=300;; M1) S=17/08/2026; E=16/09/2026; K=900;; *) exit 2;; esac
           echo "START=$S" >> "$GITHUB_ENV"; echo "END=$E" >> "$GITHUB_ENV"; echo "KILL=$K" >> "$GITHUB_ENV"
-      - name: V28.2 schema-aware diagnostic backtest
+      - name: Backtest V28.2
         env:
           CTRADER_PASSWORD: ${{ secrets.CTRADER_PASSWORD }}
           CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
           CP: ${{ inputs.checkpoint }}
         run: |
           set -euo pipefail
-          T0=$(date +%s); C="v282-${CP,,}-${GITHUB_RUN_ID}"; rm -f "seal/reports/$CP.json" "seal/logs/$CP.log"
+          mkdir -p seal/reports seal/logs seal/data
+          T0=$(date +%s); C="v282-${CP,,}-${GITHUB_RUN_ID}"; rm -f "seal/reports/$CP.json" "seal/reports/$CP.html" "seal/logs/$CP.log"
           docker run --name "$C" -v "$PWD/seal:/work" ghcr.io/spotware/ctrader-console:5.9.11 backtest /work/algo/HarmonyBotPro_v282_strategy_quality_rc.algo --ctid="$CTRADER_CTID" --pwd-file=/work/ctrader.pwd --account="$CTRADER_ACCOUNT_NUMBER" --symbol=XAUUSD --period=m1 --start="$START" --end="$END" --balance=100 --data-mode=m1 --data-dir=/work/data --commission=35 --spread=1 --SymbolName=XAUUSD --RiskPercent=1.0 --MaxDrawdown=10 --MinStopLossPips=100 --SmallAccountMode=true --SmallAccountMinSLPips=25 --EnableAltBat=true --EnableFiveZero=true --EnableFibGrid=true --MinRR=2 --report="/work/reports/$CP.html" --report-json="/work/reports/$CP.json" > "seal/logs/$CP.log" 2>&1 &
           PID=$!; DONE=0; WHY=none
           for ((i=0;i<KILL;i+=2)); do
@@ -98,18 +98,19 @@ jobs:
           docker stop --time 3 "$C" >/dev/null 2>&1 || true; docker rm -f "$C" >/dev/null 2>&1 || true; wait "$PID" 2>/dev/null || true
           printf 'seconds=%s\ncompletion_detected=%s\ncompletion_source=%s\n' "$(($(date +%s)-T0))" "$DONE" "$WHY" > "seal/$CP-timing.txt"
           test "$DONE" = 1
-      - name: Build V28.2 diagnostic summary
+      - name: Build V28.2 summary
         if: always()
         env:
           CP: ${{ inputs.checkpoint }}
         run: |
+          mkdir -p seal
           python3 - <<'PY'
           import pathlib,re,json,os
-          cp=os.environ['CP']; t=pathlib.Path(f'seal/logs/{cp}.log').read_text(errors='ignore') if pathlib.Path(f'seal/logs/{cp}.log').exists() else ''
+          cp=os.environ['CP']; lp=pathlib.Path(f'seal/logs/{cp}.log'); t=lp.read_text(errors='ignore') if lp.exists() else ''
           def last(p,cast=float,default=None):
               m=re.findall(p,t,re.M); return cast(m[-1]) if m else default
           trades=last(r'"TotalTrades"\s*:\s*(\d+)',int,0); wins=last(r'"WinningTrades"\s*:\s*(\d+)',int,0)
-          out={'version':'V28.2-Strategy-Quality-RC','checkpoint':cp,'equity':last(r'"Equity"\s*:\s*(-?[\d.]+)',float,0),'net_profit':last(r'"NetProfit"\s*:\s*(-?[\d.]+)',float,0),'trades':trades,'wins':wins,'win_rate_pct':wins/trades*100 if trades else 0,'profit_factor':last(r'"ProfitFactor"\s*:\s*(-?[\d.]+)',float,None),'max_dd_pct':last(r'"MaxEquityDrawdownPercentages"\s*:\s*(-?[\d.]+)',float,0),'avg_r':last(r'Avg R\s*:\s*(-?[\d.]+)',float,None),'expectancy_r':last(r'Expectancy\s*:\s*(-?[\d.]+)R',float,None),'funnel':(re.findall(r'\[COMMERCIAL-DIAG\].*',t) or [None])[-1],'v282_quality_lines':len(re.findall(r'\[V282-QUALITY\]',t)),'v282_grid_lines':len(re.findall(r'\[V282-GRID\]',t)),'v282_summary':(re.findall(r'\[V282-SUMMARY\].*',t) or [None])[-1]}
+          out={'version':'V28.2-Strategy-Quality-RC','checkpoint':cp,'log_present':lp.exists(),'equity':last(r'"Equity"\s*:\s*(-?[\d.]+)',float,0),'net_profit':last(r'"NetProfit"\s*:\s*(-?[\d.]+)',float,0),'trades':trades,'wins':wins,'win_rate_pct':wins/trades*100 if trades else 0,'profit_factor':last(r'"ProfitFactor"\s*:\s*(-?[\d.]+)',float,None),'max_dd_pct':last(r'"MaxEquityDrawdownPercentages"\s*:\s*(-?[\d.]+)',float,0),'avg_r':last(r'Avg R\s*:\s*(-?[\d.]+)',float,None),'expectancy_r':last(r'Expectancy\s*:\s*(-?[\d.]+)R',float,None),'funnel':(re.findall(r'\[COMMERCIAL-DIAG\].*',t) or [None])[-1],'v282_summary':(re.findall(r'\[V282-SUMMARY\].*',t) or [None])[-1]}
           pathlib.Path(f'seal/{cp}-V282-SUMMARY.json').write_text(json.dumps(out,indent=2)); print(json.dumps(out,indent=2))
           PY
       - name: Cleanup secrets
@@ -119,11 +120,5 @@ jobs:
         if: always()
         with:
           name: V282-STRATEGY-QUALITY-${{ inputs.checkpoint }}
-          path: |
-            seal/${{ inputs.checkpoint }}-V282-SUMMARY.json
-            seal/${{ inputs.checkpoint }}-timing.txt
-            seal/reports/${{ inputs.checkpoint }}.*
-            seal/logs/${{ inputs.checkpoint }}.log
-            seal/algo.sha256
-            seal/build.log
+          path: seal
           retention-days: 30
