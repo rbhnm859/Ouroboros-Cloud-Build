@@ -25,17 +25,13 @@ for m in main_methods:
 bsp=re.search(r'(?m)^(\s*)private\s+([^\n]+?)\s+BuildSwingPoints\s*\(([^\n]*)\)\s*\n\s*\{',s)
 if not bsp: raise SystemExit('BuildSwingPoints missing')
 bsp_indent=bsp.group(1)
-# Insert field directly before the method inside the same nested class.
 s=s[:bsp.start()]+bsp_indent+'private long _perfCalls_BuildSwingPoints;\n'+s[bsp.start():]
-# Re-find after insertion, then instrument body.
 bsp=re.search(r'(?m)^(\s*)private\s+([^\n]+?)\s+BuildSwingPoints\s*\(([^\n]*)\)\s*\n\s*\{',s)
 s=s[:bsp.end()]+'\n'+bsp.group(1)+'    _perfCalls_BuildSwingPoints++;\n'+s[bsp.end():]
 
-# Main Robot stop-time counters. Nested BuildSwingPoints cannot be read from Robot without
-# changing detector API, so it is intentionally excluded from this stop summary; its counter
-# declaration/increment is compile-checked for the next detector-local reporting pass.
+# Main Robot stop-time counters. Nested BuildSwingPoints remains detector-local.
 onstop=re.search(r'(?m)^(\s*)protected\s+override\s+void\s+OnStop\s*\(\s*\)\s*\n\s*\{',s)
-if not nonstop: raise SystemExit('OnStop missing')
+if not onstop: raise SystemExit('OnStop missing')
 pos=onstop.end()
 fmt=' '.join(m+'={'+str(i)+'}' for i,m in enumerate(main_methods))
 args=', '.join('_perfCalls_'+m for m in main_methods)
