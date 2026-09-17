@@ -1,23 +1,20 @@
-name: HarmonyBot V28.1 Stage2 Performance and Commercial Gate
-
+name: HarmonyBot V28.1 Stage3 Runtime Evidence Gate
 on:
   workflow_dispatch:
   push:
     branches: [harmonybot-v28-commercial-final-rc]
-    paths: ['.github/workflows/patch-harmonybot-v281-performance-stage1.yml','tmp/harmonybot-v26-build/fix_v281_performance_stage2.py']
-
+    paths: ['.github/workflows/patch-harmonybot-v281-performance-stage1.yml']
 permissions: {contents: read, actions: read}
-concurrency: {group: harmonybot-v281-stage2-commercial, cancel-in-progress: true}
-
+concurrency: {group: harmonybot-v281-stage3-runtime, cancel-in-progress: true}
 jobs:
-  stage2:
+  stage3:
     runs-on: ubuntu-latest
-    timeout-minutes: 70
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-dotnet@v4
         with: {dotnet-version: '8.0.x'}
-      - name: Generate V28.1 and apply Stage2
+      - name: Generate and instrument V28.1
         run: |
           set -euo pipefail
           python3 tmp/harmonybot-v26-build/build_v261_frequency.py
@@ -28,70 +25,70 @@ jobs:
           python3 tmp/harmonybot-v26-build/fix_v28_frequency_architecture.py
           python3 tmp/harmonybot-v26-build/fix_v28_cost_rr.py
           python3 tmp/harmonybot-v26-build/fix_v281_geometry_quality_engine.py
-          mkdir -p perf-stage2/{algo,data,reports,logs,build}
-          cp cli-build/HarmonyBotPro_v261/HarmonyBotPro.cs perf-stage2/baseline.cs
-          python3 tmp/harmonybot-v26-build/fix_v281_performance_stage2.py | tee perf-stage2/patch.log
-          cp cli-build/HarmonyBotPro_v261/HarmonyBotPro.cs perf-stage2/patched.cs
-          grep -q GeometryQualityScore perf-stage2/patched.cs; grep -q EnableFibGrid perf-stage2/patched.cs; grep -q SmallAccountMinSLPips perf-stage2/patched.cs; grep -q capitalInfeasible perf-stage2/patched.cs
+          mkdir -p perf-stage3/{algo,data,reports,logs,build}
+          python3 tmp/harmonybot-v26-build/fix_v281_performance_stage3.py | tee perf-stage3/instrumentation.log
+          cp cli-build/HarmonyBotPro_v261/HarmonyBotPro.cs perf-stage3/build/HarmonyBotPro.cs
+          grep -q '\[PERF-STAGE3\]' perf-stage3/build/HarmonyBotPro.cs
+          grep -q EnableFibGrid perf-stage3/build/HarmonyBotPro.cs
+          grep -q GeometryQualityScore perf-stage3/build/HarmonyBotPro.cs
       - name: Compile zero-error
         run: |
-          cp perf-stage2/patched.cs perf-stage2/build/HarmonyBotPro.cs
-          cat > perf-stage2/build/HarmonyBotPro.csproj <<'EOF'
-          <Project Sdk="Microsoft.NET.Sdk"><PropertyGroup><TargetFramework>net6.0</TargetFramework><ImplicitUsings>disable</ImplicitUsings><Nullable>disable</Nullable><AlgoName>HarmonyBotPro_v281_stage2</AlgoName><AlgoBuild>true</AlgoBuild><AlgoPublish>false</AlgoPublish><IncludeSource>false</IncludeSource></PropertyGroup><ItemGroup><PackageReference Include="cTrader.Automate" Version="1.0.19" /></ItemGroup></Project>
+          cat > perf-stage3/build/HarmonyBotPro.csproj <<'EOF'
+          <Project Sdk="Microsoft.NET.Sdk"><PropertyGroup><TargetFramework>net6.0</TargetFramework><ImplicitUsings>disable</ImplicitUsings><Nullable>disable</Nullable><AlgoName>HarmonyBotPro_v281_stage3</AlgoName><AlgoBuild>true</AlgoBuild><AlgoPublish>false</AlgoPublish><IncludeSource>false</IncludeSource></PropertyGroup><ItemGroup><PackageReference Include="cTrader.Automate" Version="1.0.19" /></ItemGroup></Project>
           EOF
-          dotnet restore perf-stage2/build/HarmonyBotPro.csproj
-          dotnet build perf-stage2/build/HarmonyBotPro.csproj -c Release --no-restore 2>&1 | tee perf-stage2/build.log
-          ! grep -q ' error CS' perf-stage2/build.log
-          A=$(find perf-stage2/build -name '*.algo' -type f -print -quit); test -s "$A"; cp "$A" perf-stage2/algo/HarmonyBotPro_v281_stage2.algo; sha256sum perf-stage2/algo/*.algo > perf-stage2/algo.sha256
-      - name: Resolve FxPro account and route
+          dotnet restore perf-stage3/build/HarmonyBotPro.csproj
+          dotnet build perf-stage3/build/HarmonyBotPro.csproj -c Release --no-restore 2>&1 | tee perf-stage3/build.log
+          ! grep -q ' error CS' perf-stage3/build.log
+          A=$(find perf-stage3/build -name '*.algo' -type f -print -quit); test -s "$A"; cp "$A" perf-stage3/algo/HarmonyBotPro_v281_stage3.algo; sha256sum perf-stage3/algo/*.algo > perf-stage3/algo.sha256
+      - name: Resolve account
         env: {CTRADER_PASSWORD: '${{ secrets.CTRADER_PASSWORD }}', CTRADER_CTID: '${{ secrets.CTRADER_CTID }}', CTRADER_ACCOUNT: '${{ secrets.CTRADER_ACCOUNT }}'}
         run: |
           set -euo pipefail
           docker pull ghcr.io/spotware/ctrader-console:5.9.11
-          printf '%s' "$CTRADER_PASSWORD" > perf-stage2/ctrader.pwd; chmod 600 perf-stage2/ctrader.pwd
-          docker run --rm -v "$PWD/perf-stage2:/work" ghcr.io/spotware/ctrader-console:5.9.11 accounts --ctid="$CTRADER_CTID" --pwd-file=/work/ctrader.pwd > perf-stage2/accounts.json
+          printf '%s' "$CTRADER_PASSWORD" > perf-stage3/ctrader.pwd; chmod 600 perf-stage3/ctrader.pwd
+          docker run --rm -v "$PWD/perf-stage3:/work" ghcr.io/spotware/ctrader-console:5.9.11 accounts --ctid="$CTRADER_CTID" --pwd-file=/work/ctrader.pwd > perf-stage3/accounts.json
           python3 - <<'PY'
           import json,os
-          a=json.load(open('perf-stage2/accounts.json',encoding='utf-8-sig')); e=os.environ['CTRADER_ACCOUNT'].strip(); m=next((x for x in a if str(x.get('Number',''))==e or str(x.get('Id',''))==e),None)
+          a=json.load(open('perf-stage3/accounts.json',encoding='utf-8-sig')); e=os.environ['CTRADER_ACCOUNT'].strip(); m=next((x for x in a if str(x.get('Number',''))==e or str(x.get('Id',''))==e),None)
           if not m or m.get('Broker','').lower()!='fxpro' or m.get('Live') is not False or m.get('DepositCurrency')!='USD' or int(m.get('Leverage',0))!=500 or abs(float(m.get('Balance',0))-100)>0.01: raise SystemExit('account mismatch')
           open(os.environ['GITHUB_ENV'],'a').write('CTRADER_ACCOUNT_NUMBER='+str(m['Number'])+'\n')
           PY
-      - name: XAUUSD preflight
+      - name: XAUUSD route
         env: {CTRADER_CTID: '${{ secrets.CTRADER_CTID }}'}
         run: |
-          if docker run --rm -v "$PWD/perf-stage2:/work" ghcr.io/spotware/ctrader-console:5.9.11 symbols --ctid="$CTRADER_CTID" --pwd-file=/work/ctrader.pwd --account="$CTRADER_ACCOUNT_NUMBER" > perf-stage2/symbols.txt 2>/dev/null && grep -qi XAUUSD perf-stage2/symbols.txt; then echo 'CTRADER_BROKER_ARG=' >> "$GITHUB_ENV"; else docker run --rm -v "$PWD/perf-stage2:/work" ghcr.io/spotware/ctrader-console:5.9.11 symbols --ctid="$CTRADER_CTID" --pwd-file=/work/ctrader.pwd --account="$CTRADER_ACCOUNT_NUMBER" --broker=fxpro > perf-stage2/symbols.txt; grep -qi XAUUSD perf-stage2/symbols.txt; echo 'CTRADER_BROKER_ARG=--broker=fxpro' >> "$GITHUB_ENV"; fi
-      - name: Stage2 exact 1-day equivalence and speed gate
+          if docker run --rm -v "$PWD/perf-stage3:/work" ghcr.io/spotware/ctrader-console:5.9.11 symbols --ctid="$CTRADER_CTID" --pwd-file=/work/ctrader.pwd --account="$CTRADER_ACCOUNT_NUMBER" > perf-stage3/symbols.txt 2>/dev/null && grep -qi XAUUSD perf-stage3/symbols.txt; then echo 'CTRADER_BROKER_ARG=' >> "$GITHUB_ENV"; else docker run --rm -v "$PWD/perf-stage3:/work" ghcr.io/spotware/ctrader-console:5.9.11 symbols --ctid="$CTRADER_CTID" --pwd-file=/work/ctrader.pwd --account="$CTRADER_ACCOUNT_NUMBER" --broker=fxpro > perf-stage3/symbols.txt; grep -qi XAUUSD perf-stage3/symbols.txt; echo 'CTRADER_BROKER_ARG=--broker=fxpro' >> "$GITHUB_ENV"; fi
+      - name: Exact 1-day runtime evidence backtest
         env: {CTRADER_CTID: '${{ secrets.CTRADER_CTID }}'}
         run: |
           set -uo pipefail; T0=$(date +%s); set +e
-          timeout --signal=TERM --kill-after=20s 900 docker run --rm -v "$PWD/perf-stage2:/work" ghcr.io/spotware/ctrader-console:5.9.11 backtest /work/algo/HarmonyBotPro_v281_stage2.algo --ctid="$CTRADER_CTID" --pwd-file=/work/ctrader.pwd --account="$CTRADER_ACCOUNT_NUMBER" $CTRADER_BROKER_ARG --symbol=XAUUSD --period=m1 --start='15/09/2026' --end='16/09/2026' --balance=100 --data-mode=m1 --data-dir=/work/data --commission=35 --spread=1 --SymbolName=XAUUSD --RiskPercent=1.0 --MaxDrawdown=10 --MinStopLossPips=100 --SmallAccountMode=true --SmallAccountMinSLPips=25 --EnableAltBat=true --EnableFiveZero=true --EnableFibGrid=true --report=/work/reports/stage2-1d.html --report-json=/work/reports/stage2-1d.json 2>&1 | tee perf-stage2/logs/stage2-1d.log
-          RC=${PIPESTATUS[0]}; set -e; DT=$(($(date +%s)-T0)); printf 'exit_code=%s\nseconds=%s\n' "$RC" "$DT" > perf-stage2/timing.txt; exit 0
-      - name: Assess and choose commercial expansion
+          timeout --signal=TERM --kill-after=20s 900 docker run --rm -v "$PWD/perf-stage3:/work" ghcr.io/spotware/ctrader-console:5.9.11 backtest /work/algo/HarmonyBotPro_v281_stage3.algo --ctid="$CTRADER_CTID" --pwd-file=/work/ctrader.pwd --account="$CTRADER_ACCOUNT_NUMBER" $CTRADER_BROKER_ARG --symbol=XAUUSD --period=m1 --start='15/09/2026' --end='16/09/2026' --balance=100 --data-mode=m1 --data-dir=/work/data --commission=35 --spread=1 --SymbolName=XAUUSD --RiskPercent=1.0 --MaxDrawdown=10 --MinStopLossPips=100 --SmallAccountMode=true --SmallAccountMinSLPips=25 --EnableAltBat=true --EnableFiveZero=true --EnableFibGrid=true --report=/work/reports/stage3-1d.html --report-json=/work/reports/stage3-1d.json 2>&1 | tee perf-stage3/logs/stage3-1d.log
+          RC=${PIPESTATUS[0]}; set -e; DT=$(($(date +%s)-T0)); printf 'exit_code=%s\nseconds=%s\n' "$RC" "$DT" > perf-stage3/timing.txt; grep '\[PERF-STAGE3\]' perf-stage3/logs/stage3-1d.log | tail -1 > perf-stage3/perf-calls.txt || true; exit 0
+      - name: Commercial evidence summary
         if: always()
         run: |
           python3 - <<'PY'
           import json,pathlib,re
-          t=pathlib.Path('perf-stage2/timing.txt').read_text() if pathlib.Path('perf-stage2/timing.txt').exists() else ''
-          sec=int(re.search(r'seconds=(\d+)',t).group(1)) if re.search(r'seconds=(\d+)',t) else None
-          p=pathlib.Path('perf-stage2/reports/stage2-1d.json'); out={'baseline_seconds':1210,'seconds':sec,'speedup':1210/sec if sec else None,'report_present':p.exists() and p.stat().st_size>0,'baseline_trade_reference':{'trades':1,'net':4.30,'equity_dd_pct':2.0},'commercial_next':'7d-30d-90d-1y after equivalence and speed acceptance'}
+          p=pathlib.Path('perf-stage3/reports/stage3-1d.json'); t=pathlib.Path('perf-stage3/timing.txt').read_text() if pathlib.Path('perf-stage3/timing.txt').exists() else ''; calls=pathlib.Path('perf-stage3/perf-calls.txt').read_text() if pathlib.Path('perf-stage3/perf-calls.txt').exists() else ''
+          out={'seconds':int(re.search(r'seconds=(\d+)',t).group(1)) if re.search(r'seconds=(\d+)',t) else None,'perf_calls':calls.strip(),'commercial_gate':{'trades_min':100,'net_positive':True,'pf_min':1.5,'expectancy_positive':True,'max_equity_dd_pct':10},'status':'NOT_SEALED'}
           if p.exists() and p.stat().st_size:
             try: out['report']=json.load(open(p,encoding='utf-8-sig'))
             except Exception as e: out['parse_error']=str(e)
-          json.dump(out,open('perf-stage2/assessment.json','w'),indent=2); print(json.dumps({k:v for k,v in out.items() if k!='report'},indent=2))
+          json.dump(out,open('perf-stage3/summary.json','w'),indent=2); print(json.dumps({k:v for k,v in out.items() if k!='report'},indent=2))
           PY
       - name: Cleanup
         if: always()
-        run: rm -f perf-stage2/ctrader.pwd perf-stage2/accounts.json perf-stage2/symbols.txt
+        run: rm -f perf-stage3/ctrader.pwd perf-stage3/accounts.json perf-stage3/symbols.txt
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: V281-STAGE2-COMMERCIAL-GATE
+          name: V281-STAGE3-RUNTIME-COMMERCIAL-EVIDENCE
           path: |
-            perf-stage2/patch.log
-            perf-stage2/build.log
-            perf-stage2/algo.sha256
-            perf-stage2/timing.txt
-            perf-stage2/assessment.json
-            perf-stage2/reports/
-            perf-stage2/logs/
+            perf-stage3/instrumentation.log
+            perf-stage3/build.log
+            perf-stage3/algo.sha256
+            perf-stage3/timing.txt
+            perf-stage3/perf-calls.txt
+            perf-stage3/summary.json
+            perf-stage3/reports/
+            perf-stage3/logs/
           retention-days: 30
