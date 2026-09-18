@@ -124,6 +124,7 @@ namespace cAlgo.Robots
         private bool _dailyLocked;
         private long _candidateSeq;
         private int _executionErrors;
+        private readonly Dictionary<string, int> _executionErrorReasons = new Dictionary<string, int>();
         private DateTime? _evaluationStartUtc;
 
         protected override void OnStart()
@@ -188,9 +189,9 @@ namespace cAlgo.Robots
 
         protected override void OnStop()
         {
-            Positions.Closed -= OnPositionClosed;
             CancelAllOwnPending("BOT_STOP");
             EnsureServerProtection();
+            Positions.Closed -= OnPositionClosed;
             foreach (var kv in _pipeline.OrderBy(k => k.Key))
             {
                 var x = kv.Value;
@@ -200,6 +201,8 @@ namespace cAlgo.Robots
             }
             Print("[V32-SUMMARY] candidates={0} baskets={1} openLedgers={2} executionErrors={3} gridRiskViolations={4} duplicateGridLegs={5} orphanPendingOrders={6} stopWideningViolations={7}",
                 _candidateSeq, _baskets.Count, _positions.Count, _executionErrors, _gridRiskViolations, _duplicateGridLegs, _orphanPendingOrders, _stopWideningViolations);
+            foreach (var kv in _executionErrorReasons.OrderBy(k => k.Key))
+                Print("[V32-EXECUTION-ERROR-SUMMARY] code={0} count={1}", kv.Key, kv.Value);
         }
 
         protected override void OnBar()
@@ -215,8 +218,7 @@ namespace cAlgo.Robots
             }
             catch (Exception ex)
             {
-                _executionErrors++;
-                Print("[V32-EXCEPTION-ONBAR] {0}", ex);
+                RecordExecutionError("EXCEPTION_ONBAR", ex.GetType().Name + ":" + ex.Message);
             }
         }
 
@@ -230,8 +232,7 @@ namespace cAlgo.Robots
             }
             catch (Exception ex)
             {
-                _executionErrors++;
-                Print("[V32-EXCEPTION-ONTICK] {0}", ex);
+                RecordExecutionError("EXCEPTION_ONTICK", ex.GetType().Name + ":" + ex.Message);
             }
         }
 
@@ -538,6 +539,14 @@ namespace cAlgo.Robots
             double marketEntry = c.Signal.Direction == TradeDirection.Buy ? _symbol.Ask : _symbol.Bid;
             double slPips = PriceToPips(Math.Abs(marketEntry - plan.StructuralStop));
             double tpPips = PriceToPips(Math.Abs(plan.CanonicalTarget - marketEntry));
+            if (!BrokerProtectionDistancesValid(c.Signal.Direction, marketEntry, plan.StructuralStop, plan.CanonicalTarget))
+            {
+                basket.State = FibonacciBasketState.RISK_REJECTED;
+                basket.IsActive = false;
+                Reject(c, "L0_BROKER_MIN_DISTANCE");
+                return;
+            }
+
             double volume = VolumeForRiskBudget(plan.BasketRiskAmount * l0.RiskWeight, slPips);
             if (volume <= 0)
             {
@@ -562,10 +571,11 @@ namespace cAlgo.Robots
             var tr = ExecuteMarketOrder(tt, SymbolName, volume, l0Label, slPips, tpPips);
             if (tr == null || !tr.IsSuccessful || tr.Position == null)
             {
-                _executionErrors++;
+                string code = "L0_ORDER_" + (tr == null ? "NULL" : tr.Error.ToString());
+                RecordExecutionError(code, "basket=" + basket.BasketId);
                 basket.State = FibonacciBasketState.RISK_REJECTED;
                 basket.IsActive = false;
-                Reject(c, "L0_ORDER_ERROR_" + (tr == null ? "NULL" : tr.Error.ToString()));
+                Reject(c, code);
                 return;
             }
 
@@ -595,6 +605,14 @@ namespace cAlgo.Robots
                 return false;
             }
 
+            if ((basket.Direction == TradeDirection.Buy && leg.PlannedPrice >= _symbol.Ask) ||
+                (basket.Direction == TradeDirection.Sell && leg.PlannedPrice <= _symbol.Bid))
+            {
+                leg.State = GridLegState.CANCELLED;
+                BasketEvent(basket, "GRID_LEG_PRICE_CROSSED_BEFORE_SUBMIT_L" + leg.Index);
+                return false;
+            }
+
             double slPips = PriceToPips(Math.Abs(leg.PlannedPrice - basket.StructuralStop));
             double tpPips = PriceToPips(Math.Abs(basket.CanonicalTarget - leg.PlannedPrice));
             if (slPips < MinStopLossPips || tpPips <= 0)
@@ -604,15 +622,23 @@ namespace cAlgo.Robots
                 return false;
             }
 
+            if (!BrokerProtectionDistancesValid(basket.Direction, leg.PlannedPrice, basket.StructuralStop, basket.CanonicalTarget))
+            {
+                leg.State = GridLegState.REJECTED;
+                BasketEvent(basket, "GRID_LEG_BROKER_MIN_DISTANCE_L" + leg.Index);
+                return false;
+            }
+
             TradeType tt = basket.Direction == TradeDirection.Buy ? TradeType.Buy : TradeType.Sell;
             var tr = PlaceLimitOrder(tt, SymbolName, leg.Volume, leg.PlannedPrice, label,
                 basket.StructuralStop, basket.CanonicalTarget, ProtectionType.Absolute, basket.ExpirationUtc,
                 GridComment(basket, leg.Index), false);
             if (tr == null || !tr.IsSuccessful || tr.PendingOrder == null)
             {
-                _executionErrors++;
+                string code = "GRID_LEG_ORDER_" + (tr == null ? "NULL" : tr.Error.ToString());
+                RecordExecutionError(code, "basket=" + basket.BasketId + ";leg=L" + leg.Index);
                 leg.State = GridLegState.REJECTED;
-                BasketEvent(basket, "GRID_LEG_ORDER_ERROR_L" + leg.Index + "_" + (tr == null ? "NULL" : tr.Error.ToString()));
+                BasketEvent(basket, "GRID_LEG_SUBMIT_FAILED_L" + leg.Index + "_" + code);
                 return false;
             }
 
@@ -767,7 +793,8 @@ namespace cAlgo.Robots
                 {
                     _orphanPendingOrders++;
                     var r = CancelPendingOrder(o);
-                    if (r == null || !r.IsSuccessful) _executionErrors++;
+                    if ((r == null || !r.IsSuccessful) && PendingOrderStillExists(o.Id))
+                        RecordExecutionError("ORPHAN_CANCEL_FAILED_" + (r == null ? "NULL" : r.Error.ToString()), "order=" + o.Id);
                 }
             }
         }
@@ -839,7 +866,11 @@ namespace cAlgo.Robots
                 var r = CancelPendingOrder(o);
                 if (r == null || !r.IsSuccessful)
                 {
-                    _executionErrors++;
+                    if (PendingOrderStillExists(o.Id))
+                        RecordExecutionError("GRID_CANCEL_FAILED_" + (r == null ? "NULL" : r.Error.ToString()),
+                            "basket=" + basket.BasketId + ";order=" + o.Id + ";reason=" + reason);
+                    else
+                        BasketEvent(basket, "GRID_CANCEL_RACE_BENIGN_ORDER_" + o.Id);
                     continue;
                 }
 
@@ -854,7 +885,8 @@ namespace cAlgo.Robots
             foreach (var o in OwnPendingOrders().ToList())
             {
                 var r = CancelPendingOrder(o);
-                if (r == null || !r.IsSuccessful) _executionErrors++;
+                if ((r == null || !r.IsSuccessful) && PendingOrderStillExists(o.Id))
+                    RecordExecutionError("STOP_CANCEL_FAILED_" + (r == null ? "NULL" : r.Error.ToString()), "order=" + o.Id + ";reason=" + reason);
             }
             Print("[V32-PENDING-CANCEL-ALL] reason={0}", reason);
         }
@@ -866,7 +898,9 @@ namespace cAlgo.Robots
                 PositionLedger l;
                 if (_positions.TryGetValue(p.Id, out l)) l.ExitOverride = reason;
                 var r = ClosePosition(p);
-                if (r == null || !r.IsSuccessful) _executionErrors++;
+                if ((r == null || !r.IsSuccessful) && PositionStillExists(p.Id))
+                    RecordExecutionError("CLOSE_FAILED_" + (r == null ? "NULL" : r.Error.ToString()),
+                        "basket=" + basket.BasketId + ";position=" + p.Id + ";reason=" + reason);
             }
         }
 
@@ -874,13 +908,30 @@ namespace cAlgo.Robots
         {
             foreach (var p in OwnPositions().Where(x => LabelBasketId(x.Label) == basket.BasketId).ToList())
             {
-                bool improving = p.TradeType == TradeType.Buy
-                    ? proposed < _symbol.Bid && (!p.StopLoss.HasValue || proposed > p.StopLoss.Value)
-                    : proposed > _symbol.Ask && (!p.StopLoss.HasValue || proposed < p.StopLoss.Value);
-                if (!improving) continue;
+                bool widens = p.StopLoss.HasValue && (p.TradeType == TradeType.Buy
+                    ? proposed < p.StopLoss.Value - _symbol.TickSize
+                    : proposed > p.StopLoss.Value + _symbol.TickSize);
+                if (widens)
+                {
+                    _stopWideningViolations++;
+                    BasketEvent(basket, "STOP_WIDEN_BLOCKED_POS_" + p.Id + "_" + reason);
+                    continue;
+                }
+
+                bool correctSide = p.TradeType == TradeType.Buy ? proposed < _symbol.Bid : proposed > _symbol.Ask;
+                bool improves = !p.StopLoss.HasValue || (p.TradeType == TradeType.Buy ? proposed > p.StopLoss.Value : proposed < p.StopLoss.Value);
+                if (!correctSide || !improves) continue;
+
+                if (!BrokerStopDistanceValid(p.TradeType, proposed))
+                {
+                    BasketEvent(basket, "STOP_TOO_CLOSE_SKIP_POS_" + p.Id + "_" + reason);
+                    continue;
+                }
 
                 var r = ModifyPosition(p, proposed, p.TakeProfit, ProtectionType.Absolute);
-                if (r == null || !r.IsSuccessful) _executionErrors++;
+                if (r == null || !r.IsSuccessful)
+                    RecordExecutionError("MODIFY_STOP_FAILED_" + (r == null ? "NULL" : r.Error.ToString()),
+                        "basket=" + basket.BasketId + ";position=" + p.Id + ";reason=" + reason);
                 else BasketEvent(basket, reason + "_POS_" + p.Id);
             }
         }
@@ -1473,9 +1524,67 @@ namespace cAlgo.Robots
                     !_baskets.TryGetValue(l.BasketId, out basket))
                     continue;
 
+                TradeType tt = p.TradeType;
+                TradeDirection direction = tt == TradeType.Buy ? TradeDirection.Buy : TradeDirection.Sell;
+                if (!BrokerProtectionDistancesValid(direction, p.EntryPrice, basket.StructuralStop, basket.CanonicalTarget))
+                {
+                    RecordExecutionError("SERVER_PROTECTION_DISTANCE_INVALID",
+                        "basket=" + basket.BasketId + ";position=" + p.Id);
+                    continue;
+                }
+
                 var r = ModifyPosition(p, basket.StructuralStop, basket.CanonicalTarget, ProtectionType.Absolute);
-                if (r == null || !r.IsSuccessful) _executionErrors++;
+                if (r == null || !r.IsSuccessful)
+                    RecordExecutionError("SERVER_PROTECTION_FAILED_" + (r == null ? "NULL" : r.Error.ToString()),
+                        "basket=" + basket.BasketId + ";position=" + p.Id);
             }
+        }
+
+        private void RecordExecutionError(string code, string detail)
+        {
+            _executionErrors++;
+            if (string.IsNullOrWhiteSpace(code)) code = "UNKNOWN";
+            int n;
+            _executionErrorReasons.TryGetValue(code, out n);
+            _executionErrorReasons[code] = n + 1;
+            Print("[V32-EXECUTION-ERROR] code={0} detail={1}", code, detail ?? "");
+        }
+
+        private bool PendingOrderStillExists(long id)
+        {
+            return PendingOrders.Any(o => o.Id == id);
+        }
+
+        private bool PositionStillExists(long id)
+        {
+            return Positions.Any(p => p.Id == id);
+        }
+
+        private double BrokerMinimumDistancePrice(double referencePrice, bool stopLoss)
+        {
+            double d = stopLoss ? _symbol.MinStopLossDistance : _symbol.MinTakeProfitDistance;
+            if (d <= 0) return 0;
+            if (_symbol.MinDistanceType == SymbolMinDistanceType.Pips)
+                return d * _symbol.PipSize;
+            return Math.Abs(referencePrice) * d / 100.0;
+        }
+
+        private bool BrokerProtectionDistancesValid(TradeDirection direction, double entry, double stop, double target)
+        {
+            if (!GeometryValid(direction, entry, stop, target)) return false;
+            double minSl = BrokerMinimumDistancePrice(entry, true);
+            double minTp = BrokerMinimumDistancePrice(entry, false);
+            return Math.Abs(entry - stop) + 1e-12 >= minSl &&
+                   Math.Abs(target - entry) + 1e-12 >= minTp;
+        }
+
+        private bool BrokerStopDistanceValid(TradeType tradeType, double proposedStop)
+        {
+            double reference = tradeType == TradeType.Buy ? _symbol.Bid : _symbol.Ask;
+            double minSl = BrokerMinimumDistancePrice(reference, true);
+            return tradeType == TradeType.Buy
+                ? proposedStop < reference && reference - proposedStop + 1e-12 >= minSl
+                : proposedStop > reference && proposedStop - reference + 1e-12 >= minSl;
         }
 
         // ---------------- Candidate state / telemetry ----------------
