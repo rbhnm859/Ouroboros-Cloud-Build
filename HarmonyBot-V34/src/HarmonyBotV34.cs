@@ -135,6 +135,7 @@ namespace cAlgo.Robots
         private int _capitalRejectedBaskets;
         private int _marginRiskViolations;
         private readonly HashSet<long> _postFillValidated = new HashSet<long>();
+        private readonly HashSet<long> _postFillInProgress = new HashSet<long>();
 
         private DateTime _lastM15Closed = DateTime.MinValue;
         private DateTime _lastM1Closed = DateTime.MinValue;
@@ -762,6 +763,19 @@ namespace cAlgo.Robots
             }
             if (!_postFillValidated.Contains(tr.Position.Id))
                 PostFillSafetyKernel(tr.Position, "L0_RESULT");
+            if (!_postFillValidated.Contains(tr.Position.Id))
+            {
+                basket.ExitOverride = "L0_POST_FILL_NOT_VALIDATED";
+                CancelBasketPending(basket, basket.ExitOverride);
+                if (PositionStillExists(tr.Position.Id))
+                    FailClosePosition(tr.Position, basket, basket.ExitOverride);
+                if (PositionStillExists(tr.Position.Id))
+                    _unprotectedSurvivors++;
+                basket.State = FibonacciBasketState.INVALIDATED;
+                basket.IsActive = false;
+                Invalidate(c, "L0_FAIL_CLOSED_POST_FILL");
+                return;
+            }
             if (!PositionStillExists(tr.Position.Id))
             {
                 basket.State = FibonacciBasketState.INVALIDATED;
@@ -797,7 +811,7 @@ namespace cAlgo.Robots
             if (LegAlreadyExists(label))
             {
                 _duplicateGridLegs++;
-                leg.State = GridLegState.REJECTED;
+                TransitionLegState(basket, leg, GridLegState.REJECTED, "GRID_LEG_DUPLICATE");
                 BasketEvent(basket, "GRID_LEG_DUPLICATE_L" + leg.Index);
                 return false;
             }
@@ -805,7 +819,7 @@ namespace cAlgo.Robots
             if ((basket.Direction == TradeDirection.Buy && leg.PlannedPrice >= _symbol.Ask) ||
                 (basket.Direction == TradeDirection.Sell && leg.PlannedPrice <= _symbol.Bid))
             {
-                leg.State = GridLegState.CANCELLED;
+                TransitionLegState(basket, leg, GridLegState.CANCELLED, "GRID_LEG_PRICE_CROSSED_BEFORE_SUBMIT");
                 BasketEvent(basket, "GRID_LEG_PRICE_CROSSED_BEFORE_SUBMIT_L" + leg.Index);
                 return false;
             }
@@ -814,14 +828,14 @@ namespace cAlgo.Robots
             double tpPips = PriceToPips(Math.Abs(basket.CanonicalTarget - leg.PlannedPrice));
             if (slPips < MinStopLossPips || tpPips <= 0)
             {
-                leg.State = GridLegState.REJECTED;
+                TransitionLegState(basket, leg, GridLegState.REJECTED, "GRID_LEG_GEOMETRY_REJECT");
                 BasketEvent(basket, "GRID_LEG_GEOMETRY_REJECT_L" + leg.Index);
                 return false;
             }
 
             if (!BrokerProtectionDistancesValid(basket.Direction, leg.PlannedPrice, basket.StructuralStop, basket.CanonicalTarget))
             {
-                leg.State = GridLegState.REJECTED;
+                TransitionLegState(basket, leg, GridLegState.REJECTED, "GRID_LEG_BROKER_MIN_DISTANCE");
                 BasketEvent(basket, "GRID_LEG_BROKER_MIN_DISTANCE_L" + leg.Index);
                 return false;
             }
@@ -831,7 +845,7 @@ namespace cAlgo.Robots
             double nextWorst = liveFilledRisk + livePendingRisk + leg.PlannedRisk + leg.ModeledCost;
             if (nextWorst > basket.InitialBasketRisk + 1e-8)
             {
-                leg.State = GridLegState.RISK_REJECTED;
+                TransitionLegState(basket, leg, GridLegState.RISK_REJECTED, "LIVE_FILLED_RISK_REJECT");
                 BasketEvent(basket, "LIVE_FILLED_RISK_REJECT_L" + leg.Index);
                 return false;
             }
@@ -852,14 +866,17 @@ namespace cAlgo.Robots
             {
                 string code = "GRID_LEG_ORDER_" + (tr == null ? "NULL" : tr.Error.ToString());
                 RecordExecutionError(code, "basket=" + basket.BasketId + ";leg=L" + leg.Index);
-                leg.State = GridLegState.REJECTED;
+                TransitionLegState(basket, leg, GridLegState.REJECTED, "GRID_LEG_SUBMIT_FAILED_" + code);
                 BasketEvent(basket, "GRID_LEG_SUBMIT_FAILED_L" + leg.Index + "_" + code);
                 return false;
             }
 
             leg.PendingOrderId = tr.PendingOrder.Id;
-            TransitionLegState(basket, leg, GridLegState.SUBMITTED, "GRID_LEG_SUBMITTED");
-            return true;
+            if (leg.State == GridLegState.SUBMITTING)
+                TransitionLegState(basket, leg, GridLegState.SUBMITTED, "GRID_LEG_SUBMITTED");
+            else
+                BasketEvent(basket, "LIMIT_SUBMIT_RETURN_AFTER_EVENT_L" + leg.Index + "_STATE_" + leg.State);
+            return leg.State == GridLegState.SUBMITTED || leg.State == GridLegState.FILLED_UNVERIFIED || leg.State == GridLegState.PROTECTED;
         }
 
         private bool SelectCanonicalBasketTarget(PatternSignal s, double weightedEntry, double stop, out double target, out double netRr)
@@ -990,6 +1007,16 @@ namespace cAlgo.Robots
 
                 if (!_postFillValidated.Contains(p.Id))
                     PostFillSafetyKernel(p, "RECONCILE");
+                if (!_postFillValidated.Contains(p.Id))
+                {
+                    if (PositionStillExists(p.Id))
+                    {
+                        basket.ExitOverride = "RECONCILE_POST_FILL_NOT_VALIDATED";
+                        FailClosePosition(p, basket, basket.ExitOverride);
+                        if (PositionStillExists(p.Id)) _unprotectedSurvivors++;
+                    }
+                    continue;
+                }
                 if (!PositionStillExists(p.Id)) continue;
 
                 if (!_positions.ContainsKey(p.Id))
@@ -1291,7 +1318,24 @@ namespace cAlgo.Robots
             if (p == null || p.SymbolName != SymbolName || string.IsNullOrWhiteSpace(p.Label) ||
                 !p.Label.StartsWith(BotPrefix + "|", StringComparison.Ordinal)) return;
             if (_postFillValidated.Contains(p.Id)) return;
+            if (!_postFillInProgress.Add(p.Id))
+            {
+                Print("[V34-POST-FILL-DEDUPE] pos={0} source={1}", p.Id, source);
+                return;
+            }
 
+            try
+            {
+                PostFillSafetyKernelCore(p, source);
+            }
+            finally
+            {
+                _postFillInProgress.Remove(p.Id);
+            }
+        }
+
+        private void PostFillSafetyKernelCore(Position p, string source)
+        {
             string basketId = LabelBasketId(p.Label);
             int legIndex = LabelLegIndex(p.Label);
             FibonacciBasket basket;
@@ -1304,6 +1348,24 @@ namespace cAlgo.Robots
             if (leg == null)
             {
                 _orphanPendingOrders++;
+                return;
+            }
+
+            if (leg.State == GridLegState.FAIL_CLOSED)
+            {
+                FailClosePosition(p, basket, "REPEAT_POST_FILL_AFTER_FAIL_CLOSED");
+                return;
+            }
+
+            if (leg.State == GridLegState.CANCELLED || leg.State == GridLegState.EXPIRED ||
+                leg.State == GridLegState.REJECTED || leg.State == GridLegState.RISK_REJECTED)
+            {
+                _executionStateViolations++;
+                basket.ExitOverride = "LATE_FILL_AFTER_TERMINAL_STATE_" + leg.State;
+                Print("[V34-STATE-VIOLATION] basket={0} leg=L{1} prior={2} next=FILLED_UNVERIFIED reason=LATE_FILL_AFTER_TERMINAL_STATE",
+                    basket.BasketId, leg.Index, leg.State);
+                CancelBasketPending(basket, basket.ExitOverride);
+                FailClosePosition(p, basket, basket.ExitOverride);
                 return;
             }
 
@@ -1458,8 +1520,13 @@ namespace cAlgo.Robots
         private void RecordLegFillTelemetry(FibonacciBasket basket, FibonacciGridLeg leg)
         {
             if (leg.FillCounted) return;
+            if (leg.State != GridLegState.PROTECTED || leg.PositionId <= 0 || !_postFillValidated.Contains(leg.PositionId))
+            {
+                _executionStateViolations++;
+                BasketEvent(basket, "FILL_TELEMETRY_WITHOUT_PROTECTION_L" + leg.Index);
+                return;
+            }
             leg.FillCounted = true;
-            leg.State = GridLegState.PROTECTED;
             basket.FilledLegs = Math.Max(basket.FilledLegs, basket.Plan.Legs.Count(x => x.FillCounted));
             if (leg.Index == 1) CountPipeline(basket.Pattern).Leg1Filled++;
             if (leg.Index == 2) CountPipeline(basket.Pattern).Leg2Filled++;
@@ -1513,13 +1580,18 @@ namespace cAlgo.Robots
             GridLegState prior = leg.State;
             bool allowed =
                 prior == next ||
-                (prior == GridLegState.PLANNED && (next == GridLegState.SUBMITTING || next == GridLegState.CANCELLED || next == GridLegState.VIRTUAL_ONLY)) ||
-                (prior == GridLegState.SUBMITTING && (next == GridLegState.SUBMITTED || next == GridLegState.FILLED_UNVERIFIED || next == GridLegState.REJECTED || next == GridLegState.FAIL_CLOSED)) ||
-                (prior == GridLegState.SUBMITTED && (next == GridLegState.FILLED_UNVERIFIED || next == GridLegState.CANCELLED || next == GridLegState.EXPIRED || next == GridLegState.FAIL_CLOSED)) ||
+                (prior == GridLegState.PLANNED && (next == GridLegState.SUBMITTING || next == GridLegState.CANCELLED ||
+                    next == GridLegState.EXPIRED || next == GridLegState.REJECTED || next == GridLegState.RISK_REJECTED ||
+                    next == GridLegState.VIRTUAL_ONLY)) ||
+                (prior == GridLegState.SUBMITTING && (next == GridLegState.SUBMITTED || next == GridLegState.FILLED_UNVERIFIED ||
+                    next == GridLegState.REJECTED || next == GridLegState.FAIL_CLOSED || next == GridLegState.CANCELLED ||
+                    next == GridLegState.EXPIRED)) ||
+                (prior == GridLegState.SUBMITTED && (next == GridLegState.FILLED_UNVERIFIED || next == GridLegState.CANCELLED ||
+                    next == GridLegState.EXPIRED || next == GridLegState.FAIL_CLOSED)) ||
                 (prior == GridLegState.FILLED_UNVERIFIED && (next == GridLegState.PROTECTED || next == GridLegState.FAIL_CLOSED)) ||
                 (prior == GridLegState.PROTECTED && next == GridLegState.FAIL_CLOSED) ||
-                (prior == GridLegState.VIRTUAL_ONLY && (next == GridLegState.VIRTUAL_FILLED || next == GridLegState.CANCELLED)) ||
-                prior == GridLegState.RISK_REJECTED || prior == GridLegState.REJECTED || prior == GridLegState.CANCELLED || prior == GridLegState.EXPIRED || prior == GridLegState.FAIL_CLOSED || prior == GridLegState.VIRTUAL_FILLED;
+                (prior == GridLegState.VIRTUAL_ONLY && (next == GridLegState.VIRTUAL_FILLED || next == GridLegState.CANCELLED ||
+                    next == GridLegState.EXPIRED));
             if (!allowed)
             {
                 _executionStateViolations++;

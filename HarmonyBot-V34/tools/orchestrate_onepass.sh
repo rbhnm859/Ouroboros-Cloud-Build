@@ -1,7 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
-C="$PWD/control"; W="$C/HarmonyBot-V34/work"; O="$C/HarmonyBot-V34/output"; mkdir -p "$W/seal/algo" "$O"
+C="$PWD/control"; W="$C/HarmonyBot-V34/work"; O="$C/HarmonyBot-V34/output"
+rm -rf "$W" "$O"
+mkdir -p "$W/seal/algo" "$O"
+CURRENT_STAGE="BOOT"
+progress(){ printf '%s [V34-PROGRESS] %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$*" | tee -a "$O/RUN_PROGRESS.log"; }
+trap 'rc=$?; if [ "$rc" -ne 0 ]; then progress "FAILED stage=${CURRENT_STAGE:-unknown} rc=$rc"; fi' EXIT
 cd "$C"
+progress "START clean regression"
 python3 HarmonyBot-V34/tools/static_audit.py HarmonyBot-V34/src/HarmonyBotV34.cs
 cp V34_ARCHITECTURE_AUDIT.json "$O/"
 dotnet restore HarmonyBot-V34/HarmonyBotV34.csproj
@@ -13,8 +19,10 @@ sha256sum HarmonyBot-V34/src/HarmonyBotV34.cs "$ALGO" > "$O/SHA256SUMS"
 
 run(){
  local n=$1 w=$2 st=$3 ev=$4 en=$5 bal=$6
- (cd "$W"; RUN_NAME="$n" START_DATE="$st" EVAL_DATE="$ev" END_DATE="$en" BALANCE="$bal"    "$C/HarmonyBot-V34/tools/run_backtest.sh")
+ CURRENT_STAGE="$n"; progress "START stage=$n window=$w balance=$bal"
+ (cd "$W"; RUN_NAME="$n" START_DATE="$st" EVAL_DATE="$ev" END_DATE="$en" BALANCE="$bal" BACKTEST_TIMEOUT_SECONDS=2700    "$C/HarmonyBot-V34/tools/run_backtest.sh")
  python3 "$C/HarmonyBot-V34/tools/audit_report.py" --report "$W/seal/reports/$n.json" --log "$W/seal/logs/$n.log"    --out "$O/$w.json" --window "$w" --years .5 --balance "$bal"
+ progress "DONE stage=$n"
 }
 
 # Exposed windows: engineering regression only. Never use these metrics for tuning.
@@ -29,6 +37,7 @@ run V34-MICRO100-C MICRO100-C 03/01/2022 2022-01-10T00:00:00Z 30/06/2022 100
 
 mkdir -p "$O/raw-logs"; cp "$W/seal/logs/"*.log "$O/raw-logs/" || true
 
+CURRENT_STAGE="GATE"; progress "START stage=GATE"
 python3 - "$O" <<'PY'
 import json,pathlib,sys
 o=pathlib.Path(sys.argv[1])
@@ -57,3 +66,5 @@ decision={"version":"HarmonyBot V34.0","engineering_clean":engineering_clean,"mi
 (o/"V34_STAGE_DECISION.json").write_text(json.dumps(decision,indent=2))
 print(json.dumps(decision,indent=2))
 PY
+
+progress "COMPLETE all engineering and micro gates"

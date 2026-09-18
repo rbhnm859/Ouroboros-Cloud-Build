@@ -25,12 +25,16 @@ for z in re.finditer(r"\[V34-EXECUTION-ERROR\]\s+code=([^\s]+)",t): reasons[z.gr
 eq=d.get("equity",{})
 clean_keys=["execution_errors","grid_risk_violations","duplicate_grid_legs","orphan_pending_orders","stop_widening_violations",
 "gap_through_survivors","unprotected_survivors","post_fill_protection_failures","actual_basket_risk_violations","execution_state_violations","margin_risk_violations"]
-engineering_clean=all(c[k]==0 for k in clean_keys)
+summary_present=bool(m)
+basket_activity_present=len(b)>0
+engineering_clean=summary_present and basket_activity_present and all(c[k]==0 for k in clean_keys)
 out={"window":a.window,"starting_balance":a.balance,"baskets":len(b),"pf":gp/gl if gl else (999 if gp else 0),
 "net":sum(v),"expectancy":sum(v)/len(v) if v else 0,"frequency":len(b)/a.years,
 "max_dd_pct":float(eq.get("maxEquityDrawdownPercent",0) or 0),"execution_error_reasons":reasons,
 "post_fill_audits":len(re.findall(r"\[V34-POST-FILL-AUDIT\]",t)),
 "broker_profile_present":"[V34-BROKER-PROFILE]" in t,
+"summary_present":summary_present,
+"basket_activity_present":basket_activity_present,
 "capital_compat_events":len(re.findall(r"\[V34-CAPITAL-COMPAT\]",t)),
 "engineering_clean":engineering_clean,
 "mean_mae_r":statistics.mean([x["mae"] for x in b]) if b else 0,
