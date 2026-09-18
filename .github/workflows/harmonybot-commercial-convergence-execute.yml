@@ -1,0 +1,45 @@
+name: HarmonyBot Commercial Convergence Execute
+
+on:
+  push:
+    branches:
+      - harmonybot/commercial-convergence-rc
+    paths:
+      - '.github/workflows/harmonybot-commercial-convergence-execute.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  one_pass:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    env:
+      CTRADER_PASSWORD: ${{ secrets.CTRADER_PASSWORD }}
+      CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+      CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fccde79d22c0389ba64d9bb26a2e54379d81c91e
+          path: base
+      - uses: actions/checkout@v4
+        with:
+          ref: harmonybot/commercial-convergence-rc
+          path: control
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+      - name: Execute commercial convergence one-pass
+        run: |
+          chmod +x control/commercial-convergence/run_backtest.sh
+          chmod +x control/commercial-convergence/orchestrate_onepass.sh
+          control/commercial-convergence/orchestrate_onepass.sh
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: HARMONYBOT-COMMERCIAL-CONVERGENCE-ONEPASS
+          path: control/commercial-convergence-output
+          if-no-files-found: warn
+          retention-days: 30
