@@ -1,0 +1,66 @@
+{
+  "schema_version": 1,
+  "project": "HarmonyBot V34.0",
+  "policy": {
+    "validation_is_pass_fail_only": true,
+    "retuning_from_validation_forbidden": true,
+    "unknown_off_repository_prior_exposure_invalidates_absolute_untouched_claim": true,
+    "exposed_windows_never_reused_as_fresh_validation": true,
+    "final_holdout_one_use_only": true
+  },
+  "frozen_engineering_source": {
+    "branch": "harmonybot/v34-clean-execution-adaptive-capital",
+    "engineering_commit": "bf277db05ce303a3e1184b6be8b28868cbe9e69a",
+    "source_path": "HarmonyBot-V34/src/HarmonyBotV34.cs",
+    "source_git_blob_sha": "f404767c70bdf5032b8d5c1fc2be9e81b9a97947"
+  },
+  "known_exposed": [
+    {"range":"2018-07-02..2018-12-31","status":"EXPOSED_PREVIOUS_FINAL_HOLDOUT"},
+    {"range":"2019-01-02..2019-06-28","status":"EXPOSED_PREVIOUS_OOS"},
+    {"range":"2019-07-01..2019-12-31","status":"EXPOSED_PREVIOUS_VALIDATION_AND_100_GATE"},
+    {"range":"2020-07-01..2020-12-31","status":"EXPOSED_REPOSITORY_WORKFLOWS","reason":"Current repository contains HarmonyBot workflows that explicitly backtest this interval."},
+    {"range":"2021-01-04..2021-06-30","status":"EXPOSED_DEVELOPMENT"},
+    {"range":"2021-07-01..2021-12-31","status":"EXPOSED_DEVELOPMENT"},
+    {"range":"2022-01-03..2022-06-30","status":"EXPOSED_DEVELOPMENT"},
+    {"range":"2022-07-01..2022-12-30","status":"EXPOSED_RETIRED_VALIDATION"},
+    {"range":"2023-09-10..2026-09-16","status":"EXPOSED_PRIOR_HARMONYBOT_RESEARCH"}
+  ],
+  "validation_reservation": {
+    "id": "V34-VAL-FRESH-2020H1",
+    "start": "2020-01-02",
+    "evaluation_start": "2020-01-09T00:00:00Z",
+    "end": "2020-06-30",
+    "status": "AUDITABLY_UNEXPOSED_RESERVED_BEFORE_EXECUTION",
+    "evidence_scope": "Current repository code/workflow search plus repository issue/PR search",
+    "evidence": [
+      "No HarmonyBot repository-code matches for 2020-01 through 2020-06.",
+      "No HarmonyBot repository-code matches for 02/01/2020 or 30/06/2020.",
+      "No repository issue/PR matches for HarmonyBot with 2020-H1, 2020-01-02, 2020-06-30, 02/01/2020 or 30/06/2020.",
+      "2020-H2 is explicitly excluded because current repository workflows expose it."
+    ],
+    "qualification": "Fresh/auditably unexposed within available repository evidence; not an absolute claim about unknown off-repository activity."
+  },
+  "tracks": {
+    "normal": {"starting_balance":10000,"symbol":"XAUUSD","broker":"FxPro","leverage":"1:500"},
+    "micro100": {"starting_balance":100,"symbol":"XAUUSD","broker":"FxPro","leverage":"1:500"}
+  },
+  "preregistered_stage1_gate": {
+    "minimum_baskets_per_track": 10,
+    "profit_factor_gt": 1.0,
+    "net_profit_gt": 0.0,
+    "expectancy_gt": 0.0,
+    "max_drawdown_pct_lte": 10.0,
+    "engineering_clean": true,
+    "broker_profile_present": true,
+    "summary_present": true,
+    "basket_activity_present": true
+  },
+  "final_holdout": {
+    "id": "FINAL-HOLDOUT",
+    "start": "2023-01-02",
+    "evaluation_start": "2023-01-09T00:00:00Z",
+    "end": "2023-08-31",
+    "status": "RESERVED_UNTOUCHED_NOT_AUTHORIZED",
+    "rule": "Do not execute for Validation. Preserve for single-use final holdout after Validation/OOS/WF/sensitivity/cost-stress design and parameters are frozen."
+  }
+}
