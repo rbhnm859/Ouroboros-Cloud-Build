@@ -1,0 +1,28 @@
+name: HarmonyBot V33.0 Basket Risk Lifecycle Architecture
+on:
+  push:
+    branches: [harmonybot/v33-basket-risk-lifecycle-architecture]
+    paths: ['.github/workflows/harmonybot-v33-risk-lifecycle.yml','HarmonyBot-V33/**']
+  workflow_dispatch:
+permissions: {contents: read}
+concurrency: {group: harmonybot-v33-risk-lifecycle, cancel-in-progress: true}
+jobs:
+  one_pass:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    env:
+      CTRADER_PASSWORD: ${{ secrets.CTRADER_PASSWORD }}
+      CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+      CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+    steps:
+      - uses: actions/checkout@v4
+        with: {ref: harmonybot/v33-basket-risk-lifecycle-architecture, path: control}
+      - uses: actions/setup-dotnet@v4
+        with: {dotnet-version: 8.0.x}
+      - name: Execute V33 frozen-core one-pass
+        run: |
+          chmod +x control/HarmonyBot-V33/tools/*.sh
+          control/HarmonyBot-V33/tools/orchestrate_onepass.sh
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with: {name: HARMONYBOT-V33-RISK-LIFECYCLE, path: control/HarmonyBot-V33/output, retention-days: 30}
