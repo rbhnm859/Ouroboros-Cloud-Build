@@ -39,7 +39,7 @@ CNAME="v31-$(echo "$RUN_NAME" | tr '[:upper:]_' '[:lower:]-')-$GITHUB_RUN_ID-$GI
 docker run --name "$CNAME" -v "$PWD/seal:/work" ghcr.io/spotware/ctrader-console:5.9.11 backtest "/work/\${ALGO#seal/}" \
   --ctid="$CTRADER_CTID" --pwd-file=/work/ctrader.pwd --account="$ACCT" \
   --symbol=XAUUSD --period=m1 --start="$START_DATE" --end="$END_DATE" --balance="$CAPITAL" --data-mode="$DATA_MODE" --data-dir=/work/data \
-  --commission="$COMMISSION" --spread="$SPREAD" --max-slippage-pips="$SLIPPAGE" \
+  --commission="$COMMISSION" --spread="$SPREAD" \
   --SymbolName=XAUUSD --TradingEnabled=true --RiskPercent="$RISK" --MaxDrawdownPercent=10 --DailyLossLimitPercent=3 \
   --MaxSpreadPips=60 --RoundTurnCommissionPips=0.5 --MinimumNetRR=2.0 --MinStopLossPips=10 --MinFreeMarginRiskMultiple=5 \
   --M15SwingDepth=3 --M15SwingLookback=320 --H1SwingDepth=3 --H4SwingDepth=2 --PortfolioMaxCandidates=8 --CandidateTtlM15Bars=8 \
@@ -74,5 +74,9 @@ rm -f seal/ctrader.pwd seal/accounts.json
 
 if [ "$DONE" != 1 ]; then
   echo "BACKTEST_FAILED $RUN_NAME"
+  if [ -f "seal/logs/$RUN_NAME.log" ]; then
+    echo "===== cTrader log tail ====="
+    tail -200 "seal/logs/$RUN_NAME.log" || true
+  fi
   exit 20
 fi
