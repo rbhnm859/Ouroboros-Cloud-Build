@@ -19,16 +19,17 @@ if s.count(param_anchor) != 1:
     raise SystemExit(f'V29.4 direction parameter anchor count={s.count(param_anchor)}; expected 1')
 s = s.replace(param_anchor, param_insert, 1)
 
-gate_anchor = '''                if (!PassMtfFilter(signal.Direction)) return;
+gate_anchor = '''                if (!PassMtfFilter(signal))
 '''
 gate_insert = '''                if ((signal.Direction == TradeDirection.Buy && !V294AllowBuy)
                     || (signal.Direction == TradeDirection.Sell && !V294AllowSell))
                 {
                     _v294DirectionBlocked++;
+                    if (v29FromPending) V29RemovePending(signal, "DIRECTION_DISABLED", false);
                     return;
                 }
 
-                if (!PassMtfFilter(signal.Direction)) return;
+                if (!PassMtfFilter(signal))
 '''
 if s.count(gate_anchor) != 1:
     raise SystemExit(f'V29.4 direction gate anchor count={s.count(gate_anchor)}; expected 1')
@@ -53,6 +54,7 @@ for token in [
     'V294AllowBuy',
     'V294AllowSell',
     '[V294-EDGE-SUMMARY]',
+    'DIRECTION_DISABLED',
     'V29.3 GRID-RISK-CAP-HOTFIX',
     'V292FastSmallAccountExecution'
 ]:
