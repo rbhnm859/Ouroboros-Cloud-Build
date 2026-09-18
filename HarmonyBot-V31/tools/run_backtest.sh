@@ -1,20 +1,20 @@
 #!/usr/bin/env bash
 set -euo pipefail
-: "\${CTRADER_PASSWORD:?}"
-: "\${CTRADER_CTID:?}"
-: "\${CTRADER_ACCOUNT:?}"
-: "\${RUN_NAME:?}"
-: "\${START_DATE:?}"
-: "\${END_DATE:?}"
-: "\${EVAL_DATE:?}"
+: "${CTRADER_PASSWORD:?}"
+: "${CTRADER_CTID:?}"
+: "${CTRADER_ACCOUNT:?}"
+: "${RUN_NAME:?}"
+: "${START_DATE:?}"
+: "${END_DATE:?}"
+: "${EVAL_DATE:?}"
 
-ALGO="\${ALGO:-seal/algo/HarmonyBot_V31_Commercial.algo}"
-CAPITAL="\${CAPITAL:-10000}"
-DATA_MODE="\${DATA_MODE:-m1}"
-RISK="\${RISK:-1.0}"
-SPREAD="\${SPREAD:-1}"
-COMMISSION="\${COMMISSION:-35}"
-SLIPPAGE="\${SLIPPAGE:-30}"
+ALGO="${ALGO:-seal/algo/HarmonyBot_V31_Commercial.algo}"
+CAPITAL="${CAPITAL:-10000}"
+DATA_MODE="${DATA_MODE:-m1}"
+RISK="${RISK:-1.0}"
+SPREAD="${SPREAD:-1}"
+COMMISSION="${COMMISSION:-35}"
+SLIPPAGE="${SLIPPAGE:-30}"
 
 mkdir -p seal/{reports,logs,data}
 docker pull ghcr.io/spotware/ctrader-console:5.9.11 >/dev/null
@@ -36,7 +36,7 @@ PY
 )
 
 CNAME="v31-$(echo "$RUN_NAME" | tr '[:upper:]_' '[:lower:]-')-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
-docker run --name "$CNAME" -v "$PWD/seal:/work" ghcr.io/spotware/ctrader-console:5.9.11 backtest "/work/\${ALGO#seal/}" \
+docker run --name "$CNAME" -v "$PWD/seal:/work" ghcr.io/spotware/ctrader-console:5.9.11 backtest "/work/${ALGO#seal/}" \
   --ctid="$CTRADER_CTID" --pwd-file=/work/ctrader.pwd --account="$ACCT" \
   --symbol=XAUUSD --period=m1 --start="$START_DATE" --end="$END_DATE" --balance="$CAPITAL" --data-mode="$DATA_MODE" --data-dir=/work/data \
   --commission="$COMMISSION" --spread="$SPREAD" \
@@ -47,7 +47,7 @@ docker run --name "$CNAME" -v "$PWD/seal:/work" ghcr.io/spotware/ctrader-console
   --NoMfeProofR=0.15 --NoMfeKillR=0.80 --NoMfeMinAgeMinutes=3 \
   --BreakEvenTriggerR=1.0 --BreakEvenLockR=0.10 --TrailTriggerR=1.50 --TrailDistanceR=0.75 \
   --EvaluationStartUtcIso="$EVAL_DATE" \
-  --report="/work/reports/$RUN_NAME.html" --report-json="/work/reports/$RUN_NAME.json" > "seal/logs/$RUN_NAME.log" 2>&1 &
+  --report="/work/reports/$RUN_NAME.html" --report-json="/work/reports/$RUN_NAME.json" --exit-on-stop > "seal/logs/$RUN_NAME.log" 2>&1 &
 
 PID=$!
 DONE=0
