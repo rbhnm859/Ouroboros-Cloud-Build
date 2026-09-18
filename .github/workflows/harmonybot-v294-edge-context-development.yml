@@ -1,4 +1,4 @@
-name: HarmonyBot V29.4 Final Commercial Recovery
+name: HarmonyBot V29.5 Final Architecture Decision
 
 on:
   push:
@@ -9,14 +9,138 @@ on:
 
 permissions:
   contents: read
-  actions: read
 
 env:
-  SOURCE_PATCH_COMMIT: 294c73aaa9f1a133899134982ba4cd4fb54de527
-  FROZEN_BUILD_RUN_ID: '35305868743'
+  BASE_COMMIT: fccde79d22c0389ba64d9bb26a2e54379d81c91e
+  V294_SOURCE_COMMIT: 294c73aaa9f1a133899134982ba4cd4fb54de527
+  V295_PATCH_COMMIT: 027820acec9cda2b3a82337b934ba6b8b9ae1298
 
 jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.BASE_COMMIT }}
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+      - name: Reconstruct frozen V29.4 then apply V29.5 minimum patch
+        run: |
+          set -euo pipefail
+          python3 tmp/harmonybot-v26-build/build_v261_frequency.py
+          python3 tmp/harmonybot-v26-build/fix_v262_grid_guard_band.py
+          python3 tmp/harmonybot-v26-build/fix_v27_observability.py
+          python3 tmp/harmonybot-v26-build/fix_v28_cost_rr.py
+          python3 tmp/harmonybot-v26-build/fix_v29_frequency_architecture.py
+          python3 tmp/harmonybot-v26-build/fix_v291_small_account_execution.py
+          python3 tmp/harmonybot-v26-build/fix_v292_small_account_fast_execution.py
+          python3 tmp/harmonybot-v26-build/fix_v292_grid_lifecycle_hotfix.py
+          python3 tmp/harmonybot-v26-build/fix_v293_grid_risk_cap_hotfix.py
+          curl -fsSL "https://raw.githubusercontent.com/rbhnm859/Ouroboros-Cloud-Build/$V294_SOURCE_COMMIT/tmp/harmonybot-v26-build/fix_v294_edge_context_gate.py" -o /tmp/fix_v294.py
+          python3 /tmp/fix_v294.py
+          curl -fsSL "https://raw.githubusercontent.com/rbhnm859/Ouroboros-Cloud-Build/$V295_PATCH_COMMIT/tmp/harmonybot-v26-build/fix_v295_thesis_validity_minimum.py" -o /tmp/fix_v295.py
+          python3 /tmp/fix_v295.py
+          grep -q 'V29.5-Thesis-Validity-Minimum-Patch-Dev' cli-build/HarmonyBotPro_v261/HarmonyBotPro.cs
+          grep -q 'V295-THESIS-INVALIDATE' cli-build/HarmonyBotPro_v261/HarmonyBotPro.cs
+          grep -q 'V29.3 GRID-RISK-CAP-HOTFIX' cli-build/HarmonyBotPro_v261/HarmonyBotPro.cs
+      - name: Build V29.5
+        run: |
+          set -euo pipefail
+          dotnet build cli-build/HarmonyBotPro_v261/HarmonyBotPro.csproj -c Release --nologo 2>&1 | tee V295-build.log
+          ! grep -Eq '(^|[^0-9])error (CS|MSB|NETSDK)[0-9]+' V295-build.log
+          A=$(find cli-build/HarmonyBotPro_v261/bin/Release -type f -name '*.algo' | head -1)
+          test -n "$A" && test -s "$A"
+          mkdir -p seal/{algo,build}
+          cp "$A" seal/algo/HarmonyBotPro_v295_thesis_validity.algo
+          cp cli-build/HarmonyBotPro_v261/HarmonyBotPro.cs seal/build/
+          cp cli-build/HarmonyBotPro_v261/HarmonyBotPro.csproj seal/build/
+          printf '%s\n' "$V294_SOURCE_COMMIT" > seal/V294_SOURCE_COMMIT.txt
+          printf '%s\n' "$V295_PATCH_COMMIT" > seal/V295_PATCH_COMMIT.txt
+          sha256sum seal/build/HarmonyBotPro.cs seal/algo/HarmonyBotPro_v295_thesis_validity.algo > seal/SHA256SUMS.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: V295-MINIMUM-BUILD
+          path: |
+            seal
+            V295-build.log
+          retention-days: 30
+
+  engineering_regression:
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    env:
+      CTRADER_PASSWORD: ${{ secrets.CTRADER_PASSWORD }}
+      CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+      CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: V295-MINIMUM-BUILD
+          path: seal
+      - name: Resolve FxPro demo 1:500 USD account
+        run: |
+          set -euo pipefail
+          docker pull ghcr.io/spotware/ctrader-console:5.9.11
+          printf '%s' "$CTRADER_PASSWORD" > seal/ctrader.pwd; chmod 600 seal/ctrader.pwd
+          docker run --rm -v "$PWD/seal:/work" ghcr.io/spotware/ctrader-console:5.9.11 accounts --ctid="$CTRADER_CTID" --pwd-file=/work/ctrader.pwd > seal/accounts.json
+          N=$(python3 - <<'PY'
+          import json,os
+          a=json.load(open('seal/accounts.json',encoding='utf-8-sig')); e=os.environ['CTRADER_ACCOUNT'].strip()
+          m=next((x for x in a if str(x.get('Number',''))==e or str(x.get('Id',''))==e),None)
+          if not m or m.get('Broker','').lower()!='fxpro' or m.get('Live') is not False or m.get('DepositCurrency')!='USD' or int(m.get('Leverage',0))!=500:
+              raise SystemExit('account mismatch')
+          print(m['Number'])
+          PY
+          ); echo "CTRADER_ACCOUNT_NUMBER=$N" >> "$GITHUB_ENV"
+      - name: Frozen engineering regression
+        run: |
+          set -euo pipefail
+          mkdir -p seal/{reports,logs,data,audit}
+          C="v295-eng-$GITHUB_RUN_ID"
+          docker run --name "$C" -v "$PWD/seal:/work" ghcr.io/spotware/ctrader-console:5.9.11 backtest /work/algo/HarmonyBotPro_v295_thesis_validity.algo             --ctid="$CTRADER_CTID" --pwd-file=/work/ctrader.pwd --account="$CTRADER_ACCOUNT_NUMBER"             --symbol=XAUUSD --period=m1 --start=15/06/2026 --end=30/06/2026 --balance=100 --data-mode=m1 --data-dir=/work/data             --commission=35 --spread=1 --SymbolName=XAUUSD --RiskPercent=1.40 --MaxSlippagePips=70 --MaxDrawdown=10 --MinStopLossPips=100             --SmallAccountMode=true --SmallAccountMinSLPips=25 --SessionStart=8 --SessionEnd=13 --DstAwareInstitutionalSession=false --MinAtrPrice=0.5             --V294AllowBuy=false --V294AllowSell=true --EnableFibGrid=true --EnableAltBat=true --EnableFiveZero=true --MinRR=2             --GridProfitFib=1.618 --GridStopFib=1.618 --GridCooldownMinutes=15 --GridBreakevenTriggerR=0.25 --GridTrailTriggerR=0.50 --GridScaleOutR=0.618             --V295ThesisGuard=true --V295NoMfeKillR=0.85 --V295MinFavorableProofR=0.15 --V295MinInvalidationAgeMinutes=2             --EnableCapitalAwarePrecisionEntry=true --PrecisionPrzMaxDistanceAtr=0.45 --PrecisionMaxWaitAtr=1.25 --CapitalSafetyHeadroom=0.98 --CapGridStopToRiskBudget=true             --EvaluationStartUtcIso=2026-06-15T00:00:00Z --V29PersistentPrzQueue=true --V29PendingMaxBars=90 --V29PendingGlobalMax=12 --V29PendingPerPatternMax=3             --V29PendingMinCompositeQuality=0.58 --V29PendingTriggerMaxPrzAtr=0.85 --V29HighQualityPrzBonusAtr=0.35 --V29CandidateReplacementMargin=0.03             --V29WarmupSeedPending=true --V29MaxOrderAttemptsPerCandidate=3 --V291SmallAccountTacticalExecution=true --V291TacticalBudgetUse=0.98             --V291RequireMicroConfirmation=true --V291MinTacticalRR=2.0 --V292FastSmallAccountExecution=true --V292MicroPivotBars=2             --V292MicroPivotAtrBuffer=0.04 --V292EnableCapitalCapStop=true --V292EnableEarlyTrigger=true --V292EarlyTriggerMinQuality=0.66             --V292EarlyTriggerMaxPrzAtr=0.95 --V292MicroBodyMinAtr=0.02 --V292WickBodyConfirmRatio=0.25             --report=/work/reports/ENG.html --report-json=/work/reports/ENG.json > seal/logs/ENG.log 2>&1 &
+          PID=$!; DONE=0
+          for ((i=0;i<3600;i+=4)); do
+            if test -s seal/reports/ENG.json && python3 - <<'PY'
+          import json
+          m=json.load(open('seal/reports/ENG.json',encoding='utf-8-sig')).get('main',{}); raise SystemExit(0 if 'endingEquity' in m else 1)
+          PY
+            then DONE=1; break; fi
+            if ! kill -0 "$PID" 2>/dev/null; then break; fi
+            sleep 4
+          done
+          docker stop --time 3 "$C" >/dev/null 2>&1 || true; docker rm -f "$C" >/dev/null 2>&1 || true; wait "$PID" 2>/dev/null || true
+          test "$DONE" = 1
+      - name: Engineering audit
+        run: |
+          python3 - <<'PY'
+          import json,re,pathlib
+          d=json.load(open('seal/reports/ENG.json',encoding='utf-8-sig')); h=d.get('history',{}).get('items',[]); eq=d.get('equity',{})
+          t=pathlib.Path('seal/logs/ENG.log').read_text(errors='ignore')
+          mains=[x for x in h if x.get('label')=='HarmonyBotPro']; losses=[abs(float(x.get('net',0))) for x in mains if float(x.get('net',0))<0]
+          errs=[x for x in t.splitlines() if re.search(r'InvalidRequest|Invalid Volume|Insufficient Margin|unprotected position|unexpected hedge',x,re.I)]
+          dd=float(eq.get('maxEquityDrawdownPercent',0) or 0); ml=max(losses,default=0)
+          out={'data_mode':'BAR_M1','main_fragments':len(mains),'max_dd_pct':dd,'max_realized_loss_usd':ml,'execution_errors':len(errs),
+               'engineering_pass':bool(len(mains)>0 and dd<=10 and ml<=1.40 and len(errs)==0)}
+          pathlib.Path('seal/audit/ENGINEERING.json').write_text(json.dumps(out,indent=2)); print(json.dumps(out,indent=2))
+          if not out['engineering_pass']: raise SystemExit('ENGINEERING_REGRESSION_FAIL')
+          PY
+      - name: Cleanup
+        if: always()
+        run: rm -f seal/ctrader.pwd seal/accounts.json; docker run --rm -v "$PWD/seal:/work" alpine:3.22 sh -c 'rm -rf /work/data' || true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: V295-ENGINEERING-REGRESSION
+          path: |
+            seal/audit
+            seal/reports
+            seal/logs
+          retention-days: 30
+
   development:
+    needs: engineering_regression
     runs-on: ubuntu-24.04
     timeout-minutes: 150
     strategy:
@@ -37,90 +161,68 @@ jobs:
     steps:
       - uses: actions/download-artifact@v4
         with:
-          name: V294-EDGE-CONTEXT-BUILD
+          name: V295-MINIMUM-BUILD
           path: seal
-          github-token: ${{ github.token }}
-          repository: ${{ github.repository }}
-          run-id: ${{ env.FROZEN_BUILD_RUN_ID }}
-      - name: Verify frozen V29.4 build
-        run: |
-          set -euo pipefail
-          test "$(cat seal/SOURCE_PATCH_COMMIT.txt)" = "$SOURCE_PATCH_COMMIT"
-          test -s seal/algo/HarmonyBotPro_v294_edge_context.algo
-      - name: Resolve FxPro demo 1:500 USD account
+      - name: Resolve account
         run: |
           set -euo pipefail
           docker pull ghcr.io/spotware/ctrader-console:5.9.11
-          printf '%s' "$CTRADER_PASSWORD" > seal/ctrader.pwd
-          chmod 600 seal/ctrader.pwd
+          printf '%s' "$CTRADER_PASSWORD" > seal/ctrader.pwd; chmod 600 seal/ctrader.pwd
           docker run --rm -v "$PWD/seal:/work" ghcr.io/spotware/ctrader-console:5.9.11 accounts --ctid="$CTRADER_CTID" --pwd-file=/work/ctrader.pwd > seal/accounts.json
           N=$(python3 - <<'PY'
           import json,os
           a=json.load(open('seal/accounts.json',encoding='utf-8-sig')); e=os.environ['CTRADER_ACCOUNT'].strip()
           m=next((x for x in a if str(x.get('Number',''))==e or str(x.get('Id',''))==e),None)
-          if not m or m.get('Broker','').lower()!='fxpro' or m.get('Live') is not False or m.get('DepositCurrency')!='USD' or int(m.get('Leverage',0))!=500:
-              raise SystemExit('account mismatch')
+          if not m or m.get('Broker','').lower()!='fxpro' or m.get('Live') is not False or int(m.get('Leverage',0))!=500: raise SystemExit('account mismatch')
           print(m['Number'])
           PY
-          )
-          echo "CTRADER_ACCOUNT_NUMBER=$N" >> "$GITHUB_ENV"
-      - name: TAIL_PAYOFF_HYBRID_MIN Development
+          ); echo "CTRADER_ACCOUNT_NUMBER=$N" >> "$GITHUB_ENV"
+      - name: V29.5 minimum architecture Development
         run: |
           set -euo pipefail
           mkdir -p seal/{reports,logs,data,audit}
-          OUT="TAIL_PAYOFF_HYBRID_MIN-$WINDOW_ID"
-          C="v294-hybrid-$GITHUB_RUN_ID-$WINDOW_ID"
-          docker run --name "$C" -v "$PWD/seal:/work" ghcr.io/spotware/ctrader-console:5.9.11 backtest /work/algo/HarmonyBotPro_v294_edge_context.algo             --ctid="$CTRADER_CTID" --pwd-file=/work/ctrader.pwd --account="$CTRADER_ACCOUNT_NUMBER"             --symbol=XAUUSD --period=m1 --start="$START_DATE" --end="$END_DATE" --balance=10000 --data-mode=m1 --data-dir=/work/data             --commission=35 --spread=1 --SymbolName=XAUUSD --RiskPercent=1.0 --MaxSlippagePips=30 --MaxDrawdown=10 --MinStopLossPips=100             --SmallAccountMode=false --SessionStart=8 --SessionEnd=13 --DstAwareInstitutionalSession=false --MinAtrPrice=0.5             --V294AllowBuy=false --V294AllowSell=true --EnableFibGrid=true --EnableAltBat=true --EnableFiveZero=true --MinRR=2             --GridProfitFib=1.618 --GridStopFib=1.618 --GridCooldownMinutes=240 --MinPrzConfluence=0.55 --MinGeometryQuality=0.52             --GridBreakevenTriggerR=0.15 --GridTrailTriggerR=0.35 --GridScaleOutR=0.50             --EnableCapitalAwarePrecisionEntry=true --PrecisionPrzMaxDistanceAtr=0.45 --PrecisionMaxWaitAtr=1.25             --CapitalSafetyHeadroom=0.98 --CapGridStopToRiskBudget=true --EvaluationStartUtcIso="$EVAL_DATE"             --V29PersistentPrzQueue=true --V29PendingMaxBars=90 --V29PendingGlobalMax=12 --V29PendingPerPatternMax=3             --V29PendingMinCompositeQuality=0.58 --V29PendingTriggerMaxPrzAtr=0.85 --V29HighQualityPrzBonusAtr=0.35             --V29CandidateReplacementMargin=0.03 --V29WarmupSeedPending=true --V29MaxOrderAttemptsPerCandidate=3             --V291SmallAccountTacticalExecution=false --V292FastSmallAccountExecution=false --V292EnableCapitalCapStop=false --V292EnableEarlyTrigger=false             --report="/work/reports/$OUT.html" --report-json="/work/reports/$OUT.json" > "seal/logs/$OUT.log" 2>&1 &
+          OUT="V295-THESIS-$WINDOW_ID"; C="v295-dev-$GITHUB_RUN_ID-$WINDOW_ID"
+          docker run --name "$C" -v "$PWD/seal:/work" ghcr.io/spotware/ctrader-console:5.9.11 backtest /work/algo/HarmonyBotPro_v295_thesis_validity.algo             --ctid="$CTRADER_CTID" --pwd-file=/work/ctrader.pwd --account="$CTRADER_ACCOUNT_NUMBER"             --symbol=XAUUSD --period=m1 --start="$START_DATE" --end="$END_DATE" --balance=10000 --data-mode=m1 --data-dir=/work/data             --commission=35 --spread=1 --SymbolName=XAUUSD --RiskPercent=1.0 --MaxSlippagePips=30 --MaxDrawdown=10 --MinStopLossPips=100             --SmallAccountMode=false --SessionStart=8 --SessionEnd=13 --DstAwareInstitutionalSession=false --MinAtrPrice=0.5             --V294AllowBuy=false --V294AllowSell=true --EnableFibGrid=true --EnableAltBat=true --EnableFiveZero=true --MinRR=2             --GridProfitFib=1.618 --GridStopFib=1.618 --GridCooldownMinutes=15 --MinPrzConfluence=0.55 --MinGeometryQuality=0.52             --GridBreakevenTriggerR=0.25 --GridTrailTriggerR=0.50 --GridScaleOutR=0.618             --V295ThesisGuard=true --V295NoMfeKillR=0.85 --V295MinFavorableProofR=0.15 --V295MinInvalidationAgeMinutes=2             --EnableCapitalAwarePrecisionEntry=true --PrecisionPrzMaxDistanceAtr=0.45 --PrecisionMaxWaitAtr=1.25 --CapitalSafetyHeadroom=0.98 --CapGridStopToRiskBudget=true             --EvaluationStartUtcIso="$EVAL_DATE" --V29PersistentPrzQueue=true --V29PendingMaxBars=90 --V29PendingGlobalMax=12 --V29PendingPerPatternMax=3             --V29PendingMinCompositeQuality=0.58 --V29PendingTriggerMaxPrzAtr=0.85 --V29HighQualityPrzBonusAtr=0.35 --V29CandidateReplacementMargin=0.03             --V29WarmupSeedPending=true --V29MaxOrderAttemptsPerCandidate=3 --V291SmallAccountTacticalExecution=false --V292FastSmallAccountExecution=false             --V292EnableCapitalCapStop=false --V292EnableEarlyTrigger=false --report="/work/reports/$OUT.html" --report-json="/work/reports/$OUT.json" > "seal/logs/$OUT.log" 2>&1 &
           PID=$!; DONE=0
           for ((i=0;i<6000;i+=4)); do
             if test -s "seal/reports/$OUT.json" && python3 - <<PY
           import json
-          m=json.load(open('seal/reports/$OUT.json',encoding='utf-8-sig')).get('main',{})
-          raise SystemExit(0 if 'endingEquity' in m and 'netProfit' in m else 1)
+          m=json.load(open('seal/reports/$OUT.json',encoding='utf-8-sig')).get('main',{}); raise SystemExit(0 if 'endingEquity' in m and 'netProfit' in m else 1)
           PY
             then DONE=1; break; fi
             if ! kill -0 "$PID" 2>/dev/null; then break; fi
             sleep 4
           done
-          docker stop --time 3 "$C" >/dev/null 2>&1 || true
-          docker rm -f "$C" >/dev/null 2>&1 || true
-          wait "$PID" 2>/dev/null || true
+          docker stop --time 3 "$C" >/dev/null 2>&1 || true; docker rm -f "$C" >/dev/null 2>&1 || true; wait "$PID" 2>/dev/null || true
           test "$DONE" = 1
-      - name: Basket-level audit
+      - name: Basket audit
         run: |
           python3 - <<'PY'
           import json,re,pathlib,os,collections
-          w=os.environ['WINDOW_ID']; name=f'TAIL_PAYOFF_HYBRID_MIN-{w}'
+          w=os.environ['WINDOW_ID']; name=f'V295-THESIS-{w}'
           d=json.load(open(f'seal/reports/{name}.json',encoding='utf-8-sig')); h=d.get('history',{}).get('items',[]); eq=d.get('equity',{})
-          t=pathlib.Path(f'seal/logs/{name}.log').read_text(errors='ignore')
-          groups={}
+          t=pathlib.Path(f'seal/logs/{name}.log').read_text(errors='ignore'); g={}
           for x in h:
               k=(str(x.get('label','')),str(x.get('direction','')).lower(),int(x.get('entryTime',0) or 0),round(float(x.get('entryPrice',0) or 0),5))
-              g=groups.setdefault(k,{'label':k[0],'direction':k[1],'entryTime':k[2],'closeTime':0,'net':0.0})
-              g['net']+=float(x.get('net',0) or 0); g['closeTime']=max(g['closeTime'],int(x.get('closeTime',0) or 0))
-          mains=sorted([g for g in groups.values() if g['label']=='HarmonyBotPro'],key=lambda z:z['entryTime'])
-          kids=sorted([g for g in groups.values() if g['label']=='HarmonyBotPro-G'],key=lambda z:z['entryTime'])
-          pats=re.findall(r'\[GRID\]\s+Basket\s+#\d+\s+created\s+\|\s*([^|]+?)\s*\|',t,re.I)
-          baskets=[{'pattern':pats[i].strip() if i<len(pats) else 'Unknown','direction':g['direction'],'entryTime':g['entryTime'],'closeTime':g['closeTime'],'net':g['net'],'grid':0} for i,g in enumerate(mains)]
+              z=g.setdefault(k,{'label':k[0],'dir':k[1],'et':k[2],'ct':0,'net':0.0}); z['net']+=float(x.get('net',0) or 0); z['ct']=max(z['ct'],int(x.get('closeTime',0) or 0))
+          mains=sorted([z for z in g.values() if z['label']=='HarmonyBotPro'],key=lambda z:z['et']); kids=[z for z in g.values() if z['label']=='HarmonyBotPro-G']
+          pats=re.findall(r'\[GRID\]\s+Basket\s+#\d+\s+created\s+\|\s*([^|]+?)\s+\|',t,re.I)
+          b=[{'pattern':pats[i].strip() if i<len(pats) else 'Unknown','dir':z['dir'],'et':z['et'],'ct':z['ct'],'net':z['net'],'grid':0} for i,z in enumerate(mains)]
           for k in kids:
-              q=[b for b in baskets if b['direction']==k['direction'] and b['entryTime']<=k['entryTime']<=b['closeTime']]
-              if not q: q=[b for b in baskets if b['direction']==k['direction'] and 0<=k['entryTime']-b['entryTime']<=14400000]
+              q=[x for x in b if x['dir']==k['dir'] and x['et']<=k['et']<=x['ct']]
+              if not q: q=[x for x in b if x['dir']==k['dir'] and 0<=k['et']-x['et']<=14400000]
               if q:
-                  b=max(q,key=lambda z:z['entryTime']); b['net']+=k['net']; b['grid']+=1; b['closeTime']=max(b['closeTime'],k['closeTime'])
-          v=[b['net'] for b in baskets]; W=[x for x in v if x>0]; L=[x for x in v if x<0]; gp=sum(W); gl=abs(sum(L)); net=sum(v)
-          pf=gp/gl if gl else (999 if gp else 0); aw=sum(W)/len(W) if W else 0; al=sum(L)/len(L) if L else 0
-          la=sorted([abs(x) for x in L],reverse=True); tl=sum(la)
-          def li(n):
-              m=re.findall(rf'{re.escape(n)}=(\d+)',t); return int(m[-1]) if m else 0
+                  x=max(q,key=lambda z:z['et']); x['net']+=k['net']; x['ct']=max(x['ct'],k['ct']); x['grid']+=1
+          v=[x['net'] for x in b]; W=[x for x in v if x>0]; L=[x for x in v if x<0]; gp=sum(W); gl=abs(sum(L)); net=sum(v); pf=gp/gl if gl else (999 if gp else 0)
+          aw=sum(W)/len(W) if W else 0; al=sum(L)/len(L) if L else 0; la=sorted([abs(x) for x in L],reverse=True); tl=sum(la)
+          sm=re.findall(r'\[V295-THESIS-SUMMARY\].*?invalidations=(\d+)\s+gridProofBlocked=(\d+)',t); inv,gb=(map(int,sm[-1]) if sm else (0,0))
           errs=len([x for x in t.splitlines() if re.search(r'InvalidRequest|Invalid Volume|Insufficient Margin|unprotected position|unexpected hedge',x,re.I)])
-          out={'candidate':'TAIL_PAYOFF_HYBRID_MIN','window':w,'data_mode':'BAR_M1','baskets':len(v),'wins':len(W),'losses':len(L),
+          out={'candidate':'V29.5-THESIS-VALIDITY-MINIMUM','window':w,'data_mode':'BAR_M1','baskets':len(v),'wins':len(W),'losses':len(L),
                'gross_profit':gp,'gross_loss':gl,'pf':pf,'net':net,'expectancy':net/len(v) if v else 0,'win_rate_pct':100*len(W)/len(v) if v else 0,
                'realized_rr':aw/abs(al) if aw>0 and al<0 else None,'max_dd_pct':float(eq.get('maxEquityDrawdownPercent',0) or 0),
                'largest_loss':min(L) if L else 0,'top1_loss_pct':100*sum(la[:1])/tl if tl else 0,'top3_loss_pct':100*sum(la[:3])/tl if tl else 0,
-               'top5_loss_pct':100*sum(la[:5])/tl if tl else 0,'signals':li('signals'),'orders':li('orders'),'atr_blocked':li('atrBlocked'),
-               'mtf_blocked':li('mtfBlocked'),'geometry_blocked':li('geometryBlocked'),'volume_blocked':li('volumeBlocked'),
-               'risk_blocked':li('riskBlocked'),'capital_infeasible':li('capitalInfeasible'),'execution_errors':errs,
-               'pattern_distribution':dict(collections.Counter(b['pattern'] for b in baskets)),'grid_baskets':sum(b['grid']>0 for b in baskets)}
+               'top5_loss_pct':100*sum(la[:5])/tl if tl else 0,'thesis_invalidations':inv,'grid_proof_blocked':gb,'grid_baskets':sum(x['grid']>0 for x in b),
+               'pattern_distribution':dict(collections.Counter(x['pattern'] for x in b)),'execution_errors':errs}
           pathlib.Path(f'seal/audit/{name}.json').write_text(json.dumps(out,indent=2)); print(json.dumps(out,indent=2))
           PY
       - name: Cleanup
@@ -129,7 +231,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: V294-HYBRID-DEV-${{ matrix.window.id }}
+          name: V295-DEV-${{ matrix.window.id }}
           path: |
             seal/audit
             seal/reports
@@ -143,26 +245,26 @@ jobs:
     steps:
       - uses: actions/download-artifact@v4
         with:
-          pattern: V294-HYBRID-DEV-*
+          pattern: V295-DEV-*
           path: all
           merge-multiple: true
-      - name: TAIL_PAYOFF_HYBRID_MIN hard gate
+      - name: V29.5 final Development gate
         run: |
           python3 - <<'PY'
-          import json,glob,pathlib,os
+          import json,glob,pathlib
           rs=sorted([json.load(open(p)) for p in glob.glob('all/audit/*.json')],key=lambda x:x['window'])
           tb=sum(x['baskets'] for x in rs); gp=sum(x['gross_profit'] for x in rs); gl=sum(x['gross_loss'] for x in rs); net=sum(x['net'] for x in rs)
-          pf=gp/gl if gl else (999 if gp else 0); exp=net/tb if tb else 0; dd=max([x['max_dd_pct'] for x in rs] or [999]); errs=sum(x['execution_errors'] for x in rs)
-          tpy=tb/1.5
-          edge=bool(len(rs)==3 and all(x['baskets']>0 and x['pf']>1 and x['expectancy']>0 for x in rs) and dd<=10 and net>0 and exp>0 and sum(x['net']>0 for x in rs)>=2 and errs==0)
-          out={'source_commit':os.environ['SOURCE_PATCH_COMMIT'],'candidate':'TAIL_PAYOFF_HYBRID_MIN','development_data_mode':'BAR_M1','rows':rs,
-               'aggregate_pf':pf,'aggregate_net':net,'aggregate_expectancy':exp,'worst_pf':min([x['pf'] for x in rs] or [0]),'max_dd_pct':dd,
-               'total_baskets':tb,'trades_per_year':tpy,'development_edge_gate':'PASS' if edge else 'FAIL','frequency_gate':'PASS' if tpy>=50 else 'FAIL',
-               'v294_preset_recovery':'PASS' if edge else 'EXHAUSTED','validation':'AUTHORIZED' if edge else 'BLOCKED','final_holdout':'UNTOUCHED'}
-          pathlib.Path('V294-HYBRID-DEV-GATE.json').write_text(json.dumps(out,indent=2)); print(json.dumps(out,indent=2))
+          pf=gp/gl if gl else (999 if gp else 0); exp=net/tb if tb else 0; dd=max([x['max_dd_pct'] for x in rs] or [999]); errs=sum(x['execution_errors'] for x in rs); tpy=tb/1.5
+          edge=bool(len(rs)==3 and all(x['baskets']>0 and x['pf']>1 and x['expectancy']>0 and x['net']>0 for x in rs) and dd<=10 and net>0 and exp>0 and errs==0)
+          out={'version':'HarmonyBot V29.5 Thesis Validity Minimum Patch Dev','v294_source_commit':'294c73aaa9f1a133899134982ba4cd4fb54de527',
+               'v295_patch_commit':'027820acec9cda2b3a82337b934ba6b8b9ae1298','development_data_mode':'BAR_M1','rows':rs,'aggregate_pf':pf,
+               'aggregate_net':net,'aggregate_expectancy':exp,'worst_pf':min([x['pf'] for x in rs] or [0]),'max_dd_pct':dd,'total_baskets':tb,
+               'trades_per_year':tpy,'development_gate':'PASS' if edge else 'FAIL','frequency_gate':'PASS' if tpy>=50 else 'FAIL',
+               'validation':'AUTHORIZED' if edge else 'BLOCKED','strategy_architecture_limitation':not edge,'final_holdout':'UNTOUCHED'}
+          pathlib.Path('V295-DEVELOPMENT-GATE.json').write_text(json.dumps(out,indent=2)); print(json.dumps(out,indent=2))
           PY
       - uses: actions/upload-artifact@v4
         with:
-          name: V294-HYBRID-DEVELOPMENT-GATE
-          path: V294-HYBRID-DEV-GATE.json
+          name: V295-DEVELOPMENT-GATE
+          path: V295-DEVELOPMENT-GATE.json
           retention-days: 30
