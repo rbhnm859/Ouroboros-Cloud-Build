@@ -1748,7 +1748,7 @@ namespace cAlgo.Robots
         private string NewBasketId()
         {
             _basketSeq++;
-            return "HB34-" + SymbolName + "-" + Server.Time.ToUniversalTime().ToString("yyyyMMdd", CultureInfo.InvariantCulture) + "-" +
+            return BotPrefix + "-" + SymbolName + "-" + Server.Time.ToUniversalTime().ToString("yyyyMMdd", CultureInfo.InvariantCulture) + "-" +
                    _basketSeq.ToString("D6", CultureInfo.InvariantCulture);
         }
 
