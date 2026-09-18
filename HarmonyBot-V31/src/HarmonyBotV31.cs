@@ -14,7 +14,7 @@ namespace cAlgo.Robots
         private const string BotPrefix = "HB31";
 
         [Parameter("Symbol", DefaultValue = "XAUUSD")]
-        public string SymbolName { get; set; }
+        public new string SymbolName { get; set; }
 
         [Parameter("Trading Enabled", DefaultValue = true)]
         public bool TradingEnabled { get; set; }
@@ -915,7 +915,7 @@ namespace cAlgo.Robots
                 if (proposed <= _symbol.Ask) return;
                 if (p.StopLoss.HasValue && proposed >= p.StopLoss.Value) return;
             }
-            var r = ModifyPosition(p, proposed, p.TakeProfit);
+            var r = ModifyPosition(p, proposed, p.TakeProfit, ProtectionType.Absolute);
             if (r == null || !r.IsSuccessful) _executionErrors++;
         }
 
@@ -928,7 +928,7 @@ namespace cAlgo.Robots
                 if (!_positions.TryGetValue(p.Id, out l) || l.InitialRiskPips <= 0) continue;
                 double sl = p.TradeType == TradeType.Buy ? p.EntryPrice - PipsToPrice(l.InitialRiskPips) : p.EntryPrice + PipsToPrice(l.InitialRiskPips);
                 double tp = p.TradeType == TradeType.Buy ? p.EntryPrice + PipsToPrice(l.InitialRiskPips * MinimumNetRR) : p.EntryPrice - PipsToPrice(l.InitialRiskPips * MinimumNetRR);
-                var r = ModifyPosition(p, sl, tp);
+                var r = ModifyPosition(p, sl, tp, ProtectionType.Absolute);
                 if (r == null || !r.IsSuccessful) _executionErrors++;
             }
         }
