@@ -22,7 +22,7 @@ finalize() {
   python3 - "$OUT/FINAL_COMMERCIAL_DECISION.json" "$status" "$reason" <<'PY'
 import json,sys,pathlib
 p,status,reason=sys.argv[1:4]
-x={"version":"HarmonyBot V33.0 — Fibonacci Harmonic Grid Portfolio Execution Engine",
+x={"version":"HarmonyBot V33.0 — Fibonacci Harmonic Basket Risk & Execution Architecture",
    "final_status":status,"reason":reason,"profit_guarantee":False,
    "commercial_algo_created": status in ("PASS","NEAR_TARGET")}
 pathlib.Path(p).write_text(json.dumps(x,indent=2))
@@ -35,7 +35,7 @@ echo "== V33 engineering audits =="
 cd "$CONTROL"
 python3 HarmonyBot-V33/tools/static_audit.py HarmonyBot-V33/src/HarmonyBotV33.cs
 python3 HarmonyBot-V33/tools/data_exposure_scan.py
-cp STATIC_AUDIT.json TIMEFRAME_AUDIT.json NO_LOOKAHEAD_AUDIT.json SESSION_DST_AUDIT.json GRID_RISK_AUDIT.json DATA_EXPOSURE_LEDGER.json "$OUT/"
+cp STATIC_AUDIT.json TIMEFRAME_AUDIT.json NO_LOOKAHEAD_AUDIT.json SESSION_DST_AUDIT.json GRID_RISK_AUDIT.json EXECUTION_STATE_AUDIT.json DATA_EXPOSURE_LEDGER.json "$OUT/"
 
 echo "== V33 clean build =="
 dotnet restore HarmonyBot-V33/HarmonyBotV33.csproj
@@ -100,6 +100,17 @@ err=collections.Counter()
 for x in rows:
     err.update(x.get("execution_error_reasons",{}))
 (o/"EXECUTION_ERROR_LEDGER.json").write_text(json.dumps({"version":"HarmonyBot V33.0","total":sum(err.values()),"reasons":dict(err)},indent=2))
+life={
+ "version":"HarmonyBot V33.0",
+ "windows":{x["window"]:x.get("risk_lifecycle_attribution",{}) for x in rows},
+ "aggregate":{
+   "admission_risk_rejects":sum(x.get("risk_lifecycle_attribution",{}).get("admission_risk_rejects",0) for x in rows),
+   "admission_thesis_rejects":sum(x.get("risk_lifecycle_attribution",{}).get("admission_thesis_rejects",0) for x in rows),
+   "admission_passes":sum(x.get("risk_lifecycle_attribution",{}).get("admission_passes",0) for x in rows),
+   "frontier_advances":sum(x.get("risk_lifecycle_attribution",{}).get("frontier_advances",0) for x in rows),
+   "technical_retries":sum(x.get("risk_lifecycle_attribution",{}).get("technical_retries",0) for x in rows)
+ }}
+(o/"RISK_LIFECYCLE_ATTRIBUTION.json").write_text(json.dumps(life,indent=2))
 PY
 
 DEV_PASS=$(python3 - "$OUT/DEVELOPMENT_GATE.json" <<'PY'
