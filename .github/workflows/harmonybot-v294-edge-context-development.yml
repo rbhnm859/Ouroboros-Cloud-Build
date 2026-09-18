@@ -24,7 +24,7 @@ jobs:
           path: base
       - uses: actions/checkout@v4
         with:
-          ref: main
+          ref: 294c73aaa9f1a133899134982ba4cd4fb54de527
           path: control
       - uses: actions/setup-dotnet@v4
         with:
@@ -32,8 +32,8 @@ jobs:
       - name: Build frozen V29.4 source patch
         run: |
           set -euo pipefail
-          git -C control cat-file -e "${SOURCE_PATCH_COMMIT}^{commit}"
-          git -C control show "${SOURCE_PATCH_COMMIT}:tmp/harmonybot-v26-build/fix_v294_edge_context_gate.py" > /tmp/fix_v294_edge_context_gate.py
+          test "$(git -C control rev-parse HEAD)" = "${SOURCE_PATCH_COMMIT}"
+          cp control/tmp/harmonybot-v26-build/fix_v294_edge_context_gate.py /tmp/fix_v294_edge_context_gate.py
           cd base
           python3 tmp/harmonybot-v26-build/build_v261_frequency.py
           python3 tmp/harmonybot-v26-build/fix_v261_mtf_overload.py
