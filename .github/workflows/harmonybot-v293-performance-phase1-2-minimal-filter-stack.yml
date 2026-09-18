@@ -358,3 +358,5 @@ jobs:
           name: V293-PERFORMANCE-PHASE12-DECISION
           path: PHASE12-FINAL-DECISION.json
           retention-days: 30
+
+# phase1.2 trigger refresh
