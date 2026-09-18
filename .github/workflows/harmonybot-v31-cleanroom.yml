@@ -1,0 +1,42 @@
+name: HarmonyBot V31.0 Clean-Room Harmonic Kernel
+
+on:
+  push:
+    branches:
+      - harmonybot/v31-cleanroom-harmonic-kernel
+    paths:
+      - '.github/workflows/harmonybot-v31-cleanroom.yml'
+      - 'HarmonyBot-V31/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  one_pass:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    env:
+      CTRADER_PASSWORD: ${{ secrets.CTRADER_PASSWORD }}
+      CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+      CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: harmonybot/v31-cleanroom-harmonic-kernel
+          path: control
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+      - name: Execute V31 clean-room one-pass
+        run: |
+          chmod +x control/HarmonyBot-V31/tools/run_backtest.sh
+          chmod +x control/HarmonyBot-V31/tools/orchestrate_onepass.sh
+          control/HarmonyBot-V31/tools/orchestrate_onepass.sh
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: HARMONYBOT-V31-CLEANROOM
+          path: control/HarmonyBot-V31/output
+          if-no-files-found: warn
+          retention-days: 30
