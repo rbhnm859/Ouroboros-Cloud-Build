@@ -189,6 +189,7 @@ namespace cAlgo.Robots
         protected override void OnStop()
         {
             Positions.Closed -= OnPositionClosed;
+            CancelAllOwnPending("BOT_STOP");
             EnsureServerProtection();
             foreach (var kv in _pipeline.OrderBy(k => k.Key))
             {
@@ -196,7 +197,8 @@ namespace cAlgo.Robots
                 Print("[V32-PIPELINE] pattern={0} detected={1} validated={2} routed={3} prz={4} confirming={5} armed={6} executed={7} expired={8} rejected={9} invalidated={10}",
                     kv.Key, x.Detected, x.Validated, x.Routed, x.PrzWaiting, x.Confirming, x.Armed, x.Executed, x.Expired, x.Rejected, x.Invalidated);
             }
-            Print("[V32-SUMMARY] candidates={0} openLedgers={1} executionErrors={2}", _candidateSeq, _positions.Count, _executionErrors);
+            Print("[V32-SUMMARY] candidates={0} baskets={1} openLedgers={2} executionErrors={3} gridRiskViolations={4} duplicateGridLegs={5} orphanPendingOrders={6} stopWideningViolations={7}",
+                _candidateSeq, _baskets.Count, _positions.Count, _executionErrors, _gridRiskViolations, _duplicateGridLegs, _orphanPendingOrders, _stopWideningViolations);
         }
 
         protected override void OnBar()
@@ -223,7 +225,7 @@ namespace cAlgo.Robots
             {
                 ResetDaily(false);
                 UpdateRiskLocks();
-                ManageOpenPosition();
+                ReconcileAndManageBaskets();
             }
             catch (Exception ex)
             {
@@ -342,14 +344,14 @@ namespace cAlgo.Robots
                         continue;
                     }
 
-                    if (!PassNetRR(c.Signal, out c.SelectedTarget, out c.NetRR))
+                    if (!TryBuildFibonacciGridPlan(c))
                     {
-                        Reject(c, "RR_REJECTED");
+                        Reject(c, "FIB_GRID_PLAN_REJECTED");
                         continue;
                     }
 
                     c.Rank = CandidateRank(c);
-                    Transition(c, CandidateState.ARMED, "CONFIRMATION_PASSED");
+                    Transition(c, CandidateState.ARMED, "CONFIRMATION_PASSED_GRID_PREPLANNED");
                     CountPipeline(c.Signal.PatternName).Armed++;
                 }
             }
@@ -363,86 +365,300 @@ namespace cAlgo.Robots
             if (_evaluationStartUtc.HasValue && Server.Time.ToUniversalTime() < _evaluationStartUtc.Value) return;
             if (!IsInstitutionalSession(Server.Time.ToUniversalTime())) return;
             if (!SpreadValid()) return;
-            if (OwnPositions().Any()) return;
+            if (OwnPositions().Any() || OwnPendingOrders().Any() || _baskets.Values.Any(b => b.IsActive)) return;
 
             var armed = _candidates.Values
-                .Where(c => c.State == CandidateState.ARMED && c.IsActive)
+                .Where(c => c.State == CandidateState.ARMED && c.IsActive && c.GridPlan != null)
                 .OrderByDescending(c => c.Rank)
                 .ToList();
             if (armed.Count == 0) return;
 
             var winner = armed[0];
-            ExecuteCandidate(winner);
+            ExecuteFibonacciGridPlan(winner);
 
             if (winner.State == CandidateState.EXECUTED)
-            {
                 foreach (var other in armed.Skip(1))
-                    Reject(other, "SINGLE_POSITION_SCHEDULER");
-            }
+                    Reject(other, "SINGLE_BASKET_SCHEDULER");
         }
 
-        private void ExecuteCandidate(CandidateRecord c)
+        private bool TryBuildFibonacciGridPlan(CandidateRecord c)
         {
-            double entry = c.Signal.Direction == TradeDirection.Buy ? _symbol.Ask : _symbol.Bid;
+            var p = c.Signal.Profile;
+            if (p == null || !p.GridEnabled) return false;
+
+            double anchor = c.Signal.Direction == TradeDirection.Buy ? _symbol.Ask : _symbol.Bid;
             double stop = c.Signal.StructuralInvalidation;
-            double target = c.SelectedTarget;
-            if (!GeometryValid(c.Signal.Direction, entry, stop, target))
+            double distance = c.Signal.Direction == TradeDirection.Buy ? anchor - stop : stop - anchor;
+            if (distance <= PipsToPrice(MinStopLossPips)) return false;
+
+            double xa = Math.Abs(c.Signal.A.Price - c.Signal.X.Price);
+            double spanXa = xa > 0 ? distance / xa : 999;
+            if (spanXa < p.MinimumGridSpanXa || spanXa > p.MaximumGridSpanXa) return false;
+
+            int routeMax = c.Route == HarmonicRoute.TREND_ALIGNED_REVERSAL ? 4 :
+                           c.Route == HarmonicRoute.EXHAUSTION_REVERSAL ? 2 :
+                           c.Route == HarmonicRoute.TRANSITION_REVERSAL ? (c.Regime != null && c.Regime.Efficiency >= .28 ? 3 : 2) : 0;
+            int maxLegs = Math.Min(Math.Min(routeMax, p.MaximumGridLegs), p.GridFractions.Length);
+            if (maxLegs <= 0) return false;
+
+            var plan = new FibonacciGridPlan
             {
-                Reject(c, "ORDER_GEOMETRY");
+                CandidateId = c.CandidateId,
+                Pattern = c.Signal.PatternName,
+                Direction = c.Signal.Direction,
+                Route = c.Route,
+                EntryAnchor = anchor,
+                StructuralStop = stop,
+                GridDistance = distance,
+                BasketRiskAmount = Account.Equity * BasketRiskPercent / 100.0,
+                CreatedUtc = Server.Time.ToUniversalTime(),
+                ExpirationUtc = MinDate(c.ExpiryUtc, Server.Time.ToUniversalTime().AddMinutes(p.PendingTtlMinutes))
+            };
+            if (plan.BasketRiskAmount <= 0) return false;
+
+            double przTol = Math.Max(c.Signal.PrzHigh - c.Signal.PrzLow, distance * p.GridStructuralTolerance);
+            double legalLow = c.Signal.PrzLow - przTol;
+            double legalHigh = c.Signal.PrzHigh + przTol;
+
+            for (int leg = 0; leg < maxLegs; leg++)
+            {
+                double fraction = p.GridFractions[leg];
+                if (fraction < -1e-9 || fraction > .6180001) continue;
+
+                double price = c.Signal.Direction == TradeDirection.Buy ? anchor - fraction * distance : anchor + fraction * distance;
+                if (price < legalLow || price > legalHigh) continue;
+
+                double riskWeight = leg < p.GridRiskWeights.Length ? p.GridRiskWeights[leg] : 0;
+                double legBudget = plan.BasketRiskAmount * riskWeight;
+                double slPips = PriceToPips(Math.Abs(price - stop));
+                if (slPips < MinStopLossPips || legBudget <= 0) continue;
+
+                double volume = VolumeForRiskBudget(legBudget, slPips);
+                if (volume <= 0) continue;
+
+                double actualRisk = volume * _symbol.PipValue * slPips;
+                double modeledCost = volume * _symbol.PipValue * ModeledCostPips();
+                if (plan.WorstCaseRisk + actualRisk + modeledCost > plan.BasketRiskAmount + 1e-8)
+                    continue;
+
+                plan.Legs.Add(new FibonacciGridLeg
+                {
+                    Index = leg,
+                    Fraction = fraction,
+                    PlannedPrice = price,
+                    RiskWeight = riskWeight,
+                    RiskBudget = legBudget,
+                    Volume = volume,
+                    PlannedRisk = actualRisk,
+                    ModeledCost = modeledCost,
+                    State = GridLegState.PLANNED
+                });
+                plan.WorstCaseRisk += actualRisk + modeledCost;
+            }
+
+            if (plan.Legs.Count == 0 || plan.Legs[0].Index != 0) return false;
+            if (plan.WorstCaseRisk > plan.BasketRiskAmount + 1e-8)
+            {
+                _gridRiskViolations++;
+                return false;
+            }
+
+            double totalVolume = plan.Legs.Sum(l => l.Volume);
+            if (totalVolume <= 0) return false;
+            plan.ExpectedWeightedEntry = plan.Legs.Sum(l => l.PlannedPrice * l.Volume) / totalVolume;
+
+            double target, netRr;
+            if (!SelectCanonicalBasketTarget(c.Signal, plan.ExpectedWeightedEntry, plan.StructuralStop, out target, out netRr))
+                return false;
+
+            plan.CanonicalTarget = target;
+            plan.ExpectedNetRR = netRr;
+            c.GridPlan = plan;
+            c.SelectedTarget = target;
+            c.NetRR = netRr;
+
+            Print("[V32-GRID-PLAN] cid={0} pattern={1} route={2} legs={3} anchor={4} weighted={5} stop={6} target={7} budget={8:F2} worst={9:F2} netRR={10:F3}",
+                c.CandidateId, c.Signal.PatternName, c.Route, plan.Legs.Count, anchor, plan.ExpectedWeightedEntry, stop, target,
+                plan.BasketRiskAmount, plan.WorstCaseRisk, plan.ExpectedNetRR);
+            foreach (var leg in plan.Legs)
+                Print("[V32-GRID-LEG-PLAN] cid={0} leg=L{1} fraction={2:F3} price={3} weight={4:F6} volume={5} risk={6:F2} cost={7:F2}",
+                    c.CandidateId, leg.Index, leg.Fraction, leg.PlannedPrice, leg.RiskWeight, leg.Volume, leg.PlannedRisk, leg.ModeledCost);
+            return true;
+        }
+
+        private void ExecuteFibonacciGridPlan(CandidateRecord c)
+        {
+            var plan = c.GridPlan;
+            if (plan == null || plan.Legs.Count == 0) { Reject(c, "GRID_PLAN_MISSING"); return; }
+            if (Account.FreeMargin < plan.BasketRiskAmount * MinFreeMarginRiskMultiple) { Reject(c, "MARGIN_HEADROOM"); return; }
+            if (plan.WorstCaseRisk > plan.BasketRiskAmount + 1e-8)
+            {
+                _gridRiskViolations++;
+                Reject(c, "WORST_CASE_BASKET_RISK");
                 return;
             }
 
-            double slPips = PriceToPips(Math.Abs(entry - stop));
-            double tpPips = PriceToPips(Math.Abs(target - entry));
-            if (slPips < MinStopLossPips || tpPips <= 0)
+            string basketId = NewBasketId();
+            plan.BasketId = basketId;
+            var basket = new FibonacciBasket
             {
-                Reject(c, "STOP_DISTANCE");
+                BasketId = basketId,
+                CandidateId = c.CandidateId,
+                Pattern = c.Signal.PatternName,
+                Direction = c.Signal.Direction,
+                Route = c.Route,
+                State = FibonacciBasketState.PLANNED,
+                CreatedUtc = Server.Time.ToUniversalTime(),
+                ExpirationUtc = plan.ExpirationUtc,
+                EntryAnchor = plan.EntryAnchor,
+                StructuralStop = plan.StructuralStop,
+                CanonicalTarget = plan.CanonicalTarget,
+                InitialBasketRisk = plan.BasketRiskAmount,
+                PlannedWorstCaseRisk = plan.WorstCaseRisk,
+                Plan = plan,
+                Candidate = c,
+                IsActive = true
+            };
+            _baskets[basketId] = basket;
+            CountPipeline(c.Signal.PatternName).BasketPlanned++;
+            BasketEvent(basket, "BASKET_PLANNED");
+
+            var l0 = plan.Legs.First(x => x.Index == 0);
+            string l0Label = GridLabel(basketId, 0);
+            if (LegAlreadyExists(l0Label))
+            {
+                _duplicateGridLegs++;
+                basket.State = FibonacciBasketState.CANCELLED;
+                basket.IsActive = false;
+                Reject(c, "DUPLICATE_L0");
                 return;
             }
 
-            double riskAmount = Account.Equity * (BasketRiskPercent / 100.0);
-            if (Account.FreeMargin < riskAmount * MinFreeMarginRiskMultiple)
-            {
-                Reject(c, "MARGIN_HEADROOM");
-                return;
-            }
-
-            double volume = CalculateVolume(slPips);
+            double marketEntry = c.Signal.Direction == TradeDirection.Buy ? _symbol.Ask : _symbol.Bid;
+            double slPips = PriceToPips(Math.Abs(marketEntry - plan.StructuralStop));
+            double tpPips = PriceToPips(Math.Abs(plan.CanonicalTarget - marketEntry));
+            double volume = VolumeForRiskBudget(plan.BasketRiskAmount * l0.RiskWeight, slPips);
             if (volume <= 0)
             {
-                Reject(c, "RISK_VOLUME");
+                basket.State = FibonacciBasketState.RISK_REJECTED;
+                basket.IsActive = false;
+                Reject(c, "L0_RISK_VOLUME");
+                return;
+            }
+
+            double otherWorst = plan.Legs.Where(x => x.Index != 0).Sum(x => x.PlannedRisk + x.ModeledCost);
+            double l0Worst = volume * _symbol.PipValue * (slPips + ModeledCostPips());
+            if (otherWorst + l0Worst > plan.BasketRiskAmount + 1e-8)
+            {
+                _gridRiskViolations++;
+                basket.State = FibonacciBasketState.RISK_REJECTED;
+                basket.IsActive = false;
+                Reject(c, "L0_SLIPPAGE_RISK_RECHECK");
                 return;
             }
 
             TradeType tt = c.Signal.Direction == TradeDirection.Buy ? TradeType.Buy : TradeType.Sell;
-            string label = BotPrefix + "|" + (_candidateSeq % 1000000).ToString(CultureInfo.InvariantCulture);
-            var tr = ExecuteMarketOrder(tt, SymbolName, volume, label, slPips, tpPips);
+            var tr = ExecuteMarketOrder(tt, SymbolName, volume, l0Label, slPips, tpPips);
             if (tr == null || !tr.IsSuccessful || tr.Position == null)
             {
                 _executionErrors++;
-                Reject(c, "ORDER_ERROR_" + (tr == null ? "NULL" : tr.Error.ToString()));
+                basket.State = FibonacciBasketState.RISK_REJECTED;
+                basket.IsActive = false;
+                Reject(c, "L0_ORDER_ERROR_" + (tr == null ? "NULL" : tr.Error.ToString()));
                 return;
             }
 
-            var p = tr.Position;
-            _positions[p.Id] = new PositionLedger
-            {
-                PositionId = p.Id,
-                CandidateId = c.CandidateId,
-                PatternName = c.Signal.PatternName,
-                Route = c.Route,
-                Direction = c.Signal.Direction,
-                EntryUtc = Server.Time.ToUniversalTime(),
-                InitialRiskPips = slPips,
-                RiskAmount = riskAmount,
-                PeakR = 0,
-                MaxAdverseR = 0
-            };
-            c.PositionId = p.Id;
-            Transition(c, CandidateState.EXECUTED, "ORDER_FILLED");
+            l0.Volume = volume;
+            l0.State = GridLegState.FILLED;
+            l0.PositionId = tr.Position.Id;
+            basket.State = FibonacciBasketState.LEG0_EXECUTED;
+            RegisterFilledPosition(basket, l0, tr.Position);
+            CountPipeline(c.Signal.PatternName).Leg0Executed++;
+            BasketEvent(basket, "LEG0_EXECUTED");
+            Transition(c, CandidateState.EXECUTED, "FIB_GRID_LEG0_FILLED");
             CountPipeline(c.Signal.PatternName).Executed++;
-            Print("[V32-EXECUTED] cid={0} pos={1} pattern={2} tf=M15 route={3} dir={4} netRR={5:F3} slPips={6:F1} tpPips={7:F1} volume={8}",
-                c.CandidateId, p.Id, c.Signal.PatternName, c.Route, c.Signal.Direction, c.NetRR, slPips, tpPips, volume);
+
+            foreach (var leg in plan.Legs.Where(x => x.Index > 0))
+                if (PlaceGridLimit(basket, leg))
+                    basket.State = FibonacciBasketState.GRID_PENDING;
+        }
+
+        private bool PlaceGridLimit(FibonacciBasket basket, FibonacciGridLeg leg)
+        {
+            string label = GridLabel(basket.BasketId, leg.Index);
+            if (LegAlreadyExists(label))
+            {
+                _duplicateGridLegs++;
+                leg.State = GridLegState.REJECTED;
+                BasketEvent(basket, "GRID_LEG_DUPLICATE_L" + leg.Index);
+                return false;
+            }
+
+            double slPips = PriceToPips(Math.Abs(leg.PlannedPrice - basket.StructuralStop));
+            double tpPips = PriceToPips(Math.Abs(basket.CanonicalTarget - leg.PlannedPrice));
+            if (slPips < MinStopLossPips || tpPips <= 0)
+            {
+                leg.State = GridLegState.REJECTED;
+                BasketEvent(basket, "GRID_LEG_GEOMETRY_REJECT_L" + leg.Index);
+                return false;
+            }
+
+            TradeType tt = basket.Direction == TradeDirection.Buy ? TradeType.Buy : TradeType.Sell;
+            var tr = PlaceLimitOrder(tt, SymbolName, leg.Volume, leg.PlannedPrice, label,
+                basket.StructuralStop, basket.CanonicalTarget, ProtectionType.Absolute, basket.ExpirationUtc,
+                GridComment(basket, leg.Index), false);
+            if (tr == null || !tr.IsSuccessful || tr.PendingOrder == null)
+            {
+                _executionErrors++;
+                leg.State = GridLegState.REJECTED;
+                BasketEvent(basket, "GRID_LEG_ORDER_ERROR_L" + leg.Index + "_" + (tr == null ? "NULL" : tr.Error.ToString()));
+                return false;
+            }
+
+            leg.PendingOrderId = tr.PendingOrder.Id;
+            leg.State = GridLegState.SUBMITTED;
+            BasketEvent(basket, "GRID_LEG_SUBMITTED_L" + leg.Index);
+            return true;
+        }
+
+        private bool SelectCanonicalBasketTarget(PatternSignal s, double weightedEntry, double stop, out double target, out double netRr)
+        {
+            target = 0; netRr = 0;
+            double riskPips = PriceToPips(Math.Abs(weightedEntry - stop));
+            if (riskPips < MinStopLossPips) return false;
+
+            double[] targets = s.Profile != null && s.Profile.CanonicalTargetPolicy == "T2_PREFERRED"
+                ? new[] { s.CanonicalTarget2, s.CanonicalTarget1 }
+                : new[] { s.CanonicalTarget1, s.CanonicalTarget2 };
+
+            foreach (double t in targets)
+            {
+                if (!GeometryValid(s.Direction, weightedEntry, stop, t)) continue;
+                double rewardPips = PriceToPips(Math.Abs(t - weightedEntry)) - ModeledCostPips();
+                double rr = riskPips > 0 ? rewardPips / riskPips : 0;
+                if (rr >= MinimumNetRR)
+                {
+                    target = t;
+                    netRr = rr;
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        private double VolumeForRiskBudget(double riskBudget, double slPips)
+        {
+            if (riskBudget <= 0 || slPips <= 0 || _symbol.PipValue <= 0) return 0;
+            double raw = riskBudget / (slPips * _symbol.PipValue);
+            if (double.IsNaN(raw) || double.IsInfinity(raw) || raw <= 0) return 0;
+            double v = _symbol.NormalizeVolumeInUnits(raw, RoundingMode.Down);
+            if (v < _symbol.VolumeInUnitsMin) return 0;
+            return Math.Min(v, _symbol.VolumeInUnitsMax);
+        }
+
+        private double ModeledCostPips()
+        {
+            return Math.Max(0, SpreadPips()) + Math.Max(0, RoundTurnCommissionPips) + Math.Max(0, SlippageStressPips);
         }
 
         private void ManageOpenPosition()
