@@ -103,20 +103,31 @@ root={
 (o/"V31_ROOT_CAUSE_AND_ARCHITECTURE_REPORT.json").write_text(json.dumps(root,indent=2))
 PY
 
-DEV_PASS=$(python3 - <<'PY'
-import json
-print('true' if json.load(open('control/HarmonyBot-V31/output/DEVELOPMENT_GATE.json')).get('development_pass') else 'false')
+DEV_PASS=$(python3 - "$OUT/DEVELOPMENT_GATE.json" <<'PY'
+import json,sys
+print('true' if json.load(open(sys.argv[1])).get('development_pass') else 'false')
 PY
 )
+
+ENGINEERING_FAIL=$(python3 - "$OUT/DEVELOPMENT_GATE.json" <<'PY'
+import json,sys
+print('true' if json.load(open(sys.argv[1])).get('engineering_pipeline_failure') else 'false')
+PY
+)
+
+if [ "$ENGINEERING_FAIL" = "true" ]; then
+  finalize "ENGINEERING_PIPELINE_FAILURE" "V31 compiled and backtested, but the candidate event pipeline did not initialize or emit detections. This is not classified as strategy failure."
+  exit 0
+fi
 
 if [ "$DEV_PASS" != "true" ]; then
   finalize "STRATEGY_ARCHITECTURE_LIMITATION" "V31 clean-room architecture completed and compiled, but the exposed DEV-A/B/C hard gate did not pass. Per preregistration, no V31.1/V31.2 rescue and no threshold retuning against these windows."
   exit 0
 fi
 
-AUTHORIZED=$(python3 - <<'PY'
-import json
-print('true' if json.load(open('control/HarmonyBot-V31/output/DATA_EXPOSURE_LEDGER.json')).get('downstream_authorized') else 'false')
+AUTHORIZED=$(python3 - "$OUT/DATA_EXPOSURE_LEDGER.json" <<'PY'
+import json,sys
+print('true' if json.load(open(sys.argv[1])).get('downstream_authorized') else 'false')
 PY
 )
 
