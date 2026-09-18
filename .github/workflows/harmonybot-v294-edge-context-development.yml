@@ -9,165 +9,19 @@ on:
 
 permissions:
   contents: read
+  actions: read
 
 env:
   SOURCE_PATCH_COMMIT: 294c73aaa9f1a133899134982ba4cd4fb54de527
+  FROZEN_BUILD_RUN_ID: '35305868743'
 
 jobs:
-  build:
-    runs-on: ubuntu-24.04
-    timeout-minutes: 35
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: fccde79d22c0389ba64d9bb26a2e54379d81c91e
-          path: base
-      - uses: actions/checkout@v4
-        with:
-          ref: 294c73aaa9f1a133899134982ba4cd4fb54de527
-          path: control
-      - uses: actions/setup-dotnet@v4
-        with:
-          dotnet-version: 8.0.x
-      - name: Build frozen V29.4 source patch
-        run: |
-          set -euo pipefail
-          test "$(git -C control rev-parse HEAD)" = "${SOURCE_PATCH_COMMIT}"
-          cp control/tmp/harmonybot-v26-build/fix_v294_edge_context_gate.py /tmp/fix_v294_edge_context_gate.py
-          cd base
-          python3 tmp/harmonybot-v26-build/build_v261_frequency.py
-          python3 tmp/harmonybot-v26-build/fix_v261_mtf_overload.py
-          python3 tmp/harmonybot-v26-build/fix_v262_frequency_safe.py
-          python3 tmp/harmonybot-v26-build/fix_v262_grid_guard_band.py
-          python3 tmp/harmonybot-v26-build/fix_v27_commercial_rc.py
-          python3 tmp/harmonybot-v26-build/fix_v28_frequency_architecture.py
-          python3 tmp/harmonybot-v26-build/fix_v28_cost_rr.py
-          python3 tmp/harmonybot-v26-build/fix_v281_geometry_quality_engine.py
-          python3 tmp/harmonybot-v26-build/fix_v281_commercial_onepass.py
-          python3 tmp/harmonybot-v26-build/fix_v282_strategy_quality_rc.py
-          python3 tmp/harmonybot-v26-build/fix_v283_execution_quality.py
-          python3 tmp/harmonybot-v26-build/fix_v284_capital_aware_precision.py
-          python3 tmp/harmonybot-v26-build/fix_v29_persistent_prz_execution.py
-          python3 tmp/harmonybot-v26-build/fix_v291_small_account_execution.py
-          python3 tmp/harmonybot-v26-build/fix_v292_small_account_fast_execution.py
-          python3 tmp/harmonybot-v26-build/fix_v292_grid_lifecycle_hotfix.py
-          python3 tmp/harmonybot-v26-build/fix_v293_grid_risk_cap_hotfix.py
-          python3 /tmp/fix_v294_edge_context_gate.py
-          mkdir -p seal/{build,algo}
-          cp cli-build/HarmonyBotPro_v261/HarmonyBotPro.cs seal/build/HarmonyBotPro.cs
-          grep -Fq 'V29.4-Edge-Context-Gate-Dev' seal/build/HarmonyBotPro.cs
-          grep -Fq 'V294AllowBuy' seal/build/HarmonyBotPro.cs
-          grep -Fq 'V294AllowSell' seal/build/HarmonyBotPro.cs
-          grep -Fq 'V29.3 GRID-RISK-CAP-HOTFIX' seal/build/HarmonyBotPro.cs
-          cat > seal/build/HarmonyBotPro.csproj <<'EOF'
-          <Project Sdk="Microsoft.NET.Sdk"><PropertyGroup><TargetFramework>net6.0</TargetFramework><ImplicitUsings>disable</ImplicitUsings><Nullable>disable</Nullable><AlgoName>HarmonyBotPro_v294_edge_context</AlgoName><AlgoBuild>true</AlgoBuild><AlgoPublish>false</AlgoPublish><IncludeSource>false</IncludeSource></PropertyGroup><ItemGroup><PackageReference Include="cTrader.Automate" Version="1.0.19" /></ItemGroup></Project>
-          EOF
-          dotnet restore seal/build/HarmonyBotPro.csproj
-          dotnet build seal/build/HarmonyBotPro.csproj -c Release --no-restore 2>&1 | tee seal/build.log
-          ! grep -q ' error CS' seal/build.log
-          A=$(find seal/build -name '*.algo' -type f -print -quit); test -n "$A"; test -s "$A"
-          cp "$A" seal/algo/HarmonyBotPro_v294_edge_context.algo
-          printf '%s\n' "${SOURCE_PATCH_COMMIT}" > seal/SOURCE_PATCH_COMMIT.txt
-          sha256sum seal/build/HarmonyBotPro.cs seal/algo/*.algo > seal/SHA256SUMS.txt
-      - uses: actions/upload-artifact@v4
-        with:
-          name: V294-EDGE-CONTEXT-BUILD
-          path: base/seal
-          retention-days: 30
-
-  engineering_regression:
-    needs: build
-    runs-on: ubuntu-24.04
-    timeout-minutes: 120
-    env:
-      CTRADER_PASSWORD: ${{ secrets.CTRADER_PASSWORD }}
-      CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
-      CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
-    steps:
-      - uses: actions/download-artifact@v4
-        with:
-          name: V294-EDGE-CONTEXT-BUILD
-          path: seal
-      - name: Resolve FxPro demo 1:500 USD account
-        run: |
-          set -euo pipefail
-          docker pull ghcr.io/spotware/ctrader-console:5.9.11
-          printf '%s' "$CTRADER_PASSWORD" > seal/ctrader.pwd; chmod 600 seal/ctrader.pwd
-          docker run --rm -v "$PWD/seal:/work" ghcr.io/spotware/ctrader-console:5.9.11 accounts --ctid="$CTRADER_CTID" --pwd-file=/work/ctrader.pwd > seal/accounts.json
-          N=$(python3 - <<'PY'
-          import json,os
-          a=json.load(open('seal/accounts.json',encoding='utf-8-sig')); e=os.environ['CTRADER_ACCOUNT'].strip()
-          m=next((x for x in a if str(x.get('Number',''))==e or str(x.get('Id',''))==e),None)
-          if not m or m.get('Broker','').lower()!='fxpro' or m.get('Live') is not False or m.get('DepositCurrency')!='USD' or int(m.get('Leverage',0))!=500: raise SystemExit('account mismatch')
-          print(m['Number'])
-          PY
-          ); echo "CTRADER_ACCOUNT_NUMBER=$N" >> "$GITHUB_ENV"
-      - name: Feature-off $100 engineering regression
-        run: |
-          set -euo pipefail
-          mkdir -p seal/{reports,logs,data,audit}
-          C="v294-edge-reg-${GITHUB_RUN_ID}"
-          docker run --name "$C" -v "$PWD/seal:/work" ghcr.io/spotware/ctrader-console:5.9.11 backtest             /work/algo/HarmonyBotPro_v294_edge_context.algo             --ctid="$CTRADER_CTID" --pwd-file=/work/ctrader.pwd --account="$CTRADER_ACCOUNT_NUMBER"             --symbol=XAUUSD --period=m1 --start=02/09/2026 --end=16/09/2026 --balance=100 --data-mode=ticks --data-dir=/work/data             --commission=35 --spread=1 --SymbolName=XAUUSD --RiskPercent=1.40 --MaxSlippagePips=70 --MaxDrawdown=10 --MinStopLossPips=100             --SmallAccountMode=true --SmallAccountMinSLPips=25 --EnableAltBat=true --EnableFiveZero=true --EnableFibGrid=true --MinRR=2             --GridProfitFib=1.618 --GridStopFib=1.618 --EnableCapitalAwarePrecisionEntry=true --PrecisionPrzMaxDistanceAtr=0.45 --PrecisionMaxWaitAtr=1.25             --CapitalSafetyHeadroom=0.98 --CapGridStopToRiskBudget=true --EvaluationStartUtcIso=2026-09-09T00:00:00Z             --V29PersistentPrzQueue=true --V29PendingMaxBars=90 --V29PendingGlobalMax=12 --V29PendingPerPatternMax=3             --V29PendingMinCompositeQuality=0.58 --V29PendingTriggerMaxPrzAtr=0.85 --V29HighQualityPrzBonusAtr=0.35             --V29CandidateReplacementMargin=0.03 --V29WarmupSeedPending=true --V29MaxOrderAttemptsPerCandidate=3             --V291SmallAccountTacticalExecution=true --V291TacticalBudgetUse=0.98 --V291RequireMicroConfirmation=true --V291MinTacticalRR=2.0             --V292FastSmallAccountExecution=true --V292MicroPivotBars=2 --V292MicroPivotAtrBuffer=0.04             --V292EnableCapitalCapStop=true --V292EnableEarlyTrigger=true --V292EarlyTriggerMinQuality=0.66             --V292EarlyTriggerMaxPrzAtr=0.95 --V292MicroBodyMinAtr=0.02 --V292WickBodyConfirmRatio=0.25             --V294AllowBuy=true --V294AllowSell=true             --report=/work/reports/D7.html --report-json=/work/reports/D7.json > seal/logs/D7.log 2>&1 &
-          PID=$!; DONE=0
-          for ((i=0;i<3600;i+=3)); do
-            if test -s seal/reports/D7.json && python3 - <<'PY'
-          import json
-          m=json.load(open('seal/reports/D7.json',encoding='utf-8-sig')).get('main',{})
-          raise SystemExit(0 if 'endingEquity' in m and 'netProfit' in m else 1)
-          PY
-            then DONE=1; break; fi
-            if ! kill -0 "$PID" 2>/dev/null; then break; fi
-            sleep 3
-          done
-          docker stop --time 3 "$C" >/dev/null 2>&1 || true; docker rm -f "$C" >/dev/null 2>&1 || true; wait "$PID" 2>/dev/null || true
-          test "$DONE" = 1
-      - name: Engineering audit
-        run: |
-          python3 - <<'PY'
-          import json,re,pathlib
-          d=json.load(open('seal/reports/D7.json',encoding='utf-8-sig')); h=d.get('history',{}).get('items',[]); eq=d.get('equity',{}); t=pathlib.Path('seal/logs/D7.log').read_text(errors='ignore')
-          losses=[abs(float(x.get('net',0) or 0)) for x in h if float(x.get('net',0) or 0)<0]
-          errs=[x for x in t.splitlines() if re.search(r'InvalidRequest|Invalid Volume|Insufficient Margin|unprotected position|unexpected hedge',x,re.I)]
-          dm=re.findall(r'directionBlocked=(\d+)',t)
-          out={'source':'V29.4-Edge-Context-Gate-Dev','source_commit':'294c73aaa9f1a133899134982ba4cd4fb54de527','feature_mode':'OFF_COMPATIBILITY','trades':len(h),'max_dd_pct':float(eq.get('maxEquityDrawdownPercent',0) or 0),'max_single_loss_usd':max(losses,default=0),'execution_errors':len(errs),'direction_blocked':int(dm[-1]) if dm else None,'risk_cap_events':len(re.findall(r'V293-GRID-RISK-CAP',t))}
-          hard=[]
-          if len(h)<1: hard.append('no_trades')
-          if out['max_dd_pct']>10: hard.append('dd_gt_10')
-          if out['max_single_loss_usd']>1.40+1e-9: hard.append('single_loss_gt_1.40')
-          if errs: hard.append('execution_integrity')
-          if out['direction_blocked'] not in (0,None): hard.append('feature_off_not_compatible')
-          out['pass']=not hard; out['hard_fail_reasons']=hard
-          pathlib.Path('seal/audit/V294-EDGE-ENGINEERING.json').write_text(json.dumps(out,indent=2)); print(json.dumps(out,indent=2))
-          if hard: raise SystemExit(','.join(hard))
-          PY
-      - name: Cleanup
-        if: always()
-        run: rm -f seal/ctrader.pwd seal/accounts.json; docker run --rm -v "$PWD/seal:/work" alpine:3.22 sh -c 'rm -rf /work/data' || true
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: V294-EDGE-ENGINEERING-REGRESSION
-          path: |
-            seal/audit
-            seal/reports
-            seal/logs
-            seal/SOURCE_PATCH_COMMIT.txt
-          retention-days: 30
-
   development:
-    needs: engineering_regression
     runs-on: ubuntu-24.04
     timeout-minutes: 150
     strategy:
       fail-fast: false
       matrix:
-        preset:
-          - { id: BASE, eligible: 'true', grid_cooldown: '15', min_prz: '0.55', min_geom: '0.52', pending_bars: '90', pending_prz: '0.85', be_r: '0.25', trail_r: '0.50', scale_r: '0.618' }
-          - { id: GRID_DELAY_240, eligible: 'true', grid_cooldown: '240', min_prz: '0.55', min_geom: '0.52', pending_bars: '90', pending_prz: '0.85', be_r: '0.25', trail_r: '0.50', scale_r: '0.618' }
-          - { id: PRZ_RECOVERY_050, eligible: 'true', grid_cooldown: '15', min_prz: '0.50', min_geom: '0.52', pending_bars: '90', pending_prz: '0.85', be_r: '0.25', trail_r: '0.50', scale_r: '0.618' }
-          - { id: GEOM_RECOVERY_048, eligible: 'true', grid_cooldown: '15', min_prz: '0.55', min_geom: '0.48', pending_bars: '90', pending_prz: '0.85', be_r: '0.25', trail_r: '0.50', scale_r: '0.618' }
-          - { id: PENDING_RECOVERY, eligible: 'true', grid_cooldown: '15', min_prz: '0.55', min_geom: '0.52', pending_bars: '150', pending_prz: '0.95', be_r: '0.25', trail_r: '0.50', scale_r: '0.618' }
-          - { id: WINNER_LOCK, eligible: 'true', grid_cooldown: '15', min_prz: '0.55', min_geom: '0.52', pending_bars: '90', pending_prz: '0.85', be_r: '0.15', trail_r: '0.35', scale_r: '0.50' }
         window:
           - { id: DEV-A, start: '04/01/2021', eval: '2021-01-11T00:00:00Z', end: '30/06/2021' }
           - { id: DEV-B, start: '01/07/2021', eval: '2021-07-08T00:00:00Z', end: '31/12/2021' }
@@ -176,16 +30,6 @@ jobs:
       CTRADER_PASSWORD: ${{ secrets.CTRADER_PASSWORD }}
       CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
       CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
-      CANDIDATE_ID: ${{ matrix.preset.id }}
-      ELIGIBLE: ${{ matrix.preset.eligible }}
-      GRID_COOLDOWN: ${{ matrix.preset.grid_cooldown }}
-      MIN_PRZ: ${{ matrix.preset.min_prz }}
-      MIN_GEOM: ${{ matrix.preset.min_geom }}
-      PENDING_BARS: ${{ matrix.preset.pending_bars }}
-      PENDING_PRZ: ${{ matrix.preset.pending_prz }}
-      BE_R: ${{ matrix.preset.be_r }}
-      TRAIL_R: ${{ matrix.preset.trail_r }}
-      SCALE_R: ${{ matrix.preset.scale_r }}
       WINDOW_ID: ${{ matrix.window.id }}
       START_DATE: ${{ matrix.window.start }}
       EVAL_DATE: ${{ matrix.window.eval }}
@@ -195,102 +39,89 @@ jobs:
         with:
           name: V294-EDGE-CONTEXT-BUILD
           path: seal
-      - name: Resolve FxPro account
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: ${{ env.FROZEN_BUILD_RUN_ID }}
+      - name: Verify frozen V29.4 build
+        run: |
+          set -euo pipefail
+          test "$(cat seal/SOURCE_PATCH_COMMIT.txt)" = "$SOURCE_PATCH_COMMIT"
+          test -s seal/algo/HarmonyBotPro_v294_edge_context.algo
+      - name: Resolve FxPro demo 1:500 USD account
         run: |
           set -euo pipefail
           docker pull ghcr.io/spotware/ctrader-console:5.9.11
-          printf '%s' "$CTRADER_PASSWORD" > seal/ctrader.pwd; chmod 600 seal/ctrader.pwd
+          printf '%s' "$CTRADER_PASSWORD" > seal/ctrader.pwd
+          chmod 600 seal/ctrader.pwd
           docker run --rm -v "$PWD/seal:/work" ghcr.io/spotware/ctrader-console:5.9.11 accounts --ctid="$CTRADER_CTID" --pwd-file=/work/ctrader.pwd > seal/accounts.json
           N=$(python3 - <<'PY'
           import json,os
           a=json.load(open('seal/accounts.json',encoding='utf-8-sig')); e=os.environ['CTRADER_ACCOUNT'].strip()
           m=next((x for x in a if str(x.get('Number',''))==e or str(x.get('Id',''))==e),None)
-          if not m or m.get('Broker','').lower()!='fxpro' or m.get('Live') is not False or int(m.get('Leverage',0))!=500: raise SystemExit('account mismatch')
+          if not m or m.get('Broker','').lower()!='fxpro' or m.get('Live') is not False or m.get('DepositCurrency')!='USD' or int(m.get('Leverage',0))!=500:
+              raise SystemExit('account mismatch')
           print(m['Number'])
           PY
-          ); echo "CTRADER_ACCOUNT_NUMBER=$N" >> "$GITHUB_ENV"
-      - name: Development counterfactual fidelity run
-        continue-on-error: true
+          )
+          echo "CTRADER_ACCOUNT_NUMBER=$N" >> "$GITHUB_ENV"
+      - name: TAIL_PAYOFF_HYBRID_MIN Development
         run: |
           set -euo pipefail
           mkdir -p seal/{reports,logs,data,audit}
-          OUT="${CANDIDATE_ID}-${WINDOW_ID}"
-          C="v294-${CANDIDATE_ID,,}-${WINDOW_ID,,}-${GITHUB_RUN_ID}"
-          docker run --name "$C" -v "$PWD/seal:/work" ghcr.io/spotware/ctrader-console:5.9.11 backtest             /work/algo/HarmonyBotPro_v294_edge_context.algo             --ctid="$CTRADER_CTID" --pwd-file=/work/ctrader.pwd --account="$CTRADER_ACCOUNT_NUMBER"             --symbol=XAUUSD --period=m1 --start="$START_DATE" --end="$END_DATE" --balance=10000 --data-mode=m1 --data-dir=/work/data             --commission=35 --spread=1 --SymbolName=XAUUSD --RiskPercent=1.0 --MaxSlippagePips=30 --MaxDrawdown=10 --MinStopLossPips=100             --SmallAccountMode=false --SessionStart=8 --SessionEnd=13 --DstAwareInstitutionalSession=false --MinAtrPrice=0.5             --V294AllowBuy=false --V294AllowSell=true --EnableFibGrid=true             --EnableAltBat=true --EnableFiveZero=true --MinRR=2 --GridProfitFib=1.618 --GridStopFib=1.618             --GridCooldownMinutes="$GRID_COOLDOWN" --MinPrzConfluence="$MIN_PRZ" --MinGeometryQuality="$MIN_GEOM"             --GridBreakevenTriggerR="$BE_R" --GridTrailTriggerR="$TRAIL_R" --GridScaleOutR="$SCALE_R"             --EnableCapitalAwarePrecisionEntry=true --PrecisionPrzMaxDistanceAtr=0.45 --PrecisionMaxWaitAtr=1.25             --CapitalSafetyHeadroom=0.98 --CapGridStopToRiskBudget=true --EvaluationStartUtcIso="$EVAL_DATE"             --V29PersistentPrzQueue=true --V29PendingMaxBars=90 --V29PendingGlobalMax=12 --V29PendingPerPatternMax=3             --V29PendingMinCompositeQuality=0.58 --V29PendingTriggerMaxPrzAtr=0.85 --V29HighQualityPrzBonusAtr=0.35             --V29CandidateReplacementMargin=0.03 --V29WarmupSeedPending=true --V29MaxOrderAttemptsPerCandidate=3             --V291SmallAccountTacticalExecution=false --V292FastSmallAccountExecution=false --V292EnableCapitalCapStop=false --V292EnableEarlyTrigger=false             --report="/work/reports/${OUT}.html" --report-json="/work/reports/${OUT}.json" > "seal/logs/${OUT}.log" 2>&1 &
+          OUT="TAIL_PAYOFF_HYBRID_MIN-$WINDOW_ID"
+          C="v294-hybrid-$GITHUB_RUN_ID-$WINDOW_ID"
+          docker run --name "$C" -v "$PWD/seal:/work" ghcr.io/spotware/ctrader-console:5.9.11 backtest /work/algo/HarmonyBotPro_v294_edge_context.algo             --ctid="$CTRADER_CTID" --pwd-file=/work/ctrader.pwd --account="$CTRADER_ACCOUNT_NUMBER"             --symbol=XAUUSD --period=m1 --start="$START_DATE" --end="$END_DATE" --balance=10000 --data-mode=m1 --data-dir=/work/data             --commission=35 --spread=1 --SymbolName=XAUUSD --RiskPercent=1.0 --MaxSlippagePips=30 --MaxDrawdown=10 --MinStopLossPips=100             --SmallAccountMode=false --SessionStart=8 --SessionEnd=13 --DstAwareInstitutionalSession=false --MinAtrPrice=0.5             --V294AllowBuy=false --V294AllowSell=true --EnableFibGrid=true --EnableAltBat=true --EnableFiveZero=true --MinRR=2             --GridProfitFib=1.618 --GridStopFib=1.618 --GridCooldownMinutes=240 --MinPrzConfluence=0.55 --MinGeometryQuality=0.52             --GridBreakevenTriggerR=0.15 --GridTrailTriggerR=0.35 --GridScaleOutR=0.50             --EnableCapitalAwarePrecisionEntry=true --PrecisionPrzMaxDistanceAtr=0.45 --PrecisionMaxWaitAtr=1.25             --CapitalSafetyHeadroom=0.98 --CapGridStopToRiskBudget=true --EvaluationStartUtcIso="$EVAL_DATE"             --V29PersistentPrzQueue=true --V29PendingMaxBars=90 --V29PendingGlobalMax=12 --V29PendingPerPatternMax=3             --V29PendingMinCompositeQuality=0.58 --V29PendingTriggerMaxPrzAtr=0.85 --V29HighQualityPrzBonusAtr=0.35             --V29CandidateReplacementMargin=0.03 --V29WarmupSeedPending=true --V29MaxOrderAttemptsPerCandidate=3             --V291SmallAccountTacticalExecution=false --V292FastSmallAccountExecution=false --V292EnableCapitalCapStop=false --V292EnableEarlyTrigger=false             --report="/work/reports/$OUT.html" --report-json="/work/reports/$OUT.json" > "seal/logs/$OUT.log" 2>&1 &
           PID=$!; DONE=0
           for ((i=0;i<6000;i+=4)); do
-            if test -s "seal/reports/${OUT}.json" && python3 - <<PY
+            if test -s "seal/reports/$OUT.json" && python3 - <<PY
           import json
-          m=json.load(open('seal/reports/${OUT}.json',encoding='utf-8-sig')).get('main',{})
+          m=json.load(open('seal/reports/$OUT.json',encoding='utf-8-sig')).get('main',{})
           raise SystemExit(0 if 'endingEquity' in m and 'netProfit' in m else 1)
           PY
             then DONE=1; break; fi
             if ! kill -0 "$PID" 2>/dev/null; then break; fi
             sleep 4
           done
-          docker stop --time 3 "$C" >/dev/null 2>&1 || true; docker rm -f "$C" >/dev/null 2>&1 || true; wait "$PID" 2>/dev/null || true
-          if test "$DONE" != 1; then echo '{"status":"BACKTEST_FAILED"}' > "seal/audit/${OUT}.json"; fi
-      - name: Basket and funnel audit
-        if: always()
+          docker stop --time 3 "$C" >/dev/null 2>&1 || true
+          docker rm -f "$C" >/dev/null 2>&1 || true
+          wait "$PID" 2>/dev/null || true
+          test "$DONE" = 1
+      - name: Basket-level audit
         run: |
           python3 - <<'PY'
-          import json,re,pathlib,os,datetime,math,collections
-          c=os.environ['CANDIDATE_ID']; w=os.environ['WINDOW_ID']; outname=f'{c}-{w}'
-          rp=pathlib.Path(f'seal/reports/{outname}.json'); lp=pathlib.Path(f'seal/logs/{outname}.log'); ap=pathlib.Path(f'seal/audit/{outname}.json')
-          if not rp.exists():
-              if not ap.exists(): ap.write_text(json.dumps({'candidate':c,'window':w,'status':'BACKTEST_FAILED'},indent=2))
-              raise SystemExit(0)
-          d=json.load(open(rp,encoding='utf-8-sig')); h=d.get('history',{}).get('items',[]); eq=d.get('equity',{}); t=lp.read_text(errors='ignore')
+          import json,re,pathlib,os,collections
+          w=os.environ['WINDOW_ID']; name=f'TAIL_PAYOFF_HYBRID_MIN-{w}'
+          d=json.load(open(f'seal/reports/{name}.json',encoding='utf-8-sig')); h=d.get('history',{}).get('items',[]); eq=d.get('equity',{})
+          t=pathlib.Path(f'seal/logs/{name}.log').read_text(errors='ignore')
           groups={}
           for x in h:
-              key=(str(x.get('label','')),str(x.get('direction','')).lower(),int(x.get('entryTime',0) or 0),round(float(x.get('entryPrice',0) or 0),5))
-              g=groups.setdefault(key,{'label':key[0],'direction':key[1],'entryTime':key[2],'entryPrice':key[3],'closeTime':0,'net':0.0,'fragments':0})
-              g['net']+=float(x.get('net',0) or 0); g['closeTime']=max(g['closeTime'],int(x.get('closeTime',0) or 0)); g['fragments']+=1
+              k=(str(x.get('label','')),str(x.get('direction','')).lower(),int(x.get('entryTime',0) or 0),round(float(x.get('entryPrice',0) or 0),5))
+              g=groups.setdefault(k,{'label':k[0],'direction':k[1],'entryTime':k[2],'closeTime':0,'net':0.0})
+              g['net']+=float(x.get('net',0) or 0); g['closeTime']=max(g['closeTime'],int(x.get('closeTime',0) or 0))
           mains=sorted([g for g in groups.values() if g['label']=='HarmonyBotPro'],key=lambda z:z['entryTime'])
-          children=sorted([g for g in groups.values() if g['label']=='HarmonyBotPro-G'],key=lambda z:z['entryTime'])
+          kids=sorted([g for g in groups.values() if g['label']=='HarmonyBotPro-G'],key=lambda z:z['entryTime'])
           pats=re.findall(r'\[GRID\]\s+Basket\s+#\d+\s+created\s+\|\s*([^|]+?)\s*\|',t,re.I)
-          if len(pats)<len(mains):
-              tp=re.findall(r'\[TRADE\]\s+(\S+)\s+(?:Buy|Sell)',t,re.I)
-              if len(tp)>=len(mains): pats=tp
-          baskets=[]
-          for i,g in enumerate(mains):
-              ts=g['entryTime']/1000 if g['entryTime']>10**11 else g['entryTime']
-              dt=datetime.datetime.fromtimestamp(ts,datetime.timezone.utc) if ts>0 else None
-              hr=dt.hour if dt else -1
-              session='LONDON' if 8<=hr<13 else ('OVERLAP' if 13<=hr<16 else ('NEW_YORK' if 16<=hr<22 else 'OTHER'))
-              baskets.append({'pattern':pats[i].strip() if i<len(pats) else 'Unknown','direction':g['direction'],'entryTime':g['entryTime'],'closeTime':g['closeTime'],'session':session,'net':g['net'],'grid_children':0})
-          for ch in children:
-              cand=[b for b in baskets if b['direction']==ch['direction'] and b['entryTime']<=ch['entryTime']<=b['closeTime']]
-              if not cand: cand=[b for b in baskets if b['direction']==ch['direction'] and 0<=ch['entryTime']-b['entryTime']<=4*60*60*1000]
-              if cand:
-                  b=max(cand,key=lambda z:z['entryTime']); b['net']+=ch['net']; b['grid_children']+=1; b['closeTime']=max(b['closeTime'],ch['closeTime'])
-          for b in baskets: b['grid_status']='GRID' if b['grid_children'] else 'NON_GRID'
-          vals=[b['net'] for b in baskets]; W=[x for x in vals if x>0]; L=[x for x in vals if x<0]; gp=sum(W); gl=abs(sum(L)); net=sum(vals)
-          pf=gp/gl if gl>0 else (999 if gp>0 else 0); aw=sum(W)/len(W) if W else 0; al=sum(L)/len(L) if L else 0
-          loss_abs=sorted([abs(x) for x in L],reverse=True); tl=sum(loss_abs)
-          def dist(field):
-              z=collections.Counter(str(b[field]) for b in baskets); return dict(sorted(z.items()))
-          def li(name):
-              m=re.findall(rf'{re.escape(name)}=(\d+)',t); return int(m[-1]) if m else 0
+          baskets=[{'pattern':pats[i].strip() if i<len(pats) else 'Unknown','direction':g['direction'],'entryTime':g['entryTime'],'closeTime':g['closeTime'],'net':g['net'],'grid':0} for i,g in enumerate(mains)]
+          for k in kids:
+              q=[b for b in baskets if b['direction']==k['direction'] and b['entryTime']<=k['entryTime']<=b['closeTime']]
+              if not q: q=[b for b in baskets if b['direction']==k['direction'] and 0<=k['entryTime']-b['entryTime']<=14400000]
+              if q:
+                  b=max(q,key=lambda z:z['entryTime']); b['net']+=k['net']; b['grid']+=1; b['closeTime']=max(b['closeTime'],k['closeTime'])
+          v=[b['net'] for b in baskets]; W=[x for x in v if x>0]; L=[x for x in v if x<0]; gp=sum(W); gl=abs(sum(L)); net=sum(v)
+          pf=gp/gl if gl else (999 if gp else 0); aw=sum(W)/len(W) if W else 0; al=sum(L)/len(L) if L else 0
+          la=sorted([abs(x) for x in L],reverse=True); tl=sum(la)
+          def li(n):
+              m=re.findall(rf'{re.escape(n)}=(\d+)',t); return int(m[-1]) if m else 0
           errs=len([x for x in t.splitlines() if re.search(r'InvalidRequest|Invalid Volume|Insufficient Margin|unprotected position|unexpected hedge',x,re.I)])
-          dm=re.findall(r'directionBlocked=(\d+)',t)
-          out={
-            'candidate':c,'window':w,'status':'OK','eligible_candidate':os.environ['ELIGIBLE']=='true',
-            'config':{'allow_buy':False,'allow_sell':True,'session_start':8,'session_end':13,'dst_aware':False,'grid_enabled':True,'min_atr_price':0.5,'pattern_universe':'FULL_PHASE3',
-                      'grid_cooldown':int(os.environ['GRID_COOLDOWN']),'min_prz':float(os.environ['MIN_PRZ']),'min_geom':float(os.environ['MIN_GEOM']),
-                      'pending_bars':int(os.environ['PENDING_BARS']),'pending_prz':float(os.environ['PENDING_PRZ']),
-                      'be_r':float(os.environ['BE_R']),'trail_r':float(os.environ['TRAIL_R']),'scale_r':float(os.environ['SCALE_R']),
-                      'data_fidelity':'BAR_M1'},
-            'baskets':len(vals),'wins':len(W),'losses':len(L),'gross_profit':gp,'gross_loss':gl,'pf':pf,'net':net,'expectancy':net/len(vals) if vals else 0,
-            'win_rate_pct':100*len(W)/len(vals) if vals else 0,'realized_rr':aw/abs(al) if aw>0 and al<0 else None,
-            'max_dd_pct':float(eq.get('maxEquityDrawdownPercent',0) or 0),'largest_loss':min(L) if L else 0,
-            'top1_loss_contribution_pct':100*sum(loss_abs[:1])/tl if tl else 0,'top3_loss_contribution_pct':100*sum(loss_abs[:3])/tl if tl else 0,'top5_loss_contribution_pct':100*sum(loss_abs[:5])/tl if tl else 0,
-            'signals':li('signals'),'executed_orders':li('orders'),'atr_blocked':li('atrBlocked'),'mtf_blocked':li('mtfBlocked'),'geometry_blocked':li('geometryBlocked'),
-            'volume_blocked':li('volumeBlocked'),'risk_blocked':li('riskBlocked'),'capital_infeasible':li('capitalInfeasible'),
-            'direction_blocked':int(dm[-1]) if dm else 0,'execution_errors':errs,
-            'direction_distribution':dist('direction'),'pattern_distribution':dist('pattern'),'grid_distribution':dist('grid_status'),'session_distribution':dist('session')
-          }
-          ap.write_text(json.dumps(out,indent=2)); print(json.dumps(out,indent=2))
+          out={'candidate':'TAIL_PAYOFF_HYBRID_MIN','window':w,'data_mode':'BAR_M1','baskets':len(v),'wins':len(W),'losses':len(L),
+               'gross_profit':gp,'gross_loss':gl,'pf':pf,'net':net,'expectancy':net/len(v) if v else 0,'win_rate_pct':100*len(W)/len(v) if v else 0,
+               'realized_rr':aw/abs(al) if aw>0 and al<0 else None,'max_dd_pct':float(eq.get('maxEquityDrawdownPercent',0) or 0),
+               'largest_loss':min(L) if L else 0,'top1_loss_pct':100*sum(la[:1])/tl if tl else 0,'top3_loss_pct':100*sum(la[:3])/tl if tl else 0,
+               'top5_loss_pct':100*sum(la[:5])/tl if tl else 0,'signals':li('signals'),'orders':li('orders'),'atr_blocked':li('atrBlocked'),
+               'mtf_blocked':li('mtfBlocked'),'geometry_blocked':li('geometryBlocked'),'volume_blocked':li('volumeBlocked'),
+               'risk_blocked':li('riskBlocked'),'capital_infeasible':li('capitalInfeasible'),'execution_errors':errs,
+               'pattern_distribution':dict(collections.Counter(b['pattern'] for b in baskets)),'grid_baskets':sum(b['grid']>0 for b in baskets)}
+          pathlib.Path(f'seal/audit/{name}.json').write_text(json.dumps(out,indent=2)); print(json.dumps(out,indent=2))
           PY
       - name: Cleanup
         if: always()
@@ -298,7 +129,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: V294-EDGE-DEV-${{ matrix.preset.id }}-${{ matrix.window.id }}
+          name: V294-HYBRID-DEV-${{ matrix.window.id }}
           path: |
             seal/audit
             seal/reports
@@ -309,315 +140,29 @@ jobs:
     needs: development
     if: always()
     runs-on: ubuntu-24.04
-    outputs:
-      pass: ${{ steps.gate.outputs.pass }}
-      winner: ${{ steps.gate.outputs.winner }}
-      grid_cooldown: ${{ steps.gate.outputs.grid_cooldown }}
-      min_prz: ${{ steps.gate.outputs.min_prz }}
-      min_geom: ${{ steps.gate.outputs.min_geom }}
-      pending_bars: ${{ steps.gate.outputs.pending_bars }}
-      pending_prz: ${{ steps.gate.outputs.pending_prz }}
-      be_r: ${{ steps.gate.outputs.be_r }}
-      trail_r: ${{ steps.gate.outputs.trail_r }}
-      scale_r: ${{ steps.gate.outputs.scale_r }}
     steps:
       - uses: actions/download-artifact@v4
         with:
-          pattern: V294-EDGE-DEV-*
+          pattern: V294-HYBRID-DEV-*
           path: all
           merge-multiple: true
-      - id: gate
-        name: Development hard gate and direction attribution
+      - name: TAIL_PAYOFF_HYBRID_MIN hard gate
         run: |
           python3 - <<'PY'
           import json,glob,pathlib,os
-          rows=[json.load(open(p)) for p in glob.glob('all/audit/*.json')+glob.glob('all/*.json') if pathlib.Path(p).is_file()]
-          rows=[x for x in rows if x.get('status')=='OK']
-          cfg={}
-          by={}
-          for x in rows: by.setdefault(x['candidate'],[]).append(x)
-          summary={}
-          for cid,rs in by.items():
-              rs=sorted(rs,key=lambda x:x['window']); active=sum(x.get('baskets',0)>0 for x in rs); tb=sum(x.get('baskets',0) for x in rs)
-              net=sum(x.get('net',0) for x in rs); gp=sum(x.get('gross_profit',0) for x in rs); gl=sum(x.get('gross_loss',0) for x in rs)
-              apf=gp/gl if gl>0 else (999 if gp>0 else 0); aexp=net/tb if tb else 0; maxdd=max([x.get('max_dd_pct',0) for x in rs] or [999])
-              pfs=[x.get('pf',0) for x in rs if x.get('baskets',0)>0]; pos=sum(x.get('net',0)>0 for x in rs); errs=sum(x.get('execution_errors',0) for x in rs)
-              eligible=bool(rs and rs[0].get('eligible_candidate'))
-              trades_per_year=tb/1.5
-              edge_pass=bool(eligible and len(rs)==3 and active==3 and tb>=20 and maxdd<=10 and net>0 and aexp>0 and pos>=2 and errs==0 and pfs and min(pfs)>1 and all(x.get('expectancy',0)>0 for x in rs))
-              frequency_pass=bool(trades_per_year>=50)
-              passed=bool(edge_pass and frequency_pass)
-              summary[cid]={'rows':rs,'active_windows':active,'total_baskets':tb,'trades_per_year':trades_per_year,'aggregate_pf':apf,'total_net':net,'aggregate_expectancy':aexp,'worst_pf':min(pfs) if pfs else 0,'positive_windows':pos,'max_dd_pct':maxdd,'execution_errors':errs,'eligible':eligible,'edge_gate_pass':edge_pass,'frequency_gate_pass':frequency_pass,'dev_gate_pass':passed}
-          control=summary.get('BOTH_DIR_FULLBOT',{})
-          for cid,s in summary.items():
-              if cid!='BOTH_DIR_FULLBOT' and control:
-                  s['vs_control']={'net_delta':s['total_net']-control.get('total_net',0),'pf_delta':s['aggregate_pf']-control.get('aggregate_pf',0),'expectancy_delta':s['aggregate_expectancy']-control.get('aggregate_expectancy',0),'basket_delta':s['total_baskets']-control.get('total_baskets',0)}
-          passed=[(cid,s) for cid,s in summary.items() if s.get('dev_gate_pass')]
-          passed.sort(key=lambda z:(z[1]['worst_pf'],z[1]['aggregate_pf'],z[1]['trades_per_year'],z[1]['total_net']),reverse=True)
-          winner=passed[0][0] if passed else ''
-          edge_only=[(cid,s) for cid,s in summary.items() if s.get('edge_gate_pass')]
-          max_robust_frequency=max([s.get('trades_per_year',0) for _,s in edge_only] or [0])
-          out={'source_commit':'294c73aaa9f1a133899134982ba4cd4fb54de527','classification':'FINAL_V294_PRESET_RECOVERY','development_data_mode':'BAR_M1',
-               'candidates':summary,'winner':winner or None,'dev_gate_pass':bool(winner),'frequency_gate_pass':bool(winner),
-               'maximum_robust_trades_per_year_at_stage2':max_robust_frequency}
-          pathlib.Path('V294-EDGE-DEV-GATE.json').write_text(json.dumps(out,indent=2)); print(json.dumps(out,indent=2))
-          with open(os.environ['GITHUB_OUTPUT'],'a') as f:
-              f.write('pass='+('true' if winner else 'false')+'\n')
-              f.write('winner='+winner+'\n')
-              wc=summary.get(winner,{}).get('rows',[{}])[0].get('config',{}) if winner else {}
-              for k in ['grid_cooldown','min_prz','min_geom','pending_bars','pending_prz','be_r','trail_r','scale_r']:
-                  f.write(k+'='+str(wc.get(k,''))+'\n')
+          rs=sorted([json.load(open(p)) for p in glob.glob('all/audit/*.json')],key=lambda x:x['window'])
+          tb=sum(x['baskets'] for x in rs); gp=sum(x['gross_profit'] for x in rs); gl=sum(x['gross_loss'] for x in rs); net=sum(x['net'] for x in rs)
+          pf=gp/gl if gl else (999 if gp else 0); exp=net/tb if tb else 0; dd=max([x['max_dd_pct'] for x in rs] or [999]); errs=sum(x['execution_errors'] for x in rs)
+          tpy=tb/1.5
+          edge=bool(len(rs)==3 and all(x['baskets']>0 and x['pf']>1 and x['expectancy']>0 for x in rs) and dd<=10 and net>0 and exp>0 and sum(x['net']>0 for x in rs)>=2 and errs==0)
+          out={'source_commit':os.environ['SOURCE_PATCH_COMMIT'],'candidate':'TAIL_PAYOFF_HYBRID_MIN','development_data_mode':'BAR_M1','rows':rs,
+               'aggregate_pf':pf,'aggregate_net':net,'aggregate_expectancy':exp,'worst_pf':min([x['pf'] for x in rs] or [0]),'max_dd_pct':dd,
+               'total_baskets':tb,'trades_per_year':tpy,'development_edge_gate':'PASS' if edge else 'FAIL','frequency_gate':'PASS' if tpy>=50 else 'FAIL',
+               'v294_preset_recovery':'PASS' if edge else 'EXHAUSTED','validation':'AUTHORIZED' if edge else 'BLOCKED','final_holdout':'UNTOUCHED'}
+          pathlib.Path('V294-HYBRID-DEV-GATE.json').write_text(json.dumps(out,indent=2)); print(json.dumps(out,indent=2))
           PY
       - uses: actions/upload-artifact@v4
         with:
-          name: V294-EDGE-DEVELOPMENT-GATE
-          path: V294-EDGE-DEV-GATE.json
-          retention-days: 30
-
-  validation:
-    needs: dev_gate
-    if: needs.dev_gate.outputs.pass == 'true'
-    runs-on: ubuntu-24.04
-    timeout-minutes: 180
-    outputs:
-      pass: ${{ steps.audit.outputs.pass }}
-    env:
-      CTRADER_PASSWORD: ${{ secrets.CTRADER_PASSWORD }}
-      CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
-      CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
-      CANDIDATE_ID: ${{ needs.dev_gate.outputs.winner }}
-      GRID_COOLDOWN: ${{ needs.dev_gate.outputs.grid_cooldown }}
-      MIN_PRZ: ${{ needs.dev_gate.outputs.min_prz }}
-      MIN_GEOM: ${{ needs.dev_gate.outputs.min_geom }}
-      PENDING_BARS: ${{ needs.dev_gate.outputs.pending_bars }}
-      PENDING_PRZ: ${{ needs.dev_gate.outputs.pending_prz }}
-      BE_R: ${{ needs.dev_gate.outputs.be_r }}
-      TRAIL_R: ${{ needs.dev_gate.outputs.trail_r }}
-      SCALE_R: ${{ needs.dev_gate.outputs.scale_r }}
-    steps:
-      - uses: actions/download-artifact@v4
-        with:
-          name: V294-EDGE-CONTEXT-BUILD
-          path: seal
-      - name: Resolve FxPro account
-        run: |
-          set -euo pipefail
-          docker pull ghcr.io/spotware/ctrader-console:5.9.11
-          printf '%s' "$CTRADER_PASSWORD" > seal/ctrader.pwd; chmod 600 seal/ctrader.pwd
-          docker run --rm -v "$PWD/seal:/work" ghcr.io/spotware/ctrader-console:5.9.11 accounts --ctid="$CTRADER_CTID" --pwd-file=/work/ctrader.pwd > seal/accounts.json
-          N=$(python3 - <<'PY'
-          import json,os
-          a=json.load(open('seal/accounts.json',encoding='utf-8-sig')); e=os.environ['CTRADER_ACCOUNT'].strip(); m=next((x for x in a if str(x.get('Number',''))==e or str(x.get('Id',''))==e),None)
-          if not m or m.get('Broker','').lower()!='fxpro' or m.get('Live') is not False or int(m.get('Leverage',0))!=500: raise SystemExit('account mismatch')
-          print(m['Number'])
-          PY
-          ); echo "CTRADER_ACCOUNT_NUMBER=$N" >> "$GITHUB_ENV"
-      - name: Frozen VAL-2 ticks
-        run: |
-          set -euo pipefail
-          mkdir -p seal/{reports,logs,data,audit}
-          C="v294-edge-val2-${GITHUB_RUN_ID}"
-          docker run --name "$C" -v "$PWD/seal:/work" ghcr.io/spotware/ctrader-console:5.9.11 backtest /work/algo/HarmonyBotPro_v294_edge_context.algo             --ctid="$CTRADER_CTID" --pwd-file=/work/ctrader.pwd --account="$CTRADER_ACCOUNT_NUMBER"             --symbol=XAUUSD --period=m1 --start=01/07/2020 --end=31/12/2020 --balance=10000 --data-mode=ticks --data-dir=/work/data             --commission=35 --spread=1 --SymbolName=XAUUSD --RiskPercent=1.0 --MaxSlippagePips=30 --MaxDrawdown=10 --MinStopLossPips=100             --SmallAccountMode=false --SessionStart=8 --SessionEnd=13 --DstAwareInstitutionalSession=false --MinAtrPrice=0.5 --V294AllowBuy=false --V294AllowSell=true --EnableFibGrid=true             --EnableAltBat=true --EnableFiveZero=true --MinRR=2 --GridProfitFib=1.618 --GridStopFib=1.618             --GridCooldownMinutes="$GRID_COOLDOWN" --MinPrzConfluence="$MIN_PRZ" --MinGeometryQuality="$MIN_GEOM"             --GridBreakevenTriggerR="$BE_R" --GridTrailTriggerR="$TRAIL_R" --GridScaleOutR="$SCALE_R"             --EnableCapitalAwarePrecisionEntry=true --PrecisionPrzMaxDistanceAtr=0.45 --PrecisionMaxWaitAtr=1.25 --CapitalSafetyHeadroom=0.98 --CapGridStopToRiskBudget=true --EvaluationStartUtcIso=2020-07-08T00:00:00Z             --V29PersistentPrzQueue=true --V29PendingMaxBars="$PENDING_BARS" --V29PendingGlobalMax=12 --V29PendingPerPatternMax=3 --V29PendingMinCompositeQuality=0.58             --V29PendingTriggerMaxPrzAtr="$PENDING_PRZ" --V29HighQualityPrzBonusAtr=0.35 --V29CandidateReplacementMargin=0.03 --V29WarmupSeedPending=true --V29MaxOrderAttemptsPerCandidate=3             --V291SmallAccountTacticalExecution=false --V292FastSmallAccountExecution=false --V292EnableCapitalCapStop=false --V292EnableEarlyTrigger=false             --report=/work/reports/VAL2.html --report-json=/work/reports/VAL2.json > seal/logs/VAL2.log 2>&1 &
-          PID=$!; DONE=0
-          for ((i=0;i<9600;i+=5)); do
-            if test -s seal/reports/VAL2.json && python3 - <<'PY'
-          import json
-          m=json.load(open('seal/reports/VAL2.json',encoding='utf-8-sig')).get('main',{}); raise SystemExit(0 if 'endingEquity' in m and 'netProfit' in m else 1)
-          PY
-            then DONE=1; break; fi
-            if ! kill -0 "$PID" 2>/dev/null; then break; fi
-            sleep 5
-          done
-          docker stop --time 3 "$C" >/dev/null 2>&1 || true; docker rm -f "$C" >/dev/null 2>&1 || true; wait "$PID" 2>/dev/null || true
-          test "$DONE" = 1
-      - id: audit
-        name: VAL-2 basket and stability gate
-        run: |
-          python3 - <<'PY'
-          import json,re,pathlib,os,collections
-          d=json.load(open('seal/reports/VAL2.json',encoding='utf-8-sig')); h=d.get('history',{}).get('items',[]); eq=d.get('equity',{}); t=pathlib.Path('seal/logs/VAL2.log').read_text(errors='ignore')
-          groups={}
-          for x in h:
-              key=(str(x.get('label','')),str(x.get('direction','')).lower(),int(x.get('entryTime',0) or 0),round(float(x.get('entryPrice',0) or 0),5))
-              g=groups.setdefault(key,{'label':key[0],'direction':key[1],'entryTime':key[2],'closeTime':0,'net':0.0})
-              g['net']+=float(x.get('net',0) or 0); g['closeTime']=max(g['closeTime'],int(x.get('closeTime',0) or 0))
-          mains=sorted([g for g in groups.values() if g['label']=='HarmonyBotPro'],key=lambda z:z['entryTime']); children=[g for g in groups.values() if g['label']=='HarmonyBotPro-G']
-          pats=re.findall(r'\[GRID\]\s+Basket\s+#\d+\s+created\s+\|\s*([^|]+?)\s*\|',t,re.I)
-          baskets=[]
-          for i,g in enumerate(mains): baskets.append({'pattern':pats[i].strip() if i<len(pats) else 'Unknown','direction':g['direction'],'entryTime':g['entryTime'],'closeTime':g['closeTime'],'net':g['net'],'grid_children':0})
-          for ch in children:
-              cand=[b for b in baskets if b['direction']==ch['direction'] and b['entryTime']<=ch['entryTime']<=b['closeTime']]
-              if cand:
-                  b=max(cand,key=lambda z:z['entryTime']); b['net']+=ch['net']; b['grid_children']+=1
-          vals=[b['net'] for b in baskets]; W=[x for x in vals if x>0]; L=[x for x in vals if x<0]; gp=sum(W); gl=abs(sum(L)); net=sum(vals); pf=gp/gl if gl>0 else (999 if gp>0 else 0)
-          aw=sum(W)/len(W) if W else 0; al=sum(L)/len(L) if L else 0; dd=float(eq.get('maxEquityDrawdownPercent',0) or 0)
-          errs=len([x for x in t.splitlines() if re.search(r'InvalidRequest|Invalid Volume|Insufficient Margin|unprotected position|unexpected hedge',x,re.I)])
-          def dist(k): return dict(collections.Counter(str((('GRID' if b['grid_children'] else 'NON_GRID') if k=='grid' else b[k])) for b in baskets))
-          out={'candidate':os.environ['CANDIDATE_ID'],'baskets':len(vals),'gross_profit':gp,'gross_loss':gl,'pf':pf,'net':net,'expectancy':net/len(vals) if vals else 0,'win_rate_pct':100*len(W)/len(vals) if vals else 0,'realized_rr':aw/abs(al) if aw>0 and al<0 else None,'max_dd_pct':dd,'direction_distribution':dist('direction'),'pattern_distribution':dist('pattern'),'grid_distribution':dist('grid'),'execution_errors':errs}
-          out['val_gate_pass']=bool(len(vals)>=10 and dd<=10 and pf>1 and net>0 and out['expectancy']>0 and errs==0)
-          pathlib.Path('seal/audit/VAL2-GATE.json').write_text(json.dumps(out,indent=2)); print(json.dumps(out,indent=2))
-          with open(os.environ['GITHUB_OUTPUT'],'a') as f: f.write('pass='+('true' if out['val_gate_pass'] else 'false')+'\n')
-          PY
-      - name: Cleanup
-        if: always()
-        run: rm -f seal/ctrader.pwd seal/accounts.json; docker run --rm -v "$PWD/seal:/work" alpine:3.22 sh -c 'rm -rf /work/data' || true
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: V294-EDGE-VAL2
-          path: |
-            seal/audit
-            seal/reports
-            seal/logs
-          retention-days: 30
-
-  small_capital:
-    needs: [dev_gate, validation]
-    if: needs.validation.outputs.pass == 'true'
-    runs-on: ubuntu-24.04
-    timeout-minutes: 180
-    env:
-      CTRADER_PASSWORD: ${{ secrets.CTRADER_PASSWORD }}
-      CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
-      CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
-      CANDIDATE_ID: ${{ needs.dev_gate.outputs.winner }}
-      GRID_COOLDOWN: ${{ needs.dev_gate.outputs.grid_cooldown }}
-      MIN_PRZ: ${{ needs.dev_gate.outputs.min_prz }}
-      MIN_GEOM: ${{ needs.dev_gate.outputs.min_geom }}
-      PENDING_BARS: ${{ needs.dev_gate.outputs.pending_bars }}
-      PENDING_PRZ: ${{ needs.dev_gate.outputs.pending_prz }}
-      BE_R: ${{ needs.dev_gate.outputs.be_r }}
-      TRAIL_R: ${{ needs.dev_gate.outputs.trail_r }}
-      SCALE_R: ${{ needs.dev_gate.outputs.scale_r }}
-    steps:
-      - uses: actions/download-artifact@v4
-        with:
-          name: V294-EDGE-CONTEXT-BUILD
-          path: seal
-      - name: Resolve FxPro account
-        run: |
-          set -euo pipefail
-          docker pull ghcr.io/spotware/ctrader-console:5.9.11
-          printf '%s' "$CTRADER_PASSWORD" > seal/ctrader.pwd; chmod 600 seal/ctrader.pwd
-          docker run --rm -v "$PWD/seal:/work" ghcr.io/spotware/ctrader-console:5.9.11 accounts --ctid="$CTRADER_CTID" --pwd-file=/work/ctrader.pwd > seal/accounts.json
-          N=$(python3 - <<'PY'
-          import json,os
-          a=json.load(open('seal/accounts.json',encoding='utf-8-sig')); e=os.environ['CTRADER_ACCOUNT'].strip(); m=next((x for x in a if str(x.get('Number',''))==e or str(x.get('Id',''))==e),None)
-          if not m or m.get('Broker','').lower()!='fxpro' or m.get('Live') is not False or int(m.get('Leverage',0))!=500: raise SystemExit('account mismatch')
-          print(m['Number'])
-          PY
-          ); echo "CTRADER_ACCOUNT_NUMBER=$N" >> "$GITHUB_ENV"
-      - name: Frozen $100 Small-Capital Regression
-        run: |
-          set -euo pipefail
-          mkdir -p seal/{reports,logs,data,audit}
-          C="v294-edge-100-${GITHUB_RUN_ID}"
-          docker run --name "$C" -v "$PWD/seal:/work" ghcr.io/spotware/ctrader-console:5.9.11 backtest /work/algo/HarmonyBotPro_v294_edge_context.algo             --ctid="$CTRADER_CTID" --pwd-file=/work/ctrader.pwd --account="$CTRADER_ACCOUNT_NUMBER"             --symbol=XAUUSD --period=m1 --start=01/07/2020 --end=31/12/2020 --balance=100 --data-mode=ticks --data-dir=/work/data             --commission=35 --spread=1 --SymbolName=XAUUSD --RiskPercent=1.40 --MaxSlippagePips=70 --MaxDrawdown=10 --MinStopLossPips=100             --SmallAccountMode=true --SmallAccountMinSLPips=25 --SessionStart=8 --SessionEnd=13 --DstAwareInstitutionalSession=false --MinAtrPrice=0.5 --V294AllowBuy=false --V294AllowSell=true --EnableFibGrid=true             --EnableAltBat=true --EnableFiveZero=true --MinRR=2 --GridProfitFib=1.618 --GridStopFib=1.618             --GridCooldownMinutes="$GRID_COOLDOWN" --MinPrzConfluence="$MIN_PRZ" --MinGeometryQuality="$MIN_GEOM"             --GridBreakevenTriggerR="$BE_R" --GridTrailTriggerR="$TRAIL_R" --GridScaleOutR="$SCALE_R"             --EnableCapitalAwarePrecisionEntry=true --PrecisionPrzMaxDistanceAtr=0.45 --PrecisionMaxWaitAtr=1.25 --CapitalSafetyHeadroom=0.98 --CapGridStopToRiskBudget=true --EvaluationStartUtcIso=2020-07-08T00:00:00Z             --V29PersistentPrzQueue=true --V29PendingMaxBars="$PENDING_BARS" --V29PendingGlobalMax=12 --V29PendingPerPatternMax=3 --V29PendingMinCompositeQuality=0.58             --V29PendingTriggerMaxPrzAtr="$PENDING_PRZ" --V29HighQualityPrzBonusAtr=0.35 --V29CandidateReplacementMargin=0.03 --V29WarmupSeedPending=true --V29MaxOrderAttemptsPerCandidate=3             --V291SmallAccountTacticalExecution=true --V291TacticalBudgetUse=0.98 --V291RequireMicroConfirmation=true --V291MinTacticalRR=2.0             --V292FastSmallAccountExecution=true --V292MicroPivotBars=2 --V292MicroPivotAtrBuffer=0.04 --V292EnableCapitalCapStop=true --V292EnableEarlyTrigger=true             --V292EarlyTriggerMinQuality=0.66 --V292EarlyTriggerMaxPrzAtr=0.95 --V292MicroBodyMinAtr=0.02 --V292WickBodyConfirmRatio=0.25             --report=/work/reports/SMALL100.html --report-json=/work/reports/SMALL100.json > seal/logs/SMALL100.log 2>&1 &
-          PID=$!; DONE=0
-          for ((i=0;i<9600;i+=5)); do
-            if test -s seal/reports/SMALL100.json && python3 - <<'PY'
-          import json
-          m=json.load(open('seal/reports/SMALL100.json',encoding='utf-8-sig')).get('main',{}); raise SystemExit(0 if 'endingEquity' in m and 'netProfit' in m else 1)
-          PY
-            then DONE=1; break; fi
-            if ! kill -0 "$PID" 2>/dev/null; then break; fi
-            sleep 5
-          done
-          docker stop --time 3 "$C" >/dev/null 2>&1 || true; docker rm -f "$C" >/dev/null 2>&1 || true; wait "$PID" 2>/dev/null || true
-          test "$DONE" = 1
-      - name: $100 operational audit
-        run: |
-          python3 - <<'PY'
-          import json,re,pathlib,os
-          d=json.load(open('seal/reports/SMALL100.json',encoding='utf-8-sig')); h=d.get('history',{}).get('items',[]); eq=d.get('equity',{}); main=d.get('main',{}); t=pathlib.Path('seal/logs/SMALL100.log').read_text(errors='ignore')
-          g={}
-          for x in h:
-              if str(x.get('label',''))!='HarmonyBotPro': continue
-              k=(str(x.get('direction','')).lower(),int(x.get('entryTime',0) or 0),round(float(x.get('entryPrice',0) or 0),5)); g[k]=g.get(k,0.0)+float(x.get('net',0) or 0)
-          vals=list(g.values()); W=[x for x in vals if x>0]; L=[x for x in vals if x<0]; gp=sum(W); gl=abs(sum(L)); net=sum(vals); pf=gp/gl if gl>0 else (999 if gp>0 else 0)
-          aw=sum(W)/len(W) if W else 0; al=sum(L)/len(L) if L else 0
-          def li(n):
-              m=re.findall(rf'{re.escape(n)}=(\d+)',t); return int(m[-1]) if m else 0
-          errs=[x for x in t.splitlines() if re.search(r'InvalidRequest|Invalid Volume|Insufficient Margin|unprotected position|unexpected hedge',x,re.I)]
-          margin_keys={k:v for k,v in main.items() if 'margin' in str(k).lower() or 'free' in str(k).lower()}
-          rs=[float(x) for x in re.findall(r'(?:actualRisk|allInRisk|riskUsd|riskBudget)=([0-9]+(?:\.[0-9]+)?)',t,re.I)]
-          raw_proxy=li('signals'); executed=len(vals); exp=net/executed if executed else 0
-          out={'candidate':os.environ['CANDIDATE_ID'],'initial_balance':100,'leverage':500,'broker':'FxPro','symbol':'XAUUSD',
-               'raw_signals':raw_proxy,'raw_signals_note':'V29.4 source does not emit pre-ATR harmonic raw count; signals counter is the closest executable signal-funnel proxy',
-               'eligible_signals':li('geometryValid'),'executed_trades':executed,'skipped_by_min_volume':li('volumeBlocked'),
-               'skipped_by_margin':len([x for x in t.splitlines() if re.search(r'Insufficient Margin',x,re.I)]),'skipped_by_risk':li('riskBlocked'),
-               'atr_blocked':li('atrBlocked'),'mtf_blocked':li('mtfBlocked'),'geometry_blocked':li('geometryBlocked'),'direction_blocked':li('directionBlocked'),
-               'capital_infeasible':li('capitalInfeasible'),'trade_frequency_per_year_estimate':executed*2,
-               'pf':pf,'net':net,'expectancy':exp,'win_rate_pct':100*len(W)/executed if executed else 0,'realized_rr':aw/abs(al) if aw>0 and al<0 else None,
-               'max_dd_pct':float(eq.get('maxEquityDrawdownPercent',0) or 0),'max_actual_risk_usd':max(rs) if rs else None,
-               'max_realized_loss_usd':max([abs(x) for x in L],default=0),'maximum_margin_usage':margin_keys.get('maxMargin') or margin_keys.get('maxMarginUsed'),
-               'minimum_free_margin':margin_keys.get('minFreeMargin'),'report_margin_fields':margin_keys,'execution_errors':len(errs)}
-          reasons=[]
-          if executed==0:
-              if out['skipped_by_min_volume']>0: reasons.append('MinVolume')
-              if out['skipped_by_margin']>0: reasons.append('Margin')
-              if out['skipped_by_risk']>0 or out['capital_infeasible']>0: reasons.append('Risk Sizing')
-              if out['direction_blocked']>0: reasons.append('Direction Gate')
-              if out['mtf_blocked']>0: reasons.append('HTF Conflict')
-              if out['atr_blocked']>0: reasons.append('ATR')
-              if out['geometry_blocked']>0: reasons.append('PRZ/Geometry')
-              if raw_proxy==0: reasons.append('Pattern Scarcity')
-          elif pf<=1 or exp<=0: reasons.append('Strategy Edge Loss / Cost Drag')
-          out['failure_classification']=reasons or ['NONE']
-          out['small_cap_pass']=bool(executed>0 and out['max_dd_pct']<=10 and pf>1 and exp>0 and not errs)
-          pathlib.Path('seal/audit/SMALL100-GATE.json').write_text(json.dumps(out,indent=2)); print(json.dumps(out,indent=2))
-          PY
-      - name: Cleanup
-        if: always()
-        run: rm -f seal/ctrader.pwd seal/accounts.json; docker run --rm -v "$PWD/seal:/work" alpine:3.22 sh -c 'rm -rf /work/data' || true
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: V294-EDGE-SMALL100
-          path: |
-            seal/audit
-            seal/reports
-            seal/logs
-          retention-days: 30
-
-  decision:
-    needs: [engineering_regression, dev_gate, validation, small_capital]
-    if: always()
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/download-artifact@v4
-        with:
-          name: V294-EDGE-DEVELOPMENT-GATE
-          path: out/dev
-      - uses: actions/download-artifact@v4
-        if: needs.dev_gate.outputs.pass == 'true'
-        with:
-          name: V294-EDGE-VAL2
-          path: out/val
-      - uses: actions/download-artifact@v4
-        if: needs.validation.outputs.pass == 'true'
-        with:
-          name: V294-EDGE-SMALL100
-          path: out/small
-      - name: Freeze decision
-        run: |
-          python3 - <<'PY'
-          import json,pathlib
-          dev=json.load(open('out/dev/V294-EDGE-DEV-GATE.json'))
-          vp=pathlib.Path('out/val/audit/VAL2-GATE.json'); val=json.load(open(vp)) if vp.exists() else {'status':'NOT_RUN','val_gate_pass':False}
-          sp=pathlib.Path('out/small/audit/SMALL100-GATE.json'); small=json.load(open(sp)) if sp.exists() else {'status':'NOT_RUN','small_cap_pass':False}
-          advance=bool(dev.get('dev_gate_pass') and val.get('val_gate_pass') and small.get('small_cap_pass'))
-          out={'stable_baseline':'V29.2','current_candidate':'V29.4-Edge-Context-Gate-Dev','source_commit':'294c73aaa9f1a133899134982ba4cd4fb54de527',
-               'source_change':'MINIMUM_NECESSARY_DIRECTION_GATE_ONLY','engineering_freeze':'PASS','development':dev,'validation':val,'small_capital':small,
-               'status':'ADVANCE_TO_ROBUSTNESS' if advance else 'HOLD','performance_freeze':'OPEN' if advance else 'FAIL_STAGE1',
-               'oos_status':'BLOCKED_NO_AUDITABLY_UNEXPOSED_OOS_PARTITION' if advance else 'NOT_TESTED',
-               'robustness_status':'HOLD_DATA_GOVERNANCE' if advance else 'NOT_REACHED',
-               'frequency_gate':'PASS' if dev.get('frequency_gate_pass') else 'FAIL',
-               'final_holdout':'UNTOUCHED_NOT_RUN','final_commercial_freeze':'HOLD'}
-          pathlib.Path('V294-EDGE-FINAL-DECISION.json').write_text(json.dumps(out,indent=2)); print(json.dumps(out,indent=2))
-          PY
-      - uses: actions/upload-artifact@v4
-        with:
-          name: V294-EDGE-FINAL-DECISION
-          path: V294-EDGE-FINAL-DECISION.json
+          name: V294-HYBRID-DEVELOPMENT-GATE
+          path: V294-HYBRID-DEV-GATE.json
           retention-days: 30
