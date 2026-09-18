@@ -1,0 +1,36 @@
+{
+  "symbol": "EURUSD",
+  "timeframe": "M15",
+  "status": "not_run",
+  "backtest_period": null,
+  "initial_balance": null,
+  "planned_period_utc": {
+    "start": "2026-08-31T00:00:00Z",
+    "end": "2026-09-07T00:00:00Z"
+  },
+  "planned_initial_balance": 100,
+  "data_mode": "ticks",
+  "cost_assumptions": {
+    "spread_pips": 1,
+    "commission_per_million": 35,
+    "broker_verified": false
+  },
+  "net_profit": null,
+  "profit_factor": null,
+  "win_rate": null,
+  "max_drawdown": null,
+  "total_trades": null,
+  "average_trade": null,
+  "largest_loss": null,
+  "largest_win": null,
+  "consecutive_losses": null,
+  "daily_loss_guard_triggered": null,
+  "duplicate_positions": null,
+  "every_trade_has_sl_tp": null,
+  "unprotected_positions": null,
+  "invalid_request": null,
+  "volume_below_broker_minimum": null,
+  "suitable_for_optimization": null,
+  "cli_exit_code": null,
+  "notes": "No backtest executed. Requires cTrader runtime, authenticated broker data and available credentials."
+}

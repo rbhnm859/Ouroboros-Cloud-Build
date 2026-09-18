@@ -1,0 +1,2 @@
+Superseded: official .algo build now exists beside this file.
+See ../reports/build_result.md. cTrader runtime/import and broker backtests still require verification.

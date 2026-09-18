@@ -1,0 +1,94 @@
+name: Cumulative Delta EURUSD build and sanity
+on:
+  workflow_dispatch:
+  push:
+    branches: [cumulative-delta-scalper-eurusd-v1]
+    paths:
+      - 'CumulativeDeltaScalper-EURUSD-v1/src/**'
+      - 'CumulativeDeltaScalper-EURUSD-v1/scripts/**'
+      - '.github/workflows/cumulative-delta-eurusd-sanity.yml'
+permissions:
+  contents: read
+concurrency:
+  group: cumulative-delta-eurusd-sanity
+  cancel-in-progress: true
+jobs:
+  sanity:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '6.0.x'
+      - name: Compile official algo
+        run: |
+          set -o pipefail
+          dotnet build CumulativeDeltaScalper-EURUSD-v1/src/CumulativeDeltaScalper_EURUSD_v1.csproj -c Release | tee CumulativeDeltaScalper-EURUSD-v1/reports/ci_build.log
+      - name: Preserve build
+        uses: actions/upload-artifact@v4
+        with:
+          name: CumulativeDeltaScalper-EURUSD-v1-build
+          path: |
+            CumulativeDeltaScalper-EURUSD-v1/builds/*.algo
+            CumulativeDeltaScalper-EURUSD-v1/reports/ci_build.log
+          if-no-files-found: error
+      - name: Check existing cTrader credentials
+        id: credentials
+        env:
+          CDS_CTID: ${{ secrets.CTRADER_CTID }}
+          CDS_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+          CDS_PASSWORD: ${{ secrets.CTRADER_PASSWORD }}
+        run: |
+          if [ -z "$CDS_CTID" ] || [ -z "$CDS_ACCOUNT" ] || [ -z "$CDS_PASSWORD" ]; then
+            echo 'ready=false' >> "$GITHUB_OUTPUT"
+            echo 'Existing CTRADER_CTID / CTRADER_ACCOUNT / CTRADER_PASSWORD secrets unavailable; no backtest executed.' >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo 'ready=true' >> "$GITHUB_OUTPUT"
+            umask 077
+            printf '%s' "$CDS_PASSWORD" > "$RUNNER_TEMP/cds.pwd"
+          fi
+      - name: Pull cTrader CLI
+        if: steps.credentials.outputs.ready == 'true'
+        run: docker pull ghcr.io/spotware/ctrader-console:5.9.11
+      - name: Four baseline tick-data sanity runs
+        if: steps.credentials.outputs.ready == 'true'
+        env:
+          CDS_CTID: ${{ secrets.CTRADER_CTID }}
+          CDS_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+        run: |
+          ROOT="$PWD/CumulativeDeltaScalper-EURUSD-v1"
+          mkdir -p "$ROOT/backtests/raw" "$ROOT/backtests/cache"
+          for period in m1 m5 m15 m30; do
+            set +e
+            timeout --signal=TERM --kill-after=30s 6m docker run --rm \
+              -v "$ROOT:/work" -v "$RUNNER_TEMP/cds.pwd:/auth/password:ro" \
+              -e "CTID=$CDS_CTID" -e "ACCOUNT=$CDS_ACCOUNT" -e 'PWD-FILE=/auth/password' \
+              ghcr.io/spotware/ctrader-console:5.9.11 \
+              backtest /work/builds/CumulativeDeltaScalper_EURUSD_v1.algo \
+              --environment-variables --exit-on-stop --symbol=EURUSD --period="$period" \
+              --start='31/08/2026 00:00' --end='07/09/2026 00:00' \
+              --balance=100 --spread=1 --commission=35 --data-mode=ticks \
+              --data-dir=/work/backtests/cache \
+              --report="/work/backtests/raw/EURUSD_${period}.html" \
+              --report-json="/work/backtests/raw/EURUSD_${period}.json" \
+              > "$ROOT/backtests/raw/EURUSD_${period}.log" 2>&1
+            rc=$?
+            set -e
+            printf '%s' "$rc" > "$ROOT/backtests/raw/EURUSD_${period}.exitcode"
+          done
+      - name: Remove password
+        if: always()
+        run: rm -f "$RUNNER_TEMP/cds.pwd"
+      - name: Summarize without inventing results
+        if: always()
+        run: python3 CumulativeDeltaScalper-EURUSD-v1/scripts/summarize_sanity.py
+      - name: Preserve evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: CumulativeDeltaScalper-EURUSD-v1-sanity
+          path: |
+            CumulativeDeltaScalper-EURUSD-v1/backtests/*baseline.json
+            CumulativeDeltaScalper-EURUSD-v1/backtests/raw/
+          retention-days: 14
