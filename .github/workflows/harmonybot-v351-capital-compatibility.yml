@@ -1,0 +1,67 @@
+name: HarmonyBot V35.1 Capital Compatibility Study
+on:
+  push:
+    branches: [harmonybot/v35.1-monotonic-alpha-veto]
+    paths:
+      - '.github/workflows/harmonybot-v351-capital-compatibility.yml'
+      - 'HarmonyBot-V351-Capital-Study/**'
+  workflow_dispatch:
+permissions: {contents: read}
+concurrency:
+  group: harmonybot-v351-capital-compatibility
+  cancel-in-progress: true
+
+jobs:
+  study:
+    name: Equity ${{ matrix.balance }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        balance: [100, 150, 200, 300, 500, 1000]
+    env:
+      CTRADER_PASSWORD: ${{ secrets.CTRADER_PASSWORD }}
+      CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+      CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+    steps:
+      - uses: actions/checkout@v4
+        with: {ref: harmonybot/v35.1-monotonic-alpha-veto, path: control}
+      - uses: actions/setup-dotnet@v4
+        with: {dotnet-version: 8.0.x}
+      - name: Execute frozen V35.1 capital study
+        run: |
+          chmod +x control/HarmonyBot-V351-Capital-Study/*.sh
+          control/HarmonyBot-V351-Capital-Study/orchestrate_balance.sh "${{ matrix.balance }}"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: HARMONYBOT-V351-CAPITAL-${{ matrix.balance }}
+          path: control/HarmonyBot-V351-Capital-Study/output-${{ matrix.balance }}
+          retention-days: 30
+
+  aggregate:
+    name: Aggregate capital compatibility
+    needs: study
+    if: always() && !cancelled()
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with: {ref: harmonybot/v35.1-monotonic-alpha-veto, path: control}
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: HARMONYBOT-V351-CAPITAL-*
+          path: control/HarmonyBot-V351-Capital-Study/all-results
+          merge-multiple: true
+      - name: Aggregate locked study
+        run: |
+          mkdir -p control/HarmonyBot-V351-Capital-Study/final
+          python3 control/HarmonyBot-V351-Capital-Study/aggregate_capital.py \
+            control/HarmonyBot-V351-Capital-Study/all-results \
+            control/HarmonyBot-V351-Capital-Study/final
+          cp control/HarmonyBot-V351-Capital-Study/PROTOCOL.md control/HarmonyBot-V351-Capital-Study/final/CAPITAL_COMPATIBILITY_PROTOCOL.md
+      - uses: actions/upload-artifact@v4
+        with:
+          name: HARMONYBOT-V351-CAPITAL-COMPATIBILITY
+          path: control/HarmonyBot-V351-Capital-Study/final
+          retention-days: 30
