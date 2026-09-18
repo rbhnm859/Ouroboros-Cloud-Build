@@ -1057,6 +1057,9 @@ namespace cAlgo.Robots
         private bool AdvanceProtectionFrontier(FibonacciBasket basket, double proposed, string reason)
         {
             if (basket == null || proposed <= 0) return false;
+            DateTime now = Server.Time.ToUniversalTime();
+            if (basket.FrontierRetryAfterUtc != DateTime.MinValue && now < basket.FrontierRetryAfterUtc)
+                return false;
 
             bool strictlyBetter = basket.Direction == TradeDirection.Buy
                 ? proposed > basket.ProtectionFrontier + _symbol.TickSize
@@ -1101,7 +1104,20 @@ namespace cAlgo.Robots
                 {
                     allApplied = false;
                     if (r != null && r.Error == ErrorCode.TechnicalError)
-                        BasketEvent(basket, "FRONTIER_TRANSIENT_TECHNICAL_POS_" + p.Id);
+                    {
+                        basket.FrontierSubmitAttempts++;
+                        if (basket.FrontierSubmitAttempts < MaxPendingSubmitAttempts)
+                        {
+                            basket.FrontierRetryAfterUtc = now.AddMinutes(1);
+                            BasketEvent(basket, "FRONTIER_TRANSIENT_RETRY_POS_" + p.Id + "_ATTEMPT_" + basket.FrontierSubmitAttempts);
+                        }
+                        else
+                        {
+                            RecordExecutionError("FRONTIER_MODIFY_FAILED_TechnicalError",
+                                "basket=" + basket.BasketId + ";position=" + p.Id + ";reason=" + reason + ";attempt=" + basket.FrontierSubmitAttempts);
+                            basket.FrontierRetryAfterUtc = now.AddMinutes(5);
+                        }
+                    }
                     else
                         RecordExecutionError("FRONTIER_MODIFY_FAILED_" + (r == null ? "NULL" : r.Error.ToString()),
                             "basket=" + basket.BasketId + ";position=" + p.Id + ";reason=" + reason);
@@ -1113,6 +1129,8 @@ namespace cAlgo.Robots
             double prior = basket.ProtectionFrontier;
             basket.ProtectionFrontier = proposed;
             basket.FrontierAdvances++;
+            basket.FrontierSubmitAttempts = 0;
+            basket.FrontierRetryAfterUtc = DateTime.MinValue;
             BasketEvent(basket, "FRONTIER_ADVANCED_" + reason + "_FROM_" +
                 prior.ToString("F5", CultureInfo.InvariantCulture) + "_TO_" +
                 proposed.ToString("F5", CultureInfo.InvariantCulture));
@@ -2092,7 +2110,8 @@ namespace cAlgo.Robots
         public DateTime CreatedUtc, ExpirationUtc;
         public double EntryAnchor, AverageEntry, StructuralStop, CanonicalTarget, ProtectionFrontier;
         public double InitialBasketRisk, PlannedWorstCaseRisk, PeakR, MaxAdverseR, RealizedNet;
-        public int FilledLegs, ClosedLegs, FrontierAdvances;
+        public int FilledLegs, ClosedLegs, FrontierAdvances, FrontierSubmitAttempts;
+        public DateTime FrontierRetryAfterUtc;
         public bool IsActive;
         public FibonacciGridPlan Plan;
         public CandidateRecord Candidate;
