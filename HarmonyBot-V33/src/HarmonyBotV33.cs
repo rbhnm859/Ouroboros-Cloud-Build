@@ -115,6 +115,9 @@ namespace cAlgo.Robots
         private int _duplicateGridLegs;
         private int _orphanPendingOrders;
         private int _stopWideningViolations;
+        private int _admissionRiskRejects;
+        private int _admissionThesisRejects;
+        private const int MaxPendingSubmitAttempts = 2;
 
         private DateTime _lastM15Closed = DateTime.MinValue;
         private DateTime _lastM1Closed = DateTime.MinValue;
@@ -199,8 +202,9 @@ namespace cAlgo.Robots
                     kv.Key, x.Detected, x.Validated, x.Routed, x.PrzWaiting, x.Confirming, x.Armed, x.BasketPlanned,
                     x.Leg0Executed, x.Leg1Filled, x.Leg2Filled, x.Leg3Filled, x.BasketClosed, x.Executed, x.Expired, x.Rejected, x.Invalidated);
             }
-            Print("[V33-SUMMARY] candidates={0} baskets={1} openLedgers={2} executionErrors={3} gridRiskViolations={4} duplicateGridLegs={5} orphanPendingOrders={6} stopWideningViolations={7}",
-                _candidateSeq, _baskets.Count, _positions.Count, _executionErrors, _gridRiskViolations, _duplicateGridLegs, _orphanPendingOrders, _stopWideningViolations);
+            Print("[V33-SUMMARY] candidates={0} baskets={1} openLedgers={2} executionErrors={3} gridRiskViolations={4} duplicateGridLegs={5} orphanPendingOrders={6} stopWideningViolations={7} admissionRiskRejects={8} admissionThesisRejects={9}",
+                _candidateSeq, _baskets.Count, _positions.Count, _executionErrors, _gridRiskViolations, _duplicateGridLegs, _orphanPendingOrders,
+                _stopWideningViolations, _admissionRiskRejects, _admissionThesisRejects);
             foreach (var kv in _executionErrorReasons.OrderBy(k => k.Key))
                 Print("[V33-EXECUTION-ERROR-SUMMARY] code={0} count={1}", kv.Key, kv.Value);
         }
@@ -358,6 +362,7 @@ namespace cAlgo.Robots
                 }
             }
 
+            ProcessBasketAdmissionOnM1(i, utc);
             TryScheduleAndExecute();
         }
 
@@ -517,6 +522,7 @@ namespace cAlgo.Robots
                 CanonicalTarget = plan.CanonicalTarget,
                 InitialBasketRisk = plan.BasketRiskAmount,
                 PlannedWorstCaseRisk = plan.WorstCaseRisk,
+                ProtectionFrontier = plan.StructuralStop,
                 Plan = plan,
                 Candidate = c,
                 IsActive = true
@@ -590,13 +596,126 @@ namespace cAlgo.Robots
             CountPipeline(c.Signal.PatternName).Executed++;
 
             foreach (var leg in plan.Legs.Where(x => x.Index > 0))
-                if (PlaceGridLimit(basket, leg))
+                leg.State = GridLegState.ADMISSION_WAIT;
+
+            BasketEvent(basket, "DEEPER_LEGS_WAITING_FOR_SEQUENTIAL_ADMISSION");
+        }
+
+        private void ProcessBasketAdmissionOnM1(int m1Index, DateTime utc)
+        {
+            foreach (var basket in _baskets.Values.Where(b => b.IsActive).ToList())
+            {
+                if (basket.Candidate == null || basket.Plan == null) continue;
+                if (utc >= basket.ExpirationUtc) continue;
+                if (_dailyLocked || PeakDrawdownExceeded() || !IsInstitutionalSession(utc)) continue;
+                if (BasketStructuralInvalidated(basket) || BasketHardConflict(basket)) continue;
+                if (basket.PeakR >= GridCancelMfeR) continue;
+
+                // One deeper pending order maximum. The next Fibonacci level is considered only
+                // after the prior level has actually filled or been terminally skipped.
+                if (OwnPendingOrders().Any(o => LabelBasketId(o.Label) == basket.BasketId)) continue;
+
+                var next = basket.Plan.Legs
+                    .Where(l => l.Index > 0 && (l.State == GridLegState.ADMISSION_WAIT || l.State == GridLegState.RETRY_WAIT))
+                    .OrderBy(l => l.Index)
+                    .FirstOrDefault();
+                if (next == null) continue;
+
+                // Do not leapfrog an earlier planned leg.
+                bool earlierUnresolved = basket.Plan.Legs.Any(l => l.Index > 0 && l.Index < next.Index &&
+                    l.State != GridLegState.FILLED && l.State != GridLegState.CLOSED &&
+                    l.State != GridLegState.CANCELLED && l.State != GridLegState.REJECTED);
+                if (earlierUnresolved) continue;
+
+                if (next.State == GridLegState.RETRY_WAIT && utc < next.RetryAfterUtc) continue;
+
+                if (!PassDeeperLegAdmission(basket, next, m1Index, utc))
+                    continue;
+
+                if (PlaceGridLimit(basket, next))
                     basket.State = FibonacciBasketState.GRID_PENDING;
+            }
+        }
+
+        private bool PassDeeperLegAdmission(FibonacciBasket basket, FibonacciGridLeg leg, int m1Index, DateTime utc)
+        {
+            // Price already crossed the pre-registered limit: do not chase with a market order.
+            if ((basket.Direction == TradeDirection.Buy && _symbol.Ask <= leg.PlannedPrice) ||
+                (basket.Direction == TradeDirection.Sell && _symbol.Bid >= leg.PlannedPrice))
+            {
+                leg.State = GridLegState.CANCELLED;
+                BasketEvent(basket, "ADMISSION_PRICE_ALREADY_CROSSED_L" + leg.Index);
+                return false;
+            }
+
+            double score = M1ConfirmationScore(m1Index, basket.Candidate.Signal);
+            double required = basket.Route == HarmonicRoute.EXHAUSTION_REVERSAL ? 0.75 : 0.60;
+            if (score < required)
+            {
+                leg.AdmissionFailures++;
+                _admissionThesisRejects++;
+                BasketEvent(basket, "ADMISSION_WAIT_CONFIRMATION_L" + leg.Index + "_SCORE_" +
+                    score.ToString("F2", CultureInfo.InvariantCulture));
+                return false;
+            }
+
+            if (BasketHardConflict(basket))
+            {
+                leg.State = GridLegState.CANCELLED;
+                _admissionThesisRejects++;
+                BasketEvent(basket, "ADMISSION_CANCEL_HARD_CONFLICT_L" + leg.Index);
+                return false;
+            }
+
+            double currentRisk = CurrentFilledRiskToFrontier(basket);
+            double candidateRisk = RiskForLegAtStop(leg, basket.StructuralStop) + leg.ModeledCost;
+            if (currentRisk + candidateRisk > basket.InitialBasketRisk + 1e-8)
+            {
+                _admissionRiskRejects++;
+                BasketEvent(basket, "ADMISSION_RISK_WAIT_L" + leg.Index + "_CURRENT_" +
+                    currentRisk.ToString("F2", CultureInfo.InvariantCulture));
+                return false;
+            }
+
+            if (Account.FreeMargin < Math.Max(candidateRisk, 0.01) * MinFreeMarginRiskMultiple)
+            {
+                _admissionRiskRejects++;
+                BasketEvent(basket, "ADMISSION_MARGIN_WAIT_L" + leg.Index);
+                return false;
+            }
+
+            leg.LastAdmissionUtc = utc;
+            leg.LastAdmissionScore = score;
+            BasketEvent(basket, "ADMISSION_PASSED_L" + leg.Index + "_SCORE_" +
+                score.ToString("F2", CultureInfo.InvariantCulture));
+            return true;
+        }
+
+        private double CurrentFilledRiskToFrontier(FibonacciBasket basket)
+        {
+            double total = 0;
+            foreach (var p in OwnPositions().Where(x => LabelBasketId(x.Label) == basket.BasketId))
+            {
+                double stop = p.StopLoss.HasValue ? p.StopLoss.Value : basket.ProtectionFrontier;
+                double downside = p.TradeType == TradeType.Buy
+                    ? Math.Max(0, p.EntryPrice - stop)
+                    : Math.Max(0, stop - p.EntryPrice);
+                total += p.VolumeInUnits * _symbol.PipValue * PriceToPips(downside);
+            }
+            return total;
+        }
+
+        private double RiskForLegAtStop(FibonacciGridLeg leg, double stop)
+        {
+            return leg.Volume * _symbol.PipValue * PriceToPips(Math.Abs(leg.PlannedPrice - stop));
         }
 
         private bool PlaceGridLimit(FibonacciBasket basket, FibonacciGridLeg leg)
         {
             string label = GridLabel(basket.BasketId, leg.Index);
+            leg.SubmitAttempts++;
+            leg.State = GridLegState.SUBMIT_REQUESTED;
+            BasketEvent(basket, "GRID_LEG_SUBMIT_REQUESTED_L" + leg.Index + "_ATTEMPT_" + leg.SubmitAttempts);
             if (LegAlreadyExists(label))
             {
                 _duplicateGridLegs++;
@@ -635,16 +754,25 @@ namespace cAlgo.Robots
                 GridComment(basket, leg.Index), false);
             if (tr == null || !tr.IsSuccessful || tr.PendingOrder == null)
             {
+                bool transient = tr != null && tr.Error == ErrorCode.TechnicalError && leg.SubmitAttempts < MaxPendingSubmitAttempts;
                 string code = "GRID_LEG_ORDER_" + (tr == null ? "NULL" : tr.Error.ToString());
-                RecordExecutionError(code, "basket=" + basket.BasketId + ";leg=L" + leg.Index);
+                if (transient)
+                {
+                    leg.State = GridLegState.RETRY_WAIT;
+                    leg.RetryAfterUtc = Server.Time.ToUniversalTime().AddMinutes(1);
+                    BasketEvent(basket, "GRID_LEG_TRANSIENT_RETRY_L" + leg.Index + "_ATTEMPT_" + leg.SubmitAttempts);
+                    return false;
+                }
+
+                RecordExecutionError(code, "basket=" + basket.BasketId + ";leg=L" + leg.Index + ";attempt=" + leg.SubmitAttempts);
                 leg.State = GridLegState.REJECTED;
                 BasketEvent(basket, "GRID_LEG_SUBMIT_FAILED_L" + leg.Index + "_" + code);
                 return false;
             }
 
             leg.PendingOrderId = tr.PendingOrder.Id;
-            leg.State = GridLegState.SUBMITTED;
-            BasketEvent(basket, "GRID_LEG_SUBMITTED_L" + leg.Index);
+            leg.State = GridLegState.PENDING_ACCEPTED;
+            BasketEvent(basket, "GRID_LEG_PENDING_ACCEPTED_L" + leg.Index);
             return true;
         }
 
@@ -735,21 +863,31 @@ namespace cAlgo.Robots
                     continue;
                 }
 
+                double desiredFrontier = basket.ProtectionFrontier;
+                string frontierReason = null;
+
                 if (basket.PeakR >= BreakEvenTriggerR)
                 {
                     double span = Math.Abs(basket.AverageEntry - basket.StructuralStop);
                     double lockPrice = basket.Direction == TradeDirection.Buy
                         ? basket.AverageEntry + span * Math.Max(0, BreakEvenLockR)
                         : basket.AverageEntry - span * Math.Max(0, BreakEvenLockR);
-                    ImproveBasketStops(basket, lockPrice, "COLLECTIVE_PROTECT");
-                    basket.State = FibonacciBasketState.BASKET_PROTECTED;
+                    desiredFrontier = BetterStop(basket.Direction, desiredFrontier, lockPrice);
+                    frontierReason = "COLLECTIVE_PROTECT";
                 }
 
                 if (basket.PeakR >= TrailTriggerR)
                 {
                     double trail = FibonacciStructureTrail(basket.Direction);
-                    if (trail > 0) ImproveBasketStops(basket, trail, "FIB_382_STRUCTURE_TRAIL");
+                    if (trail > 0)
+                    {
+                        desiredFrontier = BetterStop(basket.Direction, desiredFrontier, trail);
+                        frontierReason = "FIB_382_STRUCTURE_TRAIL";
+                    }
                 }
+
+                if (frontierReason != null && AdvanceProtectionFrontier(basket, desiredFrontier, frontierReason))
+                    basket.State = FibonacciBasketState.BASKET_PROTECTED;
             }
         }
 
@@ -863,6 +1001,8 @@ namespace cAlgo.Robots
         {
             foreach (var o in OwnPendingOrders().Where(x => LabelBasketId(x.Label) == basket.BasketId).ToList())
             {
+                var legForCancel = basket.Plan.Legs.FirstOrDefault(x => x.Index == LabelLegIndex(o.Label));
+                if (legForCancel != null) legForCancel.State = GridLegState.CANCEL_REQUESTED;
                 var r = CancelPendingOrder(o);
                 if (r == null || !r.IsSuccessful)
                 {
@@ -875,7 +1015,7 @@ namespace cAlgo.Robots
                 }
 
                 var leg = basket.Plan.Legs.FirstOrDefault(x => x.Index == LabelLegIndex(o.Label));
-                if (leg != null && leg.State == GridLegState.SUBMITTED) leg.State = GridLegState.CANCELLED;
+                if (leg != null && (leg.State == GridLegState.PENDING_ACCEPTED || leg.State == GridLegState.CANCEL_REQUESTED)) leg.State = GridLegState.CANCELLED;
                 BasketEvent(basket, "GRID_LEG_CANCELLED_" + reason + "_L" + LabelLegIndex(o.Label));
             }
         }
@@ -904,36 +1044,75 @@ namespace cAlgo.Robots
             }
         }
 
-        private void ImproveBasketStops(FibonacciBasket basket, double proposed, string reason)
+        private double BetterStop(TradeDirection direction, double current, double candidate)
         {
-            foreach (var p in OwnPositions().Where(x => LabelBasketId(x.Label) == basket.BasketId).ToList())
+            if (current == 0) return candidate;
+            return direction == TradeDirection.Buy ? Math.Max(current, candidate) : Math.Min(current, candidate);
+        }
+
+        private bool AdvanceProtectionFrontier(FibonacciBasket basket, double proposed, string reason)
+        {
+            if (basket == null || proposed <= 0) return false;
+
+            bool strictlyBetter = basket.Direction == TradeDirection.Buy
+                ? proposed > basket.ProtectionFrontier + _symbol.TickSize
+                : proposed < basket.ProtectionFrontier - _symbol.TickSize;
+            if (!strictlyBetter) return false;
+
+            TradeType tt = basket.Direction == TradeDirection.Buy ? TradeType.Buy : TradeType.Sell;
+            if (!BrokerStopDistanceValid(tt, proposed))
             {
-                bool widens = p.StopLoss.HasValue && (p.TradeType == TradeType.Buy
-                    ? proposed < p.StopLoss.Value - _symbol.TickSize
-                    : proposed > p.StopLoss.Value + _symbol.TickSize);
-                if (widens)
-                {
-                    _stopWideningViolations++;
-                    BasketEvent(basket, "STOP_WIDEN_BLOCKED_POS_" + p.Id + "_" + reason);
-                    continue;
-                }
+                BasketEvent(basket, "FRONTIER_WAIT_BROKER_DISTANCE_" + reason);
+                return false;
+            }
 
-                bool correctSide = p.TradeType == TradeType.Buy ? proposed < _symbol.Bid : proposed > _symbol.Ask;
-                bool improves = !p.StopLoss.HasValue || (p.TradeType == TradeType.Buy ? proposed > p.StopLoss.Value : proposed < p.StopLoss.Value);
-                if (!correctSide || !improves) continue;
+            var positions = OwnPositions().Where(x => LabelBasketId(x.Label) == basket.BasketId).ToList();
+            if (positions.Count == 0) return false;
 
-                if (!BrokerStopDistanceValid(p.TradeType, proposed))
+            bool allApplied = true;
+            foreach (var p in positions)
+            {
+                bool alreadyAtOrBetter = p.StopLoss.HasValue && (p.TradeType == TradeType.Buy
+                    ? p.StopLoss.Value >= proposed - _symbol.TickSize
+                    : p.StopLoss.Value <= proposed + _symbol.TickSize);
+                if (alreadyAtOrBetter) continue;
+
+                // A frontier is never allowed to move in the adverse direction relative to any existing stop.
+                if (p.StopLoss.HasValue)
                 {
-                    BasketEvent(basket, "STOP_TOO_CLOSE_SKIP_POS_" + p.Id + "_" + reason);
-                    continue;
+                    bool wouldWiden = p.TradeType == TradeType.Buy
+                        ? proposed < p.StopLoss.Value - _symbol.TickSize
+                        : proposed > p.StopLoss.Value + _symbol.TickSize;
+                    if (wouldWiden)
+                    {
+                        _stopWideningViolations++;
+                        allApplied = false;
+                        BasketEvent(basket, "FRONTIER_INVARIANT_VIOLATION_POS_" + p.Id);
+                        continue;
+                    }
                 }
 
                 var r = ModifyPosition(p, proposed, p.TakeProfit, ProtectionType.Absolute);
                 if (r == null || !r.IsSuccessful)
-                    RecordExecutionError("MODIFY_STOP_FAILED_" + (r == null ? "NULL" : r.Error.ToString()),
-                        "basket=" + basket.BasketId + ";position=" + p.Id + ";reason=" + reason);
-                else BasketEvent(basket, reason + "_POS_" + p.Id);
+                {
+                    allApplied = false;
+                    if (r != null && r.Error == ErrorCode.TechnicalError)
+                        BasketEvent(basket, "FRONTIER_TRANSIENT_TECHNICAL_POS_" + p.Id);
+                    else
+                        RecordExecutionError("FRONTIER_MODIFY_FAILED_" + (r == null ? "NULL" : r.Error.ToString()),
+                            "basket=" + basket.BasketId + ";position=" + p.Id + ";reason=" + reason);
+                }
             }
+
+            if (!allApplied) return false;
+
+            double prior = basket.ProtectionFrontier;
+            basket.ProtectionFrontier = proposed;
+            basket.FrontierAdvances++;
+            BasketEvent(basket, "FRONTIER_ADVANCED_" + reason + "_FROM_" +
+                prior.ToString("F5", CultureInfo.InvariantCulture) + "_TO_" +
+                proposed.ToString("F5", CultureInfo.InvariantCulture));
+            return true;
         }
 
         private double FibonacciStructureTrail(TradeDirection direction)
@@ -979,6 +1158,8 @@ namespace cAlgo.Robots
             {
                 basket.RealizedNet += p.NetProfit;
                 basket.ClosedLegs++;
+                var closedLeg = basket.Plan == null ? null : basket.Plan.Legs.FirstOrDefault(x => x.Index == l.LegIndex);
+                if (closedLeg != null) closedLeg.State = GridLegState.CLOSED;
                 double legRealizedR = l.InitialRiskPips > 0 ? p.Pips / l.InitialRiskPips : 0;
                 Print("[V33-LEG-CLOSED] basket={0} cid={1} leg=L{2} pos={3} pattern={4} route={5} dir={6} mfeR={7:F3} maeR={8:F3} realizedR={9:F3} net={10:F2} reason={11}",
                     basket.BasketId, basket.CandidateId, l.LegIndex, p.Id, basket.Pattern, basket.Route, basket.Direction,
@@ -1515,8 +1696,6 @@ namespace cAlgo.Robots
         {
             foreach (var p in OwnPositions())
             {
-                if (p.StopLoss.HasValue && p.TakeProfit.HasValue) continue;
-
                 PositionLedger l;
                 FibonacciBasket basket;
                 if (!_positions.TryGetValue(p.Id, out l) ||
@@ -1524,19 +1703,30 @@ namespace cAlgo.Robots
                     !_baskets.TryGetValue(l.BasketId, out basket))
                     continue;
 
-                TradeType tt = p.TradeType;
-                TradeDirection direction = tt == TradeType.Buy ? TradeDirection.Buy : TradeDirection.Sell;
-                if (!BrokerProtectionDistancesValid(direction, p.EntryPrice, basket.StructuralStop, basket.CanonicalTarget))
+                double desiredStop = p.StopLoss.HasValue
+                    ? BetterStop(basket.Direction, p.StopLoss.Value, basket.ProtectionFrontier)
+                    : basket.ProtectionFrontier;
+                double desiredTarget = p.TakeProfit.HasValue ? p.TakeProfit.Value : basket.CanonicalTarget;
+
+                // Existing protection is already at least as strong: leave it untouched.
+                if (p.StopLoss.HasValue && p.TakeProfit.HasValue) continue;
+
+                TradeDirection direction = p.TradeType == TradeType.Buy ? TradeDirection.Buy : TradeDirection.Sell;
+                if (!BrokerProtectionDistancesValid(direction, p.EntryPrice, desiredStop, desiredTarget))
                 {
-                    RecordExecutionError("SERVER_PROTECTION_DISTANCE_INVALID",
-                        "basket=" + basket.BasketId + ";position=" + p.Id);
+                    BasketEvent(basket, "SERVER_PROTECTION_WAIT_DISTANCE_POS_" + p.Id);
                     continue;
                 }
 
-                var r = ModifyPosition(p, basket.StructuralStop, basket.CanonicalTarget, ProtectionType.Absolute);
+                var r = ModifyPosition(p, desiredStop, desiredTarget, ProtectionType.Absolute);
                 if (r == null || !r.IsSuccessful)
-                    RecordExecutionError("SERVER_PROTECTION_FAILED_" + (r == null ? "NULL" : r.Error.ToString()),
-                        "basket=" + basket.BasketId + ";position=" + p.Id);
+                {
+                    if (r != null && r.Error == ErrorCode.TechnicalError)
+                        BasketEvent(basket, "SERVER_PROTECTION_TRANSIENT_TECHNICAL_POS_" + p.Id);
+                    else
+                        RecordExecutionError("SERVER_PROTECTION_FAILED_" + (r == null ? "NULL" : r.Error.ToString()),
+                            "basket=" + basket.BasketId + ";position=" + p.Id);
+                }
             }
         }
 
@@ -1864,7 +2054,7 @@ namespace cAlgo.Robots
         public int LegIndex;
     }
 
-    public enum GridLegState { PLANNED, SUBMITTED, FILLED, CANCELLED, EXPIRED, REJECTED }
+    public enum GridLegState { PLANNED, ADMISSION_WAIT, SUBMIT_REQUESTED, PENDING_ACCEPTED, RETRY_WAIT, FILLED, CANCEL_REQUESTED, CANCELLED, EXPIRED, CLOSED, REJECTED }
     public enum FibonacciBasketState { PLANNED, LEG0_EXECUTED, GRID_PENDING, PARTIALLY_FILLED, BASKET_ACTIVE, BASKET_PROTECTED, CLOSED, CANCELLED, EXPIRED, INVALIDATED, RISK_REJECTED, MARGIN_REJECTED, SESSION_EXPIRED }
 
     public sealed class FibonacciGridLeg
@@ -1873,6 +2063,9 @@ namespace cAlgo.Robots
         public double Fraction, PlannedPrice, RiskWeight, RiskBudget, Volume, PlannedRisk, ModeledCost;
         public long PendingOrderId, PositionId;
         public GridLegState State;
+        public int SubmitAttempts, AdmissionFailures;
+        public DateTime RetryAfterUtc, LastAdmissionUtc;
+        public double LastAdmissionScore;
     }
 
     public sealed class FibonacciGridPlan
@@ -1893,9 +2086,9 @@ namespace cAlgo.Robots
         public HarmonicRoute Route;
         public FibonacciBasketState State;
         public DateTime CreatedUtc, ExpirationUtc;
-        public double EntryAnchor, AverageEntry, StructuralStop, CanonicalTarget;
+        public double EntryAnchor, AverageEntry, StructuralStop, CanonicalTarget, ProtectionFrontier;
         public double InitialBasketRisk, PlannedWorstCaseRisk, PeakR, MaxAdverseR, RealizedNet;
-        public int FilledLegs, ClosedLegs;
+        public int FilledLegs, ClosedLegs, FrontierAdvances;
         public bool IsActive;
         public FibonacciGridPlan Plan;
         public CandidateRecord Candidate;
