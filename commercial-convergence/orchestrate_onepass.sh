@@ -198,4 +198,12 @@ gaps=[k for k,vv in achieved.items() if not vv]
 print(json.dumps(decision,indent=2))
 PY
 
-echo "ONE_PASS_COMPLETE"
+STATUS=$(python3 - <<'PY'
+import json
+print(json.load(open('control/commercial-convergence-output/FINAL_COMMERCIAL_DECISION.json')).get('final_commercial_freeze','HOLD'))
+PY
+)
+if [ "$STATUS" = "PASS" ] || [ "$STATUS" = "NEAR_TARGET" ]; then
+  cp "$BASE/seal/algo/HarmonyBotPro_commercial_convergence_rc.algo" "$OUT/HarmonyBotPro_commercial_convergence_rc.algo"
+fi
+echo "ONE_PASS_COMPLETE status=$STATUS"
