@@ -114,7 +114,7 @@ namespace cAlgo.Robots
         private int _gridRiskViolations;
         private int _duplicateGridLegs;
         private int _orphanPendingOrders;
-        private int _stopWideningViolations;
+        private int _stopWideningViolations = 0;
 
         private DateTime _lastM15Closed = DateTime.MinValue;
         private DateTime _lastM1Closed = DateTime.MinValue;
@@ -976,7 +976,9 @@ namespace cAlgo.Robots
                 : Math.Max(proposed, reference + safety);
             if (tradeType == TradeType.Buy && safe >= reference) return 0;
             if (tradeType == TradeType.Sell && safe <= reference) return 0;
-            return _symbol.NormalizePrice(safe);
+            if (_symbol.Digits >= 0)
+                return Math.Round(safe, _symbol.Digits, MidpointRounding.AwayFromZero);
+            return safe;
         }
 
         private bool DeeperLegThesisEligible(FibonacciBasket basket, FibonacciGridLeg leg)
@@ -1945,7 +1947,7 @@ namespace cAlgo.Robots
         public int LegIndex;
     }
 
-    public enum GridLegState { PLANNED, SUBMITTED, FILLED, CANCELLED, EXPIRED, REJECTED }
+    public enum GridLegState { PLANNED, SUBMITTED, FILLED, CANCELLED, EXPIRED, REJECTED, RISK_REJECTED }
     public enum FibonacciBasketState { PLANNED, LEG0_EXECUTED, GRID_PENDING, PARTIALLY_FILLED, BASKET_ACTIVE, BASKET_PROTECTED, CLOSED, CANCELLED, EXPIRED, INVALIDATED, RISK_REJECTED, MARGIN_REJECTED, SESSION_EXPIRED }
 
     public sealed class FibonacciGridLeg
