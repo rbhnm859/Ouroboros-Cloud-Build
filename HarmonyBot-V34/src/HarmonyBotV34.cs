@@ -127,6 +127,7 @@ namespace cAlgo.Robots
         private int _gapThroughInvalidations;
         private int _gapThroughSurvivors;
         private int _unprotectedSurvivors;
+        private int _postFillProtectionFailures;
         private int _actualBasketRiskViolations;
         private int _executionStateViolations;
         private int _virtualGridFills;
@@ -224,9 +225,9 @@ namespace cAlgo.Robots
                     kv.Key, x.Detected, x.Validated, x.Routed, x.PrzWaiting, x.Confirming, x.Armed, x.BasketPlanned,
                     x.Leg0Executed, x.Leg1Filled, x.Leg2Filled, x.Leg3Filled, x.BasketClosed, x.Executed, x.Expired, x.Rejected, x.Invalidated);
             }
-            Print("[V34-SUMMARY] candidates={0} baskets={1} openLedgers={2} executionErrors={3} gridRiskViolations={4} duplicateGridLegs={5} orphanPendingOrders={6} stopWideningViolations={7} gapThroughInvalidations={8} gapThroughSurvivors={9} unprotectedSurvivors={10} actualBasketRiskViolations={11} executionStateViolations={12} virtualGridFills={13} microModeBaskets={14} capitalRejectedBaskets={15} marginRiskViolations={16}",
+            Print("[V34-SUMMARY] candidates={0} baskets={1} openLedgers={2} executionErrors={3} gridRiskViolations={4} duplicateGridLegs={5} orphanPendingOrders={6} stopWideningViolations={7} gapThroughInvalidations={8} gapThroughSurvivors={9} unprotectedSurvivors={10} postFillProtectionFailures={11} actualBasketRiskViolations={12} executionStateViolations={13} virtualGridFills={14} microModeBaskets={15} capitalRejectedBaskets={16} marginRiskViolations={17}",
                 _candidateSeq, _baskets.Count, _positions.Count, _executionErrors, _gridRiskViolations, _duplicateGridLegs, _orphanPendingOrders, _stopWideningViolations,
-                _gapThroughInvalidations, _gapThroughSurvivors, _unprotectedSurvivors, _actualBasketRiskViolations, _executionStateViolations,
+                _gapThroughInvalidations, _gapThroughSurvivors, _unprotectedSurvivors, _postFillProtectionFailures, _actualBasketRiskViolations, _executionStateViolations,
                 _virtualGridFills, _microModeBaskets, _capitalRejectedBaskets, _marginRiskViolations);
             foreach (var kv in _executionErrorReasons.OrderBy(k => k.Key))
                 Print("[V34-EXECUTION-ERROR-SUMMARY] code={0} count={1}", kv.Key, kv.Value);
@@ -1135,7 +1136,7 @@ namespace cAlgo.Robots
                     (p.TradeType == TradeType.Buy ? brokerSafe > p.StopLoss.Value + _symbol.TickSize : brokerSafe < p.StopLoss.Value - _symbol.TickSize);
                 if (!improves) continue;
 
-                var r = ModifyPosition(p, brokerSafe, p.TakeProfit, ProtectionType.Absolute);
+                var r = p.ModifyStopLossPrice(brokerSafe);
                 if (r == null || !r.IsSuccessful)
                 {
                     RecordExecutionError("FRONTIER_STOP_FAILED_" + (r == null ? "NULL" : r.Error.ToString()),
@@ -1324,21 +1325,49 @@ namespace cAlgo.Robots
                                               : p.StopLoss.Value - _symbol.TickSize <= basket.StructuralStop);
             bool tpAcceptable = p.TakeProfit.HasValue &&
                 (p.TradeType == TradeType.Buy ? p.TakeProfit.Value > p.EntryPrice : p.TakeProfit.Value < p.EntryPrice);
-            if (stopAcceptable && tpAcceptable) return true;
 
-            if (!BrokerStopDistanceValid(p.TradeType, basket.StructuralStop) ||
-                !BrokerTargetDistanceValid(p.TradeType, basket.CanonicalTarget))
-                return false;
-
-            var r = ModifyPosition(p, basket.StructuralStop, basket.CanonicalTarget, ProtectionType.Absolute);
-            if (r == null || !r.IsSuccessful)
+            if (!stopAcceptable)
             {
-                RecordExecutionError("POST_FILL_PROTECTION_" + (r == null ? "NULL" : r.Error.ToString()),
-                    "basket=" + basket.BasketId + ";position=" + p.Id);
-                return false;
+                if (!BrokerStopDistanceValid(p.TradeType, basket.StructuralStop))
+                {
+                    _postFillProtectionFailures++;
+                    return false;
+                }
+                var rs = p.ModifyStopLossPrice(basket.StructuralStop);
+                if (rs == null || !rs.IsSuccessful)
+                {
+                    _postFillProtectionFailures++;
+                    RecordExecutionError("POST_FILL_SL_" + (rs == null ? "NULL" : rs.Error.ToString()),
+                        "basket=" + basket.BasketId + ";position=" + p.Id);
+                    return false;
+                }
             }
 
             var live = Positions.FirstOrDefault(x => x.Id == p.Id);
+            if (live == null || !live.StopLoss.HasValue)
+            {
+                _postFillProtectionFailures++;
+                return false;
+            }
+
+            if (!tpAcceptable)
+            {
+                if (!BrokerTargetDistanceValid(p.TradeType, basket.CanonicalTarget))
+                {
+                    _postFillProtectionFailures++;
+                    return false;
+                }
+                var rt = live.ModifyTakeProfitPrice(basket.CanonicalTarget);
+                if (rt == null || !rt.IsSuccessful)
+                {
+                    _postFillProtectionFailures++;
+                    RecordExecutionError("POST_FILL_TP_" + (rt == null ? "NULL" : rt.Error.ToString()),
+                        "basket=" + basket.BasketId + ";position=" + p.Id);
+                    return false;
+                }
+            }
+
+            live = Positions.FirstOrDefault(x => x.Id == p.Id);
             return live != null && live.StopLoss.HasValue && live.TakeProfit.HasValue;
         }
 
@@ -2042,11 +2071,20 @@ namespace cAlgo.Robots
                     continue;
                 }
 
-                var r = ModifyPosition(p, basket.StructuralStop, basket.CanonicalTarget, ProtectionType.Absolute);
-                if (r == null || !r.IsSuccessful)
+                TradeResult rs = p.StopLoss.HasValue ? null : p.ModifyStopLossPrice(basket.StructuralStop);
+                if (rs != null && !rs.IsSuccessful)
                 {
-                    RecordExecutionError("SERVER_PROTECTION_FAILED_" + (r == null ? "NULL" : r.Error.ToString()),
-                        "basket=" + basket.BasketId + ";position=" + p.Id);
+                    RecordExecutionError("SERVER_SL_FAILED_" + rs.Error, "basket=" + basket.BasketId + ";position=" + p.Id);
+                    basket.ExitOverride = "SERVER_PROTECTION_FAIL_CLOSED";
+                    FailClosePosition(p, basket, basket.ExitOverride);
+                    if (PositionStillExists(p.Id)) _unprotectedSurvivors++;
+                    continue;
+                }
+                var live = Positions.FirstOrDefault(x => x.Id == p.Id);
+                TradeResult rt = live != null && !live.TakeProfit.HasValue ? live.ModifyTakeProfitPrice(basket.CanonicalTarget) : null;
+                if (rt != null && !rt.IsSuccessful)
+                {
+                    RecordExecutionError("SERVER_TP_FAILED_" + rt.Error, "basket=" + basket.BasketId + ";position=" + p.Id);
                     basket.ExitOverride = "SERVER_PROTECTION_FAIL_CLOSED";
                     FailClosePosition(p, basket, basket.ExitOverride);
                     if (PositionStillExists(p.Id)) _unprotectedSurvivors++;
