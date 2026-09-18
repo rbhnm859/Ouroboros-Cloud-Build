@@ -1,81 +1,157 @@
 {
   "source_version": "V29.3-Grid-Risk-Cap-Hotfix-RC",
   "source_change_authorized": false,
-  "ranking": [
-    "reject_if_any_reliable_DD_gt_10pct",
-    "maximize_worst_window_PF",
-    "maximize_median_window_PF",
-    "maximize_cross_window_positive_expectancy_stability",
-    "maximize_win_rate",
-    "maximize_return",
-    "then_frequency_RR_profitable_months"
+  "research_state": "CLOSED",
+  "execution_state": "PHASE2_ARCHITECTURE_ABLATION_ACTIVE",
+  "fixed_engineering": [
+    "Compile",
+    "$100 Small Capital Mode",
+    "Position Sizing",
+    "MinVolume Protection",
+    "Volume Normalization",
+    "Margin Protection",
+    "Free Margin Protection",
+    "Protective SL",
+    "Grid Risk-Cap",
+    "Execution Integrity",
+    "Anti-Hedging",
+    "Duplicate Main Entry Protection",
+    "Fail-Closed"
   ],
-  "stage1_gate": {
-    "max_drawdown_pct_lte": 10.0,
-    "profit_factor_gt": 1.0,
-    "net_profit_gt": 0.0,
-    "expectancy_gt": 0.0
-  },
-  "fixed": {
-    "RiskPercent_full_bot": 1.0,
-    "RiskPercent_small_capital": 1.4,
-    "MaxDrawdown": 10.0,
-    "MaxSlippagePips_full_bot": 30,
-    "MaxSlippagePips_small_capital": 70,
+  "lexicographic_priority": [
+    "MaxDD<=10%",
+    "PF>=2.5",
+    "OOS Stability",
+    "WinRate>=65%",
+    "AnnualReturn>=100%",
+    "Trades>=200/year",
+    "RealizedRR>=2",
+    "ProfitableMonths>=10/12"
+  ],
+  "retired_families": [
+    {
+      "id": "P1_A_CYPHER_OFF",
+      "reason": "Development frequency collapsed; no cross-window evidence"
+    },
+    {
+      "id": "P1_B_NO_PARTIAL",
+      "reason": "No measurable improvement versus BASE in sparse Development; not a coverage fix"
+    },
+    {
+      "id": "P1_C_TIGHT_STOP",
+      "reason": "Development negative; tail contraction did not establish edge"
+    },
+    {
+      "id": "P1_D_H4_ALIGN",
+      "reason": "Independent Validation produced zero baskets; filter density worsened"
+    },
+    {
+      "id": "P11_F_ATR_FACTOR_040",
+      "reason": "PF<1 and Net<0 in all three Development windows"
+    },
+    {
+      "id": "P11_G_MIN_ATR_1_0",
+      "reason": "217 baskets; worst PF 0.337; total Net -2372.88; zero positive windows"
+    },
+    {
+      "id": "P11_H_MIN_ATR_0_5",
+      "reason": "225 baskets; DEV-A/B PF<0.5; total Net -1402.98; DEV-C DD 10.008% hard fail"
+    }
+  ],
+  "phase2_fixed": {
+    "InitialCapital": 100,
+    "RiskPercent": 1.4,
+    "MaxDrawdown": 10,
+    "MaxSlippagePips": 70,
+    "SmallAccountMode": true,
     "SmallAccountMinSLPips": 25,
-    "CommercialRiskEngine": true,
-    "CapGridStopToRiskBudget": true,
+    "V291SmallAccountTacticalExecution": true,
+    "V292FastSmallAccountExecution": true,
+    "V292EnableCapitalCapStop": true,
+    "V292EnableEarlyTrigger": true,
     "EnableFibGrid": true,
     "GridProfitFib": 1.618,
     "GridStopFib": 1.618,
-    "MinRR": 2.0,
+    "CapGridStopToRiskBudget": true,
     "CapitalSafetyHeadroom": 0.98,
-    "AntiHedge": true,
-    "notes": "No candidate may raise risk percent, leverage, grid exposure, or force broker minimum volume."
+    "MinRR": 2
   },
-  "families": [
+  "phase2_families": [
     {
-      "id": "BASE",
-      "name": "Frozen V29.3 reference",
+      "id": "BASE100",
+      "type": "REFERENCE",
       "overrides": {},
-      "hypothesis": "Reference only; not assumed commercial."
+      "hypothesis": "Measure the true $100 funnel and physical execution bottlenecks under frozen V29.3."
     },
     {
-      "id": "A",
-      "name": "Pattern Selection - Cypher restriction probe",
-      "overrides": {"EnableCypher": false},
-      "hypothesis": "If Cypher weakness is structural, removing it should raise PF floor across clean Development windows without causing unacceptable frequency collapse."
+      "id": "MTF_OFF100",
+      "type": "FILTER_ABLATION",
+      "overrides": {
+        "MTFEnabled": false,
+        "H4FilterEnabled": false
+      },
+      "hypothesis": "Test whether the H1 directional gate removes positive-expectancy setups."
     },
     {
-      "id": "B",
-      "name": "Winner Capture - partial TP simplification",
-      "overrides": {"EnablePartialTP": false},
-      "hypothesis": "If winner truncation is material, disabling non-grid partial TP should improve average winner and realized RR while preserving DD."
+      "id": "GEOM_OFF100",
+      "type": "FILTER_ABLATION_DIAGNOSTIC",
+      "overrides": {
+        "EnableGeometryQualityEngine": false
+      },
+      "hypothesis": "Measure whether geometry quality filtering adds PF/DD value or only removes trades."
     },
     {
-      "id": "C",
-      "name": "Tail / Stop Geometry - modest ATR contraction",
-      "overrides": {"SlAtrMult": 1.0},
-      "hypothesis": "A modest stop-geometry contraction may reduce loser expansion without risk amplification."
+      "id": "PATTERN_TOL100",
+      "type": "PATTERN_COVERAGE",
+      "overrides": {
+        "FibTolerance": 0.07
+      },
+      "hypothesis": "Increase recognition coverage modestly without lowering the entire score stack."
     },
     {
-      "id": "D",
-      "name": "Regime / HTF Alignment - strict H1/H4",
-      "overrides": {"H4FilterEnabled": true, "SoftMtfReversalGate": false},
-      "hypothesis": "If counter-trend/regime mismatch causes negative expectancy, strict directional alignment should raise PF floor even at lower frequency."
+      "id": "NON_GRID100",
+      "type": "NON_GRID_DIAGNOSTIC",
+      "overrides": {
+        "EnableFibGrid": false
+      },
+      "hypothesis": "Isolate Non-Grid expectancy and remove Grid as a confounder."
+    },
+    {
+      "id": "ATR15_QUALITY60",
+      "type": "HIGH_EVIDENCE_COMBINATION",
+      "overrides": {
+        "MinAtrPrice": 1.5,
+        "MinGeometryQuality": 0.6,
+        "MinPrzConfluence": 0.6
+      },
+      "hypothesis": "Recover cross-regime ATR coverage while rejecting the low-quality flow exposed by Phase-1.1."
     }
   ],
-  "combination_family_E": {
-    "status": "LOCKED_PENDING_INDIVIDUAL_EVIDENCE",
-    "rule": "May combine only factors that independently improve Development PF floor and preserve DD <=10%; do not predefine an interaction candidate."
+  "development_gate": {
+    "all_three_windows_active": true,
+    "every_window_max_dd_pct_lte": 10,
+    "every_window_pf_gt": 1,
+    "total_net_gt": 0,
+    "total_expectancy_gt": 0,
+    "execution_errors_eq": 0,
+    "note": "BASE100 and diagnostic families may be reported without advancement. Only a qualifying non-reference family can advance."
+  },
+  "validation_gate": {
+    "dataset": "VAL-2 2020-H2",
+    "frozen_candidate_only": true,
+    "min_baskets": 10,
+    "max_dd_pct_lte": 10,
+    "pf_gt": 1,
+    "net_gt": 0,
+    "expectancy_gt": 0,
+    "execution_errors_eq": 0,
+    "retuning_from_validation_forbidden": true
   },
   "source_patch_gate": {
     "v29_4_allowed_only_if": [
-      "clean Development evidence shows repeated performance failure not expressible by existing parameters",
-      "required rule is cross-window rather than tailored to known losses",
-      "minimum necessary patch is defined",
-      "V29.3 remains technically stable baseline"
-    ],
-    "examples": ["cross-window MAE kill switch", "time/invalidation exit", "pattern-specific threshold unavailable in V29.3"]
+      "V29.3 parameter/preset families fail and evidence identifies a repeated cross-regime rule not expressible by existing parameters",
+      "the rule is not tailored to an individual known loss or exposed OOS",
+      "the patch is minimum necessary and preserves V29.3 as rollback baseline"
+    ]
   }
 }
