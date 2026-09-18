@@ -12,6 +12,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: harmonybot-v31-cleanroom
+  cancel-in-progress: true
+
 jobs:
   one_pass:
     runs-on: ubuntu-24.04
