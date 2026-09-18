@@ -1,0 +1,102 @@
+{
+  "candidate_id": "GRID240_BE015_LDN_US",
+  "candidate_class": "V29.4_MINIMUM_NECESSARY_DEVELOPMENT_ONLY",
+  "parent_run_id": 35305868743,
+  "parent_head_sha": "3244b4390a0ff55051ffa0d6546e193139f0a6d0",
+  "source_patch_commit": "294c73aaa9f1a133899134982ba4cd4fb54de527",
+  "evidence_basis": {
+    "development_gate": "FAIL_ALL_CANDIDATES",
+    "best_observed_candidate": "GRID_DELAY_240",
+    "best_aggregate_pf": 1.3170253496773396,
+    "best_worst_pf": 0.6987941479026174,
+    "best_net": 205.35,
+    "best_expectancy": 6.0397058823529415,
+    "best_realized_rr": 2.127502487940318,
+    "best_trades_per_year": 22.666666666666668,
+    "dominant_failure": "DEV-A payoff instability: average win/loss ~0.98 despite 41.7% win rate; grid tail materially worsens full-loss baskets",
+    "frequency_findings": [
+      "All executed development baskets are LONDON under SessionStart=8, SessionEnd=13.",
+      "GEOM_RECOVERY_048 and PENDING_RECOVERY did not increase baskets.",
+      "PRZ_RECOVERY_050 added only one basket across 1.5 years and worsened DEV-A."
+    ],
+    "winner_capture_finding": "WINNER_LOCK improved some retracement losses but reduced DEV-C gross profit materially; therefore do not inherit its early trail/scale-out.",
+    "tail_finding": "GRID_DELAY_240 reduced aggregate largest basket loss from 142.04 to 94.15 and improved DEV-A PF from ~0.530 to ~0.699."
+  },
+  "overrides": {
+    "V294AllowBuy": false,
+    "V294AllowSell": true,
+    "SessionStart": 8,
+    "SessionEnd": 22,
+    "DstAwareInstitutionalSession": false,
+    "GridCooldownMinutes": 240,
+    "MinPrzConfluence": 0.55,
+    "MinGeometryQuality": 0.52,
+    "V29PendingMaxBars": 90,
+    "V29PendingTriggerMaxPrzAtr": 0.85,
+    "GridBreakevenTriggerR": 0.15,
+    "GridTrailTriggerR": 0.5,
+    "GridScaleOutR": 0.618
+  },
+  "unchanged_controls": [
+    "Direction Gate",
+    "pattern universe",
+    "PRZ threshold",
+    "geometry threshold",
+    "pending queue threshold",
+    "trail trigger",
+    "scale-out trigger",
+    "risk percent",
+    "grid risk-cap",
+    "anti-hedge",
+    "duplicate protection",
+    "engineering modules"
+  ],
+  "hypothesis": [
+    "Keep the empirically best GRID_DELAY_240 tail control.",
+    "Move only breakeven protection earlier after favorable excursion, while preserving the baseline trail and scale-out so winner capture is not truncated like WINNER_LOCK.",
+    "Restore development coverage beyond the current 08:00-13:00 UTC cap to test whether valid harmonic edge exists through the London-to-US window without loosening PRZ/geometry/HTF filters."
+  ],
+  "execution_scope": {
+    "allowed": [
+      "DEV-A",
+      "DEV-B",
+      "DEV-C"
+    ],
+    "validation": "BLOCKED_UNTIL_DEVELOPMENT_HARD_GATE_PASS",
+    "small_capital_100": "BLOCKED_UNTIL_VALIDATION_PASS",
+    "final_holdout": "UNTOUCHED",
+    "oos_reuse": "FORBIDDEN",
+    "phase_1_2_3_rerun": "FORBIDDEN",
+    "direction_gate_research": "FORBIDDEN"
+  },
+  "development_hard_gate": {
+    "all_three_windows_active": true,
+    "total_baskets_gte": 20,
+    "max_dd_pct_lte": 10,
+    "every_window_pf_gt": 1,
+    "every_window_expectancy_gt": 0,
+    "total_net_gt": 0,
+    "aggregate_expectancy_gt": 0,
+    "positive_windows_gte": 2,
+    "execution_errors_eq": 0,
+    "trades_per_year_gte": 50
+  },
+  "commercial_targets_unchanged": {
+    "max_dd_pct_lte": 10,
+    "pf_gte": 2.5,
+    "oos_stable": true,
+    "win_rate_pct_gte": 65,
+    "annual_return_pct_gte": 100,
+    "trades_per_year_gte": 200,
+    "realized_rr_gte": 2,
+    "profitable_months_gte": "10/12"
+  },
+  "anti_overfit_rules": [
+    "No Validation tuning.",
+    "No Final Holdout access.",
+    "No OOS reuse.",
+    "No risk increase to manufacture returns.",
+    "No trade-count padding.",
+    "If DEV-A remains PF<=1 or development frequency remains <50/year, retire this candidate rather than loosen multiple filters."
+  ]
+}
