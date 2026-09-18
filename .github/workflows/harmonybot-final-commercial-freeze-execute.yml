@@ -1,0 +1,45 @@
+name: HarmonyBot Final Commercial Freeze Execute
+
+on:
+  push:
+    branches:
+      - harmonybot/final-commercial-freeze-redesign
+    paths:
+      - '.github/workflows/harmonybot-final-commercial-freeze-execute.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  final_one_pass:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 420
+    env:
+      CTRADER_PASSWORD: ${{ secrets.CTRADER_PASSWORD }}
+      CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+      CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fccde79d22c0389ba64d9bb26a2e54379d81c91e
+          path: base
+      - uses: actions/checkout@v4
+        with:
+          ref: harmonybot/final-commercial-freeze-redesign
+          path: control
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+      - name: Execute final commercial freeze one-pass
+        run: |
+          chmod +x control/commercial-freeze-final/run_final_backtest.sh
+          chmod +x control/commercial-freeze-final/orchestrate_final_freeze.sh
+          control/commercial-freeze-final/orchestrate_final_freeze.sh
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: HARMONYBOT-FINAL-COMMERCIAL-FREEZE
+          path: control/final-freeze-output
+          if-no-files-found: warn
+          retention-days: 30
