@@ -69,6 +69,9 @@ cp "$OUT/DEV-A.json" "$WORK/all/DEV-A.json"
 cp "$OUT/DEV-B.json" "$WORK/all/DEV-B.json"
 cp "$OUT/DEV-C.json" "$WORK/all/DEV-C.json"
 
+mkdir -p "$OUT/raw-logs"
+cp "$WORK/seal/logs/"*.log "$OUT/raw-logs/" 2>/dev/null || true
+
 (
   cd "$WORK"
   GITHUB_OUTPUT=/tmp/v32-development.out python3 "$CONTROL/HarmonyBot-V32/tools/development_gate.py"
@@ -93,6 +96,10 @@ grid={
    "average_worst_risk_utilization":statistics.mean([x["grid_attribution"]["average_worst_risk_utilization"] for x in rows]) if rows else 0
  }}
 (o/"FIBONACCI_GRID_ATTRIBUTION.json").write_text(json.dumps(grid,indent=2))
+err=collections.Counter()
+for x in rows:
+    err.update(x.get("execution_error_reasons",{}))
+(o/"EXECUTION_ERROR_LEDGER.json").write_text(json.dumps({"version":"HarmonyBot V32.0","total":sum(err.values()),"reasons":dict(err)},indent=2))
 PY
 
 DEV_PASS=$(python3 - "$OUT/DEVELOPMENT_GATE.json" <<'PY'
