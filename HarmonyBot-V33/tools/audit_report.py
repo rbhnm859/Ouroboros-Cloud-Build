@@ -56,6 +56,12 @@ for m in re.finditer(r"\[V33-EXECUTION-ERROR\]\s+code=([^\s]+)\s+detail=([^\r\n]
 if error_reasons:
     errs=max(errs,sum(error_reasons.values()))
 
+admission_risk_rejects=sum(int(x) for x in re.findall(r"admissionRiskRejects=(\d+)",t)[-1:] or [0])
+admission_thesis_rejects=sum(int(x) for x in re.findall(r"admissionThesisRejects=(\d+)",t)[-1:] or [0])
+frontier_advances=len(re.findall(r"\[V33-BASKET-EVENT\].*?FRONTIER_ADVANCED_",t))
+technical_retries=len(re.findall(r"\[V33-BASKET-EVENT\].*?GRID_LEG_TRANSIENT_RETRY_",t))
+admission_passes=len(re.findall(r"\[V33-BASKET-EVENT\].*?ADMISSION_PASSED_L",t))
+
 by_pattern={p:stats([x for x in baskets if x["pattern"]==p]) for p in sorted(set(x["pattern"] for x in baskets))}
 by_route={p:stats([x for x in baskets if x["route"]==p]) for p in sorted(set(x["route"] for x in baskets))}
 by_dir={p:stats([x for x in baskets if x["direction"]==p]) for p in ("Buy","Sell")}
@@ -87,6 +93,8 @@ out={"status":"OK","version":"HarmonyBot V33.0","window":a.window,"initial_capit
  "baskets":overall["count"],"annualized_frequency":overall["count"]/a.years if a.years else 0.0,
  **overall,"max_dd_pct":float(eq.get("maxEquityDrawdownPercent",0) or 0),
  "execution_errors":errs,"execution_error_reasons":dict(error_reasons),"grid_risk_violations":gridv,"duplicate_grid_legs":dup,"orphan_pending_orders":orph,"stop_widening_violations":widen,
+ "risk_lifecycle_attribution":{"admission_risk_rejects":admission_risk_rejects,"admission_thesis_rejects":admission_thesis_rejects,
+   "admission_passes":admission_passes,"frontier_advances":frontier_advances,"technical_retries":technical_retries},
  "pattern":by_pattern,"route":by_route,"direction":by_dir,"filled_leg_count":by_fills,"pipeline":pipe,
  "single_entry_equivalent":single,
  "grid_attribution":{"fill_rates":fill_rates,"average_filled_legs":statistics.mean([b["filled_legs"] for b in baskets]) if baskets else 0,
