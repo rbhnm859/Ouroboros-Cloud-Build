@@ -19,8 +19,14 @@ namespace cAlgo.Robots
         [Parameter("Trading Enabled", DefaultValue = true)]
         public bool TradingEnabled { get; set; }
 
-        [Parameter("Risk %", DefaultValue = 1.0, MinValue = 0.1, MaxValue = 2.0)]
-        public double RiskPercent { get; set; }
+        [Parameter("Basket Risk %", DefaultValue = 1.0, MinValue = 0.1, MaxValue = 1.0)]
+        public double BasketRiskPercent { get; set; }
+
+        [Parameter("Grid Cancel MFE R", DefaultValue = 0.50, MinValue = 0.20, MaxValue = 1.0)]
+        public double GridCancelMfeR { get; set; }
+
+        [Parameter("Slippage Stress Pips", DefaultValue = 0.30, MinValue = 0.0, MaxValue = 20.0)]
+        public double SlippageStressPips { get; set; }
 
         [Parameter("Max Drawdown %", DefaultValue = 10.0, MinValue = 1.0, MaxValue = 20.0)]
         public double MaxDrawdownPercent { get; set; }
@@ -103,6 +109,12 @@ namespace cAlgo.Robots
         private readonly Dictionary<string, CandidateRecord> _candidates = new Dictionary<string, CandidateRecord>();
         private readonly Dictionary<long, PositionLedger> _positions = new Dictionary<long, PositionLedger>();
         private readonly Dictionary<string, PipelineCounter> _pipeline = new Dictionary<string, PipelineCounter>();
+        private readonly Dictionary<string, FibonacciBasket> _baskets = new Dictionary<string, FibonacciBasket>();
+        private long _basketSeq;
+        private int _gridRiskViolations;
+        private int _duplicateGridLegs;
+        private int _orphanPendingOrders;
+        private int _stopWideningViolations;
 
         private DateTime _lastM15Closed = DateTime.MinValue;
         private DateTime _lastM1Closed = DateTime.MinValue;
@@ -388,7 +400,7 @@ namespace cAlgo.Robots
                 return;
             }
 
-            double riskAmount = Account.Equity * (RiskPercent / 100.0);
+            double riskAmount = Account.Equity * (BasketRiskPercent / 100.0);
             if (Account.FreeMargin < riskAmount * MinFreeMarginRiskMultiple)
             {
                 Reject(c, "MARGIN_HEADROOM");
@@ -615,7 +627,7 @@ namespace cAlgo.Robots
             double przConfluence = VClamp(1.0 - Math.Abs(xad - Mid(p.XadMin, p.XadMax)) / Math.Max(.15, p.XadMax - p.XadMin + .05));
             if (p.Mode != PatternMode.STANDARD) przConfluence = VClamp((geometry + timeSym) / 2.0);
 
-            double invalid = bullish ? Math.Min(d.Price, przLow) - atr * p.StopBufferAtr : Math.Max(d.Price, przHigh) + atr * p.StopBufferAtr;
+            double invalid = PatternStructuralInvalidation(p, x, a, b, c, d, bullish);
             double target1 = bullish ? d.Price + cd * p.Target1Cd : d.Price - cd * p.Target1Cd;
             double target2 = bullish ? d.Price + cd * p.Target2Cd : d.Price - cd * p.Target2Cd;
             double confidence = VClamp(0.45 * geometry + 0.25 * przConfluence + 0.15 * timeSym + 0.15 * pivotQuality);
@@ -693,6 +705,7 @@ namespace cAlgo.Robots
             _profiles.Add(new PatternProfile { Name = "Shark", Mode = PatternMode.SHARK, AbcMin = 1.13, AbcMax = 1.618, BcdMin = 1.13, BcdMax = 2.24, XadMin = .85, XadMax = 1.25, PrzWidthAtr = .14, StopBufferAtr = .20, Target1Cd = .50, Target2Cd = .886, MaxAgeM15Bars = 6, MinGeometry = .60, MinPrz = .60 });
             _profiles.Add(new PatternProfile { Name = "5-0", Mode = PatternMode.FIVEZERO, AbcMin = 1.618, AbcMax = 2.24, BcdMin = .45, BcdMax = .65, XadMin = .8, XadMax = 1.3, PrzWidthAtr = .14, StopBufferAtr = .20, Target1Cd = .50, Target2Cd = 1.00, MaxAgeM15Bars = 6, MinGeometry = .60, MinPrz = .60 });
             _profiles.Add(new PatternProfile { Name = "AB=CD", Mode = PatternMode.ABCD, AbcMin = .382, AbcMax = .886, BcdMin = 1.13, BcdMax = 2.618, AbcDMin = .80, AbcDMax = 1.25, XadMin = .5, XadMax = 1.5, PrzWidthAtr = .12, StopBufferAtr = .18, Target1Cd = .618, Target2Cd = 1.00, MaxAgeM15Bars = 8, MinGeometry = .55, MinPrz = .55 });
+            ConfigureFibonacciGridProfiles();
         }
 
         private void AddStd(string name, double xab1, double xab2, double abc1, double abc2, double bcd1, double bcd2,
@@ -705,6 +718,78 @@ namespace cAlgo.Robots
                 XadMin = xad1, XadMax = xad2, PrzWidthAtr = przAtr, StopBufferAtr = stopAtr,
                 Target1Cd = t1, Target2Cd = t2, MaxAgeM15Bars = age, MinGeometry = minGeom, MinPrz = minPrz
             });
+        }
+
+
+        private void ConfigureFibonacciGridProfiles()
+        {
+            ConfigureGrid("Gartley", new[] { 0.0, .236, .382, .618 }, 4, .08, .70, .18, 90, .030, "PRZ_CONFIRM", "T1_THEN_T2");
+            ConfigureGrid("Bat", new[] { 0.0, .236, .382, .618 }, 4, .08, .75, .20, 90, .025, "DEEP_PRZ_CONFIRM", "T1_THEN_T2");
+            ConfigureGrid("Alt Bat", new[] { 0.0, .236, .382 }, 3, .10, .80, .18, 75, .030, "EXTENSION_PRZ_CONFIRM", "T1_THEN_T2");
+            ConfigureGrid("Butterfly", new[] { 0.0, .236, .382 }, 3, .12, .90, .16, 75, .035, "EXTENSION_PRZ_CONFIRM", "T1_THEN_T2");
+            ConfigureGrid("Crab", new[] { 0.0, .236 }, 2, .15, 1.05, .14, 60, .030, "EXTREME_PRZ_CONFIRM", "T2_PREFERRED");
+            ConfigureGrid("Deep Crab", new[] { 0.0, .236 }, 2, .15, 1.05, .14, 60, .030, "EXTREME_PRZ_CONFIRM", "T2_PREFERRED");
+            ConfigureGrid("Cypher", new[] { 0.0, .236, .382 }, 3, .10, .85, .18, 75, .050, "XC_RETRACE_CONFIRM", "T1_THEN_T2");
+            ConfigureGrid("Shark", new[] { 0.0, .236 }, 2, .12, 1.00, .15, 60, .050, "EXTREME_PRZ_CONFIRM", "T1_THEN_T2");
+            ConfigureGrid("5-0", new[] { 0.0, .236 }, 2, .12, 1.00, .15, 60, .050, "REVERSAL_PRZ_CONFIRM", "T1_THEN_T2");
+            ConfigureGrid("AB=CD", new[] { 0.0, .236, .382, .618 }, 4, .08, .80, .20, 90, .050, "ABCD_COMPLETION_CONFIRM", "T1_THEN_T2");
+            ConfigureGrid("Deep Gartley", new[] { 0.0, .236, .382 }, 3, .10, .85, .18, 75, .030, "DEEP_PRZ_CONFIRM", "T1_THEN_T2");
+            ConfigureGrid("Rat", new[] { 0.0, .236, .382 }, 3, .10, .90, .18, 75, .035, "RATIO_PRZ_CONFIRM", "T1_THEN_T2");
+        }
+
+        private void ConfigureGrid(string name, double[] fractions, int maxLegs, double minSpanXa, double maxSpanXa,
+            double tolerance, int ttlMinutes, double stopFibBuffer, string anchorRule, string targetPolicy)
+        {
+            var p = _profiles.FirstOrDefault(x => x.Name == name);
+            if (p == null) return;
+            p.GridEnabled = true;
+            p.GridFractions = fractions;
+            p.MaximumGridLegs = maxLegs;
+            p.GridRiskWeights = new[] { 3.0 / 7.0, 2.0 / 7.0, 1.0 / 7.0, 1.0 / 7.0 };
+            p.GridAnchorRule = anchorRule;
+            p.MinimumGridSpanXa = minSpanXa;
+            p.MaximumGridSpanXa = maxSpanXa;
+            p.GridStructuralTolerance = tolerance;
+            p.PendingTtlMinutes = ttlMinutes;
+            p.StructuralStopFibBuffer = stopFibBuffer;
+            p.CanonicalTargetPolicy = targetPolicy;
+        }
+
+        private double PatternStructuralInvalidation(PatternProfile p, PivotPoint x, PivotPoint a, PivotPoint b, PivotPoint c, PivotPoint d, bool bullish)
+        {
+            double xa = Math.Abs(a.Price - x.Price);
+            double ab = Math.Abs(b.Price - a.Price);
+            double cd = Math.Abs(d.Price - c.Price);
+            double buffer = Math.Max(_symbol.PipSize * MinStopLossPips, Math.Max(xa, cd) * Math.Max(.01, p.StructuralStopFibBuffer));
+
+            if (p.Mode == PatternMode.STANDARD)
+            {
+                if (p.XadMax <= 1.0)
+                    return bullish ? x.Price - buffer : x.Price + buffer;
+
+                double extreme = bullish ? x.Price - p.XadMax * xa : x.Price + p.XadMax * xa;
+                return bullish ? extreme - buffer : extreme + buffer;
+            }
+
+            if (p.Mode == PatternMode.ABCD)
+            {
+                double fibBuffer = Math.Max(buffer, ab * .118);
+                return bullish ? d.Price - fibBuffer : d.Price + fibBuffer;
+            }
+
+            if (p.Mode == PatternMode.CYPHER)
+            {
+                double fibBuffer = Math.Max(buffer, Math.Abs(c.Price - x.Price) * .118);
+                return bullish ? d.Price - fibBuffer : d.Price + fibBuffer;
+            }
+
+            if (p.Mode == PatternMode.SHARK || p.Mode == PatternMode.FIVEZERO)
+            {
+                double fibBuffer = Math.Max(buffer, cd * .118);
+                return bullish ? d.Price - fibBuffer : d.Price + fibBuffer;
+            }
+
+            return bullish ? d.Price - buffer : d.Price + buffer;
         }
 
         // ---------------- MTF conflict / regime / router ----------------
@@ -902,7 +987,7 @@ namespace cAlgo.Robots
         private double CalculateVolume(double slPips)
         {
             if (slPips <= 0 || _symbol.PipValue <= 0) return 0;
-            double risk = Account.Equity * RiskPercent / 100.0;
+            double risk = Account.Equity * BasketRiskPercent / 100.0;
             double raw = risk / (slPips * _symbol.PipValue);
             if (double.IsNaN(raw) || double.IsInfinity(raw) || raw <= 0) return 0;
             double v = _symbol.NormalizeVolumeInUnits(raw, RoundingMode.Down);
@@ -1143,6 +1228,14 @@ namespace cAlgo.Robots
         public double PrzWidthAtr, StopBufferAtr, Target1Cd, Target2Cd;
         public int MaxAgeM15Bars;
         public double MinGeometry, MinPrz;
+        public bool GridEnabled;
+        public double[] GridFractions = new double[0];
+        public int MaximumGridLegs;
+        public double[] GridRiskWeights = new double[0];
+        public string GridAnchorRule;
+        public double MinimumGridSpanXa, MaximumGridSpanXa, GridStructuralTolerance, StructuralStopFibBuffer;
+        public int PendingTtlMinutes;
+        public string CanonicalTargetPolicy;
     }
 
     public sealed class PivotPoint
@@ -1188,6 +1281,7 @@ namespace cAlgo.Robots
         public HarmonicRoute Route = HarmonicRoute.NO_TRADE;
         public RegimeSnapshot Regime;
         public double ConfirmationScore, NetRR, SelectedTarget, Rank;
+        public FibonacciGridPlan GridPlan;
         public long PositionId;
         public string LastReason;
     }
@@ -1205,10 +1299,51 @@ namespace cAlgo.Robots
         public double PeakR;
         public double MaxAdverseR;
         public string ExitOverride;
+        public string BasketId;
+        public int LegIndex;
+    }
+
+    public enum GridLegState { PLANNED, SUBMITTED, FILLED, CANCELLED, EXPIRED, REJECTED }
+    public enum FibonacciBasketState { PLANNED, LEG0_EXECUTED, GRID_PENDING, PARTIALLY_FILLED, BASKET_ACTIVE, BASKET_PROTECTED, CLOSED, CANCELLED, EXPIRED, INVALIDATED, RISK_REJECTED, MARGIN_REJECTED, SESSION_EXPIRED }
+
+    public sealed class FibonacciGridLeg
+    {
+        public int Index;
+        public double Fraction, PlannedPrice, RiskWeight, RiskBudget, Volume, PlannedRisk, ModeledCost;
+        public long PendingOrderId, PositionId;
+        public GridLegState State;
+    }
+
+    public sealed class FibonacciGridPlan
+    {
+        public string CandidateId, BasketId, Pattern;
+        public TradeDirection Direction;
+        public HarmonicRoute Route;
+        public DateTime CreatedUtc, ExpirationUtc;
+        public double EntryAnchor, StructuralStop, GridDistance, CanonicalTarget, ExpectedWeightedEntry;
+        public double BasketRiskAmount, WorstCaseRisk, ExpectedNetRR;
+        public readonly List<FibonacciGridLeg> Legs = new List<FibonacciGridLeg>();
+    }
+
+    public sealed class FibonacciBasket
+    {
+        public string BasketId, CandidateId, Pattern, ExitOverride, ExitReason;
+        public TradeDirection Direction;
+        public HarmonicRoute Route;
+        public FibonacciBasketState State;
+        public DateTime CreatedUtc, ExpirationUtc;
+        public double EntryAnchor, AverageEntry, StructuralStop, CanonicalTarget;
+        public double InitialBasketRisk, PlannedWorstCaseRisk, PeakR, MaxAdverseR, RealizedNet;
+        public int FilledLegs, ClosedLegs;
+        public bool IsActive;
+        public FibonacciGridPlan Plan;
+        public CandidateRecord Candidate;
     }
 
     public sealed class PipelineCounter
     {
-        public long Detected, Validated, Routed, PrzWaiting, Confirming, Armed, Executed, Expired, Rejected, Invalidated;
+        public long Detected, Validated, Routed, PrzWaiting, Confirming, Armed, BasketPlanned;
+        public long Leg0Executed, Leg1Filled, Leg2Filled, Leg3Filled, BasketClosed;
+        public long Executed, Expired, Rejected, Invalidated;
     }
 }
