@@ -30,7 +30,7 @@ assert [x['id'] for x in p['candidates']]==['R1','R2','R3']
 assert p['gates']['final_holdout']['status'].startswith('UNTOUCHED')
 print('EVIDENCE_LOCK=PASS')
 PY
-cp "$CONTROL/commercial-freeze/PRE_REGISTERED_CANDIDATES.json" "$OUT/"
+cp "$CONTROL/commercial-freeze/ARCHITECTURE_PREREGISTRATION.json" "$OUT/"
 
 echo "== Reconstruct frozen V29.5 + one-pass RC =="
 cd "$BASE"
