@@ -1099,7 +1099,7 @@ namespace cAlgo.Robots
                     }
                 }
 
-                var r = ModifyPosition(p, proposed, p.TakeProfit, ProtectionType.Absolute);
+                var r = p.ModifyStopLossPrice(proposed);
                 if (r == null || !r.IsSuccessful)
                 {
                     allApplied = false;
