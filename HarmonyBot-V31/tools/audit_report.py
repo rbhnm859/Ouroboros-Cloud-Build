@@ -63,8 +63,13 @@ exec_err=len(re.findall(r"\[V31-EXCEPTION-|ORDER_ERROR|InvalidRequest|Invalid Vo
 summary=re.findall(r"\[V31-SUMMARY\].*?executionErrors=(\d+)",t)
 if summary: exec_err=max(exec_err,int(summary[-1]))
 
+runtime_started="[V31-START]" in t
+fatal_lines=[x for x in t.splitlines() if "[V31-FATAL]" in x or "[V31-WARMUP-ERROR]" in x]
+pipeline_detected=sum(z.get("detected",0) for z in pipe.values())
+
 out={
  "status":"OK","version":"HarmonyBot V31.0","window":a.window,"initial_capital":a.capital,
+ "runtime_started":runtime_started,"fatal_lines":fatal_lines,"pipeline_detected":pipeline_detected,
  "baskets":len(nets),"annualized_frequency":len(nets)/a.years if a.years else 0.0,"wins":len(wins),"losses":len(losses),
  "gross_profit":gp,"gross_loss":gl,"pf":pf,"net":net,"expectancy":exp,"win_rate_pct":100*len(wins)/len(nets) if nets else 0.0,
  "realized_rr_money":rr,"max_dd_pct":float(eq.get("maxEquityDrawdownPercent",0) or 0),"execution_errors":exec_err,
