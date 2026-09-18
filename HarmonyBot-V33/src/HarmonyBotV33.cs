@@ -621,11 +621,15 @@ namespace cAlgo.Robots
                     .FirstOrDefault();
                 if (next == null) continue;
 
-                // Do not leapfrog an earlier planned leg.
-                bool earlierUnresolved = basket.Plan.Legs.Any(l => l.Index > 0 && l.Index < next.Index &&
-                    l.State != GridLegState.FILLED && l.State != GridLegState.CLOSED &&
-                    l.State != GridLegState.CANCELLED && l.State != GridLegState.REJECTED);
-                if (earlierUnresolved) continue;
+                // Strict sequence: L2/L3 cannot be used to bypass a missed/rejected earlier Fibonacci leg.
+                bool earlierNotFilled = basket.Plan.Legs.Any(l => l.Index > 0 && l.Index < next.Index &&
+                    l.State != GridLegState.FILLED && l.State != GridLegState.CLOSED);
+                if (earlierNotFilled)
+                {
+                    next.State = GridLegState.CANCELLED;
+                    BasketEvent(basket, "ADMISSION_SEQUENCE_CANCEL_L" + next.Index);
+                    continue;
+                }
 
                 if (next.State == GridLegState.RETRY_WAIT && utc < next.RetryAfterUtc) continue;
 
