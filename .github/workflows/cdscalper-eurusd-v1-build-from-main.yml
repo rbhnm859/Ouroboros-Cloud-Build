@@ -50,17 +50,18 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          cat > 'CumulativeDeltaScalper-EURUSD-v1/reports/build_result.md' <<'EOF'
-# Build Result
-
-- Status: success
-- Build method: GitHub Actions ubuntu-latest + dotnet build + cTrader.Automate NuGet
-- Project: CumulativeDeltaScalper-EURUSD-v1/CumulativeDeltaScalper_EURUSD_v1.csproj
-- Artifact: CumulativeDeltaScalper-EURUSD-v1/builds/CumulativeDeltaScalper_EURUSD_v1.algo
-- SHA256: see CumulativeDeltaScalper-EURUSD-v1/builds/CumulativeDeltaScalper_EURUSD_v1.algo.sha256
-
-This file is expected to be a real cTrader .algo produced by the cTrader.Automate build pipeline, not a renamed zip file.
-EOF
+          mkdir -p 'CumulativeDeltaScalper-EURUSD-v1/reports'
+          printf '%s\n' \
+            '# Build Result' \
+            '' \
+            '- Status: success' \
+            '- Build method: GitHub Actions ubuntu-latest + dotnet build + cTrader.Automate NuGet' \
+            '- Project: CumulativeDeltaScalper-EURUSD-v1/CumulativeDeltaScalper_EURUSD_v1.csproj' \
+            '- Artifact: CumulativeDeltaScalper-EURUSD-v1/builds/CumulativeDeltaScalper_EURUSD_v1.algo' \
+            '- SHA256: see CumulativeDeltaScalper-EURUSD-v1/builds/CumulativeDeltaScalper_EURUSD_v1.algo.sha256' \
+            '' \
+            'This file is expected to be a real cTrader .algo produced by the cTrader.Automate build pipeline, not a renamed zip file.' \
+            > 'CumulativeDeltaScalper-EURUSD-v1/reports/build_result.md'
 
       - name: Commit .algo to cds-eurusd-v1 branch
         shell: bash
@@ -71,7 +72,7 @@ EOF
           git add 'CumulativeDeltaScalper-EURUSD-v1/builds/CumulativeDeltaScalper_EURUSD_v1.algo' \
                   'CumulativeDeltaScalper-EURUSD-v1/builds/CumulativeDeltaScalper_EURUSD_v1.algo.sha256' \
                   'CumulativeDeltaScalper-EURUSD-v1/reports/build_result.md'
-          git commit -m 'Generate CumulativeDeltaScalper EURUSD v1 algo'
+          git diff --cached --quiet || git commit -m 'Generate CumulativeDeltaScalper EURUSD v1 algo'
           git push origin HEAD:cds-eurusd-v1
 
       - name: Upload compiled .algo
