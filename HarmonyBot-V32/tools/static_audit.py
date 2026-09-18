@@ -32,6 +32,12 @@ checks={
  "basket_lifecycle":"ReconcileAndManageBaskets" in src and "FibonacciBasketState" in src,
  "fib_trailing":"FibonacciStructureTrail" in src and ".382" in src,
  "event_ledger":"[V32-BASKET-EVENT]" in src and "[V32-BASKET-CLOSED]" in src,
+ "execution_error_ledger":"[V32-EXECUTION-ERROR]" in src and "RecordExecutionError" in src,
+ "broker_min_distance":"MinStopLossDistance" in src and "MinTakeProfitDistance" in src and "SymbolMinDistanceType.Pips" in src,
+ "limit_price_cross_guard":"GRID_LEG_PRICE_CROSSED_BEFORE_SUBMIT" in src,
+ "cancel_race_guard":"PendingOrderStillExists" in src,
+ "close_race_guard":"PositionStillExists" in src,
+ "stop_widen_audit":"STOP_WIDEN_BLOCKED" in src and "_stopWideningViolations++" in src,
  "commercial_algo_not_embedded":"HarmonyBot_V32_Commercial.algo" not in src
 }
 status="PASS" if all(checks.values()) else "FAIL"
