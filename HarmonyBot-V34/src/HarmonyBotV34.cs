@@ -146,6 +146,8 @@ namespace cAlgo.Robots
         private int _executionErrors;
         private readonly Dictionary<string, int> _executionErrorReasons = new Dictionary<string, int>();
         private DateTime? _evaluationStartUtc;
+        private double _initialEquity;
+        private bool _initialCapitalEligible;
 
         protected override void OnStart()
         {
@@ -196,6 +198,8 @@ namespace cAlgo.Robots
             }
 
             BuildPatternProfiles();
+            _initialEquity = Account.Equity;
+            _initialCapitalEligible = _initialEquity + 1e-8 >= MinimumSupportedEquity;
             _equityPeak = Account.Equity;
             ResetDaily(true);
 
@@ -392,11 +396,7 @@ namespace cAlgo.Robots
         private void TryScheduleAndExecute()
         {
             if (!TradingEnabled || _dailyLocked || PeakDrawdownExceeded()) return;
-            if (Account.Equity + 1e-8 < MinimumSupportedEquity)
-            {
-                _capitalRejectedBaskets++;
-                return;
-            }
+            if (!_initialCapitalEligible) return;
             if (_evaluationStartUtc.HasValue && Server.Time.ToUniversalTime() < _evaluationStartUtc.Value) return;
             if (!IsInstitutionalSession(Server.Time.ToUniversalTime())) return;
             if (!SpreadValid()) return;
@@ -420,7 +420,7 @@ namespace cAlgo.Robots
         {
             var p = c.Signal.Profile;
             if (p == null || !p.GridEnabled) return false;
-            if (Account.Equity + 1e-8 < MinimumSupportedEquity) return false;
+            if (!_initialCapitalEligible) return false;
 
             double anchor = c.Signal.Direction == TradeDirection.Buy ? _symbol.Ask : _symbol.Bid;
             double stop = c.Signal.StructuralInvalidation;
@@ -836,6 +836,13 @@ namespace cAlgo.Robots
                 return false;
             }
 
+            DateTime nowUtc = Server.Time.ToUniversalTime();
+            if (basket.ExpirationUtc <= nowUtc.AddSeconds(1))
+            {
+                TransitionLegState(basket, leg, GridLegState.EXPIRED, "PENDING_TTL_NOT_STRICTLY_FUTURE");
+                return false;
+            }
+
             TransitionLegState(basket, leg, GridLegState.SUBMITTING, "LIMIT_SUBMITTING");
             TradeType tt = basket.Direction == TradeDirection.Buy ? TradeType.Buy : TradeType.Sell;
             var tr = PlaceLimitOrder(tt, SymbolName, leg.Volume, leg.PlannedPrice, label,
@@ -1129,6 +1136,12 @@ namespace cAlgo.Robots
             bool anyApplied = false;
             foreach (var p in OwnPositions().Where(x => LabelBasketId(x.Label) == basket.BasketId).ToList())
             {
+                if (TargetTooCloseForProtectionUpdate(p))
+                {
+                    BasketEvent(basket, "FRONTIER_SKIP_TARGET_PROXIMITY_POS_" + p.Id);
+                    continue;
+                }
+
                 double brokerSafe = BrokerSafeStop(p.TradeType, next);
                 if (brokerSafe <= 0) continue;
 
@@ -1139,7 +1152,30 @@ namespace cAlgo.Robots
                 var r = p.ModifyStopLossPrice(brokerSafe);
                 if (r == null || !r.IsSuccessful)
                 {
-                    RecordExecutionError("FRONTIER_STOP_FAILED_" + (r == null ? "NULL" : r.Error.ToString()),
+                    if (!PositionStillExists(p.Id) || TargetTooCloseForProtectionUpdate(p))
+                    {
+                        BasketEvent(basket, "FRONTIER_MODIFY_RACE_BENIGN_POS_" + p.Id);
+                        continue;
+                    }
+
+                    double retryStop = BrokerSafeStop(p.TradeType, next);
+                    bool retryImproves = retryStop > 0 && (!p.StopLoss.HasValue ||
+                        (p.TradeType == TradeType.Buy ? retryStop > p.StopLoss.Value + _symbol.TickSize : retryStop < p.StopLoss.Value - _symbol.TickSize));
+                    TradeResult retry = retryImproves ? p.ModifyStopLossPrice(retryStop) : null;
+                    if (retry != null && retry.IsSuccessful)
+                    {
+                        anyApplied = true;
+                        BasketEvent(basket, "FRONTIER_RETRY_SUCCESS_POS_" + p.Id);
+                        continue;
+                    }
+
+                    if (!PositionStillExists(p.Id) || TargetTooCloseForProtectionUpdate(p))
+                    {
+                        BasketEvent(basket, "FRONTIER_RETRY_RACE_BENIGN_POS_" + p.Id);
+                        continue;
+                    }
+
+                    RecordExecutionError("FRONTIER_STOP_FAILED_" + (retry != null ? retry.Error.ToString() : (r == null ? "NULL" : r.Error.ToString())),
                         "basket=" + basket.BasketId + ";position=" + p.Id + ";reason=" + reason);
                     continue;
                 }
@@ -1157,7 +1193,8 @@ namespace cAlgo.Robots
         {
             double reference = tradeType == TradeType.Buy ? _symbol.Bid : _symbol.Ask;
             double minDistance = BrokerMinimumDistancePrice(reference, true);
-            double safety = Math.Max(_symbol.TickSize * 2.0, minDistance + _symbol.TickSize);
+            double spreadPrice = Math.Max(0, _symbol.Ask - _symbol.Bid);
+            double safety = Math.Max(_symbol.TickSize * 4.0, Math.Max(minDistance + _symbol.TickSize * 2.0, spreadPrice * 2.0 + _symbol.TickSize * 2.0));
             double safe = tradeType == TradeType.Buy
                 ? Math.Min(proposed, reference - safety)
                 : Math.Max(proposed, reference + safety);
@@ -1166,6 +1203,18 @@ namespace cAlgo.Robots
             if (_symbol.Digits >= 0)
                 return Math.Round(safe, _symbol.Digits, MidpointRounding.AwayFromZero);
             return safe;
+        }
+
+        private bool TargetTooCloseForProtectionUpdate(Position p)
+        {
+            if (p == null || !p.TakeProfit.HasValue) return false;
+            double reference = p.TradeType == TradeType.Buy ? _symbol.Bid : _symbol.Ask;
+            double gap = p.TradeType == TradeType.Buy ? p.TakeProfit.Value - reference : reference - p.TakeProfit.Value;
+            if (gap <= 0) return true;
+            double spreadPrice = Math.Max(0, _symbol.Ask - _symbol.Bid);
+            double minTp = BrokerMinimumDistancePrice(reference, false);
+            double raceBuffer = Math.Max(_symbol.TickSize * 4.0, Math.Max(minTp + _symbol.TickSize * 2.0, spreadPrice * 2.0 + _symbol.TickSize * 2.0));
+            return gap <= raceBuffer;
         }
 
         private bool DeeperLegThesisEligible(FibonacciBasket basket, FibonacciGridLeg leg)
@@ -1485,10 +1534,10 @@ namespace cAlgo.Robots
             double min = _symbol.VolumeInUnitsMin;
             double marginBuy = EstimatedMargin(TradeDirection.Buy, min);
             double marginSell = EstimatedMargin(TradeDirection.Sell, min);
-            Print("[V34-BROKER-PROFILE] symbol={0} equity={1:F2} freeMargin={2:F2} minVolume={3} step={4} maxVolume={5} pipValue={6} tickValue={7} minSL={8} minTP={9} minDistanceType={10} minMarginBuy={11:F2} minMarginSell={12:F2} minimumSupportedEquity={13:F2} adaptiveCapital={14} microThreshold={15:F2}",
+            Print("[V34-BROKER-PROFILE] symbol={0} equity={1:F2} freeMargin={2:F2} minVolume={3} step={4} maxVolume={5} pipValue={6} tickValue={7} minSL={8} minTP={9} minDistanceType={10} minMarginBuy={11:F2} minMarginSell={12:F2} minimumSupportedEquity={13:F2} adaptiveCapital={14} microThreshold={15:F2} initialCapitalEligible={16}",
                 SymbolName, Account.Equity, Account.FreeMargin, _symbol.VolumeInUnitsMin, _symbol.VolumeInUnitsStep, _symbol.VolumeInUnitsMax,
                 _symbol.PipValue, _symbol.TickValue, _symbol.MinStopLossDistance, _symbol.MinTakeProfitDistance, _symbol.MinDistanceType,
-                marginBuy, marginSell, MinimumSupportedEquity, AdaptiveCapitalMode, MicroCapitalThreshold);
+                marginBuy, marginSell, MinimumSupportedEquity, AdaptiveCapitalMode, MicroCapitalThreshold, _initialCapitalEligible);
         }
 
         private double WeightedAverageEntry(List<Position> positions)
