@@ -513,12 +513,23 @@ if s.count(partial_anchor) != 1:
 s = s.replace(partial_anchor, primary_helper + partial_anchor, 1)
 
 # Runtime peak-R state.
-ensure_anchor = '''            if (!_lastSlModifyTime.ContainsKey(p.Id)) _lastSlModifyTime[p.Id] = DateTime.MinValue;
+ensure_anchor = '''            if (!_sumPriceVol.ContainsKey(p.Id)) _sumPriceVol[p.Id] = 0;
+            if (!_totalClosedUnits.ContainsKey(p.Id)) _totalClosedUnits[p.Id] = 0;
+            if (!_lastSlModifyTime.ContainsKey(p.Id)) _lastSlModifyTime[p.Id] = DateTime.MinValue;
+        }
+
+        private void PruneStateDictionaries()
 '''
 if s.count(ensure_anchor) != 1:
     raise SystemExit(f'V30 runtime state anchor count={s.count(ensure_anchor)}; expected 1')
-s = s.replace(ensure_anchor, ensure_anchor + '''            if (!_v30PeakR.ContainsKey(p.Id)) _v30PeakR[p.Id] = 0.0;
+s = s.replace(ensure_anchor, '''            if (!_sumPriceVol.ContainsKey(p.Id)) _sumPriceVol[p.Id] = 0;
+            if (!_totalClosedUnits.ContainsKey(p.Id)) _totalClosedUnits[p.Id] = 0;
+            if (!_lastSlModifyTime.ContainsKey(p.Id)) _lastSlModifyTime[p.Id] = DateTime.MinValue;
+            if (!_v30PeakR.ContainsKey(p.Id)) _v30PeakR[p.Id] = 0.0;
             if (!_v30LifeBucket.ContainsKey(p.Id)) _v30LifeBucket[p.Id] = int.MinValue;
+        }
+
+        private void PruneStateDictionaries()
 ''', 1)
 
 prune_anchor = '''            RemoveMissing(_totalClosedUnits, openIds);
