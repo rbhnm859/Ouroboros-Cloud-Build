@@ -85,6 +85,7 @@ param_new = '''        [Parameter("V29.5 Min Invalidation Age Min", DefaultValue
         private long _v30BreakevenLocks;
         private long _v30TrailUpdates;
         private readonly Dictionary<long, double> _v30PeakR = new Dictionary<long, double>();
+        private readonly Dictionary<long, int> _v30LifeBucket = new Dictionary<long, int>();
         private readonly Dictionary<string, long> _v30PatternSeen = new Dictionary<string, long>();
         private readonly Dictionary<string, long> _v30PatternSelected = new Dictionary<string, long>();
 '''
@@ -496,8 +497,14 @@ primary_helper = '''        private void V30ManagePrimaryPosition(Position p)
                 if (TryModifyStopLoss(p, trail)) _v30TrailUpdates++;
             }
 
-            Print("[V30-LIFECYCLE] pos={0} pattern={1} dir={2} currentR={3:F3} peakR={4:F3} ageMin={5:F1}",
-                p.Id, _patternByPosition.ContainsKey(p.Id) ? _patternByPosition[p.Id] : "NA", p.TradeType, currentR, peakR, ageMin);
+            int lifeBucket = (int)Math.Floor(Math.Max(-2.0, Math.Min(5.0, currentR)) * 10.0);
+            int priorBucket = _v30LifeBucket.ContainsKey(p.Id) ? _v30LifeBucket[p.Id] : int.MinValue;
+            if (lifeBucket != priorBucket)
+            {
+                _v30LifeBucket[p.Id] = lifeBucket;
+                Print("[V30-LIFECYCLE] pos={0} pattern={1} dir={2} currentR={3:F3} peakR={4:F3} ageMin={5:F1}",
+                    p.Id, _patternByPosition.ContainsKey(p.Id) ? _patternByPosition[p.Id] : "NA", p.TradeType, currentR, peakR, ageMin);
+            }
         }
 
 '''
@@ -511,6 +518,7 @@ ensure_anchor = '''            if (!_lastSlModifyTime.ContainsKey(p.Id)) _lastSl
 if s.count(ensure_anchor) != 1:
     raise SystemExit(f'V30 runtime state anchor count={s.count(ensure_anchor)}; expected 1')
 s = s.replace(ensure_anchor, ensure_anchor + '''            if (!_v30PeakR.ContainsKey(p.Id)) _v30PeakR[p.Id] = 0.0;
+            if (!_v30LifeBucket.ContainsKey(p.Id)) _v30LifeBucket[p.Id] = int.MinValue;
 ''', 1)
 
 prune_anchor = '''            RemoveMissing(_totalClosedUnits, openIds);
@@ -520,6 +528,7 @@ if s.count(prune_anchor) != 1:
     raise SystemExit(f'V30 prune anchor count={s.count(prune_anchor)}; expected 1')
 s = s.replace(prune_anchor, '''            RemoveMissing(_totalClosedUnits, openIds);
             RemoveMissing(_v30PeakR, openIds);
+            RemoveMissing(_v30LifeBucket, openIds);
             _partialClosing.RemoveWhere(k => !openIds.Contains(k));
 ''', 1)
 
