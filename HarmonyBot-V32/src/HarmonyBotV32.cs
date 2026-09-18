@@ -1222,18 +1222,18 @@ namespace cAlgo.Robots
 
         private void ConfigureFibonacciGridProfiles()
         {
-            ConfigureGrid("Gartley", new[] { 0.0, .236, .382, .618 }, 4, .08, .70, .18, 90, .030, "PRZ_CONFIRM", "T1_THEN_T2");
-            ConfigureGrid("Bat", new[] { 0.0, .236, .382, .618 }, 4, .08, .75, .20, 90, .025, "DEEP_PRZ_CONFIRM", "T1_THEN_T2");
-            ConfigureGrid("Alt Bat", new[] { 0.0, .236, .382 }, 3, .10, .80, .18, 75, .030, "EXTENSION_PRZ_CONFIRM", "T1_THEN_T2");
-            ConfigureGrid("Butterfly", new[] { 0.0, .236, .382 }, 3, .12, .90, .16, 75, .035, "EXTENSION_PRZ_CONFIRM", "T1_THEN_T2");
-            ConfigureGrid("Crab", new[] { 0.0, .236 }, 2, .15, 1.05, .14, 60, .030, "EXTREME_PRZ_CONFIRM", "T2_PREFERRED");
-            ConfigureGrid("Deep Crab", new[] { 0.0, .236 }, 2, .15, 1.05, .14, 60, .030, "EXTREME_PRZ_CONFIRM", "T2_PREFERRED");
-            ConfigureGrid("Cypher", new[] { 0.0, .236, .382 }, 3, .10, .85, .18, 75, .050, "XC_RETRACE_CONFIRM", "T1_THEN_T2");
-            ConfigureGrid("Shark", new[] { 0.0, .236 }, 2, .12, 1.00, .15, 60, .050, "EXTREME_PRZ_CONFIRM", "T1_THEN_T2");
-            ConfigureGrid("5-0", new[] { 0.0, .236 }, 2, .12, 1.00, .15, 60, .050, "REVERSAL_PRZ_CONFIRM", "T1_THEN_T2");
-            ConfigureGrid("AB=CD", new[] { 0.0, .236, .382, .618 }, 4, .08, .80, .20, 90, .050, "ABCD_COMPLETION_CONFIRM", "T1_THEN_T2");
-            ConfigureGrid("Deep Gartley", new[] { 0.0, .236, .382 }, 3, .10, .85, .18, 75, .030, "DEEP_PRZ_CONFIRM", "T1_THEN_T2");
-            ConfigureGrid("Rat", new[] { 0.0, .236, .382 }, 3, .10, .90, .18, 75, .035, "RATIO_PRZ_CONFIRM", "T1_THEN_T2");
+            ConfigureGrid("Gartley", new[] { 0.0, .236, .382, .618 }, 4, .65, 1.05, .65, 90, .030, "PRZ_CONFIRM", "T1_THEN_T2");
+            ConfigureGrid("Bat", new[] { 0.0, .236, .382, .618 }, 4, .75, 1.10, .65, 90, .025, "DEEP_PRZ_CONFIRM", "T1_THEN_T2");
+            ConfigureGrid("Alt Bat", new[] { 0.0, .236, .382 }, 3, .02, .35, .42, 75, .030, "EXTENSION_PRZ_CONFIRM", "T1_THEN_T2");
+            ConfigureGrid("Butterfly", new[] { 0.0, .236, .382 }, 3, .02, .35, .42, 75, .035, "EXTENSION_PRZ_CONFIRM", "T1_THEN_T2");
+            ConfigureGrid("Crab", new[] { 0.0, .236 }, 2, .02, .40, .26, 60, .030, "EXTREME_PRZ_CONFIRM", "T2_PREFERRED");
+            ConfigureGrid("Deep Crab", new[] { 0.0, .236 }, 2, .02, .40, .26, 60, .030, "EXTREME_PRZ_CONFIRM", "T2_PREFERRED");
+            ConfigureGrid("Cypher", new[] { 0.0, .236, .382 }, 3, .02, .60, .42, 75, .050, "XC_RETRACE_CONFIRM", "T1_THEN_T2");
+            ConfigureGrid("Shark", new[] { 0.0, .236 }, 2, .02, .60, .26, 60, .050, "EXTREME_PRZ_CONFIRM", "T1_THEN_T2");
+            ConfigureGrid("5-0", new[] { 0.0, .236 }, 2, .02, .60, .26, 60, .050, "REVERSAL_PRZ_CONFIRM", "T1_THEN_T2");
+            ConfigureGrid("AB=CD", new[] { 0.0, .236, .382, .618 }, 4, .02, .80, .65, 90, .050, "ABCD_COMPLETION_CONFIRM", "T1_THEN_T2");
+            ConfigureGrid("Deep Gartley", new[] { 0.0, .236, .382 }, 3, .70, 1.20, .42, 75, .030, "DEEP_PRZ_CONFIRM", "T1_THEN_T2");
+            ConfigureGrid("Rat", new[] { 0.0, .236, .382 }, 3, .02, 1.40, .42, 75, .035, "RATIO_PRZ_CONFIRM", "T1_THEN_T2");
         }
 
         private void ConfigureGrid(string name, double[] fractions, int maxLegs, double minSpanXa, double maxSpanXa,
@@ -1407,29 +1407,6 @@ namespace cAlgo.Robots
             return .25 * c.Signal.GeometryQuality + .15 * c.Signal.PrzConfluence + .15 * mtf + .15 * regime + .15 * c.ConfirmationScore + .15 * VClamp(c.NetRR / 3.0);
         }
 
-        private bool PassNetRR(PatternSignal s, out double selectedTarget, out double rr)
-        {
-            selectedTarget = 0; rr = 0;
-            double entry = s.Direction == TradeDirection.Buy ? _symbol.Ask : _symbol.Bid;
-            double riskPips = PriceToPips(Math.Abs(entry - s.StructuralInvalidation));
-            if (riskPips < MinStopLossPips) return false;
-            double costs = SpreadPips() + Math.Max(0, RoundTurnCommissionPips);
-
-            foreach (double t in new[] { s.CanonicalTarget1, s.CanonicalTarget2 })
-            {
-                if (!GeometryValid(s.Direction, entry, s.StructuralInvalidation, t)) continue;
-                double reward = PriceToPips(Math.Abs(t - entry)) - costs;
-                double candidateRr = riskPips > 0 ? reward / riskPips : 0;
-                if (candidateRr >= MinimumNetRR)
-                {
-                    selectedTarget = t;
-                    rr = candidateRr;
-                    return true;
-                }
-            }
-            return false;
-        }
-
         // ---------------- Risk / session / safety ----------------
 
         private bool IsInstitutionalSession(DateTime utc)
@@ -1482,34 +1459,6 @@ namespace cAlgo.Robots
 
         private bool SpreadValid() { return SpreadPips() <= MaxSpreadPips; }
         private double SpreadPips() { return _symbol.PipSize > 0 ? (_symbol.Ask - _symbol.Bid) / _symbol.PipSize : 99999; }
-
-        private double CalculateVolume(double slPips)
-        {
-            if (slPips <= 0 || _symbol.PipValue <= 0) return 0;
-            double risk = Account.Equity * BasketRiskPercent / 100.0;
-            double raw = risk / (slPips * _symbol.PipValue);
-            if (double.IsNaN(raw) || double.IsInfinity(raw) || raw <= 0) return 0;
-            double v = _symbol.NormalizeVolumeInUnits(raw, RoundingMode.Down);
-            if (v < _symbol.VolumeInUnitsMin) return 0;
-            return Math.Min(v, _symbol.VolumeInUnitsMax);
-        }
-
-        private void ImproveStopOnly(Position p, double proposed)
-        {
-            if (p == null) return;
-            if (p.TradeType == TradeType.Buy)
-            {
-                if (proposed >= _symbol.Bid) return;
-                if (p.StopLoss.HasValue && proposed <= p.StopLoss.Value) return;
-            }
-            else
-            {
-                if (proposed <= _symbol.Ask) return;
-                if (p.StopLoss.HasValue && proposed >= p.StopLoss.Value) return;
-            }
-            var r = ModifyPosition(p, proposed, p.TakeProfit, ProtectionType.Absolute);
-            if (r == null || !r.IsSuccessful) _executionErrors++;
-        }
 
         private void EnsureServerProtection()
         {
