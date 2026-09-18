@@ -194,8 +194,9 @@ namespace cAlgo.Robots
             foreach (var kv in _pipeline.OrderBy(k => k.Key))
             {
                 var x = kv.Value;
-                Print("[V32-PIPELINE] pattern={0} detected={1} validated={2} routed={3} prz={4} confirming={5} armed={6} executed={7} expired={8} rejected={9} invalidated={10}",
-                    kv.Key, x.Detected, x.Validated, x.Routed, x.PrzWaiting, x.Confirming, x.Armed, x.Executed, x.Expired, x.Rejected, x.Invalidated);
+                Print("[V32-PIPELINE] pattern={0} detected={1} validated={2} routed={3} prz={4} confirming={5} armed={6} basketPlanned={7} leg0={8} leg1={9} leg2={10} leg3={11} basketClosed={12} executed={13} expired={14} rejected={15} invalidated={16}",
+                    kv.Key, x.Detected, x.Validated, x.Routed, x.PrzWaiting, x.Confirming, x.Armed, x.BasketPlanned,
+                    x.Leg0Executed, x.Leg1Filled, x.Leg2Filled, x.Leg3Filled, x.BasketClosed, x.Executed, x.Expired, x.Rejected, x.Invalidated);
             }
             Print("[V32-SUMMARY] candidates={0} baskets={1} openLedgers={2} executionErrors={3} gridRiskViolations={4} duplicateGridLegs={5} orphanPendingOrders={6} stopWideningViolations={7}",
                 _candidateSeq, _baskets.Count, _positions.Count, _executionErrors, _gridRiskViolations, _duplicateGridLegs, _orphanPendingOrders, _stopWideningViolations);
@@ -661,79 +662,347 @@ namespace cAlgo.Robots
             return Math.Max(0, SpreadPips()) + Math.Max(0, RoundTurnCommissionPips) + Math.Max(0, SlippageStressPips);
         }
 
-        private void ManageOpenPosition()
+        private void ReconcileAndManageBaskets()
         {
-            foreach (var p in OwnPositions().ToList())
+            ReconcileGridFills();
+            CancelInvalidPendingOrders();
+
+            foreach (var basket in _baskets.Values.Where(b => b.IsActive).ToList())
             {
-                PositionLedger l;
-                if (!_positions.TryGetValue(p.Id, out l))
-                {
-                    double rp = p.StopLoss.HasValue ? PriceToPips(Math.Abs(p.EntryPrice - p.StopLoss.Value)) : 0;
-                    if (rp <= 0) continue;
-                    l = new PositionLedger
-                    {
-                        PositionId = p.Id,
-                        CandidateId = "RECOVERED",
-                        PatternName = "UNKNOWN",
-                        Route = HarmonicRoute.NO_TRADE,
-                        Direction = p.TradeType == TradeType.Buy ? TradeDirection.Buy : TradeDirection.Sell,
-                        EntryUtc = p.EntryTime.ToUniversalTime(),
-                        InitialRiskPips = rp,
-                        RiskAmount = 0
-                    };
-                    _positions[p.Id] = l;
-                }
+                var positions = OwnPositions().Where(p => LabelBasketId(p.Label) == basket.BasketId).ToList();
+                var pending = OwnPendingOrders().Where(o => LabelBasketId(o.Label) == basket.BasketId).ToList();
 
-                double currentR = l.InitialRiskPips > 0 ? p.Pips / l.InitialRiskPips : 0;
-                if (currentR > l.PeakR) l.PeakR = currentR;
-                if (-currentR > l.MaxAdverseR) l.MaxAdverseR = -currentR;
-
-                double age = (Server.Time.ToUniversalTime() - l.EntryUtc).TotalMinutes;
-                if (age >= NoMfeMinAgeMinutes && l.PeakR < NoMfeProofR && currentR <= -Math.Abs(NoMfeKillR))
+                if (positions.Count == 0)
                 {
-                    l.ExitOverride = "NO_MFE_THESIS_FAILURE";
-                    var cr = ClosePosition(p);
-                    if (cr == null || !cr.IsSuccessful) _executionErrors++;
+                    if (pending.Count == 0 && basket.State != FibonacciBasketState.PLANNED)
+                        CloseBasketLedger(basket, "NO_OPEN_LEGS");
                     continue;
                 }
 
-                if (l.PeakR >= BreakEvenTriggerR)
+                basket.State = pending.Count > 0 ? FibonacciBasketState.PARTIALLY_FILLED : FibonacciBasketState.BASKET_ACTIVE;
+                basket.FilledLegs = Math.Max(basket.FilledLegs, positions.Count);
+                basket.AverageEntry = WeightedAverageEntry(positions);
+
+                double currentNet = positions.Sum(p => p.NetProfit);
+                double currentR = basket.InitialBasketRisk > 0 ? (basket.RealizedNet + currentNet) / basket.InitialBasketRisk : 0;
+                if (currentR > basket.PeakR) basket.PeakR = currentR;
+                if (-currentR > basket.MaxAdverseR) basket.MaxAdverseR = -currentR;
+
+                if (basket.PeakR >= GridCancelMfeR && pending.Count > 0)
+                    CancelBasketPending(basket, "MFE_GRID_CANCEL");
+
+                double age = (Server.Time.ToUniversalTime() - basket.CreatedUtc).TotalMinutes;
+                if (age >= NoMfeMinAgeMinutes && basket.PeakR < NoMfeProofR && currentR <= -Math.Abs(NoMfeKillR))
                 {
-                    double lockPips = l.InitialRiskPips * Math.Max(0, BreakEvenLockR);
-                    double sl = p.TradeType == TradeType.Buy
-                        ? p.EntryPrice + PipsToPrice(lockPips)
-                        : p.EntryPrice - PipsToPrice(lockPips);
-                    ImproveStopOnly(p, sl);
+                    basket.ExitOverride = "NO_MFE_THESIS_FAILURE";
+                    CancelBasketPending(basket, basket.ExitOverride);
+                    CloseBasketPositions(basket, basket.ExitOverride);
+                    continue;
                 }
 
-                if (l.PeakR >= TrailTriggerR)
+                if (basket.PeakR >= BreakEvenTriggerR)
                 {
-                    double d = l.InitialRiskPips * Math.Max(0.1, TrailDistanceR);
-                    double sl = p.TradeType == TradeType.Buy ? _symbol.Bid - PipsToPrice(d) : _symbol.Ask + PipsToPrice(d);
-                    ImproveStopOnly(p, sl);
+                    double span = Math.Abs(basket.AverageEntry - basket.StructuralStop);
+                    double lockPrice = basket.Direction == TradeDirection.Buy
+                        ? basket.AverageEntry + span * Math.Max(0, BreakEvenLockR)
+                        : basket.AverageEntry - span * Math.Max(0, BreakEvenLockR);
+                    ImproveBasketStops(basket, lockPrice, "COLLECTIVE_PROTECT");
+                    basket.State = FibonacciBasketState.BASKET_PROTECTED;
+                }
+
+                if (basket.PeakR >= TrailTriggerR)
+                {
+                    double trail = FibonacciStructureTrail(basket.Direction);
+                    if (trail > 0) ImproveBasketStops(basket, trail, "FIB_382_STRUCTURE_TRAIL");
                 }
             }
+        }
+
+        private void ReconcileGridFills()
+        {
+            foreach (var p in OwnPositions().ToList())
+            {
+                if (_positions.ContainsKey(p.Id)) continue;
+
+                string basketId = LabelBasketId(p.Label);
+                int legIndex = LabelLegIndex(p.Label);
+                FibonacciBasket basket;
+                if (string.IsNullOrWhiteSpace(basketId) || !_baskets.TryGetValue(basketId, out basket))
+                {
+                    _orphanPendingOrders++;
+                    continue;
+                }
+
+                var leg = basket.Plan.Legs.FirstOrDefault(x => x.Index == legIndex);
+                if (leg == null)
+                {
+                    _orphanPendingOrders++;
+                    continue;
+                }
+
+                leg.State = GridLegState.FILLED;
+                leg.PositionId = p.Id;
+                RegisterFilledPosition(basket, leg, p);
+                basket.FilledLegs = Math.Max(basket.FilledLegs, basket.Plan.Legs.Count(x => x.State == GridLegState.FILLED));
+
+                if (legIndex == 1) CountPipeline(basket.Pattern).Leg1Filled++;
+                if (legIndex == 2) CountPipeline(basket.Pattern).Leg2Filled++;
+                if (legIndex == 3) CountPipeline(basket.Pattern).Leg3Filled++;
+                BasketEvent(basket, "GRID_LEG_FILLED_L" + legIndex);
+            }
+
+            foreach (var o in OwnPendingOrders().ToList())
+            {
+                string basketId = LabelBasketId(o.Label);
+                if (string.IsNullOrWhiteSpace(basketId) || !_baskets.ContainsKey(basketId))
+                {
+                    _orphanPendingOrders++;
+                    var r = CancelPendingOrder(o);
+                    if (r == null || !r.IsSuccessful) _executionErrors++;
+                }
+            }
+        }
+
+        private void RegisterFilledPosition(FibonacciBasket basket, FibonacciGridLeg leg, Position p)
+        {
+            double initialRiskPips = PriceToPips(Math.Abs(p.EntryPrice - basket.StructuralStop));
+            _positions[p.Id] = new PositionLedger
+            {
+                PositionId = p.Id,
+                CandidateId = basket.CandidateId,
+                PatternName = basket.Pattern,
+                Route = basket.Route,
+                Direction = basket.Direction,
+                EntryUtc = p.EntryTime.ToUniversalTime(),
+                InitialRiskPips = initialRiskPips,
+                RiskAmount = leg.PlannedRisk,
+                PeakR = 0,
+                MaxAdverseR = 0,
+                BasketId = basket.BasketId,
+                LegIndex = leg.Index
+            };
+        }
+
+        private void CancelInvalidPendingOrders()
+        {
+            DateTime now = Server.Time.ToUniversalTime();
+            foreach (var basket in _baskets.Values.Where(b => b.IsActive).ToList())
+            {
+                string reason = null;
+                if (now >= basket.ExpirationUtc) reason = "CANDIDATE_TTL_EXPIRED";
+                else if (_dailyLocked) reason = "DAILY_RISK_LOCK";
+                else if (PeakDrawdownExceeded()) reason = "MAX_DRAWDOWN_LOCK";
+                else if (!IsInstitutionalSession(now)) reason = "SESSION_EXPIRED";
+                else if (BasketStructuralInvalidated(basket)) reason = "STRUCTURAL_INVALIDATION";
+                else if (BasketHardConflict(basket)) reason = "MTF_HARD_CONFLICT";
+
+                if (reason == null) continue;
+
+                CancelBasketPending(basket, reason);
+
+                if (!OwnPositions().Any(p => LabelBasketId(p.Label) == basket.BasketId))
+                {
+                    basket.State = reason == "SESSION_EXPIRED" ? FibonacciBasketState.SESSION_EXPIRED :
+                                   reason == "STRUCTURAL_INVALIDATION" ? FibonacciBasketState.INVALIDATED :
+                                   reason == "CANDIDATE_TTL_EXPIRED" ? FibonacciBasketState.EXPIRED : FibonacciBasketState.CANCELLED;
+                    basket.IsActive = false;
+                }
+            }
+        }
+
+        private bool BasketStructuralInvalidated(FibonacciBasket basket)
+        {
+            return basket.Direction == TradeDirection.Buy ? _symbol.Bid <= basket.StructuralStop : _symbol.Ask >= basket.StructuralStop;
+        }
+
+        private bool BasketHardConflict(FibonacciBasket basket)
+        {
+            var h4 = GetActiveHarmonicState(_h4Bars, H4SwingDepth, 220, 3);
+            var h1 = GetActiveHarmonicState(_h1Bars, H1SwingDepth, 260, 4);
+            return ClassifyMtfConflict(basket.Direction, h4, h1) == MtfConflict.CONFLICT &&
+                   basket.Route != HarmonicRoute.EXHAUSTION_REVERSAL;
+        }
+
+        private void CancelBasketPending(FibonacciBasket basket, string reason)
+        {
+            foreach (var o in OwnPendingOrders().Where(x => LabelBasketId(x.Label) == basket.BasketId).ToList())
+            {
+                var r = CancelPendingOrder(o);
+                if (r == null || !r.IsSuccessful)
+                {
+                    _executionErrors++;
+                    continue;
+                }
+
+                var leg = basket.Plan.Legs.FirstOrDefault(x => x.Index == LabelLegIndex(o.Label));
+                if (leg != null && leg.State == GridLegState.SUBMITTED) leg.State = GridLegState.CANCELLED;
+                BasketEvent(basket, "GRID_LEG_CANCELLED_" + reason + "_L" + LabelLegIndex(o.Label));
+            }
+        }
+
+        private void CancelAllOwnPending(string reason)
+        {
+            foreach (var o in OwnPendingOrders().ToList())
+            {
+                var r = CancelPendingOrder(o);
+                if (r == null || !r.IsSuccessful) _executionErrors++;
+            }
+            Print("[V32-PENDING-CANCEL-ALL] reason={0}", reason);
+        }
+
+        private void CloseBasketPositions(FibonacciBasket basket, string reason)
+        {
+            foreach (var p in OwnPositions().Where(x => LabelBasketId(x.Label) == basket.BasketId).ToList())
+            {
+                PositionLedger l;
+                if (_positions.TryGetValue(p.Id, out l)) l.ExitOverride = reason;
+                var r = ClosePosition(p);
+                if (r == null || !r.IsSuccessful) _executionErrors++;
+            }
+        }
+
+        private void ImproveBasketStops(FibonacciBasket basket, double proposed, string reason)
+        {
+            foreach (var p in OwnPositions().Where(x => LabelBasketId(x.Label) == basket.BasketId).ToList())
+            {
+                bool improving = p.TradeType == TradeType.Buy
+                    ? proposed < _symbol.Bid && (!p.StopLoss.HasValue || proposed > p.StopLoss.Value)
+                    : proposed > _symbol.Ask && (!p.StopLoss.HasValue || proposed < p.StopLoss.Value);
+                if (!improving) continue;
+
+                var r = ModifyPosition(p, proposed, p.TakeProfit, ProtectionType.Absolute);
+                if (r == null || !r.IsSuccessful) _executionErrors++;
+                else BasketEvent(basket, reason + "_POS_" + p.Id);
+            }
+        }
+
+        private double FibonacciStructureTrail(TradeDirection direction)
+        {
+            int end = LastClosedIndex(_m1Bars);
+            if (end < 20) return 0;
+            int start = Math.Max(1, end - 20);
+            double hi = double.MinValue, lo = double.MaxValue;
+
+            for (int i = start; i <= end; i++)
+            {
+                hi = Math.Max(hi, _m1Bars.HighPrices[i]);
+                lo = Math.Min(lo, _m1Bars.LowPrices[i]);
+            }
+
+            if (hi <= lo) return 0;
+            return direction == TradeDirection.Buy
+                ? hi - .382 * (hi - lo)
+                : lo + .382 * (hi - lo);
+        }
+
+        private double WeightedAverageEntry(List<Position> positions)
+        {
+            double volume = positions.Sum(p => p.VolumeInUnits);
+            return volume > 0 ? positions.Sum(p => p.EntryPrice * p.VolumeInUnits) / volume : 0;
         }
 
         private void OnPositionClosed(PositionClosedEventArgs args)
         {
             var p = args.Position;
-            if (p == null || p.SymbolName != SymbolName || string.IsNullOrWhiteSpace(p.Label) || !p.Label.StartsWith(BotPrefix, StringComparison.Ordinal))
+            if (p == null || p.SymbolName != SymbolName || string.IsNullOrWhiteSpace(p.Label) || !p.Label.StartsWith(BotPrefix + "|", StringComparison.Ordinal))
                 return;
 
             PositionLedger l;
             if (!_positions.TryGetValue(p.Id, out l))
             {
-                Print("[V32-CLOSED] pos={0} cid=UNKNOWN net={1:F2} reason={2}", p.Id, p.NetProfit, args.Reason);
+                Print("[V32-LEG-CLOSED] pos={0} basket=UNKNOWN net={1:F2} reason={2}", p.Id, p.NetProfit, args.Reason);
                 return;
             }
 
-            double realizedR = l.InitialRiskPips > 0 ? p.Pips / l.InitialRiskPips : 0;
-            string reason = string.IsNullOrWhiteSpace(l.ExitOverride) ? args.Reason.ToString() : l.ExitOverride;
-            Print("[V32-CLOSED] cid={0} pos={1} pattern={2} route={3} dir={4} exit={5} mfeR={6:F3} maeR={7:F3} realizedR={8:F3} net={9:F2}",
-                l.CandidateId, p.Id, l.PatternName, l.Route, l.Direction, reason, l.PeakR, l.MaxAdverseR, realizedR, p.NetProfit);
+            FibonacciBasket basket = null;
+            if (_baskets.TryGetValue(l.BasketId, out basket))
+            {
+                basket.RealizedNet += p.NetProfit;
+                basket.ClosedLegs++;
+                Print("[V32-LEG-CLOSED] basket={0} cid={1} leg=L{2} pos={3} pattern={4} route={5} net={6:F2} reason={7}",
+                    basket.BasketId, basket.CandidateId, l.LegIndex, p.Id, basket.Pattern, basket.Route, p.NetProfit, args.Reason);
+
+                if (args.Reason.ToString().IndexOf("TakeProfit", StringComparison.OrdinalIgnoreCase) >= 0)
+                    CancelBasketPending(basket, "CANONICAL_TARGET_REACHED");
+            }
+
             _positions.Remove(p.Id);
+
+            if (basket != null &&
+                !OwnPositions().Any(x => LabelBasketId(x.Label) == basket.BasketId) &&
+                !OwnPendingOrders().Any(x => LabelBasketId(x.Label) == basket.BasketId))
+                CloseBasketLedger(basket, string.IsNullOrWhiteSpace(basket.ExitOverride) ? args.Reason.ToString() : basket.ExitOverride);
         }
+
+        private void CloseBasketLedger(FibonacciBasket basket, string reason)
+        {
+            if (!basket.IsActive) return;
+            basket.IsActive = false;
+            basket.State = FibonacciBasketState.CLOSED;
+            basket.ExitReason = reason;
+
+            double realizedR = basket.InitialBasketRisk > 0 ? basket.RealizedNet / basket.InitialBasketRisk : 0;
+            CountPipeline(basket.Pattern).BasketClosed++;
+            BasketEvent(basket, "BASKET_CLOSED_" + reason);
+
+            Print("[V32-BASKET-CLOSED] basket={0} cid={1} pattern={2} route={3} plannedLegs={4} filledLegs={5} avgEntry={6} stop={7} target={8} initialRisk={9:F2} worstRisk={10:F2} mfeR={11:F3} maeR={12:F3} realizedR={13:F3} net={14:F2} reason={15}",
+                basket.BasketId, basket.CandidateId, basket.Pattern, basket.Route, basket.Plan.Legs.Count, basket.FilledLegs,
+                basket.AverageEntry, basket.StructuralStop, basket.CanonicalTarget, basket.InitialBasketRisk, basket.PlannedWorstCaseRisk,
+                basket.PeakR, basket.MaxAdverseR, realizedR, basket.RealizedNet, reason);
+        }
+
+        private IEnumerable<PendingOrder> OwnPendingOrders()
+        {
+            return PendingOrders.Where(o => o.SymbolName == SymbolName &&
+                !string.IsNullOrWhiteSpace(o.Label) && o.Label.StartsWith(BotPrefix + "|", StringComparison.Ordinal));
+        }
+
+        private bool LegAlreadyExists(string label)
+        {
+            return OwnPositions().Any(p => p.Label == label) || OwnPendingOrders().Any(o => o.Label == label);
+        }
+
+        private string NewBasketId()
+        {
+            _basketSeq++;
+            return "HB32-" + SymbolName + "-" + Server.Time.ToUniversalTime().ToString("yyyyMMdd", CultureInfo.InvariantCulture) + "-" +
+                   _basketSeq.ToString("D6", CultureInfo.InvariantCulture);
+        }
+
+        private string GridLabel(string basketId, int legIndex)
+        {
+            return BotPrefix + "|" + basketId + "|L" + legIndex;
+        }
+
+        private string GridComment(FibonacciBasket basket, int legIndex)
+        {
+            return "cid=" + basket.CandidateId + ";basket=" + basket.BasketId + ";leg=L" + legIndex +
+                   ";pattern=" + basket.Pattern + ";tf=M15;route=" + basket.Route;
+        }
+
+        private string LabelBasketId(string label)
+        {
+            if (string.IsNullOrWhiteSpace(label)) return null;
+            var p = label.Split('|');
+            return p.Length >= 3 && p[0] == BotPrefix ? p[1] : null;
+        }
+
+        private int LabelLegIndex(string label)
+        {
+            if (string.IsNullOrWhiteSpace(label)) return -1;
+            var p = label.Split('|');
+            if (p.Length < 3 || !p[2].StartsWith("L", StringComparison.Ordinal)) return -1;
+            int x;
+            return int.TryParse(p[2].Substring(1), out x) ? x : -1;
+        }
+
+        private void BasketEvent(FibonacciBasket basket, string reason)
+        {
+            Print("[V32-BASKET-EVENT] basket={0} cid={1} pattern={2} route={3} state={4} reason={5}",
+                basket.BasketId, basket.CandidateId, basket.Pattern, basket.Route, basket.State, reason);
+        }
+
+        private DateTime MinDate(DateTime a, DateTime b) { return a <= b ? a : b; }
 
         // ---------------- Harmonic engine ----------------
 
@@ -1169,7 +1438,7 @@ namespace cAlgo.Robots
 
         private IEnumerable<Position> OwnPositions()
         {
-            return Positions.Where(p => p.SymbolName == SymbolName && !string.IsNullOrWhiteSpace(p.Label) && p.Label.StartsWith(BotPrefix, StringComparison.Ordinal));
+            return Positions.Where(p => p.SymbolName == SymbolName && !string.IsNullOrWhiteSpace(p.Label) && p.Label.StartsWith(BotPrefix + "|", StringComparison.Ordinal));
         }
 
         private void ResetDaily(bool force)
@@ -1233,11 +1502,15 @@ namespace cAlgo.Robots
             foreach (var p in OwnPositions())
             {
                 if (p.StopLoss.HasValue && p.TakeProfit.HasValue) continue;
+
                 PositionLedger l;
-                if (!_positions.TryGetValue(p.Id, out l) || l.InitialRiskPips <= 0) continue;
-                double sl = p.TradeType == TradeType.Buy ? p.EntryPrice - PipsToPrice(l.InitialRiskPips) : p.EntryPrice + PipsToPrice(l.InitialRiskPips);
-                double tp = p.TradeType == TradeType.Buy ? p.EntryPrice + PipsToPrice(l.InitialRiskPips * MinimumNetRR) : p.EntryPrice - PipsToPrice(l.InitialRiskPips * MinimumNetRR);
-                var r = ModifyPosition(p, sl, tp, ProtectionType.Absolute);
+                FibonacciBasket basket;
+                if (!_positions.TryGetValue(p.Id, out l) ||
+                    string.IsNullOrWhiteSpace(l.BasketId) ||
+                    !_baskets.TryGetValue(l.BasketId, out basket))
+                    continue;
+
+                var r = ModifyPosition(p, basket.StructuralStop, basket.CanonicalTarget, ProtectionType.Absolute);
                 if (r == null || !r.IsSuccessful) _executionErrors++;
             }
         }
