@@ -3,7 +3,7 @@
     <TargetFramework>net6.0</TargetFramework>
     <ImplicitUsings>disable</ImplicitUsings>
     <Nullable>disable</Nullable>
-    <AlgoName>HarmonyBot_V32_Commercial</AlgoName>
+    <AlgoName>HarmonyBot_V32_Internal_RC</AlgoName>
     <AlgoBuild>true</AlgoBuild>
     <AlgoPublish>false</AlgoPublish>
     <IncludeSource>false</IncludeSource>
