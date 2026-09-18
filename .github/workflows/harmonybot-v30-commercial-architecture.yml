@@ -1,0 +1,47 @@
+name: HarmonyBot V30.0 Commercial Architecture Reset
+
+on:
+  push:
+    branches:
+      - harmonybot/v30-commercial-architecture-reset
+    paths:
+      - '.github/workflows/harmonybot-v30-commercial-architecture.yml'
+      - 'v30/**'
+      - 'tmp/harmonybot-v26-build/fix_harmonybot_v30_commercial_architecture.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  one_pass:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    env:
+      CTRADER_PASSWORD: ${{ secrets.CTRADER_PASSWORD }}
+      CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+      CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fccde79d22c0389ba64d9bb26a2e54379d81c91e
+          path: base
+      - uses: actions/checkout@v4
+        with:
+          ref: harmonybot/v30-commercial-architecture-reset
+          path: control
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+      - name: Execute HarmonyBot V30.0 one-pass commercial architecture
+        run: |
+          chmod +x control/v30/run_backtest.sh
+          chmod +x control/v30/orchestrate_onepass.sh
+          control/v30/orchestrate_onepass.sh
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: HARMONYBOT-V30-COMMERCIAL-ARCHITECTURE
+          path: control/v30-output
+          if-no-files-found: warn
+          retention-days: 30
