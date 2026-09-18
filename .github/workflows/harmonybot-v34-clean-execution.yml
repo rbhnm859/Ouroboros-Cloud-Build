@@ -1,0 +1,28 @@
+name: HarmonyBot V34.0 Clean Execution Adaptive Capital
+on:
+  push:
+    branches: [harmonybot/v34-clean-execution-adaptive-capital]
+    paths: ['.github/workflows/harmonybot-v34-clean-execution.yml','HarmonyBot-V34/**']
+  workflow_dispatch:
+permissions: {contents: read}
+concurrency: {group: harmonybot-v34-clean-execution, cancel-in-progress: true}
+jobs:
+  clean_regression:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    env:
+      CTRADER_PASSWORD: ${{ secrets.CTRADER_PASSWORD }}
+      CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+      CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+    steps:
+      - uses: actions/checkout@v4
+        with: {ref: harmonybot/v34-clean-execution-adaptive-capital, path: control}
+      - uses: actions/setup-dotnet@v4
+        with: {dotnet-version: 8.0.x}
+      - name: Execute V34 engineering and USD100 micro gates
+        run: |
+          chmod +x control/HarmonyBot-V34/tools/*.sh
+          control/HarmonyBot-V34/tools/orchestrate_onepass.sh
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with: {name: HARMONYBOT-V34-CLEAN-EXECUTION, path: control/HarmonyBot-V34/output, retention-days: 30}
