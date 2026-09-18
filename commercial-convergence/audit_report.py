@@ -55,7 +55,7 @@ def main():
       "top5_loss_pct":100*sum(losses[:5])/total_loss if total_loss else 0.0,"grid_baskets":sum(b["grid_children"]>0 for b in baskets),
       "thesis_invalidations":inv,"grid_proof_blocked":grid_block,"admission_seen":len(admissions),"admission_allowed":allowed,
       "admission_blocked":blocked,"admission_block_reasons":dict(reasons),"execution_errors":len(errs),"pattern":pattern,
-      "telemetry_note":"Old baseline artifacts lacked complete per-basket MFE/MAE/HTF/PRZ/geometry snapshots. This audit does not fabricate unavailable fields."
+      "basket_nets":vals,"telemetry_note":"Old baseline artifacts lacked complete per-basket MFE/MAE/HTF/PRZ/geometry snapshots. This audit does not fabricate unavailable fields."
     }
     pathlib.Path(a.out).write_text(json.dumps(out,indent=2))
     print(json.dumps(out,indent=2))
