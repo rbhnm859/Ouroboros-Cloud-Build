@@ -189,5 +189,19 @@
     "NEAR_TARGET",
     "HOLD",
     "STRATEGY_ARCHITECTURE_LIMITATION"
-  ]
+  ],
+  "robustness": {
+    "sensitivity": [
+      "selected high-vol threshold -10%",
+      "selected high-vol threshold +10%"
+    ],
+    "cost_stress": [
+      "spread 1.0 -> 1.5",
+      "commission 35 -> 52.5",
+      "MaxSlippagePips 30 -> 45",
+      "combined spread 1.5 + commission 52.5 + MaxSlippagePips 45"
+    ],
+    "matrix_gate": "Every scenario PF >= 0.90, DD <= 10%, execution errors = 0; median PF > 1.0; base scenario PF > 1.0 and expectancy > 0.",
+    "monte_carlo": "Deterministic bootstrap of OOS basket returns, 5000 paths; 95th percentile max DD <= 15% and risk of ruin <= 1%."
+  }
 }
