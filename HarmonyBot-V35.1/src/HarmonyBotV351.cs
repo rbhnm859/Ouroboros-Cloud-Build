@@ -11,7 +11,7 @@ namespace cAlgo.Robots
     public class HarmonyBotV351 : Robot
     {
         private const string Version = "HarmonyBot V35.1 — Monotonic Alpha Veto Architecture";
-        private const string BotPrefix = "HB35";
+        private const string BotPrefix = "HB351";
 
         [Parameter("Symbol", DefaultValue = "XAUUSD")]
         public new string SymbolName { get; set; }
