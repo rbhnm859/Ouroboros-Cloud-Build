@@ -1,0 +1,70 @@
+{
+  "title": "HarmonyBot Commercial Convergence RC",
+  "baseline": {
+    "run_id": 35322359842,
+    "head_sha": "ba8caeab70fc860a68cf72270bcb4d491a90462a",
+    "baskets": 122,
+    "annualized_frequency": 81.33,
+    "aggregate_pf": 0.703,
+    "aggregate_net": -804.34,
+    "max_dd_pct": 7.16
+  },
+  "immutable_engineering": [
+    "small_capital_infrastructure",
+    "risk_sizing",
+    "min_volume_protection",
+    "volume_normalization",
+    "margin_protection",
+    "free_margin_protection",
+    "protective_sl",
+    "grid_risk_cap",
+    "anti_hedge",
+    "duplicate_main_entry_protection",
+    "fail_closed",
+    "execution_integrity",
+    "broker_api_handling",
+    "capital_protection"
+  ],
+  "candidates": [
+    {
+      "id": "A",
+      "name": "Structural Negative Cluster Exclusion",
+      "hypothesis": "Block only cross-window structurally negative Pattern x volatility clusters; do not hard-block 13:00 UTC.",
+      "primary_evidence": "Cypher x high-volatility repeated negative expectancy across Development windows.",
+      "parameter_policy": "single preregistered high-volatility definition derived causally from rolling ATR regime; no hour lookup table"
+    },
+    {
+      "id": "B",
+      "name": "Regime-Adaptive Pattern Admission",
+      "hypothesis": "Pattern x rolling-volatility regime separates negative flow while retaining useful frequency.",
+      "parameter_policy": "relative rolling ATR regime, causal signal-time state, no global quality-threshold tightening"
+    },
+    {
+      "id": "C",
+      "name": "Admission + Thesis/Payoff Conversion",
+      "hypothesis": "B plus frozen V29.5 thesis validity; payoff intervention only when newly captured MFE/MAE proves winner giveback.",
+      "parameter_policy": "no new rule after Development starts; telemetry is observational"
+    }
+  ],
+  "development_gate": {
+    "all_windows_pf_gt": 1,
+    "all_windows_expectancy_gt": 0,
+    "max_dd_pct_lte": 10,
+    "aggregate_net_gt": 0,
+    "aggregate_expectancy_gt": 0,
+    "execution_errors_eq": 0,
+    "frequency_floor_per_year": 50,
+    "frequency_priority_per_year": 75
+  },
+  "targets": {
+    "pf": 2.5,
+    "wr_pct": 65,
+    "realized_rr": 2,
+    "annual_roi_pct": 100,
+    "profitable_months": 10,
+    "trades_per_year": 200,
+    "max_dd_pct": 10
+  },
+  "stop_rule": "If none of A/B/C passes Development, stop and publish STRATEGY_ARCHITECTURE_LIMITATION; do not create V29.6/V29.7/V29.8.",
+  "holdout": "UNTOUCHED"
+}
