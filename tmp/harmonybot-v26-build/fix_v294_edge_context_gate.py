@@ -19,13 +19,9 @@ if s.count(param_anchor) != 1:
     raise SystemExit(f'V29.4 direction parameter anchor count={s.count(param_anchor)}; expected 1')
 s = s.replace(param_anchor, param_insert, 1)
 
-gate_old = '''                if (signal == null) return;
-
-                if (!PassMtfFilter(signal.Direction)) return;
+gate_anchor = '''                if (!PassMtfFilter(signal.Direction)) return;
 '''
-gate_new = '''                if (signal == null) return;
-
-                if ((signal.Direction == TradeDirection.Buy && !V294AllowBuy)
+gate_insert = '''                if ((signal.Direction == TradeDirection.Buy && !V294AllowBuy)
                     || (signal.Direction == TradeDirection.Sell && !V294AllowSell))
                 {
                     _v294DirectionBlocked++;
@@ -34,9 +30,9 @@ gate_new = '''                if (signal == null) return;
 
                 if (!PassMtfFilter(signal.Direction)) return;
 '''
-if s.count(gate_old) != 1:
-    raise SystemExit(f'V29.4 direction gate anchor count={s.count(gate_old)}; expected 1')
-s = s.replace(gate_old, gate_new, 1)
+if s.count(gate_anchor) != 1:
+    raise SystemExit(f'V29.4 direction gate anchor count={s.count(gate_anchor)}; expected 1')
+s = s.replace(gate_anchor, gate_insert, 1)
 
 stop_anchor = '''            EnsureServerSideProtectionBeforeStop();
 '''
