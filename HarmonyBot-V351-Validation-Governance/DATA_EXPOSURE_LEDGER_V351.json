@@ -1,0 +1,95 @@
+{
+  "schema_version": 1,
+  "project": "HarmonyBot V35.1",
+  "candidate": "EXHAUSTION_VETO_ONLY",
+  "candidate_source_commit": "0b2ef01895bfa14a8dae9c298b47a340e93e6f03",
+  "candidate_source_sha256": "1474574432ac785d667089516327fe34bbcee1ff6bfeead068951e0472065b94",
+  "capital_compatibility_run": 35389301971,
+  "governance_policy": {
+    "validation_is_pass_fail_only": true,
+    "validation_results_may_not_retune_alpha": true,
+    "unknown_prior_exposure_invalidates_untouched_claim": true,
+    "exposed_ranges_never_reused_as_fresh_validation": true,
+    "final_holdout_one_use_only": true,
+    "final_holdout_not_authorized_now": true,
+    "normal_and_micro_or_recommended_capital_metrics_are_never_pooled": true
+  },
+  "known_exposure": [
+    {
+      "range": "2018-07-02..2018-12-31",
+      "status": "EXPOSED_PREVIOUS_FINAL_HOLDOUT",
+      "evidence": "HarmonyBot-V34/validation/DATA_EXPOSURE_LEDGER_V34.json"
+    },
+    {
+      "range": "2019-01-02..2019-06-28",
+      "status": "EXPOSED_PREVIOUS_OOS",
+      "evidence": "HarmonyBot-V34/validation/DATA_EXPOSURE_LEDGER_V34.json"
+    },
+    {
+      "range": "2019-07-01..2019-12-31",
+      "status": "EXPOSED_PREVIOUS_VALIDATION_AND_100_GATE",
+      "evidence": "HarmonyBot-V34/validation/DATA_EXPOSURE_LEDGER_V34.json"
+    },
+    {
+      "range": "2020-01-02..2020-06-30",
+      "status": "EXPOSED_VALIDATION_FAILED",
+      "evidence": "V34 Fresh Validation Run 35379490879; originally reserved by HarmonyBot-V34/validation/VALIDATION_RESERVATION.md and consumed by execution"
+    },
+    {
+      "range": "2020-07-01..2020-12-31",
+      "status": "EXPOSED_REPOSITORY_WORKFLOWS",
+      "evidence": "HarmonyBot-V34/validation/DATA_EXPOSURE_LEDGER_V34.json"
+    },
+    {
+      "range": "2021-01-04..2022-06-30",
+      "status": "EXPOSED_DEVELOPMENT",
+      "evidence": "V31-V35.1 DEV plus V35.1 Capital Compatibility Run 35389301971"
+    },
+    {
+      "range": "2022-07-01..2022-12-30",
+      "status": "EXPOSED_RETIRED_VALIDATION",
+      "evidence": "HarmonyBot-Performance/DATA_GOVERNANCE.json and V34 exposure ledger"
+    },
+    {
+      "range": "2023-09-10..2026-09-16",
+      "status": "EXPOSED_PRIOR_HARMONYBOT_RESEARCH",
+      "evidence": "HarmonyBot-Performance/DATA_GOVERNANCE.json and HarmonyBot-Performance-Execution/DATA_GOVERNANCE.json"
+    }
+  ],
+  "protected_final_holdout": {
+    "id": "FINAL-HOLDOUT",
+    "range": "2023-01-02..2023-08-31",
+    "evaluation_start": "2023-01-09T00:00:00Z",
+    "status": "RESERVED_UNTOUCHED_NOT_AUTHORIZED",
+    "rule": "Do not execute until Fresh/forward evidence, OOS/walk-forward, sensitivity and stress design is frozen and the project reaches the final-holdout stage."
+  },
+  "unassigned_historical_ranges": {
+    "status": "NOT_PROVABLY_UNTOUCHED",
+    "reason": "Intervals not listed above were not pre-reserved before prior HarmonyBot research. Existing governance explicitly states that unknown prior exposure invalidates an untouched claim. A short calendar gap is not promoted to validation merely because it is absent from the current workflow list."
+  },
+  "historical_fresh_validation": {
+    "status": "NO_AUDITABLY_UNEXPOSED_HISTORICAL_INTERVAL_AVAILABLE_WITHOUT_SPENDING_FINAL_HOLDOUT",
+    "authorized_to_run": false
+  },
+  "forward_reservation": {
+    "id": "V351-FORWARD-VAL-1",
+    "start": "2026-09-21T00:00:00Z",
+    "evaluation_start": "2026-09-28T00:00:00Z",
+    "end": "2027-03-31T23:59:59Z",
+    "symbol": "XAUUSD",
+    "broker": "FxPro",
+    "leverage": "1:500",
+    "bot_timezone": "UTC",
+    "candidate": "EXHAUSTION_VETO_ONLY",
+    "status": "RESERVED_BEFORE_DATA_EXISTS",
+    "purpose": "Forward pass/fail evidence because no additional historical interval can be proven untouched without spending the protected final holdout.",
+    "rules": [
+      "Alpha and V34 execution/risk kernel remain frozen.",
+      "Do not inspect or use the reserved interval to retune Alpha, Harmonic ratios, Fibonacci levels, structural stops, grid weights or risk percent.",
+      "Normal/recommended-capital and micro-capital tracks remain separate.",
+      "If the interval is unavailable or incomplete, record INSUFFICIENT_FORWARD_DATA; do not substitute an exposed historical range."
+    ]
+  },
+  "next_stage": "FORWARD_EVIDENCE_ACCRUAL_OR_INDEPENDENT_PRE-DECLARED_NEW_DATA_SOURCE",
+  "commercial_validation": false
+}
