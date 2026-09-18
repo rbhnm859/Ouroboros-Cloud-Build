@@ -50,7 +50,11 @@ for m in prx.finditer(t):
 summ=re.findall(r"\[V32-SUMMARY\].*?executionErrors=(\d+)\s+gridRiskViolations=(\d+)\s+duplicateGridLegs=(\d+)\s+orphanPendingOrders=(\d+)\s+stopWideningViolations=(\d+)",t)
 errs=gridv=dup=orph=widen=0
 if summ: errs,gridv,dup,orph,widen=map(int,summ[-1])
-errs=max(errs,len(re.findall(r"\[V32-EXCEPTION-|ORDER_ERROR|InvalidRequest|Invalid Volume|Insufficient Margin",t,re.I)))
+error_reasons=collections.Counter()
+for m in re.finditer(r"\[V32-EXECUTION-ERROR\]\s+code=([^\s]+)\s+detail=([^\r\n]*)",t):
+    error_reasons[m.group(1)]+=1
+if error_reasons:
+    errs=max(errs,sum(error_reasons.values()))
 
 by_pattern={p:stats([x for x in baskets if x["pattern"]==p]) for p in sorted(set(x["pattern"] for x in baskets))}
 by_route={p:stats([x for x in baskets if x["route"]==p]) for p in sorted(set(x["route"] for x in baskets))}
@@ -82,7 +86,7 @@ out={"status":"OK","version":"HarmonyBot V32.0","window":a.window,"initial_capit
  "runtime_started":"[V32-START]" in t,"pipeline_detected":sum(z.get("detected",0) for z in pipe.values()),
  "baskets":overall["count"],"annualized_frequency":overall["count"]/a.years if a.years else 0.0,
  **overall,"max_dd_pct":float(eq.get("maxEquityDrawdownPercent",0) or 0),
- "execution_errors":errs,"grid_risk_violations":gridv,"duplicate_grid_legs":dup,"orphan_pending_orders":orph,"stop_widening_violations":widen,
+ "execution_errors":errs,"execution_error_reasons":dict(error_reasons),"grid_risk_violations":gridv,"duplicate_grid_legs":dup,"orphan_pending_orders":orph,"stop_widening_violations":widen,
  "pattern":by_pattern,"route":by_route,"direction":by_dir,"filled_leg_count":by_fills,"pipeline":pipe,
  "single_entry_equivalent":single,
  "grid_attribution":{"fill_rates":fill_rates,"average_filled_legs":statistics.mean([b["filled_legs"] for b in baskets]) if baskets else 0,
