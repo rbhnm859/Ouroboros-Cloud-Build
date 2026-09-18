@@ -129,13 +129,21 @@ namespace cAlgo.Robots
             _m15Bars = MarketData.GetBars(TimeFrame.Minute15, SymbolName);
             _m1Bars = MarketData.GetBars(TimeFrame.Minute, SymbolName);
 
-            if (!BarsReady())
+            if (!BarsObjectsReady())
             {
-                Print("[V31-FATAL] TIMEFRAME_LOAD_FAILED H4={0} H1={1} M15={2} M1={3}",
-                    Count(_h4Bars), Count(_h1Bars), Count(_m15Bars), Count(_m1Bars));
+                Print("[V31-FATAL] TIMEFRAME_OBJECT_LOAD_FAILED");
                 Stop();
                 return;
             }
+
+            WarmupBars(_h4Bars, 230, "H4");
+            WarmupBars(_h1Bars, 230, "H1");
+            WarmupBars(_m15Bars, 360, "M15");
+            WarmupBars(_m1Bars, 120, "M1");
+
+            if (!BarsReady())
+                Print("[V31-WARMUP-PENDING] H4={0} H1={1} M15={2} M1={3}",
+                    Count(_h4Bars), Count(_h1Bars), Count(_m15Bars), Count(_m1Bars));
 
             _londonTz = ResolveTimeZone("Europe/London", "GMT Standard Time");
             _newYorkTz = ResolveTimeZone("America/New_York", "Eastern Standard Time");
@@ -1013,9 +1021,33 @@ namespace cAlgo.Robots
 
         // ---------------- Math ----------------
 
+        private bool BarsObjectsReady()
+        {
+            return _h4Bars != null && _h1Bars != null && _m15Bars != null && _m1Bars != null;
+        }
+
+        private void WarmupBars(Bars bars, int minimum, string name)
+        {
+            if (bars == null) return;
+            int loops = 0;
+            while (bars.Count < minimum && loops < 32)
+            {
+                int added = 0;
+                try { added = bars.LoadMoreHistory(); }
+                catch (Exception ex)
+                {
+                    Print("[V31-WARMUP-ERROR] tf={0} count={1} error={2}", name, bars.Count, ex.Message);
+                    break;
+                }
+                loops++;
+                Print("[V31-WARMUP] tf={0} added={1} count={2}", name, added, bars.Count);
+                if (added <= 0) break;
+            }
+        }
+
         private bool BarsReady()
         {
-            return Count(_h4Bars) >= 230 && Count(_h1Bars) >= 230 && Count(_m15Bars) >= 360 && Count(_m1Bars) >= 50;
+            return BarsObjectsReady() && Count(_h4Bars) >= 230 && Count(_h1Bars) >= 230 && Count(_m15Bars) >= 360 && Count(_m1Bars) >= 50;
         }
 
         private int Count(Bars b) { return b == null ? 0 : b.Count; }
