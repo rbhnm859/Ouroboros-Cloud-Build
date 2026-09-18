@@ -42,6 +42,14 @@ def main():
     thesis=re.findall(r"\[V295-THESIS-SUMMARY\].*?invalidations=(\d+)\s+gridProofBlocked=(\d+)",t)
     inv,grid_block=(map(int,thesis[-1]) if thesis else (0,0))
     pattern={}
+    monthly=collections.defaultdict(float)
+    from datetime import datetime, timezone
+    for b in baskets:
+        if b["entryTime"]:
+            try:
+                monthly[datetime.fromtimestamp(b["entryTime"]/1000.0,tz=timezone.utc).strftime("%Y-%m")]+=b["net"]
+            except Exception:
+                pass
     for p in sorted(set(b["pattern"] for b in baskets)):
         v=[b["net"] for b in baskets if b["pattern"]==p]; ww=[x for x in v if x>0]; ll=[x for x in v if x<0]; pg=sum(ww); pl=abs(sum(ll))
         pattern[p]={"count":len(v),"net":sum(v),"pf":pg/pl if pl else (999.0 if pg else 0.0),"expectancy":sum(v)/len(v) if v else 0.0}
@@ -55,7 +63,7 @@ def main():
       "top5_loss_pct":100*sum(losses[:5])/total_loss if total_loss else 0.0,"grid_baskets":sum(b["grid_children"]>0 for b in baskets),
       "thesis_invalidations":inv,"grid_proof_blocked":grid_block,"admission_seen":len(admissions),"admission_allowed":allowed,
       "admission_blocked":blocked,"admission_block_reasons":dict(reasons),"execution_errors":len(errs),"pattern":pattern,
-      "basket_nets":vals,"telemetry_note":"Old baseline artifacts lacked complete per-basket MFE/MAE/HTF/PRZ/geometry snapshots. This audit does not fabricate unavailable fields."
+      "basket_nets":vals,"monthly_net":dict(sorted(monthly.items())),"profitable_months":sum(1 for v in monthly.values() if v>0),"observed_months":len(monthly),"telemetry_note":"Old baseline artifacts lacked complete per-basket MFE/MAE/HTF/PRZ/geometry snapshots. This audit does not fabricate unavailable fields."
     }
     pathlib.Path(a.out).write_text(json.dumps(out,indent=2))
     print(json.dumps(out,indent=2))
