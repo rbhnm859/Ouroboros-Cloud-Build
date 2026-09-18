@@ -1,4 +1,4 @@
-name: HarmonyBot V29.4 Edge Context Gate Development
+name: HarmonyBot V29.4 Final Commercial Recovery
 
 on:
   push:
@@ -107,7 +107,7 @@ jobs:
           set -euo pipefail
           mkdir -p seal/{reports,logs,data,audit}
           C="v294-edge-reg-${GITHUB_RUN_ID}"
-          docker run --name "$C" -v "$PWD/seal:/work" ghcr.io/spotware/ctrader-console:5.9.11 backtest             /work/algo/HarmonyBotPro_v294_edge_context.algo             --ctid="$CTRADER_CTID" --pwd-file=/work/ctrader.pwd --account="$CTRADER_ACCOUNT_NUMBER"             --symbol=XAUUSD --period=m1 --start=02/09/2026 --end=16/09/2026 --balance=100 --data-mode=ticks --data-dir=/work/data             --commission=35 --spread=1 --SymbolName=XAUUSD --RiskPercent=1.40 --MaxSlippagePips=70 --MaxDrawdown=10 --MinStopLossPips=100             --SmallAccountMode=true --SmallAccountMinSLPips=25 --EnableAltBat=true --EnableFiveZero=true --EnableFibGrid=true --MinRR=2             --GridProfitFib=1.618 --GridStopFib=1.618 --EnableCapitalAwarePrecisionEntry=true --PrecisionPrzMaxDistanceAtr=0.45 --PrecisionMaxWaitAtr=1.25             --CapitalSafetyHeadroom=0.98 --CapGridStopToRiskBudget=true --EvaluationStartUtcIso=2026-09-09T00:00:00Z             --V29PersistentPrzQueue=true --V29PendingMaxBars=90 --V29PendingGlobalMax=12 --V29PendingPerPatternMax=3             --V29PendingMinCompositeQuality=0.58 --V29PendingTriggerMaxPrzAtr=0.85 --V29HighQualityPrzBonusAtr=0.35             --V29CandidateReplacementMargin=0.03 --V29WarmupSeedPending=true --V29MaxOrderAttemptsPerCandidate=3             --V291SmallAccountTacticalExecution=true --V291TacticalBudgetUse=0.98 --V291RequireMicroConfirmation=true --V291MinTacticalRR=2.0             --V292FastSmallAccountExecution=true --V292MicroPivotBars=2 --V292MicroPivotAtrBuffer=0.04             --V292EnableCapitalCapStop=true --V292EnableEarlyTrigger=true --V292EarlyTriggerMinQuality=0.66             --V292EarlyTriggerMaxPrzAtr=0.95 --V292MicroBodyMinAtr=0.02 --V292WickBodyConfirmRatio=0.25             --V294AllowBuy=true --V294AllowSell=true             --report=/work/reports/D7.html --report-json=/work/reports/D7.json > seal/logs/D7.log 2>&1 &
+          docker run --name "$C" -v "$PWD/seal:/work" ghcr.io/spotware/ctrader-console:5.9.11 backtest             /work/algo/HarmonyBotPro_v294_edge_context.algo             --ctid="$CTRADER_CTID" --pwd-file=/work/ctrader.pwd --account="$CTRADER_ACCOUNT_NUMBER"             --symbol=XAUUSD --period=m1 --start=02/09/2026 --end=16/09/2026 --balance=100 --data-mode=ticks --data-dir=/work/data             --commission=35 --spread=1 --SymbolName=XAUUSD --RiskPercent=1.40 --MaxSlippagePips=70 --MaxDrawdown=10 --MinStopLossPips=100             --SmallAccountMode=true --SmallAccountMinSLPips=25 --EnableAltBat=true --EnableFiveZero=true --EnableFibGrid=true --MinRR=2             --GridProfitFib=1.618 --GridStopFib=1.618 --EnableCapitalAwarePrecisionEntry=true --PrecisionPrzMaxDistanceAtr=0.45 --PrecisionMaxWaitAtr=1.25             --CapitalSafetyHeadroom=0.98 --CapGridStopToRiskBudget=true --EvaluationStartUtcIso=2026-09-09T00:00:00Z             --V29PersistentPrzQueue=true --V29PendingMaxBars="$PENDING_BARS" --V29PendingGlobalMax=12 --V29PendingPerPatternMax=3             --V29PendingMinCompositeQuality=0.58 --V29PendingTriggerMaxPrzAtr="$PENDING_PRZ" --V29HighQualityPrzBonusAtr=0.35             --V29CandidateReplacementMargin=0.03 --V29WarmupSeedPending=true --V29MaxOrderAttemptsPerCandidate=3             --V291SmallAccountTacticalExecution=true --V291TacticalBudgetUse=0.98 --V291RequireMicroConfirmation=true --V291MinTacticalRR=2.0             --V292FastSmallAccountExecution=true --V292MicroPivotBars=2 --V292MicroPivotAtrBuffer=0.04             --V292EnableCapitalCapStop=true --V292EnableEarlyTrigger=true --V292EarlyTriggerMinQuality=0.66             --V292EarlyTriggerMaxPrzAtr=0.95 --V292MicroBodyMinAtr=0.02 --V292WickBodyConfirmRatio=0.25             --V294AllowBuy=true --V294AllowSell=true             --report=/work/reports/D7.html --report-json=/work/reports/D7.json > seal/logs/D7.log 2>&1 &
           PID=$!; DONE=0
           for ((i=0;i<3600;i+=3)); do
             if test -s seal/reports/D7.json && python3 - <<'PY'
@@ -162,8 +162,12 @@ jobs:
       fail-fast: false
       matrix:
         preset:
-          - { id: SELL_LONDON_FULLBOT, allow_buy: 'false', session_end: '13', grid: 'true', eligible: 'true', dst_aware: 'false' }
-          - { id: SELL_LONDON_NOGRID, allow_buy: 'false', session_end: '13', grid: 'false', eligible: 'true', dst_aware: 'false' }
+          - { id: BASE, eligible: 'true', grid_cooldown: '15', min_prz: '0.55', min_geom: '0.52', pending_bars: '90', pending_prz: '0.85', be_r: '0.25', trail_r: '0.50', scale_r: '0.618' }
+          - { id: GRID_DELAY_240, eligible: 'true', grid_cooldown: '240', min_prz: '0.55', min_geom: '0.52', pending_bars: '90', pending_prz: '0.85', be_r: '0.25', trail_r: '0.50', scale_r: '0.618' }
+          - { id: PRZ_RECOVERY_050, eligible: 'true', grid_cooldown: '15', min_prz: '0.50', min_geom: '0.52', pending_bars: '90', pending_prz: '0.85', be_r: '0.25', trail_r: '0.50', scale_r: '0.618' }
+          - { id: GEOM_RECOVERY_048, eligible: 'true', grid_cooldown: '15', min_prz: '0.55', min_geom: '0.48', pending_bars: '90', pending_prz: '0.85', be_r: '0.25', trail_r: '0.50', scale_r: '0.618' }
+          - { id: PENDING_RECOVERY, eligible: 'true', grid_cooldown: '15', min_prz: '0.55', min_geom: '0.52', pending_bars: '150', pending_prz: '0.95', be_r: '0.25', trail_r: '0.50', scale_r: '0.618' }
+          - { id: WINNER_LOCK, eligible: 'true', grid_cooldown: '15', min_prz: '0.55', min_geom: '0.52', pending_bars: '90', pending_prz: '0.85', be_r: '0.15', trail_r: '0.35', scale_r: '0.50' }
         window:
           - { id: DEV-A, start: '04/01/2021', eval: '2021-01-11T00:00:00Z', end: '30/06/2021' }
           - { id: DEV-B, start: '01/07/2021', eval: '2021-07-08T00:00:00Z', end: '31/12/2021' }
@@ -173,11 +177,15 @@ jobs:
       CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
       CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
       CANDIDATE_ID: ${{ matrix.preset.id }}
-      ALLOW_BUY: ${{ matrix.preset.allow_buy }}
-      SESSION_END: ${{ matrix.preset.session_end }}
-      GRID_ENABLED: ${{ matrix.preset.grid }}
       ELIGIBLE: ${{ matrix.preset.eligible }}
-      DST_AWARE: ${{ matrix.preset.dst_aware }}
+      GRID_COOLDOWN: ${{ matrix.preset.grid_cooldown }}
+      MIN_PRZ: ${{ matrix.preset.min_prz }}
+      MIN_GEOM: ${{ matrix.preset.min_geom }}
+      PENDING_BARS: ${{ matrix.preset.pending_bars }}
+      PENDING_PRZ: ${{ matrix.preset.pending_prz }}
+      BE_R: ${{ matrix.preset.be_r }}
+      TRAIL_R: ${{ matrix.preset.trail_r }}
+      SCALE_R: ${{ matrix.preset.scale_r }}
       WINDOW_ID: ${{ matrix.window.id }}
       START_DATE: ${{ matrix.window.start }}
       EVAL_DATE: ${{ matrix.window.eval }}
@@ -208,7 +216,7 @@ jobs:
           mkdir -p seal/{reports,logs,data,audit}
           OUT="${CANDIDATE_ID}-${WINDOW_ID}"
           C="v294-${CANDIDATE_ID,,}-${WINDOW_ID,,}-${GITHUB_RUN_ID}"
-          docker run --name "$C" -v "$PWD/seal:/work" ghcr.io/spotware/ctrader-console:5.9.11 backtest             /work/algo/HarmonyBotPro_v294_edge_context.algo             --ctid="$CTRADER_CTID" --pwd-file=/work/ctrader.pwd --account="$CTRADER_ACCOUNT_NUMBER"             --symbol=XAUUSD --period=m1 --start="$START_DATE" --end="$END_DATE" --balance=10000 --data-mode=m1 --data-dir=/work/data             --commission=35 --spread=1 --SymbolName=XAUUSD --RiskPercent=1.0 --MaxSlippagePips=30 --MaxDrawdown=10 --MinStopLossPips=100             --SmallAccountMode=false --SessionStart=8 --SessionEnd="$SESSION_END" --DstAwareInstitutionalSession="$DST_AWARE" --MinAtrPrice=0.5             --V294AllowBuy="$ALLOW_BUY" --V294AllowSell=true --EnableFibGrid="$GRID_ENABLED"             --EnableAltBat=true --EnableFiveZero=true --MinRR=2 --GridProfitFib=1.618 --GridStopFib=1.618             --EnableCapitalAwarePrecisionEntry=true --PrecisionPrzMaxDistanceAtr=0.45 --PrecisionMaxWaitAtr=1.25             --CapitalSafetyHeadroom=0.98 --CapGridStopToRiskBudget=true --EvaluationStartUtcIso="$EVAL_DATE"             --V29PersistentPrzQueue=true --V29PendingMaxBars=90 --V29PendingGlobalMax=12 --V29PendingPerPatternMax=3             --V29PendingMinCompositeQuality=0.58 --V29PendingTriggerMaxPrzAtr=0.85 --V29HighQualityPrzBonusAtr=0.35             --V29CandidateReplacementMargin=0.03 --V29WarmupSeedPending=true --V29MaxOrderAttemptsPerCandidate=3             --V291SmallAccountTacticalExecution=false --V292FastSmallAccountExecution=false --V292EnableCapitalCapStop=false --V292EnableEarlyTrigger=false             --report="/work/reports/${OUT}.html" --report-json="/work/reports/${OUT}.json" > "seal/logs/${OUT}.log" 2>&1 &
+          docker run --name "$C" -v "$PWD/seal:/work" ghcr.io/spotware/ctrader-console:5.9.11 backtest             /work/algo/HarmonyBotPro_v294_edge_context.algo             --ctid="$CTRADER_CTID" --pwd-file=/work/ctrader.pwd --account="$CTRADER_ACCOUNT_NUMBER"             --symbol=XAUUSD --period=m1 --start="$START_DATE" --end="$END_DATE" --balance=10000 --data-mode=m1 --data-dir=/work/data             --commission=35 --spread=1 --SymbolName=XAUUSD --RiskPercent=1.0 --MaxSlippagePips=30 --MaxDrawdown=10 --MinStopLossPips=100             --SmallAccountMode=false --SessionStart=8 --SessionEnd=13 --DstAwareInstitutionalSession=false --MinAtrPrice=0.5             --V294AllowBuy=false --V294AllowSell=true --EnableFibGrid=true             --EnableAltBat=true --EnableFiveZero=true --MinRR=2 --GridProfitFib=1.618 --GridStopFib=1.618             --GridCooldownMinutes="$GRID_COOLDOWN" --MinPrzConfluence="$MIN_PRZ" --MinGeometryQuality="$MIN_GEOM"             --GridBreakevenTriggerR="$BE_R" --GridTrailTriggerR="$TRAIL_R" --GridScaleOutR="$SCALE_R"             --EnableCapitalAwarePrecisionEntry=true --PrecisionPrzMaxDistanceAtr=0.45 --PrecisionMaxWaitAtr=1.25             --CapitalSafetyHeadroom=0.98 --CapGridStopToRiskBudget=true --EvaluationStartUtcIso="$EVAL_DATE"             --V29PersistentPrzQueue=true --V29PendingMaxBars=90 --V29PendingGlobalMax=12 --V29PendingPerPatternMax=3             --V29PendingMinCompositeQuality=0.58 --V29PendingTriggerMaxPrzAtr=0.85 --V29HighQualityPrzBonusAtr=0.35             --V29CandidateReplacementMargin=0.03 --V29WarmupSeedPending=true --V29MaxOrderAttemptsPerCandidate=3             --V291SmallAccountTacticalExecution=false --V292FastSmallAccountExecution=false --V292EnableCapitalCapStop=false --V292EnableEarlyTrigger=false             --report="/work/reports/${OUT}.html" --report-json="/work/reports/${OUT}.json" > "seal/logs/${OUT}.log" 2>&1 &
           PID=$!; DONE=0
           for ((i=0;i<6000;i+=4)); do
             if test -s "seal/reports/${OUT}.json" && python3 - <<PY
@@ -268,7 +276,11 @@ jobs:
           dm=re.findall(r'directionBlocked=(\d+)',t)
           out={
             'candidate':c,'window':w,'status':'OK','eligible_candidate':os.environ['ELIGIBLE']=='true',
-            'config':{'allow_buy':os.environ['ALLOW_BUY']=='true','allow_sell':True,'session_start':8,'session_end':int(os.environ['SESSION_END']),'dst_aware':os.environ['DST_AWARE']=='true','grid_enabled':os.environ['GRID_ENABLED']=='true','min_atr_price':0.5,'pattern_universe':'FULL_PHASE3'},
+            'config':{'allow_buy':False,'allow_sell':True,'session_start':8,'session_end':13,'dst_aware':False,'grid_enabled':True,'min_atr_price':0.5,'pattern_universe':'FULL_PHASE3',
+                      'grid_cooldown':int(os.environ['GRID_COOLDOWN']),'min_prz':float(os.environ['MIN_PRZ']),'min_geom':float(os.environ['MIN_GEOM']),
+                      'pending_bars':int(os.environ['PENDING_BARS']),'pending_prz':float(os.environ['PENDING_PRZ']),
+                      'be_r':float(os.environ['BE_R']),'trail_r':float(os.environ['TRAIL_R']),'scale_r':float(os.environ['SCALE_R']),
+                      'data_fidelity':'BAR_M1'},
             'baskets':len(vals),'wins':len(W),'losses':len(L),'gross_profit':gp,'gross_loss':gl,'pf':pf,'net':net,'expectancy':net/len(vals) if vals else 0,
             'win_rate_pct':100*len(W)/len(vals) if vals else 0,'realized_rr':aw/abs(al) if aw>0 and al<0 else None,
             'max_dd_pct':float(eq.get('maxEquityDrawdownPercent',0) or 0),'largest_loss':min(L) if L else 0,
@@ -300,9 +312,14 @@ jobs:
     outputs:
       pass: ${{ steps.gate.outputs.pass }}
       winner: ${{ steps.gate.outputs.winner }}
-      session_end: ${{ steps.gate.outputs.session_end }}
-      grid_enabled: ${{ steps.gate.outputs.grid_enabled }}
-      dst_aware: ${{ steps.gate.outputs.dst_aware }}
+      grid_cooldown: ${{ steps.gate.outputs.grid_cooldown }}
+      min_prz: ${{ steps.gate.outputs.min_prz }}
+      min_geom: ${{ steps.gate.outputs.min_geom }}
+      pending_bars: ${{ steps.gate.outputs.pending_bars }}
+      pending_prz: ${{ steps.gate.outputs.pending_prz }}
+      be_r: ${{ steps.gate.outputs.be_r }}
+      trail_r: ${{ steps.gate.outputs.trail_r }}
+      scale_r: ${{ steps.gate.outputs.scale_r }}
     steps:
       - uses: actions/download-artifact@v4
         with:
@@ -316,10 +333,7 @@ jobs:
           import json,glob,pathlib,os
           rows=[json.load(open(p)) for p in glob.glob('all/audit/*.json')+glob.glob('all/*.json') if pathlib.Path(p).is_file()]
           rows=[x for x in rows if x.get('status')=='OK']
-          cfg={
-            'SELL_LONDON_FULLBOT':{'session_end':'13','grid_enabled':'true','dst_aware':'false'},
-            'SELL_LONDON_NOGRID':{'session_end':'13','grid_enabled':'false','dst_aware':'false'}
-          }
+          cfg={}
           by={}
           for x in rows: by.setdefault(x['candidate'],[]).append(x)
           summary={}
@@ -329,23 +343,30 @@ jobs:
               apf=gp/gl if gl>0 else (999 if gp>0 else 0); aexp=net/tb if tb else 0; maxdd=max([x.get('max_dd_pct',0) for x in rs] or [999])
               pfs=[x.get('pf',0) for x in rs if x.get('baskets',0)>0]; pos=sum(x.get('net',0)>0 for x in rs); errs=sum(x.get('execution_errors',0) for x in rs)
               eligible=bool(rs and rs[0].get('eligible_candidate'))
-              passed=bool(eligible and len(rs)==3 and active==3 and tb>=20 and maxdd<=10 and net>0 and aexp>0 and pos>=2 and errs==0 and pfs and min(pfs)>1)
-              summary[cid]={'rows':rs,'active_windows':active,'total_baskets':tb,'aggregate_pf':apf,'total_net':net,'aggregate_expectancy':aexp,'worst_pf':min(pfs) if pfs else 0,'positive_windows':pos,'max_dd_pct':maxdd,'execution_errors':errs,'eligible':eligible,'dev_gate_pass':passed}
+              trades_per_year=tb/1.5
+              edge_pass=bool(eligible and len(rs)==3 and active==3 and tb>=20 and maxdd<=10 and net>0 and aexp>0 and pos>=2 and errs==0 and pfs and min(pfs)>1 and all(x.get('expectancy',0)>0 for x in rs))
+              frequency_pass=bool(trades_per_year>=50)
+              passed=bool(edge_pass and frequency_pass)
+              summary[cid]={'rows':rs,'active_windows':active,'total_baskets':tb,'trades_per_year':trades_per_year,'aggregate_pf':apf,'total_net':net,'aggregate_expectancy':aexp,'worst_pf':min(pfs) if pfs else 0,'positive_windows':pos,'max_dd_pct':maxdd,'execution_errors':errs,'eligible':eligible,'edge_gate_pass':edge_pass,'frequency_gate_pass':frequency_pass,'dev_gate_pass':passed}
           control=summary.get('BOTH_DIR_FULLBOT',{})
           for cid,s in summary.items():
               if cid!='BOTH_DIR_FULLBOT' and control:
                   s['vs_control']={'net_delta':s['total_net']-control.get('total_net',0),'pf_delta':s['aggregate_pf']-control.get('aggregate_pf',0),'expectancy_delta':s['aggregate_expectancy']-control.get('aggregate_expectancy',0),'basket_delta':s['total_baskets']-control.get('total_baskets',0)}
           passed=[(cid,s) for cid,s in summary.items() if s.get('dev_gate_pass')]
-          passed.sort(key=lambda z:(z[1]['worst_pf'],z[1]['aggregate_pf'],z[1]['total_net'],z[1]['total_baskets']),reverse=True)
+          passed.sort(key=lambda z:(z[1]['worst_pf'],z[1]['aggregate_pf'],z[1]['trades_per_year'],z[1]['total_net']),reverse=True)
           winner=passed[0][0] if passed else ''
-          out={'source_commit':'294c73aaa9f1a133899134982ba4cd4fb54de527','classification':'AUDIT_CONFIGURATION_CORRECTION_NO_SOURCE_CHANGE','candidates':summary,'winner':winner or None,'dev_gate_pass':bool(winner)}
+          edge_only=[(cid,s) for cid,s in summary.items() if s.get('edge_gate_pass')]
+          max_robust_frequency=max([s.get('trades_per_year',0) for _,s in edge_only] or [0])
+          out={'source_commit':'294c73aaa9f1a133899134982ba4cd4fb54de527','classification':'FINAL_V294_PRESET_RECOVERY','development_data_mode':'BAR_M1',
+               'candidates':summary,'winner':winner or None,'dev_gate_pass':bool(winner),'frequency_gate_pass':bool(winner),
+               'maximum_robust_trades_per_year_at_stage2':max_robust_frequency}
           pathlib.Path('V294-EDGE-DEV-GATE.json').write_text(json.dumps(out,indent=2)); print(json.dumps(out,indent=2))
           with open(os.environ['GITHUB_OUTPUT'],'a') as f:
               f.write('pass='+('true' if winner else 'false')+'\n')
               f.write('winner='+winner+'\n')
-              f.write('session_end='+(cfg.get(winner,{}).get('session_end',''))+'\n')
-              f.write('grid_enabled='+(cfg.get(winner,{}).get('grid_enabled',''))+'\n')
-              f.write('dst_aware='+(cfg.get(winner,{}).get('dst_aware',''))+'\n')
+              wc=summary.get(winner,{}).get('rows',[{}])[0].get('config',{}) if winner else {}
+              for k in ['grid_cooldown','min_prz','min_geom','pending_bars','pending_prz','be_r','trail_r','scale_r']:
+                  f.write(k+'='+str(wc.get(k,''))+'\n')
           PY
       - uses: actions/upload-artifact@v4
         with:
@@ -365,9 +386,14 @@ jobs:
       CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
       CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
       CANDIDATE_ID: ${{ needs.dev_gate.outputs.winner }}
-      SESSION_END: ${{ needs.dev_gate.outputs.session_end }}
-      GRID_ENABLED: ${{ needs.dev_gate.outputs.grid_enabled }}
-      DST_AWARE: ${{ needs.dev_gate.outputs.dst_aware }}
+      GRID_COOLDOWN: ${{ needs.dev_gate.outputs.grid_cooldown }}
+      MIN_PRZ: ${{ needs.dev_gate.outputs.min_prz }}
+      MIN_GEOM: ${{ needs.dev_gate.outputs.min_geom }}
+      PENDING_BARS: ${{ needs.dev_gate.outputs.pending_bars }}
+      PENDING_PRZ: ${{ needs.dev_gate.outputs.pending_prz }}
+      BE_R: ${{ needs.dev_gate.outputs.be_r }}
+      TRAIL_R: ${{ needs.dev_gate.outputs.trail_r }}
+      SCALE_R: ${{ needs.dev_gate.outputs.scale_r }}
     steps:
       - uses: actions/download-artifact@v4
         with:
@@ -391,7 +417,7 @@ jobs:
           set -euo pipefail
           mkdir -p seal/{reports,logs,data,audit}
           C="v294-edge-val2-${GITHUB_RUN_ID}"
-          docker run --name "$C" -v "$PWD/seal:/work" ghcr.io/spotware/ctrader-console:5.9.11 backtest /work/algo/HarmonyBotPro_v294_edge_context.algo             --ctid="$CTRADER_CTID" --pwd-file=/work/ctrader.pwd --account="$CTRADER_ACCOUNT_NUMBER"             --symbol=XAUUSD --period=m1 --start=01/07/2020 --end=31/12/2020 --balance=10000 --data-mode=ticks --data-dir=/work/data             --commission=35 --spread=1 --SymbolName=XAUUSD --RiskPercent=1.0 --MaxSlippagePips=30 --MaxDrawdown=10 --MinStopLossPips=100             --SmallAccountMode=false --SessionStart=8 --SessionEnd="$SESSION_END" --DstAwareInstitutionalSession="$DST_AWARE" --MinAtrPrice=0.5 --V294AllowBuy=false --V294AllowSell=true --EnableFibGrid="$GRID_ENABLED"             --EnableAltBat=true --EnableFiveZero=true --MinRR=2 --GridProfitFib=1.618 --GridStopFib=1.618             --EnableCapitalAwarePrecisionEntry=true --PrecisionPrzMaxDistanceAtr=0.45 --PrecisionMaxWaitAtr=1.25 --CapitalSafetyHeadroom=0.98 --CapGridStopToRiskBudget=true --EvaluationStartUtcIso=2020-07-08T00:00:00Z             --V29PersistentPrzQueue=true --V29PendingMaxBars=90 --V29PendingGlobalMax=12 --V29PendingPerPatternMax=3 --V29PendingMinCompositeQuality=0.58             --V29PendingTriggerMaxPrzAtr=0.85 --V29HighQualityPrzBonusAtr=0.35 --V29CandidateReplacementMargin=0.03 --V29WarmupSeedPending=true --V29MaxOrderAttemptsPerCandidate=3             --V291SmallAccountTacticalExecution=false --V292FastSmallAccountExecution=false --V292EnableCapitalCapStop=false --V292EnableEarlyTrigger=false             --report=/work/reports/VAL2.html --report-json=/work/reports/VAL2.json > seal/logs/VAL2.log 2>&1 &
+          docker run --name "$C" -v "$PWD/seal:/work" ghcr.io/spotware/ctrader-console:5.9.11 backtest /work/algo/HarmonyBotPro_v294_edge_context.algo             --ctid="$CTRADER_CTID" --pwd-file=/work/ctrader.pwd --account="$CTRADER_ACCOUNT_NUMBER"             --symbol=XAUUSD --period=m1 --start=01/07/2020 --end=31/12/2020 --balance=10000 --data-mode=ticks --data-dir=/work/data             --commission=35 --spread=1 --SymbolName=XAUUSD --RiskPercent=1.0 --MaxSlippagePips=30 --MaxDrawdown=10 --MinStopLossPips=100             --SmallAccountMode=false --SessionStart=8 --SessionEnd=13 --DstAwareInstitutionalSession=false --MinAtrPrice=0.5 --V294AllowBuy=false --V294AllowSell=true --EnableFibGrid=true             --EnableAltBat=true --EnableFiveZero=true --MinRR=2 --GridProfitFib=1.618 --GridStopFib=1.618             --GridCooldownMinutes="$GRID_COOLDOWN" --MinPrzConfluence="$MIN_PRZ" --MinGeometryQuality="$MIN_GEOM"             --GridBreakevenTriggerR="$BE_R" --GridTrailTriggerR="$TRAIL_R" --GridScaleOutR="$SCALE_R"             --EnableCapitalAwarePrecisionEntry=true --PrecisionPrzMaxDistanceAtr=0.45 --PrecisionMaxWaitAtr=1.25 --CapitalSafetyHeadroom=0.98 --CapGridStopToRiskBudget=true --EvaluationStartUtcIso=2020-07-08T00:00:00Z             --V29PersistentPrzQueue=true --V29PendingMaxBars="$PENDING_BARS" --V29PendingGlobalMax=12 --V29PendingPerPatternMax=3 --V29PendingMinCompositeQuality=0.58             --V29PendingTriggerMaxPrzAtr="$PENDING_PRZ" --V29HighQualityPrzBonusAtr=0.35 --V29CandidateReplacementMargin=0.03 --V29WarmupSeedPending=true --V29MaxOrderAttemptsPerCandidate=3             --V291SmallAccountTacticalExecution=false --V292FastSmallAccountExecution=false --V292EnableCapitalCapStop=false --V292EnableEarlyTrigger=false             --report=/work/reports/VAL2.html --report-json=/work/reports/VAL2.json > seal/logs/VAL2.log 2>&1 &
           PID=$!; DONE=0
           for ((i=0;i<9600;i+=5)); do
             if test -s seal/reports/VAL2.json && python3 - <<'PY'
@@ -455,8 +481,14 @@ jobs:
       CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
       CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
       CANDIDATE_ID: ${{ needs.dev_gate.outputs.winner }}
-      SESSION_END: ${{ needs.dev_gate.outputs.session_end }}
-      GRID_ENABLED: ${{ needs.dev_gate.outputs.grid_enabled }}
+      GRID_COOLDOWN: ${{ needs.dev_gate.outputs.grid_cooldown }}
+      MIN_PRZ: ${{ needs.dev_gate.outputs.min_prz }}
+      MIN_GEOM: ${{ needs.dev_gate.outputs.min_geom }}
+      PENDING_BARS: ${{ needs.dev_gate.outputs.pending_bars }}
+      PENDING_PRZ: ${{ needs.dev_gate.outputs.pending_prz }}
+      BE_R: ${{ needs.dev_gate.outputs.be_r }}
+      TRAIL_R: ${{ needs.dev_gate.outputs.trail_r }}
+      SCALE_R: ${{ needs.dev_gate.outputs.scale_r }}
     steps:
       - uses: actions/download-artifact@v4
         with:
@@ -480,7 +512,7 @@ jobs:
           set -euo pipefail
           mkdir -p seal/{reports,logs,data,audit}
           C="v294-edge-100-${GITHUB_RUN_ID}"
-          docker run --name "$C" -v "$PWD/seal:/work" ghcr.io/spotware/ctrader-console:5.9.11 backtest /work/algo/HarmonyBotPro_v294_edge_context.algo             --ctid="$CTRADER_CTID" --pwd-file=/work/ctrader.pwd --account="$CTRADER_ACCOUNT_NUMBER"             --symbol=XAUUSD --period=m1 --start=01/07/2020 --end=31/12/2020 --balance=100 --data-mode=ticks --data-dir=/work/data             --commission=35 --spread=1 --SymbolName=XAUUSD --RiskPercent=1.40 --MaxSlippagePips=70 --MaxDrawdown=10 --MinStopLossPips=100             --SmallAccountMode=true --SmallAccountMinSLPips=25 --SessionStart=8 --SessionEnd="$SESSION_END" --DstAwareInstitutionalSession="$DST_AWARE" --MinAtrPrice=0.5 --V294AllowBuy=false --V294AllowSell=true --EnableFibGrid="$GRID_ENABLED"             --EnableAltBat=true --EnableFiveZero=true --MinRR=2 --GridProfitFib=1.618 --GridStopFib=1.618             --EnableCapitalAwarePrecisionEntry=true --PrecisionPrzMaxDistanceAtr=0.45 --PrecisionMaxWaitAtr=1.25 --CapitalSafetyHeadroom=0.98 --CapGridStopToRiskBudget=true --EvaluationStartUtcIso=2020-07-08T00:00:00Z             --V29PersistentPrzQueue=true --V29PendingMaxBars=90 --V29PendingGlobalMax=12 --V29PendingPerPatternMax=3 --V29PendingMinCompositeQuality=0.58             --V29PendingTriggerMaxPrzAtr=0.85 --V29HighQualityPrzBonusAtr=0.35 --V29CandidateReplacementMargin=0.03 --V29WarmupSeedPending=true --V29MaxOrderAttemptsPerCandidate=3             --V291SmallAccountTacticalExecution=true --V291TacticalBudgetUse=0.98 --V291RequireMicroConfirmation=true --V291MinTacticalRR=2.0             --V292FastSmallAccountExecution=true --V292MicroPivotBars=2 --V292MicroPivotAtrBuffer=0.04 --V292EnableCapitalCapStop=true --V292EnableEarlyTrigger=true             --V292EarlyTriggerMinQuality=0.66 --V292EarlyTriggerMaxPrzAtr=0.95 --V292MicroBodyMinAtr=0.02 --V292WickBodyConfirmRatio=0.25             --report=/work/reports/SMALL100.html --report-json=/work/reports/SMALL100.json > seal/logs/SMALL100.log 2>&1 &
+          docker run --name "$C" -v "$PWD/seal:/work" ghcr.io/spotware/ctrader-console:5.9.11 backtest /work/algo/HarmonyBotPro_v294_edge_context.algo             --ctid="$CTRADER_CTID" --pwd-file=/work/ctrader.pwd --account="$CTRADER_ACCOUNT_NUMBER"             --symbol=XAUUSD --period=m1 --start=01/07/2020 --end=31/12/2020 --balance=100 --data-mode=ticks --data-dir=/work/data             --commission=35 --spread=1 --SymbolName=XAUUSD --RiskPercent=1.40 --MaxSlippagePips=70 --MaxDrawdown=10 --MinStopLossPips=100             --SmallAccountMode=true --SmallAccountMinSLPips=25 --SessionStart=8 --SessionEnd=13 --DstAwareInstitutionalSession=false --MinAtrPrice=0.5 --V294AllowBuy=false --V294AllowSell=true --EnableFibGrid=true             --EnableAltBat=true --EnableFiveZero=true --MinRR=2 --GridProfitFib=1.618 --GridStopFib=1.618             --GridCooldownMinutes="$GRID_COOLDOWN" --MinPrzConfluence="$MIN_PRZ" --MinGeometryQuality="$MIN_GEOM"             --GridBreakevenTriggerR="$BE_R" --GridTrailTriggerR="$TRAIL_R" --GridScaleOutR="$SCALE_R"             --EnableCapitalAwarePrecisionEntry=true --PrecisionPrzMaxDistanceAtr=0.45 --PrecisionMaxWaitAtr=1.25 --CapitalSafetyHeadroom=0.98 --CapGridStopToRiskBudget=true --EvaluationStartUtcIso=2020-07-08T00:00:00Z             --V29PersistentPrzQueue=true --V29PendingMaxBars="$PENDING_BARS" --V29PendingGlobalMax=12 --V29PendingPerPatternMax=3 --V29PendingMinCompositeQuality=0.58             --V29PendingTriggerMaxPrzAtr="$PENDING_PRZ" --V29HighQualityPrzBonusAtr=0.35 --V29CandidateReplacementMargin=0.03 --V29WarmupSeedPending=true --V29MaxOrderAttemptsPerCandidate=3             --V291SmallAccountTacticalExecution=true --V291TacticalBudgetUse=0.98 --V291RequireMicroConfirmation=true --V291MinTacticalRR=2.0             --V292FastSmallAccountExecution=true --V292MicroPivotBars=2 --V292MicroPivotAtrBuffer=0.04 --V292EnableCapitalCapStop=true --V292EnableEarlyTrigger=true             --V292EarlyTriggerMinQuality=0.66 --V292EarlyTriggerMaxPrzAtr=0.95 --V292MicroBodyMinAtr=0.02 --V292WickBodyConfirmRatio=0.25             --report=/work/reports/SMALL100.html --report-json=/work/reports/SMALL100.json > seal/logs/SMALL100.log 2>&1 &
           PID=$!; DONE=0
           for ((i=0;i<9600;i+=5)); do
             if test -s seal/reports/SMALL100.json && python3 - <<'PY'
@@ -578,7 +610,10 @@ jobs:
           out={'stable_baseline':'V29.2','current_candidate':'V29.4-Edge-Context-Gate-Dev','source_commit':'294c73aaa9f1a133899134982ba4cd4fb54de527',
                'source_change':'MINIMUM_NECESSARY_DIRECTION_GATE_ONLY','engineering_freeze':'PASS','development':dev,'validation':val,'small_capital':small,
                'status':'ADVANCE_TO_ROBUSTNESS' if advance else 'HOLD','performance_freeze':'OPEN' if advance else 'FAIL_STAGE1',
-               'oos_status':'NOT_TESTED','final_holdout':'UNTOUCHED_NOT_RUN','final_commercial_freeze':'HOLD'}
+               'oos_status':'BLOCKED_NO_AUDITABLY_UNEXPOSED_OOS_PARTITION' if advance else 'NOT_TESTED',
+               'robustness_status':'HOLD_DATA_GOVERNANCE' if advance else 'NOT_REACHED',
+               'frequency_gate':'PASS' if dev.get('frequency_gate_pass') else 'FAIL',
+               'final_holdout':'UNTOUCHED_NOT_RUN','final_commercial_freeze':'HOLD'}
           pathlib.Path('V294-EDGE-FINAL-DECISION.json').write_text(json.dumps(out,indent=2)); print(json.dumps(out,indent=2))
           PY
       - uses: actions/upload-artifact@v4
