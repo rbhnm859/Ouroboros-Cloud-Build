@@ -1067,6 +1067,13 @@ namespace cAlgo.Robots
             if (!strictlyBetter) return false;
 
             TradeType tt = basket.Direction == TradeDirection.Buy ? TradeType.Buy : TradeType.Sell;
+            proposed = NormalizeStopPrice(tt, proposed);
+
+            bool normalizedBetter = basket.Direction == TradeDirection.Buy
+                ? proposed > basket.ProtectionFrontier + _symbol.TickSize
+                : proposed < basket.ProtectionFrontier - _symbol.TickSize;
+            if (!normalizedBetter) return false;
+
             if (!BrokerStopDistanceValid(tt, proposed))
             {
                 BasketEvent(basket, "FRONTIER_WAIT_BROKER_DISTANCE_" + reason);
@@ -1728,6 +1735,7 @@ namespace cAlgo.Robots
                 double desiredStop = p.StopLoss.HasValue
                     ? BetterStop(basket.Direction, p.StopLoss.Value, basket.ProtectionFrontier)
                     : basket.ProtectionFrontier;
+                desiredStop = NormalizeStopPrice(p.TradeType, desiredStop);
                 double desiredTarget = p.TakeProfit.HasValue ? p.TakeProfit.Value : basket.CanonicalTarget;
 
                 // Existing protection is already at least as strong: leave it untouched.
@@ -1790,13 +1798,25 @@ namespace cAlgo.Robots
                    Math.Abs(target - entry) + 1e-12 >= minTp;
         }
 
+        private double NormalizeStopPrice(TradeType tradeType, double price)
+        {
+            double tick = _symbol.TickSize > 0 ? _symbol.TickSize : Math.Pow(10, -_symbol.Digits);
+            double ticks = price / tick;
+            double normalized = tradeType == TradeType.Buy
+                ? Math.Floor(ticks + 1e-9) * tick
+                : Math.Ceiling(ticks - 1e-9) * tick;
+            return Math.Round(normalized, _symbol.Digits, MidpointRounding.AwayFromZero);
+        }
+
         private bool BrokerStopDistanceValid(TradeType tradeType, double proposedStop)
         {
             double reference = tradeType == TradeType.Buy ? _symbol.Bid : _symbol.Ask;
             double minSl = BrokerMinimumDistancePrice(reference, true);
+            double transportBuffer = Math.Max(_symbol.TickSize * 2.0, 0);
+            double required = minSl + transportBuffer;
             return tradeType == TradeType.Buy
-                ? proposedStop < reference && reference - proposedStop + 1e-12 >= minSl
-                : proposedStop > reference && proposedStop - reference + 1e-12 >= minSl;
+                ? proposedStop < reference && reference - proposedStop + 1e-12 >= required
+                : proposedStop > reference && proposedStop - reference + 1e-12 >= required;
         }
 
         // ---------------- Candidate state / telemetry ----------------
