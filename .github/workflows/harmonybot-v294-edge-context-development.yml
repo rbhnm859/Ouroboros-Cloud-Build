@@ -29,6 +29,7 @@ jobs:
         run: |
           set -euo pipefail
           python3 tmp/harmonybot-v26-build/build_v261_frequency.py
+          python3 tmp/harmonybot-v26-build/fix_v261_mtf_overload.py
           python3 tmp/harmonybot-v26-build/fix_v262_frequency_safe.py
           python3 tmp/harmonybot-v26-build/fix_v262_grid_guard_band.py
           python3 tmp/harmonybot-v26-build/fix_v27_commercial_rc.py
