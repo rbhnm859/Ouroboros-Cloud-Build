@@ -29,10 +29,17 @@ jobs:
         run: |
           set -euo pipefail
           python3 tmp/harmonybot-v26-build/build_v261_frequency.py
+          python3 tmp/harmonybot-v26-build/fix_v262_frequency_safe.py
           python3 tmp/harmonybot-v26-build/fix_v262_grid_guard_band.py
-          python3 tmp/harmonybot-v26-build/fix_v27_observability.py
+          python3 tmp/harmonybot-v26-build/fix_v27_commercial_rc.py
+          python3 tmp/harmonybot-v26-build/fix_v28_frequency_architecture.py
           python3 tmp/harmonybot-v26-build/fix_v28_cost_rr.py
-          python3 tmp/harmonybot-v26-build/fix_v29_frequency_architecture.py
+          python3 tmp/harmonybot-v26-build/fix_v281_geometry_quality_engine.py
+          python3 tmp/harmonybot-v26-build/fix_v281_commercial_onepass.py
+          python3 tmp/harmonybot-v26-build/fix_v282_strategy_quality_rc.py
+          python3 tmp/harmonybot-v26-build/fix_v283_execution_quality.py
+          python3 tmp/harmonybot-v26-build/fix_v284_capital_aware_precision.py
+          python3 tmp/harmonybot-v26-build/fix_v29_persistent_prz_execution.py
           python3 tmp/harmonybot-v26-build/fix_v291_small_account_execution.py
           python3 tmp/harmonybot-v26-build/fix_v292_small_account_fast_execution.py
           python3 tmp/harmonybot-v26-build/fix_v292_grid_lifecycle_hotfix.py
