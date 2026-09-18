@@ -1,0 +1,35 @@
+name: HarmonyBot V35.1 Monotonic Alpha Veto Development
+on:
+  push:
+    branches: [harmonybot/v35.1-monotonic-alpha-veto]
+    paths:
+      - '.github/workflows/harmonybot-v351-monotonic-development.yml'
+      - 'HarmonyBot-V35.1/**'
+  workflow_dispatch:
+permissions: {contents: read}
+concurrency:
+  group: harmonybot-v351-monotonic-development
+  cancel-in-progress: true
+jobs:
+  monotonic_alpha:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    env:
+      CTRADER_PASSWORD: ${{ secrets.CTRADER_PASSWORD }}
+      CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+      CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+    steps:
+      - uses: actions/checkout@v4
+        with: {ref: harmonybot/v35.1-monotonic-alpha-veto, path: control}
+      - uses: actions/setup-dotnet@v4
+        with: {dotnet-version: 8.0.x}
+      - name: Execute V35.1 monotonic veto ablation
+        run: |
+          chmod +x control/HarmonyBot-V35.1/tools/*.sh
+          control/HarmonyBot-V35.1/tools/orchestrate_development.sh
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: HARMONYBOT-V351-MONOTONIC-ALPHA
+          path: control/HarmonyBot-V35.1/output
+          retention-days: 30
