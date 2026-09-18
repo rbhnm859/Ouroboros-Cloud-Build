@@ -4,9 +4,27 @@
     "baseline_run": 35322359842,
     "commercial_convergence_run": 35338325244,
     "commercial_convergence_result": "STRATEGY_ARCHITECTURE_LIMITATION",
-    "A": {"pf": 0.733, "net": -628.25, "expectancy": -5.82, "annualized_frequency": 72.0, "worst_window_pf": 0.163},
-    "B": {"pf": 0.665, "net": -668.92, "expectancy": -7.52, "annualized_frequency": 59.33, "worst_window_pf": 0.033},
-    "C": {"pf": 0.690, "net": -605.92, "expectancy": -6.81, "annualized_frequency": 59.33, "worst_window_pf": 0.032}
+    "A": {
+      "pf": 0.733,
+      "net": -628.25,
+      "expectancy": -5.82,
+      "annualized_frequency": 72,
+      "worst_window_pf": 0.163
+    },
+    "B": {
+      "pf": 0.665,
+      "net": -668.92,
+      "expectancy": -7.52,
+      "annualized_frequency": 59.33,
+      "worst_window_pf": 0.033
+    },
+    "C": {
+      "pf": 0.69,
+      "net": -605.92,
+      "expectancy": -6.81,
+      "annualized_frequency": 59.33,
+      "worst_window_pf": 0.032
+    }
   },
   "diagnosis": [
     "Development was globally SELL-only even though harmonic direction is endogenous to the pattern; this creates regime fragility.",
@@ -18,10 +36,18 @@
     "DEV-B loses in both 5-0 and Cypher, so pattern blacklist alone is not a robust solution."
   ],
   "immutable_engineering": [
-    "risk_sizing", "min_volume_protection", "volume_normalization", "margin_protection",
-    "free_margin_protection", "server_side_protective_sl", "anti_hedge",
-    "duplicate_main_entry_protection", "fail_closed", "execution_integrity",
-    "broker_api_handling", "capital_protection"
+    "risk_sizing",
+    "min_volume_protection",
+    "volume_normalization",
+    "margin_protection",
+    "free_margin_protection",
+    "server_side_protective_sl",
+    "anti_hedge",
+    "duplicate_main_entry_protection",
+    "fail_closed",
+    "execution_integrity",
+    "broker_api_handling",
+    "capital_protection"
   ],
   "architecture_changes": [
     "restore both BUY and SELL; remove global direction bias",
@@ -33,32 +59,137 @@
     "keep harmonic pattern as the only primary setup; context and confirmation are filters, not independent entry signals"
   ],
   "profiles": [
-    {"id":"P1","profile":1,"name":"Balanced HTF/M15","logic":"HTF consensus aligned is preferred; mixed H4/H1 requires M15 alignment and higher composite quality."},
-    {"id":"P2","profile":2,"name":"2-of-3 Consensus","logic":"At least two of H4/H1/M15 align with harmonic direction; composite quality >=0.60."},
-    {"id":"P3","profile":3,"name":"Strict 3-of-3","logic":"H4/H1/M15 all align; stricter geometry/PRZ/composite quality and stronger closed-bar body confirmation."}
+    {
+      "id": "P1",
+      "profile": 1,
+      "name": "Balanced HTF/M15",
+      "logic": "HTF consensus aligned is preferred; mixed H4/H1 requires M15 alignment and higher composite quality."
+    },
+    {
+      "id": "P2",
+      "profile": 2,
+      "name": "2-of-3 Consensus",
+      "logic": "At least two of H4/H1/M15 align with harmonic direction; composite quality >=0.60."
+    },
+    {
+      "id": "P3",
+      "profile": 3,
+      "name": "Strict 3-of-3",
+      "logic": "H4/H1/M15 all align; stricter geometry/PRZ/composite quality and stronger closed-bar body confirmation."
+    }
   ],
   "development_windows": [
-    {"id":"DEV-A","start":"04/01/2021","evaluation_start":"2021-01-11T00:00:00Z","end":"30/06/2021"},
-    {"id":"DEV-B","start":"01/07/2021","evaluation_start":"2021-07-08T00:00:00Z","end":"31/12/2021"},
-    {"id":"DEV-C","start":"03/01/2022","evaluation_start":"2022-01-10T00:00:00Z","end":"30/06/2022"}
+    {
+      "id": "DEV-A",
+      "start": "04/01/2021",
+      "evaluation_start": "2021-01-11T00:00:00Z",
+      "end": "30/06/2021"
+    },
+    {
+      "id": "DEV-B",
+      "start": "01/07/2021",
+      "evaluation_start": "2021-07-08T00:00:00Z",
+      "end": "31/12/2021"
+    },
+    {
+      "id": "DEV-C",
+      "start": "03/01/2022",
+      "evaluation_start": "2022-01-10T00:00:00Z",
+      "end": "30/06/2022"
+    }
   ],
   "development_gate": {
-    "each_window_pf_gt":1.0,"each_window_expectancy_gt":0,"each_window_net_gt":0,
-    "aggregate_net_gt":0,"aggregate_expectancy_gt":0,"max_dd_pct_lte":10,
-    "execution_errors_eq":0,"frequency_floor_per_year":50
+    "each_window_pf_gt": 1,
+    "each_window_expectancy_gt": 0,
+    "each_window_net_gt": 0,
+    "aggregate_net_gt": 0,
+    "aggregate_expectancy_gt": 0,
+    "max_dd_pct_lte": 10,
+    "execution_errors_eq": 0,
+    "frequency_floor_per_year": 50
   },
   "selection": "Only profiles passing all Development gates are eligible. Rank by worst-window PF, aggregate expectancy, lower DD, then frequency.",
-  "validation": {"start":"01/07/2019","evaluation_start":"2019-07-08T00:00:00Z","end":"31/12/2019","status":"UNTOUCHED_REPOSITORY_SEARCH_NO_EXPOSURE_FOUND"},
-  "oos": {"start":"02/01/2019","evaluation_start":"2019-01-09T00:00:00Z","end":"28/06/2019","status":"UNTOUCHED_REPOSITORY_SEARCH_NO_EXPOSURE_FOUND"},
-  "final_holdout": {"start":"02/07/2018","evaluation_start":"2018-07-09T00:00:00Z","end":"31/12/2018","status":"UNTOUCHED_REPOSITORY_SEARCH_NO_EXPOSURE_FOUND"},
-  "commercial_100": {"broker":"FxPro","symbol":"XAUUSD","balance":100,"leverage":500,"small_account_mode":true},
-  "robustness": {
-    "quality_sensitivity":[0.80,0.90,0.95,1.05,1.10,1.20],
-    "cost_stress":["spread_150","commission_150","slippage_150","combined_cost"],
-    "monte_carlo_paths":5000
+  "validation": {
+    "start": "01/07/2019",
+    "evaluation_start": "2019-07-08T00:00:00Z",
+    "end": "31/12/2019",
+    "status": "UNTOUCHED_REPOSITORY_SEARCH_NO_EXPOSURE_FOUND"
   },
-  "commercial_targets": {"pf":2.5,"win_rate_pct":65,"realized_rr":2.0,"annual_roi_pct":100,"profitable_months":10,"actual_executable_trades_per_year":200,"max_dd_pct":10},
-  "near_target_floor": {"pf":1.5,"realized_rr":1.5,"annual_roi_pct":30,"actual_executable_trades_per_year":75,"max_dd_pct":10},
+  "oos": {
+    "start": "02/01/2019",
+    "evaluation_start": "2019-01-09T00:00:00Z",
+    "end": "28/06/2019",
+    "status": "UNTOUCHED_REPOSITORY_SEARCH_NO_EXPOSURE_FOUND"
+  },
+  "final_holdout": {
+    "start": "02/07/2018",
+    "evaluation_start": "2018-07-09T00:00:00Z",
+    "end": "31/12/2018",
+    "status": "UNTOUCHED_REPOSITORY_SEARCH_NO_EXPOSURE_FOUND"
+  },
+  "commercial_100": {
+    "broker": "FxPro",
+    "symbol": "XAUUSD",
+    "balance": 100,
+    "leverage": 500,
+    "small_account_mode": true
+  },
+  "robustness": {
+    "quality_sensitivity": [
+      0.8,
+      0.9,
+      0.95,
+      1.05,
+      1.1,
+      1.2
+    ],
+    "cost_stress": [
+      "spread_150",
+      "commission_150",
+      "slippage_150",
+      "combined_cost"
+    ],
+    "monte_carlo_paths": 5000
+  },
+  "commercial_targets": {
+    "pf": 2.5,
+    "win_rate_pct": 65,
+    "realized_rr": 2,
+    "annual_roi_pct": 100,
+    "profitable_months": 10,
+    "actual_executable_trades_per_year": 200,
+    "max_dd_pct": 10
+  },
+  "near_target_floor": {
+    "pf": 1.5,
+    "realized_rr": 1.5,
+    "annual_roi_pct": 30,
+    "actual_executable_trades_per_year": 75,
+    "max_dd_pct": 10
+  },
   "stop_rule": "No post-hoc profile or threshold changes after launch. If no profile passes Development, final status is STRATEGY_ARCHITECTURE_LIMITATION. If downstream mandatory gate fails, final status is HOLD. Final Holdout is used once only.",
-  "allowed_final_status":["PASS","NEAR_TARGET","HOLD","STRATEGY_ARCHITECTURE_LIMITATION"]
+  "allowed_final_status": [
+    "PASS",
+    "NEAR_TARGET",
+    "HOLD",
+    "STRATEGY_ARCHITECTURE_LIMITATION"
+  ],
+  "historical_walk_forward": {
+    "status": "EXPOSED_HISTORICAL_STRESS_NOT_HOLDOUT",
+    "windows": [
+      {
+        "id": "WF_2020_H1",
+        "start": "02/01/2020",
+        "evaluation_start": "2020-01-09T00:00:00Z",
+        "end": "30/06/2020"
+      },
+      {
+        "id": "WF_2020_H2",
+        "start": "01/07/2020",
+        "evaluation_start": "2020-07-08T00:00:00Z",
+        "end": "31/12/2020"
+      }
+    ],
+    "gate": "aggregate PF > 1, aggregate expectancy/net > 0, each window DD <= 10%, execution errors = 0"
+  }
 }
