@@ -16,6 +16,9 @@ insert=anchor+'''
         [Parameter("Final Require Closed-Bar Confirm", DefaultValue = true)]
         public bool FinalRequireClosedBarConfirm { get; set; }
 
+        [Parameter("Final Pure Structural Payoff", DefaultValue = true)]
+        public bool FinalPureStructuralPayoff { get; set; }
+
         [Parameter("Final Quality Scale", DefaultValue = 1.0, MinValue = 0.80, MaxValue = 1.20)]
         public double FinalQualityScale { get; set; }
 
@@ -232,11 +235,24 @@ summary_insert='''            Print("[COMM-CONVERGENCE-SUMMARY] mode={0} seen={1
 if s.count(summary_anchor)!=1: raise SystemExit(f'summary anchor count={s.count(summary_anchor)}')
 s=s.replace(summary_anchor,summary_insert,1)
 
+manage_anchor='''                EnsureRuntimeState(p);
+                double profitPips = p.Pips;
+                double beOffsetPips = Math.Max(BreakEvenOffsetPips, MinStopDistancePips);
+'''
+manage_insert='''                EnsureRuntimeState(p);
+                double profitPips = p.Pips;
+                if (FinalEdgeArchitecture && FinalPureStructuralPayoff)
+                    continue; // preserve server-side structural SL/TP; no partial/BE/trailing payoff clipping
+                double beOffsetPips = Math.Max(BreakEvenOffsetPips, MinStopDistancePips);
+'''
+if s.count(manage_anchor)!=1: raise SystemExit(f'manage anchor count={s.count(manage_anchor)}')
+s=s.replace(manage_anchor,manage_insert,1)
+
 old='Commercial-Convergence-One-Pass-RC'
 if s.count(old)!=1: raise SystemExit(f'version marker count={s.count(old)}')
 s=s.replace(old,'Final-Commercial-Freeze-Architecture-RC',1)
 
-for token in ['FinalEdgeArchitecture','FinalPolicyProfile','TimeFrame.Minute15','[FINAL-EDGE]','[FINAL-EDGE-SUMMARY]','Final-Commercial-Freeze-Architecture-RC','V29.3 GRID-RISK-CAP-HOTFIX']:
+for token in ['FinalEdgeArchitecture','FinalPolicyProfile','FinalPureStructuralPayoff','TimeFrame.Minute15','[FINAL-EDGE]','[FINAL-EDGE-SUMMARY]','Final-Commercial-Freeze-Architecture-RC','V29.3 GRID-RISK-CAP-HOTFIX']:
     if token not in s: raise SystemExit('missing '+token)
 p.write_text(s,encoding='utf-8')
 print('Applied Final Commercial Freeze Architecture RC')
