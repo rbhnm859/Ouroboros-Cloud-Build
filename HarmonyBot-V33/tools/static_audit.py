@@ -28,6 +28,7 @@ checks={
  "risk_cap_on_admission":"currentRisk + candidateRisk > basket.InitialBasketRisk" in src,
  "no_market_chase":"ADMISSION_PRICE_ALREADY_CROSSED" in src,
  "bounded_technical_retry":"MaxPendingSubmitAttempts = 2" in src and "ErrorCode.TechnicalError" in src and "RETRY_WAIT" in src,
+ "bounded_frontier_retry":"FrontierRetryAfterUtc" in src and "FrontierSubmitAttempts" in src and "FRONTIER_TRANSIENT_RETRY" in src,
  "server_limit_orders":"PlaceLimitOrder" in src and "ProtectionType.Absolute" in src,
  "pending_expiration":"ExpirationUtc" in src and "PendingTtlMinutes" in src,
  "shared_structural_stop":"PatternStructuralInvalidation" in src and "basket.StructuralStop" in src,
@@ -68,7 +69,7 @@ pathlib.Path("GRID_RISK_AUDIT.json").write_text(json.dumps({
  "structural_stop_widening_allowed":False
 },indent=2))
 pathlib.Path("EXECUTION_STATE_AUDIT.json").write_text(json.dumps({
- "status":"PASS" if all(checks[k] for k in ("bounded_technical_retry","server_limit_orders","duplicate_guard","orphan_guard","execution_error_ledger","server_protection_no_weaken")) else "FAIL",
+ "status":"PASS" if all(checks[k] for k in ("bounded_technical_retry","bounded_frontier_retry","server_limit_orders","duplicate_guard","orphan_guard","execution_error_ledger","server_protection_no_weaken")) else "FAIL",
  "states":["ADMISSION_WAIT","SUBMIT_REQUESTED","PENDING_ACCEPTED","RETRY_WAIT","FILLED","CANCEL_REQUESTED","CANCELLED","CLOSED","REJECTED"],
  "technical_error_retry_max_attempts":2
 },indent=2))
