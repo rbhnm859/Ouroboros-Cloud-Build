@@ -89,7 +89,7 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           name: V295-MINIMUM-BUILD
-          path: seal
+          path: .
       - name: Resolve FxPro demo 1:500 USD account
         run: |
           set -euo pipefail
@@ -173,7 +173,7 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           name: V295-MINIMUM-BUILD
-          path: seal
+          path: .
       - name: Resolve account
         run: |
           set -euo pipefail
