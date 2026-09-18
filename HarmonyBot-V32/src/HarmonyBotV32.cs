@@ -683,6 +683,15 @@ namespace cAlgo.Robots
                 basket.FilledLegs = Math.Max(basket.FilledLegs, positions.Count);
                 basket.AverageEntry = WeightedAverageEntry(positions);
 
+                foreach (var p in positions)
+                {
+                    PositionLedger legLedger;
+                    if (!_positions.TryGetValue(p.Id, out legLedger) || legLedger.InitialRiskPips <= 0) continue;
+                    double legR = p.Pips / legLedger.InitialRiskPips;
+                    if (legR > legLedger.PeakR) legLedger.PeakR = legR;
+                    if (-legR > legLedger.MaxAdverseR) legLedger.MaxAdverseR = -legR;
+                }
+
                 double currentNet = positions.Sum(p => p.NetProfit);
                 double currentR = basket.InitialBasketRisk > 0 ? (basket.RealizedNet + currentNet) / basket.InitialBasketRisk : 0;
                 if (currentR > basket.PeakR) basket.PeakR = currentR;
@@ -919,8 +928,10 @@ namespace cAlgo.Robots
             {
                 basket.RealizedNet += p.NetProfit;
                 basket.ClosedLegs++;
-                Print("[V32-LEG-CLOSED] basket={0} cid={1} leg=L{2} pos={3} pattern={4} route={5} net={6:F2} reason={7}",
-                    basket.BasketId, basket.CandidateId, l.LegIndex, p.Id, basket.Pattern, basket.Route, p.NetProfit, args.Reason);
+                double legRealizedR = l.InitialRiskPips > 0 ? p.Pips / l.InitialRiskPips : 0;
+                Print("[V32-LEG-CLOSED] basket={0} cid={1} leg=L{2} pos={3} pattern={4} route={5} dir={6} mfeR={7:F3} maeR={8:F3} realizedR={9:F3} net={10:F2} reason={11}",
+                    basket.BasketId, basket.CandidateId, l.LegIndex, p.Id, basket.Pattern, basket.Route, basket.Direction,
+                    l.PeakR, l.MaxAdverseR, legRealizedR, p.NetProfit, args.Reason);
 
                 if (args.Reason.ToString().IndexOf("TakeProfit", StringComparison.OrdinalIgnoreCase) >= 0)
                     CancelBasketPending(basket, "CANONICAL_TARGET_REACHED");
@@ -945,10 +956,13 @@ namespace cAlgo.Robots
             CountPipeline(basket.Pattern).BasketClosed++;
             BasketEvent(basket, "BASKET_CLOSED_" + reason);
 
-            Print("[V32-BASKET-CLOSED] basket={0} cid={1} pattern={2} route={3} plannedLegs={4} filledLegs={5} avgEntry={6} stop={7} target={8} initialRisk={9:F2} worstRisk={10:F2} mfeR={11:F3} maeR={12:F3} realizedR={13:F3} net={14:F2} reason={15}",
-                basket.BasketId, basket.CandidateId, basket.Pattern, basket.Route, basket.Plan.Legs.Count, basket.FilledLegs,
-                basket.AverageEntry, basket.StructuralStop, basket.CanonicalTarget, basket.InitialBasketRisk, basket.PlannedWorstCaseRisk,
-                basket.PeakR, basket.MaxAdverseR, realizedR, basket.RealizedNet, reason);
+            double entryImprovementPips = basket.AverageEntry > 0
+                ? PriceToPips(basket.Direction == TradeDirection.Buy ? basket.EntryAnchor - basket.AverageEntry : basket.AverageEntry - basket.EntryAnchor)
+                : 0;
+            Print("[V32-BASKET-CLOSED] basket={0} cid={1} pattern={2} route={3} dir={4} plannedLegs={5} filledLegs={6} anchor={7} avgEntry={8} entryImprovePips={9:F3} stop={10} target={11} initialRisk={12:F2} worstRisk={13:F2} mfeR={14:F3} maeR={15:F3} realizedR={16:F3} net={17:F2} reason={18}",
+                basket.BasketId, basket.CandidateId, basket.Pattern, basket.Route, basket.Direction, basket.Plan.Legs.Count, basket.FilledLegs,
+                basket.EntryAnchor, basket.AverageEntry, entryImprovementPips, basket.StructuralStop, basket.CanonicalTarget,
+                basket.InitialBasketRisk, basket.PlannedWorstCaseRisk, basket.PeakR, basket.MaxAdverseR, realizedR, basket.RealizedNet, reason);
         }
 
         private IEnumerable<PendingOrder> OwnPendingOrders()
