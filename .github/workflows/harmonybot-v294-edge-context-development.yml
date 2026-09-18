@@ -55,14 +55,17 @@ jobs:
       - name: Build V29.5
         run: |
           set -euo pipefail
-          dotnet build cli-build/HarmonyBotPro_v261/HarmonyBotPro.csproj -c Release --nologo 2>&1 | tee V295-build.log
-          ! grep -Eq '(^|[^0-9])error (CS|MSB|NETSDK)[0-9]+' V295-build.log
-          A=$(find cli-build/HarmonyBotPro_v261/bin/Release -type f -name '*.algo' | head -1)
-          test -n "$A" && test -s "$A"
           mkdir -p seal/{algo,build}
+          cp cli-build/HarmonyBotPro_v261/HarmonyBotPro.cs seal/build/HarmonyBotPro.cs
+          cat > seal/build/HarmonyBotPro.csproj <<'EOF'
+          <Project Sdk="Microsoft.NET.Sdk"><PropertyGroup><TargetFramework>net6.0</TargetFramework><ImplicitUsings>disable</ImplicitUsings><Nullable>disable</Nullable><AlgoName>HarmonyBotPro_v295_thesis_validity</AlgoName><AlgoBuild>true</AlgoBuild><AlgoPublish>false</AlgoPublish><IncludeSource>false</IncludeSource></PropertyGroup><ItemGroup><PackageReference Include="cTrader.Automate" Version="1.0.19" /></ItemGroup></Project>
+          EOF
+          dotnet restore seal/build/HarmonyBotPro.csproj
+          dotnet build seal/build/HarmonyBotPro.csproj -c Release --no-restore --nologo 2>&1 | tee V295-build.log
+          ! grep -Eq '(^|[^0-9])error (CS|MSB|NETSDK)[0-9]+' V295-build.log
+          A=$(find seal/build/bin/Release -type f -name '*.algo' | head -1)
+          test -n "$A" && test -s "$A"
           cp "$A" seal/algo/HarmonyBotPro_v295_thesis_validity.algo
-          cp cli-build/HarmonyBotPro_v261/HarmonyBotPro.cs seal/build/
-          cp cli-build/HarmonyBotPro_v261/HarmonyBotPro.csproj seal/build/
           printf '%s\n' "$V294_SOURCE_COMMIT" > seal/V294_SOURCE_COMMIT.txt
           printf '%s\n' "$V295_PATCH_COMMIT" > seal/V295_PATCH_COMMIT.txt
           sha256sum seal/build/HarmonyBotPro.cs seal/algo/HarmonyBotPro_v295_thesis_validity.algo > seal/SHA256SUMS.txt
