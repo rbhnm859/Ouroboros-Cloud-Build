@@ -11,7 +11,7 @@ namespace cAlgo.Robots
     public class HarmonyBotV35 : Robot
     {
         private const string Version = "HarmonyBot V35.0 — Regime-Aware Harmonic Alpha Architecture";
-        private const string BotPrefix = "HB34";
+        private const string BotPrefix = "HB35";
 
         [Parameter("Symbol", DefaultValue = "XAUUSD")]
         public new string SymbolName { get; set; }
