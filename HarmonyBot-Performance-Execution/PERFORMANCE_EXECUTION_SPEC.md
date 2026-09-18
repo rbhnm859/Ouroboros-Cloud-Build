@@ -1,10 +1,10 @@
 # HarmonyBot Performance Execution Specification
 
-Status: **ACTIVE DEVELOPMENT SPECIFICATION**  
+Status: **HIGHEST PRIORITY EXECUTION / VALIDATION / COMMERCIAL FREEZE SPECIFICATION**  
 Engineering baseline: **HarmonyBot V29.3 Grid Risk-Cap Hotfix RC**  
 Stable historical baseline: **HarmonyBot V29.2**  
 Engineering Freeze: **PASS / protected**  
-Performance Freeze: **OPEN / reconstruction required**  
+Performance Freeze: **FAIL_STAGE1 / active recovery execution**  
 Final Commercial Freeze: **HOLD until all gates pass**
 
 ## 1. Non-negotiable constraints
@@ -199,6 +199,42 @@ Stop a candidate family when any of the following occurs:
 - only one exact parameter value succeeds.
 - cost stress immediately turns the strategy negative.
 - tail reduction depends on rules hand-crafted around previously known individual losses.
+
+## 12. Current execution state after Phase-1 / Phase-1.1
+
+Research is closed. This document is now the controlling execution specification.
+
+Completed evidence:
+- Phase-1 preset probes did not produce a Validation-qualified candidate.
+- Phase-1.1 ATR-coverage probes restored trade count but failed cross-regime expectancy.
+- F_ATR_FACTOR_040: DEV-A PF 0.409, DEV-B PF 0.658, DEV-C PF 0.646; all Net negative.
+- G_MIN_ATR_1_0: 217 total baskets across three Development windows; worst PF 0.337; total Net -2372.88; zero positive windows.
+- H_MIN_ATR_0_5: 225 total baskets; PF 0.461 / 0.433 / 1.167; total Net -1402.98; DEV-C DD 10.008% breaches the hard 10% ceiling.
+- Therefore simple ATR relaxation is RETIRED and must not be retuned.
+- Pattern attribution under relaxed ATR was dominated by Cypher and 5-0. Neither pattern showed stable positive expectancy across all three Development windows.
+- VAL-2 (2020-H2) was not executed because no Development winner existed and remains reserved pending the next qualified candidate.
+
+Active execution priority:
+1. $100 Small-Capital performance feasibility.
+2. Signal-funnel attribution using existing V29.3 telemetry plus controlled ablation.
+3. Minimal Effective Filter Stack: MTF, geometry/quality, pattern coverage, non-grid isolation.
+4. Cross-regime positive expectancy before any exit/payoff expansion.
+5. Only after positive entry edge exists: winner capture, tail control, PF ladder, OOS/WF/sensitivity/cost stress/final holdout.
+
+V29.4 remains NOT AUTHORIZED. Any source patch requires proof that a necessary adaptive rule cannot be represented by V29.3 parameters.
+
+## 13. Phase-2 architecture ablation gate
+
+Phase-2 runs on the already-exposed Development windows only and fixes Initial Capital at $100 with the proven V29.3 Small Capital execution stack enabled. The family set is deliberately small:
+
+- BASE100: frozen V29.3 small-cap reference.
+- MTF_OFF100: remove the H1 MTF directional gate only.
+- GEOM_OFF100: diagnostic removal of the geometry-quality engine only.
+- PATTERN_TOL100: modest FibTolerance expansion (0.07) to test pattern coverage without lowering all quality thresholds.
+- NON_GRID100: disable Grid only to isolate Non-Grid expectancy; diagnostic, not an instruction to remove Grid commercially.
+- ATR15_QUALITY60: one high-evidence combination; moderate ATR coverage recovery (MinAtrPrice 1.5) paired with stricter geometry/PRZ quality (0.60/0.60). This tests whether frequency can be recovered without admitting the low-quality tail observed in Phase-1.1.
+
+Development advancement requires all three Development windows active, no window DD >10%, every window PF >1, total Net >0, total expectancy >0, and no execution-integrity error. Any family failing those conditions is retired. Validation remains PASS/FAIL only and cannot be used for retuning.
 
 ## 12. Freeze states
 
