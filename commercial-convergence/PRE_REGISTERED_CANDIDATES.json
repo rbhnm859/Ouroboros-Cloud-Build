@@ -1,0 +1,207 @@
+{
+  "title": "HarmonyBot Commercial Convergence One-Pass RC",
+  "baseline": {
+    "run_id": 35322359842,
+    "head_sha": "ba8caeab70fc860a68cf72270bcb4d491a90462a",
+    "baskets": 122,
+    "annualized_frequency": 81.33,
+    "aggregate_pf": 0.703,
+    "aggregate_net": -804.34,
+    "max_dd_pct": 7.16,
+    "execution_errors": 0
+  },
+  "evidence_summary": {
+    "dev_a": {
+      "baskets": 47,
+      "pf": 0.992,
+      "net": -7.74
+    },
+    "dev_b": {
+      "baskets": 30,
+      "pf": 0.15,
+      "net": -668.15
+    },
+    "dev_c": {
+      "baskets": 45,
+      "pf": 0.866,
+      "net": -128.45
+    },
+    "structural_negative": "Cypher × high-volatility repeated negative across DEV-A/B/C",
+    "dev_b_hour_13": "loss concentration but not cross-window structural; forbidden as standalone hard block",
+    "grid": "V29.5 Development executed zero Grid baskets; do not attribute DEV-B losses to executed Grid adds"
+  },
+  "immutable_engineering": [
+    "small_capital_infrastructure",
+    "risk_sizing",
+    "min_volume_protection",
+    "volume_normalization",
+    "margin_protection",
+    "free_margin_protection",
+    "protective_sl",
+    "grid_risk_cap",
+    "anti_hedge",
+    "duplicate_main_entry_protection",
+    "fail_closed",
+    "execution_integrity",
+    "broker_api_handling",
+    "capital_protection"
+  ],
+  "candidates": [
+    {
+      "id": "A",
+      "name": "Structural Negative Cluster Exclusion",
+      "mode": 1,
+      "logic": "Block Cypher only when signal-time ATR >= 1.30 price units.",
+      "abs_high_atr": 1.3,
+      "atr_baseline_bars": 240,
+      "high_atr_ratio": 1.3,
+      "v295_no_mfe_kill_r": 0.85,
+      "v295_min_favorable_proof_r": 0.15,
+      "v295_min_invalidation_age_min": 2,
+      "rationale": "Directly tests the repeated cross-window Cypher high-volatility loss cluster with the minimum possible rule."
+    },
+    {
+      "id": "B",
+      "name": "Regime-Adaptive Pattern Admission",
+      "mode": 2,
+      "logic": "Block Cypher only when signal-time ATR / causal 240-bar rolling true-range baseline >= 1.30.",
+      "abs_high_atr": 1.3,
+      "atr_baseline_bars": 240,
+      "high_atr_ratio": 1.3,
+      "v295_no_mfe_kill_r": 0.85,
+      "v295_min_favorable_proof_r": 0.15,
+      "v295_min_invalidation_age_min": 2,
+      "rationale": "Tests whether a relative regime definition generalizes better than the absolute XAUUSD ATR boundary."
+    },
+    {
+      "id": "C",
+      "name": "Regime Admission + Earlier No-MFE Thesis Failure",
+      "mode": 3,
+      "logic": "Same Cypher relative high-volatility block as B, plus V29.5 no-MFE thesis invalidation at 0.70R adverse excursion after 2 minutes if peak favorable excursion remains <0.15R.",
+      "abs_high_atr": 1.3,
+      "atr_baseline_bars": 240,
+      "high_atr_ratio": 1.3,
+      "v295_no_mfe_kill_r": 0.7,
+      "v295_min_favorable_proof_r": 0.15,
+      "v295_min_invalidation_age_min": 2,
+      "rationale": "Tests payoff/thesis conversion without changing entry quality thresholds, sizing, or broker protections."
+    }
+  ],
+  "forbidden_posthoc_changes": [
+    "hour_13_blacklist",
+    "hour_lookup_table",
+    "global_MinATR_raise",
+    "global_geometry_tightening",
+    "global_PRZ_tightening",
+    "global_confidence_tightening",
+    "MTF_overfilter",
+    "risk_increase",
+    "min_volume_override",
+    "margin_override",
+    "hedging",
+    "duplicate_entries",
+    "grid_force_on"
+  ],
+  "development_windows": [
+    {
+      "id": "DEV-A",
+      "start": "04/01/2021",
+      "evaluation_start": "2021-01-11T00:00:00Z",
+      "end": "30/06/2021"
+    },
+    {
+      "id": "DEV-B",
+      "start": "01/07/2021",
+      "evaluation_start": "2021-07-08T00:00:00Z",
+      "end": "31/12/2021"
+    },
+    {
+      "id": "DEV-C",
+      "start": "03/01/2022",
+      "evaluation_start": "2022-01-10T00:00:00Z",
+      "end": "30/06/2022"
+    }
+  ],
+  "validation": {
+    "start": "01/07/2019",
+    "evaluation_start": "2019-07-08T00:00:00Z",
+    "end": "31/12/2019",
+    "status": "PREDECLARED_REPOSITORY_SEARCH_NO_2019_HARMONYBOT_EXPOSURE_FOUND"
+  },
+  "oos": {
+    "start": "02/01/2019",
+    "evaluation_start": "2019-01-09T00:00:00Z",
+    "end": "28/06/2019",
+    "status": "PREDECLARED_REPOSITORY_SEARCH_NO_2019_HARMONYBOT_EXPOSURE_FOUND"
+  },
+  "final_holdout": {
+    "start": "02/07/2018",
+    "evaluation_start": "2018-07-09T00:00:00Z",
+    "end": "31/12/2018",
+    "status": "UNTOUCHED_PREDECLARED_REPOSITORY_SEARCH_NO_2018_HARMONYBOT_EXPOSURE_FOUND"
+  },
+  "development_gate": {
+    "each_window_baskets_gt": 0,
+    "each_window_pf_gt": 1,
+    "each_window_expectancy_gt": 0,
+    "each_window_net_gt": 0,
+    "max_dd_pct_lte": 10,
+    "aggregate_net_gt": 0,
+    "aggregate_expectancy_gt": 0,
+    "execution_errors_eq": 0,
+    "frequency_floor_per_year": 50,
+    "frequency_priority_per_year": 75
+  },
+  "validation_gate": {
+    "pf_gt": 1,
+    "expectancy_gt": 0,
+    "net_gt": 0,
+    "max_dd_pct_lte": 10,
+    "execution_errors_eq": 0
+  },
+  "commercial_100_gate": {
+    "balance": 100,
+    "broker": "FxPro",
+    "symbol": "XAUUSD",
+    "leverage": 500,
+    "small_account_mode": true,
+    "max_dd_pct_lte": 10,
+    "execution_errors_eq": 0,
+    "forbidden": [
+      "invalid_volume",
+      "unprotected_position",
+      "hedge",
+      "duplicate_main_entry"
+    ]
+  },
+  "commercial_targets": {
+    "pf": 2.5,
+    "wr_pct": 65,
+    "realized_rr": 2,
+    "annual_roi_pct": 100,
+    "profitable_months": 10,
+    "trades_per_year": 200,
+    "max_dd_pct": 10
+  },
+  "stop_rule": "If none of A/B/C passes Development, stop and publish STRATEGY_ARCHITECTURE_LIMITATION. No V29.6/V29.7/V29.8.",
+  "final_status_allowed": [
+    "PASS",
+    "NEAR_TARGET",
+    "HOLD",
+    "STRATEGY_ARCHITECTURE_LIMITATION"
+  ],
+  "robustness": {
+    "sensitivity": [
+      "selected high-vol threshold -10%",
+      "selected high-vol threshold +10%"
+    ],
+    "cost_stress": [
+      "spread 1.0 -> 1.5",
+      "commission 35 -> 52.5",
+      "MaxSlippagePips 30 -> 45",
+      "combined spread 1.5 + commission 52.5 + MaxSlippagePips 45"
+    ],
+    "matrix_gate": "Every scenario PF >= 0.90, DD <= 10%, execution errors = 0; median PF > 1.0; base scenario PF > 1.0 and expectancy > 0.",
+    "monte_carlo": "Deterministic bootstrap of OOS basket returns, 5000 paths; 95th percentile max DD <= 15% and risk of ruin <= 1%."
+  }
+}
