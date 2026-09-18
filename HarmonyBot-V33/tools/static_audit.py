@@ -39,6 +39,8 @@ checks={
  "no_old_stop_manager":"ImproveBasketStops" not in src,
  "server_protection_no_weaken":"BetterStop(basket.Direction, p.StopLoss.Value, basket.ProtectionFrontier)" in src,
  "frontier_stop_only_api":"ModifyStopLossPrice(proposed)" in src and "ModifyPosition(p, proposed, p.TakeProfit" not in src,
+ "frontier_tick_normalization":"NormalizeStopPrice" in src and "Math.Floor(ticks" in src and "Math.Ceiling(ticks" in src,
+ "frontier_transport_buffer":"transportBuffer = Math.Max(_symbol.TickSize * 2.0" in src,
  "duplicate_guard":"LegAlreadyExists" in src and "_duplicateGridLegs" in src,
  "orphan_guard":"_orphanPendingOrders" in src and "CancelPendingOrder" in src,
  "single_active_basket":"_baskets.Values.Any(b => b.IsActive)" in src,
@@ -70,7 +72,7 @@ pathlib.Path("GRID_RISK_AUDIT.json").write_text(json.dumps({
  "structural_stop_widening_allowed":False
 },indent=2))
 pathlib.Path("EXECUTION_STATE_AUDIT.json").write_text(json.dumps({
- "status":"PASS" if all(checks[k] for k in ("bounded_technical_retry","bounded_frontier_retry","server_limit_orders","duplicate_guard","orphan_guard","execution_error_ledger","server_protection_no_weaken","frontier_stop_only_api")) else "FAIL",
+ "status":"PASS" if all(checks[k] for k in ("bounded_technical_retry","bounded_frontier_retry","server_limit_orders","duplicate_guard","orphan_guard","execution_error_ledger","server_protection_no_weaken","frontier_stop_only_api","frontier_tick_normalization","frontier_transport_buffer")) else "FAIL",
  "states":["ADMISSION_WAIT","SUBMIT_REQUESTED","PENDING_ACCEPTED","RETRY_WAIT","FILLED","CANCEL_REQUESTED","CANCELLED","CLOSED","REJECTED"],
  "technical_error_retry_max_attempts":2
 },indent=2))
