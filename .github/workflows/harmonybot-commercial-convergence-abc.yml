@@ -23,7 +23,8 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
-        with: { ref: ${{ env.BASE_COMMIT }} }
+        with:
+          ref: ${{ env.BASE_COMMIT }}
       - uses: actions/setup-dotnet@v4
         with: { dotnet-version: 8.0.x }
       - name: Reconstruct frozen V29.5 and apply one RC layer
@@ -69,7 +70,10 @@ jobs:
           A=$(find seal/build/bin/Release -type f -name '*.algo' | head -1); test -n "$A" && test -s "$A"
           cp "$A" seal/algo/HarmonyBot_CommercialConvergenceRC.algo
       - uses: actions/upload-artifact@v4
-        with: { name: CC-RC-BUILD, path: seal, retention-days: 30 }
+        with:
+          name: CC-RC-BUILD
+          path: seal
+          retention-days: 30
 
   development:
     needs: build
@@ -94,7 +98,9 @@ jobs:
       END_DATE: ${{ matrix.window.end }}
     steps:
       - uses: actions/download-artifact@v4
-        with: { name: CC-RC-BUILD, path: . }
+        with:
+          name: CC-RC-BUILD
+          path: .
       - name: Resolve FxPro demo 1:500
         run: |
           set -euo pipefail
@@ -186,7 +192,10 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/download-artifact@v4
-        with: { pattern: 'CC-CANDIDATE-*', path: all, merge-multiple: true }
+        with:
+          pattern: 'CC-CANDIDATE-*'
+          path: all
+          merge-multiple: true
       - name: Select only if hard Development gate passes
         run: |
           python3 - <<'PY'
@@ -209,4 +218,7 @@ jobs:
           pathlib.Path('COMMERCIAL-CONVERGENCE-DEVELOPMENT-GATE.json').write_text(json.dumps(out,indent=2)); print(json.dumps(out,indent=2))
           PY
       - uses: actions/upload-artifact@v4
-        with: { name: COMMERCIAL-CONVERGENCE-DEVELOPMENT-GATE, path: COMMERCIAL-CONVERGENCE-DEVELOPMENT-GATE.json, retention-days: 30 }
+        with:
+          name: COMMERCIAL-CONVERGENCE-DEVELOPMENT-GATE
+          path: COMMERCIAL-CONVERGENCE-DEVELOPMENT-GATE.json
+          retention-days: 30
