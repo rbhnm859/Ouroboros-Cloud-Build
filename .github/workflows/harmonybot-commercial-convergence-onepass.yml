@@ -1,0 +1,51 @@
+name: HarmonyBot Commercial Convergence One-Pass
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  VERIFIED_BASELINE_SHA: ba8caeab70fc860a68cf72270bcb4d491a90462a
+  VERIFIED_BASELINE_RUN: "35322359842"
+
+jobs:
+  evidence_lock:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify preregistration and immutable baseline
+        run: |
+          set -euo pipefail
+          test -s commercial-convergence/PRE_REGISTERED_CANDIDATES.json
+          test -s commercial-convergence/CODEX_ONE_PASS_COMMAND.md
+          python3 - <<'PY'
+          import json
+          p=json.load(open('commercial-convergence/PRE_REGISTERED_CANDIDATES.json'))
+          assert p['baseline']['run_id']==35322359842
+          assert p['baseline']['head_sha']=='ba8caeab70fc860a68cf72270bcb4d491a90462a'
+          assert [x['id'] for x in p['candidates']]==['A','B','C']
+          assert p['holdout']=='UNTOUCHED'
+          print('EVIDENCE_LOCK=PASS')
+          PY
+      - name: Publish execution manifest
+        run: |
+          mkdir -p out
+          cp commercial-convergence/PRE_REGISTERED_CANDIDATES.json out/
+          cp commercial-convergence/CODEX_ONE_PASS_COMMAND.md out/
+          cat > out/STATUS.md <<'EOF'
+          # HarmonyBot Commercial Convergence One-Pass
+          Evidence lock: PASS.
+          Baseline Run: 35322359842.
+          Baseline SHA: ba8caeab70fc860a68cf72270bcb4d491a90462a.
+          Candidate families are frozen to A/B/C.
+          Final Holdout: UNTOUCHED.
+
+          This workflow intentionally refuses to fabricate Development results. The next executable strategy job must implement the preregistered causal telemetry and A/B/C admission layer against the frozen V29.5 reconstruction, then enforce Development -> Validation -> $100 -> OOS/Robustness -> Final Holdout gates in order.
+          EOF
+      - uses: actions/upload-artifact@v4
+        with:
+          name: COMMERCIAL-CONVERGENCE-EVIDENCE-LOCK
+          path: out
+          retention-days: 30
