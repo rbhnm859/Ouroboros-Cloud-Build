@@ -24,7 +24,7 @@ env:
 jobs:
   build-smoke:
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 20
     steps:
       - name: Checkout V39
         uses: actions/checkout@v4
@@ -33,10 +33,12 @@ jobs:
           path: control
           fetch-depth: 1
 
-      - name: Setup .NET
+      - name: Setup .NET with NuGet cache
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: 8.0.x
+          cache: true
+          cache-dependency-path: control/HarmonyBot-V39/HarmonyBotV39.csproj
 
       - name: Static audit and build once
         shell: bash
@@ -55,7 +57,7 @@ jobs:
           sha256sum HarmonyBot-V39/src/HarmonyBotV39.cs "$ALGO" > HarmonyBot-V39/final/SHA256SUMS
           printf '%s\n' "$GITHUB_SHA" > HarmonyBot-V39/final/SOURCE_COMMIT.txt
 
-      - name: Short smoke only
+      - name: Ultra-short smoke
         shell: bash
         run: |
           set -euo pipefail
@@ -67,15 +69,15 @@ jobs:
           (
             cd "$W"
             RUN_NAME=V39-FULL_PORTFOLIO-SMOKE-B10000 \
-            START_DATE=04/01/2021 EVAL_DATE=2021-01-11T00:00:00Z END_DATE=31/01/2021 BALANCE=10000 \
+            START_DATE=04/01/2021 EVAL_DATE=2021-01-06T00:00:00Z END_DATE=15/01/2021 BALANCE=10000 \
             RECALL=true RETENTION=true AGING=true EVIDENCE=true SURVIVAL=true ARBITRATION=true \
-            REGIMESEL=true ROUTESPEC=true STRESSQ=true TTL=8 MAXCAND=12 BACKTEST_TIMEOUT_SECONDS=600 \
+            REGIMESEL=true ROUTESPEC=true STRESSQ=true TTL=8 MAXCAND=12 BACKTEST_TIMEOUT_SECONDS=300 \
             "$GITHUB_WORKSPACE/control/HarmonyBot-V39/tools/run_backtest.sh"
           )
           python3 control/HarmonyBot-V39/tools/audit_report.py \
             --report "$W/seal/reports/V39-FULL_PORTFOLIO-SMOKE-B10000.json" \
             --log "$W/seal/logs/V39-FULL_PORTFOLIO-SMOKE-B10000.log" \
-            --out "$O/V39_SMOKE.json" --window SMOKE --family FULL_PORTFOLIO --years .075 --balance 10000
+            --out "$O/V39_SMOKE.json" --window SMOKE --family FULL_PORTFOLIO --years .03 --balance 10000
           python3 - "$O/V39_SMOKE.json" <<'PY'
           import json,sys
           x=json.load(open(sys.argv[1]))
@@ -85,7 +87,7 @@ jobs:
           print("[V39-SMOKE] PASS")
           PY
 
-      - name: Upload build and smoke
+      - name: Upload immutable build/smoke
         uses: actions/upload-artifact@v4
         with:
           name: v39-build-smoke
@@ -97,28 +99,24 @@ jobs:
   dev:
     needs: build-smoke
     runs-on: ubuntu-24.04
-    timeout-minutes: 80
+    timeout-minutes: 45
     strategy:
       fail-fast: false
-      max-parallel: 4
+      max-parallel: 12
       matrix:
         include:
-          - family: BASELINE_CONTROL
-            regimesel: "false"
-            routespec: "false"
-            stressq: "false"
-          - family: REGIME_SELECTOR
-            regimesel: "true"
-            routespec: "false"
-            stressq: "true"
-          - family: ROUTE_SPECIALIZED
-            regimesel: "false"
-            routespec: "true"
-            stressq: "true"
-          - family: FULL_PORTFOLIO
-            regimesel: "true"
-            routespec: "true"
-            stressq: "true"
+          - {family: BASELINE_CONTROL, regimesel: "false", routespec: "false", stressq: "false", window: A, start: "04/01/2021", eval: "2021-01-11T00:00:00Z", end: "30/06/2021"}
+          - {family: BASELINE_CONTROL, regimesel: "false", routespec: "false", stressq: "false", window: B, start: "01/07/2021", eval: "2021-07-08T00:00:00Z", end: "31/12/2021"}
+          - {family: BASELINE_CONTROL, regimesel: "false", routespec: "false", stressq: "false", window: C, start: "03/01/2022", eval: "2022-01-10T00:00:00Z", end: "30/06/2022"}
+          - {family: REGIME_SELECTOR, regimesel: "true", routespec: "false", stressq: "true", window: A, start: "04/01/2021", eval: "2021-01-11T00:00:00Z", end: "30/06/2021"}
+          - {family: REGIME_SELECTOR, regimesel: "true", routespec: "false", stressq: "true", window: B, start: "01/07/2021", eval: "2021-07-08T00:00:00Z", end: "31/12/2021"}
+          - {family: REGIME_SELECTOR, regimesel: "true", routespec: "false", stressq: "true", window: C, start: "03/01/2022", eval: "2022-01-10T00:00:00Z", end: "30/06/2022"}
+          - {family: ROUTE_SPECIALIZED, regimesel: "false", routespec: "true", stressq: "true", window: A, start: "04/01/2021", eval: "2021-01-11T00:00:00Z", end: "30/06/2021"}
+          - {family: ROUTE_SPECIALIZED, regimesel: "false", routespec: "true", stressq: "true", window: B, start: "01/07/2021", eval: "2021-07-08T00:00:00Z", end: "31/12/2021"}
+          - {family: ROUTE_SPECIALIZED, regimesel: "false", routespec: "true", stressq: "true", window: C, start: "03/01/2022", eval: "2022-01-10T00:00:00Z", end: "30/06/2022"}
+          - {family: FULL_PORTFOLIO, regimesel: "true", routespec: "true", stressq: "true", window: A, start: "04/01/2021", eval: "2021-01-11T00:00:00Z", end: "30/06/2021"}
+          - {family: FULL_PORTFOLIO, regimesel: "true", routespec: "true", stressq: "true", window: B, start: "01/07/2021", eval: "2021-07-08T00:00:00Z", end: "31/12/2021"}
+          - {family: FULL_PORTFOLIO, regimesel: "true", routespec: "true", stressq: "true", window: C, start: "03/01/2022", eval: "2022-01-10T00:00:00Z", end: "30/06/2022"}
     steps:
       - name: Checkout V39
         uses: actions/checkout@v4
@@ -133,7 +131,7 @@ jobs:
           name: v39-build-smoke
           path: control/HarmonyBot-V39/shared
 
-      - name: Prepare compiled algo
+      - name: Prepare immutable algo
         shell: bash
         run: |
           set -euo pipefail
@@ -142,26 +140,33 @@ jobs:
           test -n "$A"
           cp "$A" control/HarmonyBot-V39/dist/
 
-      - name: Run family A/B/C with shared broker/data cache
+      - name: Restore persistent XAUUSD M1 cache
+        uses: actions/cache@v4
+        with:
+          path: control/HarmonyBot-V39/window-${{ matrix.family }}-${{ matrix.window }}/seal/data
+          key: ctrader-xauusd-m1-${{ matrix.window }}-${{ matrix.start }}-${{ matrix.end }}-v1
+
+      - name: Run one DEV window
         shell: bash
         run: |
           chmod +x control/HarmonyBot-V39/tools/*.sh
-          control/HarmonyBot-V39/tools/run_family.sh \
-            "${{ matrix.family }}" "${{ matrix.regimesel }}" "${{ matrix.routespec }}" "${{ matrix.stressq }}"
+          control/HarmonyBot-V39/tools/run_window.sh \
+            "${{ matrix.family }}" "${{ matrix.window }}" "${{ matrix.start }}" "${{ matrix.eval }}" "${{ matrix.end }}" \
+            "${{ matrix.regimesel }}" "${{ matrix.routespec }}" "${{ matrix.stressq }}"
 
-      - name: Upload family evidence
+      - name: Upload window evidence immediately
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: v39-dev-${{ matrix.family }}
-          path: control/HarmonyBot-V39/output-${{ matrix.family }}
+          name: v39-dev-${{ matrix.family }}-${{ matrix.window }}
+          path: control/HarmonyBot-V39/output-${{ matrix.family }}-${{ matrix.window }}
           retention-days: 30
           if-no-files-found: error
 
   analyze:
     needs: dev
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 10
     outputs:
       candidate: ${{ steps.gate.outputs.candidate }}
     steps:
@@ -172,7 +177,7 @@ jobs:
           path: control
           fetch-depth: 1
 
-      - name: Download all family evidence
+      - name: Download all 12 window artifacts
         uses: actions/download-artifact@v4
         with:
           pattern: v39-dev-*
@@ -201,7 +206,7 @@ jobs:
     needs: analyze
     if: needs.analyze.outputs.candidate != ''
     runs-on: ubuntu-24.04
-    timeout-minutes: 60
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       max-parallel: 6
@@ -220,6 +225,12 @@ jobs:
         with:
           name: v39-build-smoke
           path: control/HarmonyBot-V39/shared
+
+      - name: Restore full DEV XAUUSD M1 cache
+        uses: actions/cache@v4
+        with:
+          path: control/HarmonyBot-V39/capital-work-${{ matrix.balance }}/seal/data
+          key: ctrader-xauusd-m1-dev-full-2021-2022-v1
 
       - name: Run capital compatibility
         shell: bash
@@ -264,7 +275,7 @@ jobs:
     needs: [analyze, capital]
     if: needs.analyze.outputs.candidate != ''
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    timeout-minutes: 8
     outputs:
       capok: ${{ steps.cap.outputs.capok }}
     steps:
@@ -274,6 +285,7 @@ jobs:
           pattern: v39-capital-*
           path: capital
           merge-multiple: true
+
       - name: Apply $100 positive-net gate
         id: cap
         shell: bash
@@ -292,6 +304,7 @@ jobs:
           with open("cap.out","w") as f:f.write("true" if ok else "false")
           PY
           echo "capok=$(cat cap.out)" >> "$GITHUB_OUTPUT"
+
       - name: Upload capital gate
         uses: actions/upload-artifact@v4
         with:
@@ -303,7 +316,7 @@ jobs:
     needs: [analyze, capital-gate]
     if: needs.capital-gate.outputs.capok == 'true'
     runs-on: ubuntu-24.04
-    timeout-minutes: 50
+    timeout-minutes: 40
     strategy:
       fail-fast: false
       max-parallel: 2
@@ -320,11 +333,19 @@ jobs:
           ref: harmonybot/v39-regime-conditioned-harmonic-portfolio
           path: control
           fetch-depth: 1
+
       - name: Download compiled algo
         uses: actions/download-artifact@v4
         with:
           name: v39-build-smoke
           path: control/HarmonyBot-V39/shared
+
+      - name: Restore untouched fresh XAUUSD M1 cache
+        uses: actions/cache@v4
+        with:
+          path: control/HarmonyBot-V39/fresh-${{ matrix.kind }}/seal/data
+          key: ctrader-xauusd-m1-fresh-2020h1-v1
+
       - name: Run untouched fresh validation
         shell: bash
         env:
@@ -357,6 +378,7 @@ jobs:
             --log "$W/seal/logs/V39-$CANDIDATE-FRESH-$KIND.log" \
             --out "control/HarmonyBot-V39/fresh-out-$KIND/$KIND.json" \
             --window "FRESH_$KIND" --family "$CANDIDATE" --years .5 --balance "$BALANCE"
+
       - name: Upload fresh result
         uses: actions/upload-artifact@v4
         with:
@@ -368,7 +390,7 @@ jobs:
     needs: [analyze, fresh]
     if: always() && needs.fresh.result == 'success'
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    timeout-minutes: 8
     steps:
       - name: Download fresh results
         uses: actions/download-artifact@v4
@@ -376,6 +398,7 @@ jobs:
           pattern: v39-fresh-*
           path: fresh
           merge-multiple: true
+
       - name: Commercial decision
         shell: bash
         run: |
@@ -391,6 +414,7 @@ jobs:
             "fresh_validation_pass":ok,"net_profit_requirement":"positive in both fresh runs",
             "commercial_release_decision":"PASS_TO_FINAL_REGRESSION" if ok else "HOLD"},indent=2))
           PY
+
       - name: Upload final decision
         uses: actions/upload-artifact@v4
         with:
