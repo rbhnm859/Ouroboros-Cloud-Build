@@ -11,21 +11,22 @@ on:
 
 concurrency:
   group: harmonybot-v39-regime-portfolio
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 permissions:
   contents: read
 
+env:
+  CTRADER_PASSWORD: ${{ secrets.CTRADER_PASSWORD }}
+  CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+  CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+
 jobs:
-  v39-development:
+  build-smoke:
     runs-on: ubuntu-24.04
-    timeout-minutes: 240
-    env:
-      CTRADER_PASSWORD: ${{ secrets.CTRADER_PASSWORD }}
-      CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
-      CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+    timeout-minutes: 30
     steps:
-      - name: Checkout V39 branch
+      - name: Checkout V39
         uses: actions/checkout@v4
         with:
           ref: harmonybot/v39-regime-conditioned-harmonic-portfolio
@@ -37,17 +38,362 @@ jobs:
         with:
           dotnet-version: 8.0.x
 
-      - name: Execute fail-fast V39 positive-net DEV
+      - name: Static audit and build once
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd control
+          python3 HarmonyBot-V39/tools/static_audit.py HarmonyBot-V39/src/HarmonyBotV39.cs
+          mkdir -p HarmonyBot-V39/final HarmonyBot-V39/dist
+          cp V39_ARCHITECTURE_AUDIT.json HarmonyBot-V39/final/
+          dotnet restore HarmonyBot-V39/HarmonyBotV39.csproj
+          dotnet build HarmonyBot-V39/HarmonyBotV39.csproj -c Release --no-restore --nologo 2>&1 | tee HarmonyBot-V39/final/V39_BUILD.log
+          ! grep -Eq '(^|[^0-9])error (CS|MSB|NETSDK)[0-9]+' HarmonyBot-V39/final/V39_BUILD.log
+          ALGO=$(find HarmonyBot-V39/bin/Release -type f -name '*.algo' | head -1)
+          test -n "$ALGO" && test -s "$ALGO"
+          cp "$ALGO" HarmonyBot-V39/dist/HarmonyBot_V39_Regime_Conditioned_Harmonic_Portfolio_RC.algo
+          sha256sum HarmonyBot-V39/src/HarmonyBotV39.cs "$ALGO" > HarmonyBot-V39/final/SHA256SUMS
+          printf '%s\n' "$GITHUB_SHA" > HarmonyBot-V39/final/SOURCE_COMMIT.txt
+
+      - name: Short smoke only
+        shell: bash
+        run: |
+          set -euo pipefail
+          chmod +x control/HarmonyBot-V39/tools/*.sh
+          W="$GITHUB_WORKSPACE/control/HarmonyBot-V39/smoke-work"
+          O="$GITHUB_WORKSPACE/control/HarmonyBot-V39/final"
+          mkdir -p "$W/seal/algo"
+          cp control/HarmonyBot-V39/dist/HarmonyBot_V39_Regime_Conditioned_Harmonic_Portfolio_RC.algo "$W/seal/algo/"
+          (
+            cd "$W"
+            RUN_NAME=V39-FULL_PORTFOLIO-SMOKE-B10000 \
+            START_DATE=04/01/2021 EVAL_DATE=2021-01-11T00:00:00Z END_DATE=31/01/2021 BALANCE=10000 \
+            RECALL=true RETENTION=true AGING=true EVIDENCE=true SURVIVAL=true ARBITRATION=true \
+            REGIMESEL=true ROUTESPEC=true STRESSQ=true TTL=8 MAXCAND=12 BACKTEST_TIMEOUT_SECONDS=600 \
+            "$GITHUB_WORKSPACE/control/HarmonyBot-V39/tools/run_backtest.sh"
+          )
+          python3 control/HarmonyBot-V39/tools/audit_report.py \
+            --report "$W/seal/reports/V39-FULL_PORTFOLIO-SMOKE-B10000.json" \
+            --log "$W/seal/logs/V39-FULL_PORTFOLIO-SMOKE-B10000.log" \
+            --out "$O/V39_SMOKE.json" --window SMOKE --family FULL_PORTFOLIO --years .075 --balance 10000
+          python3 - "$O/V39_SMOKE.json" <<'PY'
+          import json,sys
+          x=json.load(open(sys.argv[1]))
+          assert x["summary_present"] and x["broker_profile_present"]
+          assert x["execution_errors"]==0 and x["actual_basket_risk_violations"]==0
+          assert x["unprotected_survivors"]==0
+          print("[V39-SMOKE] PASS")
+          PY
+
+      - name: Upload build and smoke
+        uses: actions/upload-artifact@v4
+        with:
+          name: v39-build-smoke
+          path: |
+            control/HarmonyBot-V39/dist
+            control/HarmonyBot-V39/final
+          retention-days: 30
+
+  dev:
+    needs: build-smoke
+    runs-on: ubuntu-24.04
+    timeout-minutes: 80
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix:
+        include:
+          - family: BASELINE_CONTROL
+            regimesel: "false"
+            routespec: "false"
+            stressq: "false"
+          - family: REGIME_SELECTOR
+            regimesel: "true"
+            routespec: "false"
+            stressq: "true"
+          - family: ROUTE_SPECIALIZED
+            regimesel: "false"
+            routespec: "true"
+            stressq: "true"
+          - family: FULL_PORTFOLIO
+            regimesel: "true"
+            routespec: "true"
+            stressq: "true"
+    steps:
+      - name: Checkout V39
+        uses: actions/checkout@v4
+        with:
+          ref: harmonybot/v39-regime-conditioned-harmonic-portfolio
+          path: control
+          fetch-depth: 1
+
+      - name: Download single compiled algo
+        uses: actions/download-artifact@v4
+        with:
+          name: v39-build-smoke
+          path: control/HarmonyBot-V39/shared
+
+      - name: Prepare compiled algo
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p control/HarmonyBot-V39/dist
+          A=$(find control/HarmonyBot-V39/shared -type f -name 'HarmonyBot_V39_Regime_Conditioned_Harmonic_Portfolio_RC.algo' | head -1)
+          test -n "$A"
+          cp "$A" control/HarmonyBot-V39/dist/
+
+      - name: Run family A/B/C with shared broker/data cache
         shell: bash
         run: |
           chmod +x control/HarmonyBot-V39/tools/*.sh
-          control/HarmonyBot-V39/tools/orchestrate_development.sh
+          control/HarmonyBot-V39/tools/run_family.sh \
+            "${{ matrix.family }}" "${{ matrix.regimesel }}" "${{ matrix.routespec }}" "${{ matrix.stressq }}"
 
-      - name: Upload V39 evidence
+      - name: Upload family evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: HARMONYBOT-V39-REGIME-PORTFOLIO
-          path: control/HarmonyBot-V39/output
+          name: v39-dev-${{ matrix.family }}
+          path: control/HarmonyBot-V39/output-${{ matrix.family }}
           retention-days: 30
-          if-no-files-found: warn
+          if-no-files-found: error
+
+  analyze:
+    needs: dev
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    outputs:
+      candidate: ${{ steps.gate.outputs.candidate }}
+    steps:
+      - name: Checkout V39
+        uses: actions/checkout@v4
+        with:
+          ref: harmonybot/v39-regime-conditioned-harmonic-portfolio
+          path: control
+          fetch-depth: 1
+
+      - name: Download all family evidence
+        uses: actions/download-artifact@v4
+        with:
+          pattern: v39-dev-*
+          path: control/HarmonyBot-V39/merged
+          merge-multiple: true
+
+      - name: Aggregate DEV and apply hard positive-net gate
+        id: gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p control/HarmonyBot-V39/final
+          python3 control/HarmonyBot-V39/tools/analyze_parallel_dev.py \
+            control/HarmonyBot-V39/merged control/HarmonyBot-V39/final
+          CAND=$(cat control/HarmonyBot-V39/final/candidate.txt)
+          echo "candidate=$CAND" >> "$GITHUB_OUTPUT"
+
+      - name: Upload authoritative DEV result
+        uses: actions/upload-artifact@v4
+        with:
+          name: HARMONYBOT-V39-REGIME-PORTFOLIO
+          path: control/HarmonyBot-V39/final
+          retention-days: 30
+
+  capital:
+    needs: analyze
+    if: needs.analyze.outputs.candidate != ''
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      max-parallel: 6
+      matrix:
+        balance: [100, 150, 200, 300, 500, 1000]
+    steps:
+      - name: Checkout V39
+        uses: actions/checkout@v4
+        with:
+          ref: harmonybot/v39-regime-conditioned-harmonic-portfolio
+          path: control
+          fetch-depth: 1
+
+      - name: Download compiled algo
+        uses: actions/download-artifact@v4
+        with:
+          name: v39-build-smoke
+          path: control/HarmonyBot-V39/shared
+
+      - name: Run capital compatibility
+        shell: bash
+        env:
+          CANDIDATE: ${{ needs.analyze.outputs.candidate }}
+          BALANCE: ${{ matrix.balance }}
+        run: |
+          set -euo pipefail
+          chmod +x control/HarmonyBot-V39/tools/*.sh
+          mkdir -p control/HarmonyBot-V39/capital-work-$BALANCE/seal/algo control/HarmonyBot-V39/capital-$BALANCE
+          A=$(find control/HarmonyBot-V39/shared -type f -name 'HarmonyBot_V39_Regime_Conditioned_Harmonic_Portfolio_RC.algo' | head -1)
+          cp "$A" control/HarmonyBot-V39/capital-work-$BALANCE/seal/algo/
+          case "$CANDIDATE" in
+            BASELINE_CONTROL) RS=false; RT=false; SQ=false;;
+            REGIME_SELECTOR) RS=true; RT=false; SQ=true;;
+            ROUTE_SPECIALIZED) RS=false; RT=true; SQ=true;;
+            FULL_PORTFOLIO) RS=true; RT=true; SQ=true;;
+            *) exit 31;;
+          esac
+          W="$GITHUB_WORKSPACE/control/HarmonyBot-V39/capital-work-$BALANCE"
+          (
+            cd "$W"
+            RUN_NAME="V39-$CANDIDATE-CAPITAL-$BALANCE" START_DATE=04/01/2021 EVAL_DATE=2021-01-11T00:00:00Z END_DATE=30/06/2022 \
+            BALANCE="$BALANCE" RECALL=true RETENTION=true AGING=true EVIDENCE=true SURVIVAL=true ARBITRATION=true \
+            REGIMESEL="$RS" ROUTESPEC="$RT" STRESSQ="$SQ" TTL=8 MAXCAND=12 BACKTEST_TIMEOUT_SECONDS=1800 \
+            "$GITHUB_WORKSPACE/control/HarmonyBot-V39/tools/run_backtest.sh"
+          )
+          python3 control/HarmonyBot-V39/tools/audit_report.py \
+            --report "$W/seal/reports/V39-$CANDIDATE-CAPITAL-$BALANCE.json" \
+            --log "$W/seal/logs/V39-$CANDIDATE-CAPITAL-$BALANCE.log" \
+            --out "control/HarmonyBot-V39/capital-$BALANCE/$BALANCE.json" \
+            --window "CAPITAL_$BALANCE" --family "$CANDIDATE" --years 1.5 --balance "$BALANCE"
+
+      - name: Upload capital result
+        uses: actions/upload-artifact@v4
+        with:
+          name: v39-capital-${{ matrix.balance }}
+          path: control/HarmonyBot-V39/capital-${{ matrix.balance }}
+          retention-days: 30
+
+  capital-gate:
+    needs: [analyze, capital]
+    if: needs.analyze.outputs.candidate != ''
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    outputs:
+      capok: ${{ steps.cap.outputs.capok }}
+    steps:
+      - name: Download capital results
+        uses: actions/download-artifact@v4
+        with:
+          pattern: v39-capital-*
+          path: capital
+          merge-multiple: true
+      - name: Apply $100 positive-net gate
+        id: cap
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json,pathlib
+          p=pathlib.Path("capital")
+          rows={str(b):json.load(open(next(p.rglob(f"{b}.json")))) for b in [100,150,200,300,500,1000]}
+          h=rows["100"]
+          ok=(h["engineering_clean"] and h["baskets"]>0 and h["net"]>0 and h["expectancy"]>0 and
+              h["max_dd_pct"]<=10 and h["actual_basket_risk_violations"]==0 and h["margin_risk_violations"]==0)
+          pathlib.Path("V39_CAPITAL_COMPATIBILITY.json").write_text(json.dumps({
+            "version":"HarmonyBot V39","rows":rows,"hard_100_compatible":ok,
+            "net_profit_requirement":"$100 Net Profit > 0",
+            "status":"CAPITAL_COMPATIBLE" if ok else "CAPITAL_HOLD"},indent=2))
+          with open("cap.out","w") as f:f.write("true" if ok else "false")
+          PY
+          echo "capok=$(cat cap.out)" >> "$GITHUB_OUTPUT"
+      - name: Upload capital gate
+        uses: actions/upload-artifact@v4
+        with:
+          name: v39-capital-gate
+          path: V39_CAPITAL_COMPATIBILITY.json
+          retention-days: 30
+
+  fresh:
+    needs: [analyze, capital-gate]
+    if: needs.capital-gate.outputs.capok == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 50
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        include:
+          - kind: ALPHA
+            balance: 10000
+          - kind: SMALL
+            balance: 100
+    steps:
+      - name: Checkout frozen V39
+        uses: actions/checkout@v4
+        with:
+          ref: harmonybot/v39-regime-conditioned-harmonic-portfolio
+          path: control
+          fetch-depth: 1
+      - name: Download compiled algo
+        uses: actions/download-artifact@v4
+        with:
+          name: v39-build-smoke
+          path: control/HarmonyBot-V39/shared
+      - name: Run untouched fresh validation
+        shell: bash
+        env:
+          CANDIDATE: ${{ needs.analyze.outputs.candidate }}
+          KIND: ${{ matrix.kind }}
+          BALANCE: ${{ matrix.balance }}
+        run: |
+          set -euo pipefail
+          chmod +x control/HarmonyBot-V39/tools/*.sh
+          case "$CANDIDATE" in
+            BASELINE_CONTROL) RS=false; RT=false; SQ=false;;
+            REGIME_SELECTOR) RS=true; RT=false; SQ=true;;
+            ROUTE_SPECIALIZED) RS=false; RT=true; SQ=true;;
+            FULL_PORTFOLIO) RS=true; RT=true; SQ=true;;
+            *) exit 31;;
+          esac
+          W="$GITHUB_WORKSPACE/control/HarmonyBot-V39/fresh-$KIND"
+          mkdir -p "$W/seal/algo" "control/HarmonyBot-V39/fresh-out-$KIND"
+          A=$(find control/HarmonyBot-V39/shared -type f -name 'HarmonyBot_V39_Regime_Conditioned_Harmonic_Portfolio_RC.algo' | head -1)
+          cp "$A" "$W/seal/algo/"
+          (
+            cd "$W"
+            RUN_NAME="V39-$CANDIDATE-FRESH-$KIND" START_DATE=02/01/2020 EVAL_DATE=2020-01-09T00:00:00Z END_DATE=30/06/2020 \
+            BALANCE="$BALANCE" RECALL=true RETENTION=true AGING=true EVIDENCE=true SURVIVAL=true ARBITRATION=true \
+            REGIMESEL="$RS" ROUTESPEC="$RT" STRESSQ="$SQ" TTL=8 MAXCAND=12 BACKTEST_TIMEOUT_SECONDS=1800 \
+            "$GITHUB_WORKSPACE/control/HarmonyBot-V39/tools/run_backtest.sh"
+          )
+          python3 control/HarmonyBot-V39/tools/audit_report.py \
+            --report "$W/seal/reports/V39-$CANDIDATE-FRESH-$KIND.json" \
+            --log "$W/seal/logs/V39-$CANDIDATE-FRESH-$KIND.log" \
+            --out "control/HarmonyBot-V39/fresh-out-$KIND/$KIND.json" \
+            --window "FRESH_$KIND" --family "$CANDIDATE" --years .5 --balance "$BALANCE"
+      - name: Upload fresh result
+        uses: actions/upload-artifact@v4
+        with:
+          name: v39-fresh-${{ matrix.kind }}
+          path: control/HarmonyBot-V39/fresh-out-${{ matrix.kind }}
+          retention-days: 30
+
+  final-decision:
+    needs: [analyze, fresh]
+    if: always() && needs.fresh.result == 'success'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Download fresh results
+        uses: actions/download-artifact@v4
+        with:
+          pattern: v39-fresh-*
+          path: fresh
+          merge-multiple: true
+      - name: Commercial decision
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json,pathlib
+          p=pathlib.Path("fresh")
+          a=json.load(open(next(p.rglob("ALPHA.json"))))
+          m=json.load(open(next(p.rglob("SMALL.json"))))
+          ok=(a["engineering_clean"] and a["baskets"]>0 and a["net"]>0 and a["expectancy"]>0 and a["pf"]>1 and a["max_dd_pct"]<=10 and
+              m["engineering_clean"] and m["baskets"]>0 and m["net"]>0 and m["expectancy"]>0 and m["pf"]>1 and m["max_dd_pct"]<=10)
+          pathlib.Path("V39_FRESH_VALIDATION.json").write_text(json.dumps({
+            "version":"HarmonyBot V39","fresh_alpha":a,"fresh_100":m,
+            "fresh_validation_pass":ok,"net_profit_requirement":"positive in both fresh runs",
+            "commercial_release_decision":"PASS_TO_FINAL_REGRESSION" if ok else "HOLD"},indent=2))
+          PY
+      - name: Upload final decision
+        uses: actions/upload-artifact@v4
+        with:
+          name: v39-final-decision
+          path: V39_FRESH_VALIDATION.json
+          retention-days: 30
