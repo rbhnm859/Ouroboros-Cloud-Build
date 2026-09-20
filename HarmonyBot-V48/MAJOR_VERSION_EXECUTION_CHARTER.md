@@ -12,3 +12,5 @@ V46_SCALE_CONTROL / FAMILY_NATIVE_OBSERVATION / FAMILY_NATIVE_CONVERSION / FULL_
 Baseline must reproduce first. Commercial candidate requires >=90 independent baskets, >=60/year, Net>=1800, PF>=2, Exp>=20, WR>=50%, DD<=6%, A/B/C positive, clean engineering/risk, and positive marginal cohort in every DEV window. Fresh remains untouched until DEV+capital pass.
 
 Execution registration: V48 fixed DEV workflow armed.
+
+Deterministic runner registered.
