@@ -5,8 +5,8 @@ FAM="$1"; WIN="$2"; START="$3"; EVAL="$4"; END="$5"
 CAN=true; FC=true; GRIDV2=true; STOP=true; JOINT=true; IDENT=true; BOUNDED=true; PRJ=false
 FQ=false; FR=false; FC2=false; CTX=false; GEXEC=true
 case "$FAM" in
- V51_QUALITY_CORE_REPLAY) FQ=false; FR=false; FC2=false; CTX=false; GEXEC=true; LIBERATE=false; COREKEEP=false; GRIDV3=false; STATEGRID=false;;
- V52_LIBERATION_CONTROL) FQ=false; FR=false; FC2=false; CTX=false; GEXEC=true; LIBERATE=false; COREKEEP=false; GRIDV3=false; STATEGRID=false;;
+ V51_QUALITY_CORE_REPLAY) FQ=false; FR=false; FC2=false; CTX=false; GEXEC=true; LIBERATE=false; COREKEEP=false; GRIDV3=false; STATEGRID=false; IDENT=false; BOUNDED=false;;
+ V52_LIBERATION_CONTROL) FQ=false; FR=false; FC2=false; CTX=false; GEXEC=true; LIBERATE=false; COREKEEP=false; GRIDV3=false; STATEGRID=false; IDENT=true; BOUNDED=true;;
  V54_LIBERATION_LEGACY_GRID) FQ=true; FR=true; FC2=true; CTX=true; GEXEC=true; LIBERATE=true; COREKEEP=true; GRIDV3=false; STATEGRID=false;;
  V54_LIBERATION_GRID_V3) FQ=true; FR=true; FC2=true; CTX=true; GEXEC=true; LIBERATE=true; COREKEEP=true; GRIDV3=true; STATEGRID=true;;
  *) echo "unknown V54 family $FAM"; exit 31;;
