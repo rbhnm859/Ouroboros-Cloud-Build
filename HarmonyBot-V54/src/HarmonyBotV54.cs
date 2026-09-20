@@ -1559,6 +1559,8 @@ namespace cAlgo.Robots
                 ProtectionFrontier = plan.StructuralStop,
                 Plan = plan,
                 Candidate = c,
+                AlphaLane = c.AlphaLane,
+                EconomicQualityScore = c.EconomicQualityScore,
                 IsActive = true
             };
             _baskets[basketId] = basket;
@@ -2568,10 +2570,11 @@ namespace cAlgo.Robots
                 : 0;
             string setupKey = basket.Candidate != null ? basket.Candidate.SetupKey : "";
             string subtype = basket.Candidate != null && basket.Candidate.Signal != null ? basket.Candidate.Signal.HarmonicSubtype : basket.Pattern;
-            Print("[V54-BASKET-CLOSED] basket={0} cid={1} setup={2} pattern={3} subtype={4} route={5} dir={6} plannedLegs={7} filledLegs={8} anchor={9} avgEntry={10} entryImprovePips={11:F3} stop={12} target={13} initialRisk={14:F2} worstRisk={15:F2} mfeR={16:F3} maeR={17:F3} realizedR={18:F3} net={19:F2} reason={20}",
+            Print("[V54-BASKET-CLOSED] basket={0} cid={1} setup={2} pattern={3} subtype={4} lane={21} econQ={22:F3} route={5} dir={6} plannedLegs={7} filledLegs={8} anchor={9} avgEntry={10} entryImprovePips={11:F3} stop={12} target={13} initialRisk={14:F2} worstRisk={15:F2} mfeR={16:F3} maeR={17:F3} realizedR={18:F3} net={19:F2} reason={20}",
                 basket.BasketId, basket.CandidateId, setupKey, basket.Pattern, subtype, basket.Route, basket.Direction, basket.Plan.Legs.Count, basket.FilledLegs,
                 basket.EntryAnchor, basket.AverageEntry, entryImprovementPips, basket.StructuralStop, basket.CanonicalTarget,
-                basket.InitialBasketRisk, basket.PlannedWorstCaseRisk, basket.PeakR, basket.MaxAdverseR, realizedR, basket.RealizedNet, reason);
+                basket.InitialBasketRisk, basket.PlannedWorstCaseRisk, basket.PeakR, basket.MaxAdverseR, realizedR, basket.RealizedNet, reason,
+                basket.AlphaLane, basket.EconomicQualityScore);
 
             double occupancyMin = Math.Max(0, (Server.Time.ToUniversalTime() - basket.CreatedUtc).TotalMinutes);
             _basketOccupancyMinutes.Add(occupancyMin);
