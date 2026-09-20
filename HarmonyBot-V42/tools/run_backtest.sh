@@ -9,7 +9,7 @@ FOLLOW="${FOLLOW:-true}"; THESISEXIT="${THESISEXIT:-true}"
 RESCUE="${RESCUE:-false}"; OCMODEL="${OCMODEL:-false}"
 CONVERSION="${CONVERSION:-true}"; REPLAN="${REPLAN:-true}"; FALLBACK="${FALLBACK:-true}"
 TTL="${TTL:-8}"; MAXCAND="${MAXCAND:-12}"
-ALGO="${ALGO:-seal/algo/HarmonyBot_V42_Marginal_Alpha_Pattern_Portfolio_RC.algo}"
+ALGO="${ALGO:-seal/algo/HarmonyBot_V42_Opportunity_Conversion_Portfolio_RC.algo}"
 IMAGE="${CTRADER_IMAGE:-ghcr.io/spotware/ctrader-console:5.9.11}"
 BACKTEST_TIMEOUT_SECONDS="${BACKTEST_TIMEOUT_SECONDS:-2700}"
 mkdir -p seal/{reports,logs,data}
