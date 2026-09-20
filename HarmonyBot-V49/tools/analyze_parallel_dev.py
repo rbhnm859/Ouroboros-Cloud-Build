@@ -166,5 +166,6 @@ front={"version":"HarmonyBot V49","architecture":"HARMONIC_FAMILY_CONFIRMATION_K
 (out/"V49_PERFORMANCE_FRONTIER.json").write_text(json.dumps(front,indent=2))
 (out/"candidate.txt").write_text(winner or "")
 (out/"V49_FINAL_COMMERCIAL_DECISION.json").write_text(json.dumps({"version":"HarmonyBot V49",
- "decision":"COMMERCIAL_FREEZE_CANDIDATE_PASS" if winner else "HOLD_WITH_EVIDENCE","stage":"DEV","fresh_used":False},indent=2))
+ "decision":"HOLD_WITH_EVIDENCE","stage":"DEV","dev_candidate":winner,"dev_gate_pass":bool(winner),"fresh_used":False,
+ "note":"DEV pass alone is not a final commercial freeze; capital/freeze/fresh are mandatory."},indent=2))
 print(json.dumps(front,indent=2))
