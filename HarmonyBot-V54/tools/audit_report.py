@@ -84,7 +84,7 @@ conv_rx=re.compile(r"\[V54-CONVERSION-TRUTH\]\s+pattern=(.*?)\s+stage=(\S+)\s+co
 conv={}
 for q in conv_rx.finditer(t): conv.setdefault(q.group(1),{})[q.group(2)]=int(q.group(3))
 out["conversion_truth"]=conv
-lane_rx=re.compile(r"\[V54-BASKET-CLOSED\].*?cid=(\S+).*?lane=(\S+).*?economicQuality=([-0-9.]+)")
+lane_rx=re.compile(r"\[V54-BASKET-CLOSED\].*?cid=(\S+).*?lane=(\S+).*?econQ=([-0-9.]+)")
 lane_meta={q.group(1):{"alpha_lane":q.group(2),"economic_quality":float(q.group(3))} for q in lane_rx.finditer(t)}
 for row in out["basket_outcomes"]: row.update(lane_meta.get(row["cid"],{"alpha_lane":"LEGACY","economic_quality":0.0}))
 gmeta_rx=re.compile(r"\[V54-BASKET-CLOSED\].*?cid=(\S+).*?lane=(\S+)\s+econQ=([-0-9.]+).*?plannedLegs=(\d+)\s+filledLegs=(\d+).*?entryImprovePips=([-0-9.]+)")
