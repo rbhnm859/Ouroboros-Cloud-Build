@@ -638,9 +638,15 @@ namespace cAlgo.Robots
                     ? StructuralContextConfidence(selectedSignal, record.Conflict, regime)
                     : record.RegimeScore;
                 record.PatternHypotheses = selectedSignal.HypothesisNames;
-                record.Route = RouteSignal(selectedSignal, record.Conflict, regime);
+                record.TrendRelation = ClassifySignalTrendRelation(selectedSignal, regime);
+                record.Thesis = EnableThesisConsistentRouting
+                    ? ClassifyThesisMode(selectedSignal, record.Conflict, regime, record.TrendRelation)
+                    : ThesisFromLegacyRoute(RouteSignal(selectedSignal, record.Conflict, regime));
+                record.Route = EnableThesisConsistentRouting
+                    ? LegacyRouteForThesis(record.Thesis)
+                    : RouteSignal(selectedSignal, record.Conflict, regime);
 
-                if (record.Route == HarmonicRoute.NO_TRADE)
+                if (record.Route == HarmonicRoute.NO_TRADE || record.Thesis == ThesisMode.NO_TRADE)
                 {
                     if (EnableRegimeContextGate) _regimeRejected++;
                     if (EnableQualifiedDynamicReroute && QualifiedDynamicRerouteEligible(record, record.Conflict, regime))
@@ -669,9 +675,9 @@ namespace cAlgo.Robots
                 }
                 else record.CapitalFeasible = true;
 
-                Print("[V44-ALPHA-CANDIDATE] cid={0} pattern={1} quality={2:F3} regime={3:F3} conflict={4} route={5} adxH1={6:F2} adxH4={7:F2} adxSlope={8:F2} atrPct={9:F3} efficiency={10:F3} capitalFeasible={11} minL0Risk={12:F4}",
+                Print("[V44-ALPHA-CANDIDATE] cid={0} pattern={1} quality={2:F3} regime={3:F3} conflict={4} route={5} thesis={6} relation={7} adxH1={8:F2} adxH4={9:F2} adxSlope={10:F2} atrPct={11:F3} efficiency={12:F3} capitalFeasible={13} minL0Risk={14:F4}",
                     record.CandidateId, selectedSignal.PatternName, record.AlphaQualityScore, record.RegimeScore, record.Conflict, record.Route,
-                    regime.AdxH1, regime.AdxH4, regime.AdxH1Slope, regime.AtrPercentile, regime.Efficiency,
+                    record.Thesis, record.TrendRelation, regime.AdxH1, regime.AdxH4, regime.AdxH1Slope, regime.AtrPercentile, regime.Efficiency,
                     record.CapitalFeasible, record.CapitalMinL0Risk);
 
                 Transition(record, CandidateState.ROUTED, "ROUTE_" + record.Route);
@@ -3010,12 +3016,68 @@ namespace cAlgo.Robots
             double refEma = h1e50;
             double h1Atr = Atr(_h1Bars, 14, h1);
             r.ExtensionAtr = h1Atr > 0 ? Math.Abs(_h1Bars.ClosePrices[h1] - refEma) / h1Atr : 0;
+            r.H1Ema50 = h1e50;
+            r.H1Atr = h1Atr;
+            r.H1Close = _h1Bars.ClosePrices[h1];
             r.RegimeClass = r.Transition ? "TRANSITION" :
                             r.TrendStrength >= .65 && r.Efficiency >= .20 ? "PERSISTENT_TREND" :
                             r.Efficiency < .14 ? "LOW_EFFICIENCY" :
                             r.AtrRatio >= 1.35 ? "HIGH_VOLATILITY" :
                             r.AtrRatio <= .75 ? "LOW_VOLATILITY" : "BALANCED";
             return r;
+        }
+
+        private SignalTrendRelation ClassifySignalTrendRelation(PatternSignal s, RegimeSnapshot r)
+        {
+            if (s == null || r == null || r.TrendDirection == TradeDirection.Neutral)
+                return SignalTrendRelation.NEUTRAL;
+            return r.TrendDirection == s.Direction ? SignalTrendRelation.WITH_TREND : SignalTrendRelation.AGAINST_TREND;
+        }
+
+        private ThesisMode ClassifyThesisMode(PatternSignal s, MtfConflict conflict, RegimeSnapshot r, SignalTrendRelation relation)
+        {
+            if (s == null || r == null || conflict == MtfConflict.CONFLICT) return ThesisMode.NO_TRADE;
+            bool strong = s.GeometryQuality >= .68 && s.PrzConfluence >= .68 && s.Confidence >= .64;
+            if (!strong) return ThesisMode.NO_TRADE;
+
+            string archetype = PatternExecutionArchetype(s.PatternName);
+            bool transition = r.Transition || conflict == MtfConflict.TRANSITION || relation == SignalTrendRelation.NEUTRAL;
+            if (transition && r.AtrRatio >= .50 && r.AtrRatio <= 1.80)
+                return ThesisMode.REGIME_TRANSITION;
+
+            if (relation == SignalTrendRelation.WITH_TREND)
+            {
+                if (archetype == "TRANSITION" && r.RegimeClass == "PERSISTENT_TREND")
+                    return ThesisMode.NO_TRADE;
+                if (r.AtrRatio >= .50 && r.AtrRatio <= 1.80)
+                    return ThesisMode.CONTINUATION_PULLBACK;
+            }
+
+            if (relation == SignalTrendRelation.AGAINST_TREND)
+            {
+                bool extended = r.ExtensionAtr >= 1.00;
+                bool notAccelerating = r.AdxH1Slope <= 1.00;
+                if (extended && notAccelerating && r.AtrRatio <= 1.85)
+                    return ThesisMode.COUNTERTREND_EXHAUSTION;
+            }
+
+            return ThesisMode.NO_TRADE;
+        }
+
+        private HarmonicRoute LegacyRouteForThesis(ThesisMode thesis)
+        {
+            if (thesis == ThesisMode.CONTINUATION_PULLBACK) return HarmonicRoute.TREND_ALIGNED_REVERSAL;
+            if (thesis == ThesisMode.COUNTERTREND_EXHAUSTION) return HarmonicRoute.EXHAUSTION_REVERSAL;
+            if (thesis == ThesisMode.REGIME_TRANSITION) return HarmonicRoute.TRANSITION_REVERSAL;
+            return HarmonicRoute.NO_TRADE;
+        }
+
+        private ThesisMode ThesisFromLegacyRoute(HarmonicRoute route)
+        {
+            if (route == HarmonicRoute.TREND_ALIGNED_REVERSAL) return ThesisMode.CONTINUATION_PULLBACK;
+            if (route == HarmonicRoute.EXHAUSTION_REVERSAL) return ThesisMode.COUNTERTREND_EXHAUSTION;
+            if (route == HarmonicRoute.TRANSITION_REVERSAL) return ThesisMode.REGIME_TRANSITION;
+            return ThesisMode.NO_TRADE;
         }
 
         private HarmonicRoute RouteSignalV34(PatternSignal s, MtfConflict conflict, RegimeSnapshot r)
