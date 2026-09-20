@@ -2,7 +2,7 @@ name: HarmonyBot V55 Champion Core Rebase & Universal Harmonic Evidence Admissio
 
 on:
   push:
-    branches: [harmonybot/v55-universal-harmonic-liberation-grid-alpha-core]
+    branches: [harmonybot/v55-champion-core-rebase-evidence-admission]
     paths:
       - 'HarmonyBot-V55/**'
       - '.github/workflows/harmonybot-v55-champion-core-rebase-evidence-admission.yml'
@@ -27,7 +27,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: harmonybot/v55-universal-harmonic-liberation-grid-alpha-core
+          ref: harmonybot/v55-champion-core-rebase-evidence-admission
           path: control
           fetch-depth: 1
       - uses: actions/setup-dotnet@v4
@@ -70,7 +70,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: harmonybot/v55-universal-harmonic-liberation-grid-alpha-core
+          ref: harmonybot/v55-champion-core-rebase-evidence-admission
           path: control
           fetch-depth: 1
       - uses: actions/download-artifact@v4
@@ -124,7 +124,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: harmonybot/v55-universal-harmonic-liberation-grid-alpha-core
+          ref: harmonybot/v55-champion-core-rebase-evidence-admission
           path: control
           fetch-depth: 1
       - uses: actions/download-artifact@v4
@@ -183,7 +183,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: harmonybot/v55-universal-harmonic-liberation-grid-alpha-core
+          ref: harmonybot/v55-champion-core-rebase-evidence-admission
           path: control
           fetch-depth: 1
       - uses: actions/download-artifact@v4
@@ -217,7 +217,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: harmonybot/v55-universal-harmonic-liberation-grid-alpha-core
+          ref: harmonybot/v55-champion-core-rebase-evidence-admission
           path: control
           fetch-depth: 1
       - uses: actions/download-artifact@v4
@@ -291,7 +291,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: harmonybot/v55-universal-harmonic-liberation-grid-alpha-core
+          ref: harmonybot/v55-champion-core-rebase-evidence-admission
           path: control
           fetch-depth: 1
       - uses: actions/download-artifact@v4
@@ -329,7 +329,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: harmonybot/v55-universal-harmonic-liberation-grid-alpha-core
+          ref: harmonybot/v55-champion-core-rebase-evidence-admission
           path: control
           fetch-depth: 1
       - uses: actions/download-artifact@v4
