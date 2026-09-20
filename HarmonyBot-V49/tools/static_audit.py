@@ -13,6 +13,8 @@ checks={
  "mandatory_revalidation":"RevalidateCandidateForExecution" in s and "winner.GridPlan = null;" in s,
  "remaining_rr":"c.NetRR < MinimumNetRR" in s,
  "pattern_native_m1":"UpdatePatternNativeM1State" in s and "PatternNativeM1MaxBars" in s,
+ "native_primary_arbitration":"nativePrimaryFamily" in s and "PATTERN_NATIVE_PRIMARY_PASS" in s and "!nativePass && !RouteSpecificM1EvidencePass" in s,
+ "incumbent_alpha_preserved":'c.Signal.PatternName == "AB=CD" || c.Signal.PatternName == "Shark"' in s,
  "decay_ranking":"OpportunityScore" in s and "PriceDriftPenalty".lower() not in s.lower() or True,
  "shadow_ledger":"V49-OPPORTUNITY-LOSS" in s and "ShadowMfeR" in s and "ShadowMaeR" in s,
  "slot_occupancy":"V49-SLOT-OCCUPANCY" in s and "_basketOccupancyMinutes" in s,
@@ -25,6 +27,6 @@ checks={
 }
 # Fix expression precedence in one audit key explicitly.
 checks["decay_ranking"]="OpportunityScore" in s and "priceDriftPenalty" in s and "thesisAgePenalty" in s and "marginBurdenPenalty" in s
-out={"version":"HarmonyBot V49","architecture":"PATTERN_FAMILY_NATIVE_CONVERSION","checks":checks,"pass":all(checks.values())}
+out={"version":"HarmonyBot V49","architecture":"PATTERN_NATIVE_CONFIRMATION_ARBITRATION","checks":checks,"pass":all(checks.values())}
 pathlib.Path("V49_ARCHITECTURE_AUDIT.json").write_text(json.dumps(out,indent=2))
 print(json.dumps(out,indent=2)); raise SystemExit(0 if out["pass"] else 2)
