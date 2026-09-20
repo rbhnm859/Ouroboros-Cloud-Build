@@ -121,6 +121,27 @@ namespace cAlgo.Robots
         [Parameter("ABCD Trend Admission Floor", DefaultValue = 0.62, MinValue = 0.45, MaxValue = 0.85)]
         public double AbcdTrendAdmissionFloor { get; set; }
 
+        [Parameter("Thesis-Consistent Routing", DefaultValue = true)]
+        public bool EnableThesisConsistentRouting { get; set; }
+
+        [Parameter("Trend Persistence Hazard", DefaultValue = true)]
+        public bool EnableTrendPersistenceHazard { get; set; }
+
+        [Parameter("Continuation Resumption Proof", DefaultValue = true)]
+        public bool EnableContinuationResumptionProof { get; set; }
+
+        [Parameter("Continuation Min Resumption", DefaultValue = 0.60, MinValue = 0.40, MaxValue = 0.80)]
+        public double ContinuationMinResumptionScore { get; set; }
+
+        [Parameter("Countertrend Min Plausibility", DefaultValue = 0.60, MinValue = 0.40, MaxValue = 0.80)]
+        public double CountertrendMinPlausibility { get; set; }
+
+        [Parameter("Grid Failure Attribution", DefaultValue = true)]
+        public bool EnableGridFailureAttribution { get; set; }
+
+        [Parameter("Grid L0 Physical Recovery", DefaultValue = true)]
+        public bool EnableGridL0PhysicalRecovery { get; set; }
+
         [Parameter("Candidate TTL M15 Bars", DefaultValue = 8, MinValue = 2, MaxValue = 24)]
         public int CandidateTtlM15Bars { get; set; }
 
@@ -360,6 +381,10 @@ namespace cAlgo.Robots
         private int _crossRegimeRejected;
         private int _opportunityLossObserved;
         private int _hypothesisResolutions;
+        private int _thesisRejected;
+        private int _trendPersistenceRejected;
+        private int _gridAttributedFailures;
+        private int _gridL0Recoveries;
         private readonly HashSet<string> _deferredCandidates = new HashSet<string>();
         private readonly Dictionary<string, CounterfactualShadow> _counterfactualShadows = new Dictionary<string, CounterfactualShadow>();
         private readonly HashSet<string> _qualifiedRouteDeferredCandidates = new HashSet<string>();
@@ -3876,6 +3901,8 @@ namespace cAlgo.Robots
     public enum HarmonicState { Neutral, Bullish, Bearish }
     public enum MtfConflict { NEUTRAL, ALIGNED, SUPPORTED, TRANSITION, CONFLICT }
     public enum HarmonicRoute { NO_TRADE, TREND_ALIGNED_REVERSAL, EXHAUSTION_REVERSAL, TRANSITION_REVERSAL }
+    public enum SignalTrendRelation { NEUTRAL, WITH_TREND, AGAINST_TREND }
+    public enum ThesisMode { NO_TRADE, CONTINUATION_PULLBACK, COUNTERTREND_EXHAUSTION, REGIME_TRANSITION }
     public enum CandidateState { DETECTED, VALIDATED, ROUTED, WAIT_PRZ, PRZ_TOUCHED, EVIDENCE_BUILDING, EXECUTABLE, CONFIRMING, ARMED, EXECUTED, EXPIRED, REJECTED, INVALIDATED }
     public enum PatternMode { STANDARD, ABCD, CYPHER, SHARK, FIVEZERO }
 
@@ -3936,6 +3963,7 @@ namespace cAlgo.Robots
         public int H4DirectionVote, H1DirectionVote;
         public double HtfAgreement;
         public string RegimeClass;
+        public double H1Ema50, H1Atr, H1Close;
     }
 
     public sealed class CandidateRecord
@@ -3950,6 +3978,8 @@ namespace cAlgo.Robots
         public DateTime? PrzTouchUtc, ExecutableUtc;
         public MtfConflict Conflict = MtfConflict.NEUTRAL;
         public HarmonicRoute Route = HarmonicRoute.NO_TRADE;
+        public ThesisMode Thesis = ThesisMode.NO_TRADE;
+        public SignalTrendRelation TrendRelation = SignalTrendRelation.NEUTRAL;
         public RegimeSnapshot Regime;
         public double ConfirmationScore, NetRR, SelectedTarget, Rank;
         public double EvidenceComposite;
@@ -3959,6 +3989,8 @@ namespace cAlgo.Robots
         public readonly List<double> EvidenceScores = new List<double>();
         public double AlphaQualityScore, RegimeScore, CapitalMinL0Risk, CapitalMinL0Margin;
         public double HtfContextConfidence, TemporalStateScore, CrossRegimeAdmissionScore, RobustAlphaDensity;
+        public double TrendPersistenceHazard, ReversalPlausibility, ContinuationResumptionScore;
+        public string GridFailureReason;
         public int TemporalStage;
         public string PatternHypotheses;
         public bool CapitalFeasible;
