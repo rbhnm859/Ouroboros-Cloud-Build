@@ -1295,6 +1295,8 @@ namespace cAlgo.Robots
                            c.Route == HarmonicRoute.TREND_ALIGNED_REVERSAL ? 4 :
                            c.Route == HarmonicRoute.EXHAUSTION_REVERSAL ? 2 :
                            c.Route == HarmonicRoute.TRANSITION_REVERSAL ? (c.Regime != null && c.Regime.Efficiency >= .28 ? 3 : 2) : 0;
+            if (EnableFamilyGridAllocationV54)
+                routeMax = V54GridMaxLegs(c.Signal.PatternName, routeMax, p.MaximumGridLegs);
             int maxLegs = Math.Min(Math.Min(routeMax, p.MaximumGridLegs), p.GridFractions.Length);
             if (maxLegs <= 0) return GridPlanReject(c, "ROUTE_LEGS");
 
@@ -1325,7 +1327,9 @@ namespace cAlgo.Robots
                 double price = c.Signal.Direction == TradeDirection.Buy ? anchor - fraction * executionUnit : anchor + fraction * executionUnit;
                 if (price < legalLow || price > legalHigh) continue;
 
-                double riskWeight = !EnableFibonacciGridExecution ? 1.0 : (leg < p.GridRiskWeights.Length ? p.GridRiskWeights[leg] : 0);
+                double riskWeight = !EnableFibonacciGridExecution ? 1.0 :
+                                    EnableFamilyGridAllocationV54 ? V54GridRiskWeight(c.Signal.PatternName, leg, maxLegs) :
+                                    (leg < p.GridRiskWeights.Length ? p.GridRiskWeights[leg] : 0);
                 double slPips = PriceToPips(Math.Abs(price - stop));
                 if (slPips < MinStopLossPips || riskWeight <= 0) continue;
 
@@ -1840,7 +1844,8 @@ namespace cAlgo.Robots
                 if (currentR > basket.PeakR) basket.PeakR = currentR;
                 if (-currentR > basket.MaxAdverseR) basket.MaxAdverseR = -currentR;
 
-                if (basket.PeakR >= GridCancelMfeR && pending.Count > 0)
+                double gridCancelThreshold = EnableGridStateAwareV54 ? V54GridCancelMfeThreshold(basket) : GridCancelMfeR;
+                if (basket.PeakR >= gridCancelThreshold && pending.Count > 0)
                     CancelBasketPending(basket, "MFE_GRID_CANCEL");
 
                 double age = (Server.Time.ToUniversalTime() - basket.CreatedUtc).TotalMinutes;
@@ -2141,7 +2146,16 @@ namespace cAlgo.Robots
             double prev = _m1Bars.ClosePrices[i - 1];
             double impulse = basket.Direction == TradeDirection.Buy ? close - prev : prev - close;
             bool notAcceleratingAgainst = impulse >= -PipsToPrice(Math.Max(1.0, SpreadPips()));
-            return notAcceleratingAgainst;
+            if (!notAcceleratingAgainst) return false;
+            if (EnableGridStateAwareV54 && basket.Candidate != null)
+            {
+                var candidate = basket.Candidate;
+                if (!candidate.IsProvenCoreAlpha && candidate.EconomicQualityScore > 0 && candidate.EconomicQualityScore < .65 && leg.Index >= 2)
+                    return false;
+                if ((basket.Pattern == "AB=CD" || basket.Pattern == "Rat") && leg.Index >= 3)
+                    return false;
+            }
+            return true;
         }
 
         private double CurrentFilledStructuralRisk(FibonacciBasket basket)
