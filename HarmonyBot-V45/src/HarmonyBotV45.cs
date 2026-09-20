@@ -1870,8 +1870,9 @@ namespace cAlgo.Robots
                 ? PriceToPips(basket.Direction == TradeDirection.Buy ? basket.EntryAnchor - basket.AverageEntry : basket.AverageEntry - basket.EntryAnchor)
                 : 0;
             string setupKey = basket.Candidate != null ? basket.Candidate.SetupKey : "";
-            Print("[V45-BASKET-CLOSED] basket={0} cid={1} setup={2} pattern={3} route={4} dir={5} plannedLegs={6} filledLegs={7} anchor={8} avgEntry={9} entryImprovePips={10:F3} stop={11} target={12} initialRisk={13:F2} worstRisk={14:F2} mfeR={15:F3} maeR={16:F3} realizedR={17:F3} net={18:F2} reason={19}",
-                basket.BasketId, basket.CandidateId, setupKey, basket.Pattern, basket.Route, basket.Direction, basket.Plan.Legs.Count, basket.FilledLegs,
+            string subtype = basket.Candidate != null && basket.Candidate.Signal != null ? basket.Candidate.Signal.HarmonicSubtype : basket.Pattern;
+            Print("[V45-BASKET-CLOSED] basket={0} cid={1} setup={2} pattern={3} subtype={4} route={5} dir={6} plannedLegs={7} filledLegs={8} anchor={9} avgEntry={10} entryImprovePips={11:F3} stop={12} target={13} initialRisk={14:F2} worstRisk={15:F2} mfeR={16:F3} maeR={17:F3} realizedR={18:F3} net={19:F2} reason={20}",
+                basket.BasketId, basket.CandidateId, setupKey, basket.Pattern, subtype, basket.Route, basket.Direction, basket.Plan.Legs.Count, basket.FilledLegs,
                 basket.EntryAnchor, basket.AverageEntry, entryImprovementPips, basket.StructuralStop, basket.CanonicalTarget,
                 basket.InitialBasketRisk, basket.PlannedWorstCaseRisk, basket.PeakR, basket.MaxAdverseR, realizedR, basket.RealizedNet, reason);
         }
@@ -2063,7 +2064,8 @@ namespace cAlgo.Robots
                 Profile = p,
                 Direction = bullish ? TradeDirection.Buy : TradeDirection.Sell,
                 X = x, A = a, B = b, C = c, D = d, PivotScale = pivotScale,
-                Xab = xab, Abc = abc, Bcd = bcd, Xad = xad, AdXa = adxa, XdXa = xdxa,
+                Xab = xab, Abc = abc, Bcd = bcd, Xad = xad, AdXa = adxa, XdXa = xdxa, AbCd = abcd,
+                HarmonicSubtype = p.Mode == PatternMode.ABCD ? AbcdSubtype(abcd) : p.Name,
                 PrzLow = przLow, PrzHigh = przHigh,
                 GeometryQuality = geometry,
                 PrzConfluence = przConfluence,
@@ -2077,6 +2079,14 @@ namespace cAlgo.Robots
                 Timeframe = timeframe
             };
             return true;
+        }
+
+        private string AbcdSubtype(double cdOverAb)
+        {
+            if (cdOverAb >= .94 && cdOverAb <= 1.06) return "ABCD_EXACT";
+            if (cdOverAb >= 1.20 && cdOverAb <= 1.34) return "ABCD_NEAR_127";
+            if (cdOverAb >= 1.55 && cdOverAb <= 1.69) return "ABCD_ALT_1618";
+            return "ABCD_LEGACY_BROAD";
         }
 
         private List<PivotPoint> BuildConfirmedPivots(Bars bars, int endIndex, int lookback, int depth)
@@ -2805,8 +2815,9 @@ namespace cAlgo.Robots
 
         private void Ledger(CandidateRecord c, CandidateState state, string reason)
         {
-            Print("[V45-EVENT] cid={0} setup={1} pattern={2} tf={3} dir={4} state={5} route={6} conflict={7} reason={8}",
-                c.CandidateId, c.SetupKey ?? "", c.Signal.PatternName, c.Signal.Timeframe, c.Signal.Direction, state, c.Route, c.Conflict, reason);
+            Print("[V45-EVENT] cid={0} setup={1} pattern={2} subtype={3} tf={4} dir={5} state={6} route={7} conflict={8} reason={9}",
+                c.CandidateId, c.SetupKey ?? "", c.Signal.PatternName, c.Signal.HarmonicSubtype ?? c.Signal.PatternName,
+                c.Signal.Timeframe, c.Signal.Direction, state, c.Route, c.Conflict, reason);
         }
 
         private void Event(CandidateRecord c, string reason)
@@ -2985,7 +2996,8 @@ namespace cAlgo.Robots
         public TradeDirection Direction;
         public PivotPoint X, A, B, C, D;
         public int PivotScale;
-        public double Xab, Abc, Bcd, Xad, AdXa, XdXa;
+        public double Xab, Abc, Bcd, Xad, AdXa, XdXa, AbCd;
+        public string HarmonicSubtype;
         public double PrzLow, PrzHigh;
         public double GeometryQuality, PrzConfluence, TimeSymmetry, PivotQuality, Confidence;
         public double StructuralInvalidation, CanonicalTarget1, CanonicalTarget2;
