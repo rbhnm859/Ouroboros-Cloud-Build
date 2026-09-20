@@ -2526,12 +2526,14 @@ namespace cAlgo.Robots
             if (EnableAttributionLedger && basket.Candidate != null && basket.Candidate.Signal != null && basket.Candidate.Regime != null)
             {
                 var c = basket.Candidate;
-                Print("[V43-ATTRIBUTION-OUTCOME] cid={0} key={1} lane={2} pattern={3} route={4} dir={5} conflict={6} geom={7:F3} prz={8:F3} time={9:F3} pivot={10:F3} alpha={11:F3} regime={12:F3} atrRatio={13:F3} efficiency={14:F3} extensionAtr={15:F3} adxSlope={16:F3} evidence={17:F3} follow={18:F3} routeFit={19:F3} stress={20:F3} netRR={21:F3} attr={22:F3} rescue={23:F3} mfeR={24:F3} maeR={25:F3} realizedR={26:F3} net={27:F2} reason={28}",
+                Print("[V43-ATTRIBUTION-OUTCOME] cid={0} key={1} lane={2} pattern={3} route={4} dir={5} conflict={6} geom={7:F3} prz={8:F3} time={9:F3} pivot={10:F3} alpha={11:F3} regime={12:F3} atrRatio={13:F3} efficiency={14:F3} extensionAtr={15:F3} adxSlope={16:F3} evidence={17:F3} follow={18:F3} routeFit={19:F3} stress={20:F3} netRR={21:F3} attr={22:F3} rescue={23:F3} mfeR={24:F3} maeR={25:F3} realizedR={26:F3} net={27:F2} reason={28} htfContext={29:F3} temporal={30:F3} crossRegime={31:F3} alphaDensity={32:F3} regimeClass={33} hypotheses={34}",
                     c.CandidateId, c.CanonicalCandidateKey, c.Lane, c.Signal.PatternName, c.Route, c.Signal.Direction, c.Conflict,
                     c.Signal.GeometryQuality, c.Signal.PrzConfluence, c.Signal.TimeSymmetry, c.Signal.PivotQuality,
                     c.AlphaQualityScore, c.RegimeScore, c.Regime.AtrRatio, c.Regime.Efficiency, c.Regime.ExtensionAtr,
                     c.Regime.AdxH1Slope, c.EvidenceComposite, c.FollowThroughScore, c.RouteFitScore, c.RegimeStressScore,
-                    c.NetRR, c.AttributionScore, c.MarginalRescueScore, basket.PeakR, basket.MaxAdverseR, realizedR, basket.RealizedNet, reason);
+                    c.NetRR, c.AttributionScore, c.MarginalRescueScore, basket.PeakR, basket.MaxAdverseR, realizedR, basket.RealizedNet, reason,
+                    c.HtfContextConfidence, c.TemporalStateScore, c.CrossRegimeAdmissionScore, c.RobustAlphaDensity,
+                    c.Regime.RegimeClass, string.IsNullOrWhiteSpace(c.PatternHypotheses) ? c.Signal.PatternName : c.PatternHypotheses);
             }
         }
 
