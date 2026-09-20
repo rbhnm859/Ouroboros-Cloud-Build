@@ -2877,46 +2877,51 @@ namespace cAlgo.Robots
 
             if (retracement)
             {
-                if (c.NativeStage == 0 && rejection) c.NativeStage = 1;
-                if (c.NativeStage == 1 && reclaim) c.NativeStage = 2;
-                if (c.NativeStage == 2 && bos) c.NativeStage = 3;
-                if (c.NativeStage == 3 && displacement) c.NativeStage = 4;
+                int prior = c.NativeStage;
+                if (prior == 0 && rejection) c.NativeStage = 1;
+                else if (prior == 1 && reclaim) c.NativeStage = 2;
+                else if (prior == 2 && bos) c.NativeStage = 3;
+                else if (prior == 3 && displacement) c.NativeStage = 4;
                 score = c.NativeStage / 4.0;
                 return c.NativeStage >= 4;
             }
             if (extension)
             {
-                if (c.NativeStage == 0 && sweep) c.NativeStage = 1;
-                if (c.NativeStage == 1 && failedExtension) c.NativeStage = 2;
-                if (c.NativeStage == 2 && insidePrz) c.NativeStage = 3;
-                if (c.NativeStage == 3 && bos) c.NativeStage = 4;
+                int prior = c.NativeStage;
+                if (prior == 0 && sweep) c.NativeStage = 1;
+                else if (prior == 1 && failedExtension) c.NativeStage = 2;
+                else if (prior == 2 && insidePrz) c.NativeStage = 3;
+                else if (prior == 3 && bos) c.NativeStage = 4;
                 score = c.NativeStage / 4.0;
                 return c.NativeStage >= 4;
             }
             if (abcd)
             {
-                if (c.NativeStage == 0 && deceleration) c.NativeStage = 1;
-                if (c.NativeStage == 1 && failedExtension) c.NativeStage = 2;
-                if (c.NativeStage == 2 && directional && displacement) c.NativeStage = 3;
-                if (c.NativeStage == 3 && bos) c.NativeStage = 4;
+                int prior = c.NativeStage;
+                if (prior == 0 && deceleration) c.NativeStage = 1;
+                else if (prior == 1 && failedExtension) c.NativeStage = 2;
+                else if (prior == 2 && directional && displacement) c.NativeStage = 3;
+                else if (prior == 3 && bos) c.NativeStage = 4;
                 score = c.NativeStage / 4.0;
                 return c.NativeStage >= 4;
             }
             if (transition)
             {
-                if (c.NativeStage == 0 && failedExtension) c.NativeStage = 1;
-                if (c.NativeStage == 1 && bos) c.NativeStage = 2;
-                if (c.NativeStage == 2 && retest) c.NativeStage = 3;
-                if (c.NativeStage == 3 && directional) c.NativeStage = 4;
+                int prior = c.NativeStage;
+                if (prior == 0 && failedExtension) c.NativeStage = 1;
+                else if (prior == 1 && bos) c.NativeStage = 2;
+                else if (prior == 2 && retest) c.NativeStage = 3;
+                else if (prior == 3 && directional) c.NativeStage = 4;
                 score = c.NativeStage / 4.0;
                 return c.NativeStage >= 4;
             }
             if (cypher)
             {
-                if (c.NativeStage == 0 && rejection) c.NativeStage = 1;
-                if (c.NativeStage == 1 && reclaim) c.NativeStage = 2;
-                if (c.NativeStage == 2 && bos) c.NativeStage = 3;
-                if (c.NativeStage == 3 && displacement) c.NativeStage = 4;
+                int prior = c.NativeStage;
+                if (prior == 0 && rejection) c.NativeStage = 1;
+                else if (prior == 1 && reclaim) c.NativeStage = 2;
+                else if (prior == 2 && bos) c.NativeStage = 3;
+                else if (prior == 3 && displacement) c.NativeStage = 4;
                 score = c.NativeStage / 4.0;
                 return c.NativeStage >= 4;
             }
