@@ -3289,15 +3289,15 @@ namespace cAlgo.Robots
             bool retracementFamily = n == "Gartley" || n == "Bat" || n == "Deep Gartley" || n == "Rat";
 
             if (extensionFamily)
-                return VClamp((directional?.10:0)+(reclaim?.15:0)+(bos?.20:0)+(rejection?.20:0)+(failedExtension?.25:0)+(displacement?.10:0));
+                return VClamp((directional ? .10 : 0)+(reclaim ? .15 : 0)+(bos ? .20 : 0)+(rejection ? .20 : 0)+(failedExtension ? .25 : 0)+(displacement ? .10 : 0));
             if (n == "5-0")
-                return VClamp((directional?.15:0)+(reclaim?.15:0)+(bos?.25:0)+(rejection?.15:0)+(failedExtension?.20:0)+(displacement?.10:0));
+                return VClamp((directional ? .15 : 0)+(reclaim ? .15 : 0)+(bos ? .25 : 0)+(rejection ? .15 : 0)+(failedExtension ? .20 : 0)+(displacement ? .10 : 0));
             if (n == "Cypher")
-                return VClamp((directional?.15:0)+(reclaim?.25:0)+(bos?.20:0)+(rejection?.15:0)+(failedExtension?.15:0)+(displacement?.10:0));
+                return VClamp((directional ? .15 : 0)+(reclaim ? .25 : 0)+(bos ? .20 : 0)+(rejection ? .15 : 0)+(failedExtension ? .15 : 0)+(displacement ? .10 : 0));
             if (retracementFamily)
-                return VClamp((directional?.18:0)+(reclaim?.24:0)+(bos?.24:0)+(rejection?.14:0)+(failedExtension?.08:0)+(displacement?.12:0));
+                return VClamp((directional ? .18 : 0)+(reclaim ? .24 : 0)+(bos ? .24 : 0)+(rejection ? .14 : 0)+(failedExtension ? .08 : 0)+(displacement ? .12 : 0));
             // AB=CD: prioritize symmetry completion translating into actual displacement/BOS.
-            return VClamp((directional?.18:0)+(reclaim?.20:0)+(bos?.27:0)+(rejection?.12:0)+(failedExtension?.08:0)+(displacement?.15:0));
+            return VClamp((directional ? .18 : 0)+(reclaim ? .20 : 0)+(bos ? .27 : 0)+(rejection ? .12 : 0)+(failedExtension ? .08 : 0)+(displacement ? .15 : 0));
         }
 
         private double CandidateRank(CandidateRecord c)
@@ -3927,3 +3927,4 @@ namespace cAlgo.Robots
         public long Executed, Expired, Rejected, Invalidated;
     }
 }
+
