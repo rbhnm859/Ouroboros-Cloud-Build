@@ -1,0 +1,53 @@
+name: HarmonyBot V39 Regime-Conditioned Harmonic Portfolio
+
+on:
+  push:
+    branches:
+      - harmonybot/v39-regime-conditioned-harmonic-portfolio
+    paths:
+      - 'HarmonyBot-V39/**'
+      - '.github/workflows/harmonybot-v39-regime-portfolio.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: harmonybot-v39-regime-portfolio
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  v39-development:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 240
+    env:
+      CTRADER_PASSWORD: ${{ secrets.CTRADER_PASSWORD }}
+      CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+      CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+    steps:
+      - name: Checkout V39 branch
+        uses: actions/checkout@v4
+        with:
+          ref: harmonybot/v39-regime-conditioned-harmonic-portfolio
+          path: control
+          fetch-depth: 1
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Execute fail-fast V39 positive-net DEV
+        shell: bash
+        run: |
+          chmod +x control/HarmonyBot-V39/tools/*.sh
+          control/HarmonyBot-V39/tools/orchestrate_development.sh
+
+      - name: Upload V39 evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: HARMONYBOT-V39-REGIME-PORTFOLIO
+          path: control/HarmonyBot-V39/output
+          retention-days: 30
+          if-no-files-found: warn
