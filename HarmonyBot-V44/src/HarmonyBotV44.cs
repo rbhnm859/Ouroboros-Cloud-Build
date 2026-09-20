@@ -3568,6 +3568,9 @@ namespace cAlgo.Robots
             double evidence = VClamp(c.EvidenceComposite);
             double rr = VClamp(c.NetRR / 3.0);
             double stress = VClamp(c.RegimeStressScore);
+            if (!EnableThesisConsistentRouting)
+                return VClamp(.20 * c.AlphaQualityScore + .18 * structural + .17 * routePrior +
+                              .15 * temporal + .12 * evidence + .10 * rr + .08 * c.RegimeScore - .12 * stress);
             double thesis = c.Thesis == ThesisMode.CONTINUATION_PULLBACK ? c.ContinuationResumptionScore :
                             c.Thesis == ThesisMode.COUNTERTREND_EXHAUSTION ? c.ReversalPlausibility :
                             c.TemporalStateScore;
