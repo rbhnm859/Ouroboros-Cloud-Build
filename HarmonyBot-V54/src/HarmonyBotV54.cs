@@ -930,6 +930,14 @@ namespace cAlgo.Robots
                     }
                     ConversionTruth(c.Signal.PatternName, "ECONOMIC_PLAN_PASS");
 
+                    if (EnableExpansionEconomicGateV54 && !V54ExpansionEconomicAdmission(c))
+                    {
+                        ConversionTruth(c.Signal.PatternName, "EXPANSION_ECONOMIC_REJECT");
+                        Reject(c, "EXPANSION_ECONOMIC_QUALITY");
+                        continue;
+                    }
+                    ConversionTruth(c.Signal.PatternName, c.IsProvenCoreAlpha ? "CORE_ECONOMIC_PASS" : "EXPANSION_ECONOMIC_PASS");
+
                     c.Rank = CandidateRank(c);
                     _alphaPassed++;
                     c.ArmedUtc = utc;
