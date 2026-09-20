@@ -1,0 +1,49 @@
+#!/usr/bin/env bash
+set -euo pipefail
+: "${CTRADER_PASSWORD:?}"; : "${CTRADER_CTID:?}"; : "${CTRADER_ACCOUNT:?}"
+: "${RUN_NAME:?}"; : "${START_DATE:?}"; : "${END_DATE:?}"; : "${EVAL_DATE:?}"
+BALANCE="${BALANCE:-10000}"
+PQUEUE="${PQUEUE:-false}"; HANDOFF="${HANDOFF:-false}"; NATIVE="${NATIVE:-false}"
+NATIVEBARS="${NATIVEBARS:-4}"; DECAY="${DECAY:-false}"; HARDLIFE="${HARDLIFE:-180}"; FAMNATIVE="${FAMNATIVE:-false}"; FAMOBS="${FAMOBS:-true}"; CANCONTRACT="${CANCONTRACT:-false}"; FAMCONF="${FAMCONF:-false}"; GRIDV2="${GRIDV2:-false}"; STOPV2="${STOPV2:-false}"
+REVALIDATE="${REVALIDATE:-false}"; JOINT="${JOINT:-false}"; CORRIDOR="${CORRIDOR:-false}"; ANCHORFORENSICS="${ANCHORFORENSICS:-true}"
+IDENT="${IDENT:-false}"; BOUNDED="${BOUNDED:-false}"; SKIPS="${SKIPS:-2}"; FQUOTA="${FQUOTA:-4}"; PRJPRZ="${PRJPRZ:-false}"; DTRUTH="${DTRUTH:-true}"
+FAMQUAL="${FAMQUAL:-false}"; FAMROUTE="${FAMROUTE:-false}"; FAMCONFV2="${FAMCONFV2:-false}"; CTXBUS="${CTXBUS:-false}"; GRIDEXEC="${GRIDEXEC:-true}"
+LIBERATE="${LIBERATE:-false}"; COREKEEP="${COREKEEP:-false}"; GRIDV3="${GRIDV3:-false}"; STATEGRID="${STATEGRID:-false}"
+ALGO="${ALGO:-seal/algo/HarmonyBot_V54_Universal_Harmonic_Liberation_Grid_Alpha_Core_RC.algo}"
+IMAGE="${CTRADER_IMAGE:-ghcr.io/spotware/ctrader-console:5.9.11}"
+BACKTEST_TIMEOUT_SECONDS="${BACKTEST_TIMEOUT_SECONDS:-2700}"
+mkdir -p seal/{reports,logs,data}
+if [ ! -s seal/ctrader.pwd ]; then printf '%s' "$CTRADER_PASSWORD" > seal/ctrader.pwd; chmod 600 seal/ctrader.pwd; fi
+docker image inspect "$IMAGE" >/dev/null 2>&1 || docker pull "$IMAGE" >/dev/null
+if [ ! -s seal/accounts.json ]; then
+ docker run --rm -v "$PWD/seal:/work" "$IMAGE" accounts --ctid="$CTRADER_CTID" --pwd-file=/work/ctrader.pwd > seal/accounts.json
+fi
+ACCT=$(python3 - <<'PY'
+import json,os
+a=json.load(open('seal/accounts.json',encoding='utf-8-sig')); e=os.environ['CTRADER_ACCOUNT'].strip()
+m=next((x for x in a if str(x.get('Number',''))==e or str(x.get('Id',''))==e),None)
+if not m or m.get('Broker','').lower()!='fxpro' or m.get('Live') is not False or m.get('DepositCurrency')!='USD' or int(m.get('Leverage',0))!=500:
+ raise SystemExit('FxPro demo USD 1:500 mismatch')
+print(m['Number'])
+PY
+)
+CNAME="v54-$(echo "$RUN_NAME"|tr '[:upper:]_' '[:lower:]-')-$GITHUB_RUN_ID"
+docker run --name "$CNAME" -v "$PWD/seal:/work" "$IMAGE" backtest "/work/${ALGO#seal/}"  --ctid="$CTRADER_CTID" --pwd-file=/work/ctrader.pwd --account="$ACCT" --symbol=XAUUSD --period=m1  --start="$START_DATE" --end="$END_DATE" --balance="$BALANCE" --data-mode=m1 --data-dir=/work/data --commission=35 --spread=1  --SymbolName=XAUUSD --TradingEnabled=true --BasketRiskPercent=1.0 --AdaptiveCapitalMode=true --MinimumSupportedEquity=100  --MicroCapitalThreshold=500 --MaxDrawdownPercent=10 --DailyLossLimitPercent=3 --MaxSpreadPips=60 --RoundTurnCommissionPips=0.5  --SlippageStressPips=0.3 --MinimumNetRR=2.0 --MinStopLossPips=10 --MinFreeMarginRiskMultiple=5  --M15SwingDepth=3 --M15SwingLookback=320 --H1SwingDepth=3 --H4SwingDepth=2 --PortfolioMaxCandidates=12 --CandidateTtlM15Bars=12  --MinGeometryQuality=0.55 --MinPrzConfluence=0.55 --EnableHarmonicRobustnessGate=false --EnableRegimeContextGate=false  --EnableEnhancedM1Confirmation=false --EnableCapitalFeasibilityGate=false --EnableTransitionStateVeto=false  --EnableExhaustionEvidenceVeto=true --EnableRouteSpecificM1Veto=false  --EnableDeferredCandidateRetention=true --EnableFrequencyAgingPriority=true --CandidateAgeRankBoost=0.08  --EnableStructuredRecallExpansion=true --RecallMinGeometry=0.72 --RecallMinPrz=0.72 --RecallMinConfidence=0.68  --EnableCanonicalSetupIdentity=true --EnableCanonicalStandardCoordinates=true --EnableIndependentPivotGraph=true  --EnableTransitionProofGate=true --EnableM1RescueLane=false --M1RescueMaxBars=3 --EnableDiversityScheduler=true  --EnableScaleRouteAdmission=true --EnableM1TemporalRescue=false --EnableArmedExecutionGrace=false --ArmedGraceMinutes=90  --EnablePreExecutionGridRevalidation="$REVALIDATE"  --EnablePersistentArmedQueue="$PQUEUE" --EnableEventDrivenSerialHandoff="$HANDOFF"  --EnablePatternNativeM1Expansion="$NATIVE" --PatternNativeM1MaxBars="$NATIVEBARS"  --EnableOpportunityDecayRanking="$DECAY" --ParkedHardLifetimeMinutes="$HARDLIFE" --EnableFamilyNativeConversion="$FAMNATIVE" --EnableFamilyNativeObservation="$FAMOBS" --EnableCanonicalFamilyContracts="$CANCONTRACT" --EnableFamilyCompletionContract="$FAMCONF" --FamilyConfirmationWindowBars=6 --EnableGridSpanSemanticV2="$GRIDV2" --EnableStructuralInvalidationV2="$STOPV2" --EnableFamilyNativeJointGeometry="$JOINT" --EnableFamilyNativeExecutionCorridor="$CORRIDOR" --EnableEntryAnchorForensics="$ANCHORFORENSICS" --EnableFamilyIdentityReconstruction="$IDENT" --EnableBoundedPivotGraph="$BOUNDED" --MaxMicroPivotSkips="$SKIPS" --FamilyDetectionQuota="$FQUOTA" --EnableFamilyNativeProjectedPrz="$PRJPRZ" --EnableDetectorTruthLedger="$DTRUTH" --EnableFamilyNativeQualificationV2="$FAMQUAL" --EnableFamilyNativeRouterV2="$FAMROUTE" --EnableFamilyNativeConfirmationV2="$FAMCONFV2" --EnableOrthogonalContextFeatureBus="$CTXBUS" --EnableFibonacciGridExecution="$GRIDEXEC" --EnableUniversalHarmonicLiberation="$LIBERATE" --EnableCoreAlphaPreservation="$COREKEEP" --EnableFamilyGridAlphaCoreV3="$GRIDV3" --EnableStateAwareGridV3="$STATEGRID"  --GridCancelMfeR=0.50 --NoMfeProofR=0.15 --NoMfeKillR=0.80 --NoMfeMinAgeMinutes=3  --BreakEvenTriggerR=1.0 --BreakEvenLockR=0.10 --TrailTriggerR=1.50 --TrailDistanceR=0.75  --EvaluationStartUtcIso="$EVAL_DATE" --report="/work/reports/$RUN_NAME.html" --report-json="/work/reports/$RUN_NAME.json" --exit-on-stop  > "seal/logs/$RUN_NAME.log" 2>&1 &
+PID=$!; DONE=0
+echo "[V54-WATCHDOG] run=$RUN_NAME pid=$PID timeoutSeconds=$BACKTEST_TIMEOUT_SECONDS"
+for ((i=0;i<BACKTEST_TIMEOUT_SECONDS;i+=5)); do
+ if (( i % 60 == 0 )); then echo "[V54-WATCHDOG] run=$RUN_NAME elapsedSeconds=$i status=running"; fi
+ if test -s "seal/reports/$RUN_NAME.json" && python3 - <<PY
+import json
+m=json.load(open("seal/reports/$RUN_NAME.json",encoding="utf-8-sig")).get("main",{})
+raise SystemExit(0 if "endingEquity" in m and "netProfit" in m else 1)
+PY
+ then DONE=1; break; fi
+ if ! kill -0 "$PID" 2>/dev/null; then break; fi
+ sleep 5
+done
+docker stop --time 3 "$CNAME" >/dev/null 2>&1 || true
+docker rm -f "$CNAME" >/dev/null 2>&1 || true
+wait "$PID" 2>/dev/null || true
+test "$DONE" = 1 || { echo "[V54-WATCHDOG-FAIL] run=$RUN_NAME"; tail -400 "seal/logs/$RUN_NAME.log" || true; exit 20; }
+echo "[V54-WATCHDOG] run=$RUN_NAME status=complete"
