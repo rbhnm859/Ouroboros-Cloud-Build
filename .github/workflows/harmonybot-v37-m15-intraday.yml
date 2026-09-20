@@ -1,0 +1,49 @@
+name: HarmonyBot V37 M15 Intraday Harmonic Portfolio Development
+
+on:
+  push:
+    branches:
+      - harmonybot/v37-m15-intraday-harmonic-core
+    paths:
+      - 'HarmonyBot-V37/**'
+      - '.github/workflows/harmonybot-v37-m15-intraday.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  v37_m15_intraday:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    env:
+      CTRADER_PASSWORD: ${{ secrets.CTRADER_PASSWORD }}
+      CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+      CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+    steps:
+      - name: Checkout V37 branch
+        uses: actions/checkout@v4
+        with:
+          ref: harmonybot/v37-m15-intraday-harmonic-core
+          path: control
+          fetch-depth: 1
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Execute fail-fast V37 M15 intraday DEV
+        shell: bash
+        run: |
+          chmod +x control/HarmonyBot-V37/tools/*.sh
+          control/HarmonyBot-V37/tools/orchestrate_development.sh
+
+      - name: Upload V37 evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: HARMONYBOT-V37-M15-INTRADAY
+          path: control/HarmonyBot-V37/output
+          retention-days: 30
+          if-no-files-found: warn
