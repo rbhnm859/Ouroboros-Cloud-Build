@@ -1,0 +1,42 @@
+name: HarmonyBot V36 Dynamic Reroute Development
+on:
+  push:
+    branches: [harmonybot/v36-high-frequency-harmonic-portfolio]
+    paths:
+      - 'HarmonyBot-V36/tools/apply_dynamic_reroute_retention.py'
+      - 'HarmonyBot-V36/tools/run_dynamic_reroute_backtest.sh'
+      - 'HarmonyBot-V36/tools/orchestrate_dynamic_reroute.sh'
+      - '.github/workflows/harmonybot-v36-dynamic-reroute.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  dynamic_reroute:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    env:
+      CTRADER_PASSWORD: ${{ secrets.CTRADER_PASSWORD }}
+      CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+      CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: harmonybot/v36-high-frequency-harmonic-portfolio
+          path: control
+          fetch-depth: 1
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+      - name: Execute dynamic route re-evaluation DEV-A/B/C
+        shell: bash
+        run: |
+          chmod +x control/HarmonyBot-V36/tools/*.sh
+          control/HarmonyBot-V36/tools/orchestrate_dynamic_reroute.sh
+      - name: Upload dynamic reroute evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: HARMONYBOT-V36-DYNAMIC-REROUTE
+          path: control/HarmonyBot-V36/output-reroute
+          retention-days: 30
+          if-no-files-found: warn
