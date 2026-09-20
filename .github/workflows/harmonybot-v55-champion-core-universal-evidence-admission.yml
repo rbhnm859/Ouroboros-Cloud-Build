@@ -1,4 +1,4 @@
-name: HarmonyBot V55 Build Contract Gate
+name: HarmonyBot V55 Champion Core Evidence DEV2
 
 on:
   push:
@@ -14,6 +14,11 @@ concurrency:
 
 permissions:
   contents: read
+
+env:
+  CTRADER_PASSWORD: ${{ secrets.CTRADER_PASSWORD }}
+  CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+  CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
 
 jobs:
   build:
@@ -51,4 +56,151 @@ jobs:
             control/HarmonyBot-V55/dist
             control/HarmonyBot-V55/final
             control/HarmonyBot-V55/V55_WINDOW_MANIFEST.json
+          retention-days: 30
+
+  data_seed:
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 50
+    strategy:
+      fail-fast: false
+      max-parallel: 3
+      matrix:
+        window: [A, B, C]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: harmonybot/v55-champion-core-universal-evidence-admission
+          path: control
+          fetch-depth: 1
+      - uses: actions/download-artifact@v4
+        with:
+          name: v55-build
+          path: control/HarmonyBot-V55/shared
+      - name: Resolve preregistered DEV2 window
+        id: d
+        shell: bash
+        run: |
+          case "${{ matrix.window }}" in
+            A) echo "start=03/01/2023" >> "$GITHUB_OUTPUT"; echo "eval=2023-01-10T00:00:00Z" >> "$GITHUB_OUTPUT"; echo "end=30/06/2023" >> "$GITHUB_OUTPUT";;
+            B) echo "start=03/07/2023" >> "$GITHUB_OUTPUT"; echo "eval=2023-07-10T00:00:00Z" >> "$GITHUB_OUTPUT"; echo "end=29/12/2023" >> "$GITHUB_OUTPUT";;
+            C) echo "start=02/01/2024" >> "$GITHUB_OUTPUT"; echo "eval=2024-01-09T00:00:00Z" >> "$GITHUB_OUTPUT"; echo "end=28/06/2024" >> "$GITHUB_OUTPUT";;
+          esac
+      - name: Materialize immutable XAUUSD market-data snapshot
+        shell: bash
+        run: |
+          set -euo pipefail
+          chmod +x control/HarmonyBot-V55/tools/*.sh
+          W="$GITHUB_WORKSPACE/control/HarmonyBot-V55/data-seed-${{ matrix.window }}"
+          O="$GITHUB_WORKSPACE/control/HarmonyBot-V55/data-seed-out-${{ matrix.window }}"
+          mkdir -p "$W/seal/algo" "$O"
+          A=$(find control/HarmonyBot-V55/shared -type f -name 'HarmonyBot_V55_Champion_Core_Universal_Evidence_Admission_RC.algo' | head -1)
+          test -s "$A"
+          cp "$A" "$W/seal/algo/"
+          (
+            cd "$W"
+            RUN_NAME="V55-DATA-SEED-${{ matrix.window }}" START_DATE="${{ steps.d.outputs.start }}" EVAL_DATE="${{ steps.d.outputs.eval }}" END_DATE="${{ steps.d.outputs.end }}" BALANCE=10000             FAMNATIVE=false FAMOBS=true CANCONTRACT=true FAMCONF=true GRIDV2=true STOPV2=true JOINT=true CORRIDOR=false ANCHORFORENSICS=false             RESEARCH=false EXPANSION=false GRIDV4=false PQUEUE=false HANDOFF=false NATIVE=false DECAY=false REVALIDATE=false BACKTEST_TIMEOUT_SECONDS=2100             "$GITHUB_WORKSPACE/control/HarmonyBot-V55/tools/run_backtest.sh"
+          )
+          test -d "$W/seal/data"
+          (cd "$W/seal/data" && find . -type f -print0 | sort -z | xargs -0 sha256sum) | sha256sum | awk '{print $1}' > "$O/data.snapshot.sha"
+          tar -C "$W/seal" -czf "$O/data.tgz" data
+          test -s "$O/data.tgz"
+          test -s "$O/data.snapshot.sha"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: v55-data-${{ matrix.window }}
+          path: control/HarmonyBot-V55/data-seed-out-${{ matrix.window }}
+          retention-days: 30
+          if-no-files-found: error
+
+  dev2:
+    needs: [build, data_seed]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 50
+    strategy:
+      fail-fast: false
+      max-parallel: 12
+      matrix:
+        variant: [V51_CHAMPION_CONTROL, V55_CORE_PARITY, V55_CORE_PLUS_EXPANSION, V55_FULL_GRID_V4]
+        window: [A, B, C]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: harmonybot/v55-champion-core-universal-evidence-admission
+          path: control
+          fetch-depth: 1
+      - uses: actions/download-artifact@v4
+        with:
+          name: v55-build
+          path: control/HarmonyBot-V55/shared
+      - name: Prepare immutable algo and dates
+        id: d
+        shell: bash
+        run: |
+          mkdir -p control/HarmonyBot-V55/dist
+          A=$(find control/HarmonyBot-V55/shared -type f -name 'HarmonyBot_V55_Champion_Core_Universal_Evidence_Admission_RC.algo' | head -1)
+          test -s "$A"
+          cp "$A" control/HarmonyBot-V55/dist/
+          case "${{ matrix.window }}" in
+            A) echo "start=03/01/2023" >> "$GITHUB_OUTPUT"; echo "eval=2023-01-10T00:00:00Z" >> "$GITHUB_OUTPUT"; echo "end=30/06/2023" >> "$GITHUB_OUTPUT";;
+            B) echo "start=03/07/2023" >> "$GITHUB_OUTPUT"; echo "eval=2023-07-10T00:00:00Z" >> "$GITHUB_OUTPUT"; echo "end=29/12/2023" >> "$GITHUB_OUTPUT";;
+            C) echo "start=02/01/2024" >> "$GITHUB_OUTPUT"; echo "eval=2024-01-09T00:00:00Z" >> "$GITHUB_OUTPUT"; echo "end=28/06/2024" >> "$GITHUB_OUTPUT";;
+          esac
+      - uses: actions/download-artifact@v4
+        with:
+          name: v55-data-${{ matrix.window }}
+          path: control/HarmonyBot-V55/data-seed
+      - name: Install immutable market-data snapshot
+        shell: bash
+        run: |
+          set -euo pipefail
+          W="control/HarmonyBot-V55/window-${{ matrix.variant }}-${{ matrix.window }}/seal"
+          mkdir -p "$W"
+          tar -xzf control/HarmonyBot-V55/data-seed/data.tgz -C "$W"
+          cp control/HarmonyBot-V55/data-seed/data.snapshot.sha "$W/data.snapshot.sha"
+          EXPECTED=$(tr -d '[:space:]' < "$W/data.snapshot.sha")
+          ACTUAL=$((cd "$W/data" && find . -type f -print0 | sort -z | xargs -0 sha256sum) | sha256sum | awk '{print $1}')
+          test "$EXPECTED" = "$ACTUAL"
+      - name: Run fixed DEV2
+        shell: bash
+        run: |
+          chmod +x control/HarmonyBot-V55/tools/*.sh
+          control/HarmonyBot-V55/tools/run_window.sh "${{ matrix.variant }}" "${{ matrix.window }}" "${{ steps.d.outputs.start }}" "${{ steps.d.outputs.eval }}" "${{ steps.d.outputs.end }}"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: v55-dev2-${{ matrix.variant }}-${{ matrix.window }}
+          path: control/HarmonyBot-V55/output-${{ matrix.variant }}-${{ matrix.window }}
+          retention-days: 30
+          if-no-files-found: error
+
+  analyze:
+    needs: dev2
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    outputs:
+      candidate: ${{ steps.gate.outputs.candidate }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: harmonybot/v55-champion-core-universal-evidence-admission
+          path: control
+          fetch-depth: 1
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: 'v55-dev2-*'
+          path: control/HarmonyBot-V55/merged
+          merge-multiple: true
+      - name: Analyze exact core preservation and expansion economics
+        id: gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p control/HarmonyBot-V55/final
+          python3 control/HarmonyBot-V55/tools/analyze_parallel_dev.py control/HarmonyBot-V55/merged control/HarmonyBot-V55/final
+          echo "candidate=$(cat control/HarmonyBot-V55/final/candidate.txt)" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: HARMONYBOT-V55-CHAMPION-EVIDENCE-FRONTIER
+          path: control/HarmonyBot-V55/final
           retention-days: 30
