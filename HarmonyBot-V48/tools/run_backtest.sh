@@ -5,7 +5,9 @@ set -euo pipefail
 BALANCE="${BALANCE:-10000}"
 PQUEUE="${PQUEUE:-false}"; HANDOFF="${HANDOFF:-false}"; NATIVE="${NATIVE:-false}"
 NATIVEBARS="${NATIVEBARS:-4}"; DECAY="${DECAY:-false}"; HARDLIFE="${HARDLIFE:-180}"
-REVALIDATE="${REVALIDATE:-false}"\nFAMILYSTRUCT="${FAMILYSTRUCT:-false}"; FAMILYGRID="${FAMILYGRID:-false}"; FAMILYROUTE="${FAMILYROUTE:-false}"\nFAMILYNATIVE="${FAMILYNATIVE:-false}"; FAMILYBARS="${FAMILYBARS:-6}"; FAMILYSHADOW="${FAMILYSHADOW:-true}"
+REVALIDATE="${REVALIDATE:-false}"
+FAMILYSTRUCT="${FAMILYSTRUCT:-false}"; FAMILYGRID="${FAMILYGRID:-false}"; FAMILYROUTE="${FAMILYROUTE:-false}"
+FAMILYNATIVE="${FAMILYNATIVE:-false}"; FAMILYBARS="${FAMILYBARS:-6}"; FAMILYSHADOW="${FAMILYSHADOW:-true}"
 ALGO="${ALGO:-seal/algo/HarmonyBot_V48_Family_Native_Harmonic_Portfolio_Reform_RC.algo}"
 IMAGE="${CTRADER_IMAGE:-ghcr.io/spotware/ctrader-console:5.9.11}"
 BACKTEST_TIMEOUT_SECONDS="${BACKTEST_TIMEOUT_SECONDS:-2700}"
@@ -24,7 +26,7 @@ if not m or m.get('Broker','').lower()!='fxpro' or m.get('Live') is not False or
 print(m['Number'])
 PY
 )
-CNAME="v47-$(echo "$RUN_NAME"|tr '[:upper:]_' '[:lower:]-')-$GITHUB_RUN_ID"
+CNAME="v48-$(echo "$RUN_NAME"|tr '[:upper:]_' '[:lower:]-')-$GITHUB_RUN_ID"
 docker run --name "$CNAME" -v "$PWD/seal:/work" "$IMAGE" backtest "/work/${ALGO#seal/}"  --ctid="$CTRADER_CTID" --pwd-file=/work/ctrader.pwd --account="$ACCT" --symbol=XAUUSD --period=m1  --start="$START_DATE" --end="$END_DATE" --balance="$BALANCE" --data-mode=m1 --data-dir=/work/data --commission=35 --spread=1  --SymbolName=XAUUSD --TradingEnabled=true --BasketRiskPercent=1.0 --AdaptiveCapitalMode=true --MinimumSupportedEquity=100  --MicroCapitalThreshold=500 --MaxDrawdownPercent=10 --DailyLossLimitPercent=3 --MaxSpreadPips=60 --RoundTurnCommissionPips=0.5  --SlippageStressPips=0.3 --MinimumNetRR=2.0 --MinStopLossPips=10 --MinFreeMarginRiskMultiple=5  --M15SwingDepth=3 --M15SwingLookback=320 --H1SwingDepth=3 --H4SwingDepth=2 --PortfolioMaxCandidates=12 --CandidateTtlM15Bars=12  --MinGeometryQuality=0.55 --MinPrzConfluence=0.55 --EnableHarmonicRobustnessGate=false --EnableRegimeContextGate=false  --EnableEnhancedM1Confirmation=false --EnableCapitalFeasibilityGate=false --EnableTransitionStateVeto=false  --EnableExhaustionEvidenceVeto=true --EnableRouteSpecificM1Veto=false  --EnableDeferredCandidateRetention=true --EnableFrequencyAgingPriority=true --CandidateAgeRankBoost=0.08  --EnableStructuredRecallExpansion=true --RecallMinGeometry=0.72 --RecallMinPrz=0.72 --RecallMinConfidence=0.68  --EnableCanonicalSetupIdentity=true --EnableCanonicalStandardCoordinates=true --EnableIndependentPivotGraph=true  --EnableTransitionProofGate=true --EnableM1RescueLane=false --M1RescueMaxBars=3 --EnableDiversityScheduler=true  --EnableScaleRouteAdmission=true --EnableM1TemporalRescue=false --EnableArmedExecutionGrace=false --ArmedGraceMinutes=90  --EnablePreExecutionGridRevalidation="$REVALIDATE"  --EnablePersistentArmedQueue="$PQUEUE" --EnableEventDrivenSerialHandoff="$HANDOFF"  --EnablePatternNativeM1Expansion="$NATIVE" --PatternNativeM1MaxBars="$NATIVEBARS"  --EnableOpportunityDecayRanking="$DECAY" --ParkedHardLifetimeMinutes="$HARDLIFE"  --EnableFamilyStructuralGeometryRepair="$FAMILYSTRUCT" --EnableFamilyGridEnvelope="$FAMILYGRID"  --EnableFamilyRouteCompatibility="$FAMILYROUTE" --EnableFamilyNativeExecutionReform="$FAMILYNATIVE"  --FamilyNativeMaxM1Bars="$FAMILYBARS" --EnableDormantFamilyShadowLedger="$FAMILYSHADOW"  --GridCancelMfeR=0.50 --NoMfeProofR=0.15 --NoMfeKillR=0.80 --NoMfeMinAgeMinutes=3  --BreakEvenTriggerR=1.0 --BreakEvenLockR=0.10 --TrailTriggerR=1.50 --TrailDistanceR=0.75  --EvaluationStartUtcIso="$EVAL_DATE" --report="/work/reports/$RUN_NAME.html" --report-json="/work/reports/$RUN_NAME.json" --exit-on-stop  > "seal/logs/$RUN_NAME.log" 2>&1 &
 PID=$!; DONE=0
 echo "[V48-WATCHDOG] run=$RUN_NAME pid=$PID timeoutSeconds=$BACKTEST_TIMEOUT_SECONDS"
