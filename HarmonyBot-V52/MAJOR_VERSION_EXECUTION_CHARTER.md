@@ -40,3 +40,5 @@ Controls reproduce first. Candidate requires >=90 independent baskets / 1.5y, >=
 Only after DEV pass: actual $100/$150/$200/$300/$500/$1000 -> immutable source/.algo hashes -> one untouched Fresh Alpha + one untouched Fresh $100.
 
 Formal outcome is only COMMERCIAL_FREEZE_CANDIDATE_PASS or HOLD_WITH_EVIDENCE.
+
+Execution registration: V52 detector-reconstruction workflow armed.
