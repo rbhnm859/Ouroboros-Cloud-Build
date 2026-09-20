@@ -1024,26 +1024,45 @@ namespace cAlgo.Robots
             return x[lo] + (x[hi] - x[lo]) * (pos - lo);
         }
 
+        private bool GridPlanReject(CandidateRecord c, string reason, string detail)
+        {
+            Print("[V49-GRID-REJECT] cid={0} setup={1} pattern={2} subtype={3} route={4} scale={5} dir={6} reason={7} detail={8}",
+                c != null ? c.CandidateId : "", c != null ? c.SetupKey ?? "" : "",
+                c != null && c.Signal != null ? c.Signal.PatternName : "",
+                c != null && c.Signal != null ? c.Signal.HarmonicSubtype ?? c.Signal.PatternName : "",
+                c != null ? c.Route.ToString() : "", c != null && c.Signal != null ? c.Signal.PivotScale : -1,
+                c != null && c.Signal != null ? c.Signal.Direction.ToString() : "", reason, detail ?? "");
+            return false;
+        }
+
+        private double DiagnosticTargetRr(PatternSignal s, double entry, double stop, double target)
+        {
+            if (s == null || !GeometryValid(s.Direction, entry, stop, target)) return -999;
+            double riskPips = PriceToPips(Math.Abs(entry - stop));
+            if (riskPips <= 0) return -999;
+            return (PriceToPips(Math.Abs(target - entry)) - ModeledCostPips()) / riskPips;
+        }
+
         private bool TryBuildFibonacciGridPlan(CandidateRecord c)
         {
             var p = c.Signal.Profile;
-            if (p == null || !p.GridEnabled) return false;
-            if (!_initialCapitalEligible) return false;
+            if (p == null || !p.GridEnabled) return GridPlanReject(c, "PROFILE_GRID_DISABLED", "");
+            if (!_initialCapitalEligible) return GridPlanReject(c, "INITIAL_CAPITAL_INELIGIBLE", "");
 
             double anchor = c.Signal.Direction == TradeDirection.Buy ? _symbol.Ask : _symbol.Bid;
             double stop = c.Signal.StructuralInvalidation;
             double distance = c.Signal.Direction == TradeDirection.Buy ? anchor - stop : stop - anchor;
-            if (distance <= PipsToPrice(MinStopLossPips)) return false;
+            if (distance <= PipsToPrice(MinStopLossPips)) return GridPlanReject(c, "STOP_DISTANCE", "distance=" + distance.ToString("F5", CultureInfo.InvariantCulture));
 
             double xa = Math.Abs(c.Signal.A.Price - c.Signal.X.Price);
             double spanXa = xa > 0 ? distance / xa : 999;
-            if (spanXa < p.MinimumGridSpanXa || spanXa > p.MaximumGridSpanXa) return false;
+            if (spanXa < p.MinimumGridSpanXa || spanXa > p.MaximumGridSpanXa) return GridPlanReject(c, "GRID_SPAN_XA", "spanXa=" + spanXa.ToString("F4", CultureInfo.InvariantCulture) + ";min=" + p.MinimumGridSpanXa.ToString("F4", CultureInfo.InvariantCulture) + ";max=" + p.MaximumGridSpanXa.ToString("F4", CultureInfo.InvariantCulture));
 
             int routeMax = c.Route == HarmonicRoute.TREND_ALIGNED_REVERSAL ? 4 :
                            c.Route == HarmonicRoute.EXHAUSTION_REVERSAL ? 2 :
                            c.Route == HarmonicRoute.TRANSITION_REVERSAL ? (c.Regime != null && c.Regime.Efficiency >= .28 ? 3 : 2) : 0;
             int maxLegs = Math.Min(Math.Min(routeMax, p.MaximumGridLegs), p.GridFractions.Length);
-            if (maxLegs <= 0) return false;
+            if (maxLegs <= 0) return GridPlanReject(c, "ROUTE_MAX_ZERO", "route=" + c.Route);
 
             var plan = new FibonacciGridPlan
             {
@@ -1059,7 +1078,7 @@ namespace cAlgo.Robots
                 ExpirationUtc = MinDate(c.ExpiryUtc, Server.Time.ToUniversalTime().AddMinutes(p.PendingTtlMinutes)),
                 MicroCapitalMode = AdaptiveCapitalMode && Account.Equity <= MicroCapitalThreshold
             };
-            if (plan.BasketRiskAmount <= 0) return false;
+            if (plan.BasketRiskAmount <= 0) return GridPlanReject(c, "BASKET_BUDGET_NONPOSITIVE", "");
 
             double przTol = Math.Max(c.Signal.PrzHigh - c.Signal.PrzLow, distance * p.GridStructuralTolerance);
             double legalLow = c.Signal.PrzLow - przTol;
@@ -1094,17 +1113,17 @@ namespace cAlgo.Robots
                 });
             }
 
-            if (plan.Legs.Count == 0 || plan.Legs[0].Index != 0) return false;
+            if (plan.Legs.Count == 0 || plan.Legs[0].Index != 0) return GridPlanReject(c, "NO_LEGAL_L0", "legalLegs=" + plan.Legs.Count.ToString(CultureInfo.InvariantCulture));
             plan.LogicalLegCount = plan.Legs.Count;
 
             if (!ConfigureCapitalExecution(plan))
             {
                 _capitalRejectedBaskets++;
-                return false;
+                return GridPlanReject(c, "CAPITAL_EXECUTION", "budget=" + plan.BasketRiskAmount.ToString("F2", CultureInfo.InvariantCulture));
             }
 
             var physical = plan.Legs.Where(x => x.Physical && x.Volume > 0).ToList();
-            if (physical.Count == 0 || physical[0].Index != 0) return false;
+            if (physical.Count == 0 || physical[0].Index != 0) return GridPlanReject(c, "NO_PHYSICAL_L0", "physical=" + physical.Count.ToString(CultureInfo.InvariantCulture));
 
             double totalVolume = physical.Sum(l => l.Volume);
             plan.ExpectedWeightedEntry = physical.Sum(l => l.PlannedPrice * l.Volume) / totalVolume;
@@ -1116,7 +1135,15 @@ namespace cAlgo.Robots
 
             double target, netRr;
             if (!SelectCanonicalBasketTarget(c.Signal, plan.ExpectedWeightedEntry, plan.StructuralStop, out target, out netRr))
-                return false;
+            {
+                double rr1 = DiagnosticTargetRr(c.Signal, plan.ExpectedWeightedEntry, plan.StructuralStop, c.Signal.CanonicalTarget1);
+                double rr2 = DiagnosticTargetRr(c.Signal, plan.ExpectedWeightedEntry, plan.StructuralStop, c.Signal.CanonicalTarget2);
+                return GridPlanReject(c, "CANONICAL_TARGET_RR",
+                    "rr1=" + rr1.ToString("F3", CultureInfo.InvariantCulture) + ";rr2=" + rr2.ToString("F3", CultureInfo.InvariantCulture) +
+                    ";min=" + MinimumNetRR.ToString("F3", CultureInfo.InvariantCulture) +
+                    ";weighted=" + plan.ExpectedWeightedEntry.ToString("F5", CultureInfo.InvariantCulture) +
+                    ";stop=" + plan.StructuralStop.ToString("F5", CultureInfo.InvariantCulture));
+            }
 
             plan.CanonicalTarget = target;
             plan.ExpectedNetRR = netRr;
