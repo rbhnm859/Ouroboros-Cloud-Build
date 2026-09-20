@@ -1,0 +1,111 @@
+name: HarmonyBot V54 Universal Harmonic Liberation & Fibonacci Grid Alpha Core
+on:
+  push:
+    branches: [harmonybot/v54-universal-harmonic-grid-alpha-core]
+  workflow_dispatch:
+concurrency:
+  group: harmonybot-v54-universal-harmonic-grid-alpha-core
+  cancel-in-progress: true
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with: {ref: harmonybot/v54-universal-harmonic-grid-alpha-core}
+      - uses: actions/setup-dotnet@v4
+        with: {dotnet-version: '8.0.x'}
+      - name: Contracts and build
+        run: |
+          set -euo pipefail
+          python3 HarmonyBot-V54/tools/static_audit.py HarmonyBot-V54/src/HarmonyBotV54.cs
+          python3 HarmonyBot-V54/tools/geometry_contract_test.py HarmonyBot-V54/src/HarmonyBotV54.cs
+          python3 HarmonyBot-V54/tools/detector_contract_test.py HarmonyBot-V54/src/HarmonyBotV54.cs
+          python3 HarmonyBot-V54/tools/v54_architecture_contract_test.py HarmonyBot-V54/src/HarmonyBotV54.cs
+          dotnet restore HarmonyBot-V54/HarmonyBotV54.csproj
+          dotnet build HarmonyBot-V54/HarmonyBotV54.csproj -c Release --no-restore
+          mkdir -p HarmonyBot-V54/dist
+          find HarmonyBot-V54/bin/Release -type f -name '*.algo' -exec cp {} HarmonyBot-V54/dist/HarmonyBot_V54_Universal_Harmonic_Grid_Alpha_Core_RC.algo \;
+          test -s HarmonyBot-V54/dist/HarmonyBot_V54_Universal_Harmonic_Grid_Alpha_Core_RC.algo
+          sha256sum HarmonyBot-V54/dist/HarmonyBot_V54_Universal_Harmonic_Grid_Alpha_Core_RC.algo > HarmonyBot-V54/dist/algo.sha256
+      - uses: actions/upload-artifact@v4
+        with:
+          name: v54-build
+          path: HarmonyBot-V54/dist
+          retention-days: 30
+  data-seed:
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      max-parallel: 3
+      matrix: {window: [A, B, C]}
+    steps:
+      - uses: actions/checkout@v4
+        with: {ref: harmonybot/v54-universal-harmonic-grid-alpha-core, path: control}
+      - uses: actions/download-artifact@v4
+        with: {name: v54-build, path: control/HarmonyBot-V54/shared}
+      - id: d
+        run: |
+          case "${{ matrix.window }}" in
+            A) echo "start=04/01/2021" >> "$GITHUB_OUTPUT"; echo "eval=2021-01-11T00:00:00Z" >> "$GITHUB_OUTPUT"; echo "end=30/06/2021" >> "$GITHUB_OUTPUT";;
+            B) echo "start=01/07/2021" >> "$GITHUB_OUTPUT"; echo "eval=2021-07-08T00:00:00Z" >> "$GITHUB_OUTPUT"; echo "end=31/12/2021" >> "$GITHUB_OUTPUT";;
+            C) echo "start=03/01/2022" >> "$GITHUB_OUTPUT"; echo "eval=2022-01-10T00:00:00Z" >> "$GITHUB_OUTPUT"; echo "end=30/06/2022" >> "$GITHUB_OUTPUT";;
+          esac
+      - name: Seed immutable data
+        run: |
+          set -euo pipefail
+          chmod +x control/HarmonyBot-V54/tools/*.sh
+          W="$GITHUB_WORKSPACE/control/HarmonyBot-V54/data-seed-${{ matrix.window }}"; O="$GITHUB_WORKSPACE/control/HarmonyBot-V54/data-out-${{ matrix.window }}"
+          mkdir -p "$W/seal/algo" "$O"
+          A=$(find control/HarmonyBot-V54/shared -name '*.algo' | head -1); cp "$A" "$W/seal/algo/"
+          (cd "$W"; RUN_NAME="V54-DATA-SEED-${{ matrix.window }}" START_DATE="${{ steps.d.outputs.start }}" EVAL_DATE="${{ steps.d.outputs.eval }}" END_DATE="${{ steps.d.outputs.end }}" BALANCE=10000 BACKTEST_TIMEOUT_SECONDS=1800 "$GITHUB_WORKSPACE/control/HarmonyBot-V54/tools/run_backtest.sh")
+          (cd "$W/seal/data" && find . -type f -print0 | sort -z | xargs -0 sha256sum) | sha256sum | awk '{print $1}' > "$O/data.snapshot.sha"
+          tar -C "$W/seal" -czf "$O/data.tgz" data
+      - uses: actions/upload-artifact@v4
+        with: {name: "v54-data-${{ matrix.window }}", path: "control/HarmonyBot-V54/data-out-${{ matrix.window }}", retention-days: 30}
+  alpha-dev:
+    needs: [build, data-seed]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix:
+        variant: [V51_QUALITY_CORE_REPLAY, V52_LIBERATION_CONTROL, V54_CORE_PLUS_LIBERATION, V54_FULL_ALPHA]
+        window: [A, B, C]
+    steps:
+      - uses: actions/checkout@v4
+        with: {ref: harmonybot/v54-universal-harmonic-grid-alpha-core, path: control}
+      - uses: actions/download-artifact@v4
+        with: {name: v54-build, path: control/HarmonyBot-V54/dist}
+      - uses: actions/download-artifact@v4
+        with: {name: "v54-data-${{ matrix.window }}", path: control/HarmonyBot-V54/data-seed}
+      - id: d
+        run: |
+          case "${{ matrix.window }}" in
+            A) echo "start=04/01/2021" >> "$GITHUB_OUTPUT"; echo "eval=2021-01-11T00:00:00Z" >> "$GITHUB_OUTPUT"; echo "end=30/06/2021" >> "$GITHUB_OUTPUT";;
+            B) echo "start=01/07/2021" >> "$GITHUB_OUTPUT"; echo "eval=2021-07-08T00:00:00Z" >> "$GITHUB_OUTPUT"; echo "end=31/12/2021" >> "$GITHUB_OUTPUT";;
+            C) echo "start=03/01/2022" >> "$GITHUB_OUTPUT"; echo "eval=2022-01-10T00:00:00Z" >> "$GITHUB_OUTPUT"; echo "end=30/06/2022" >> "$GITHUB_OUTPUT";;
+          esac
+      - name: Install snapshot and run Alpha DEV
+        run: |
+          set -euo pipefail; chmod +x control/HarmonyBot-V54/tools/*.sh
+          W="control/HarmonyBot-V54/window-ALPHA-${{ matrix.variant }}-${{ matrix.window }}/seal"; mkdir -p "$W"
+          tar -xzf control/HarmonyBot-V54/data-seed/data.tgz -C "$W"; cp control/HarmonyBot-V54/data-seed/data.snapshot.sha "$W/data.snapshot.sha"
+          EXPECTED=$(cat "$W/data.snapshot.sha"); ACTUAL=$((cd "$W/data" && find . -type f -print0 | sort -z | xargs -0 sha256sum) | sha256sum | awk '{print $1}'); test "$EXPECTED" = "$ACTUAL"
+          cd "$GITHUB_WORKSPACE"; bash control/HarmonyBot-V54/tools/run_window.sh ALPHA "${{ matrix.variant }}" "${{ matrix.window }}" "${{ steps.d.outputs.start }}" "${{ steps.d.outputs.eval }}" "${{ steps.d.outputs.end }}"
+      - uses: actions/upload-artifact@v4
+        with: {name: "v54-alpha-${{ matrix.variant }}-${{ matrix.window }}", path: "control/HarmonyBot-V54/output-ALPHA-${{ matrix.variant }}-${{ matrix.window }}", retention-days: 30}
+  alpha-analyze:
+    needs: alpha-dev
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with: {ref: harmonybot/v54-universal-harmonic-grid-alpha-core}
+      - uses: actions/download-artifact@v4
+        with: {pattern: v54-alpha-*, path: alpha, merge-multiple: false}
+      - run: python3 HarmonyBot-V54/tools/analyze_alpha_dev.py alpha frontier
+      - uses: actions/upload-artifact@v4
+        with: {name: HARMONYBOT-V54-ALPHA-FRONTIER, path: frontier, retention-days: 30}
