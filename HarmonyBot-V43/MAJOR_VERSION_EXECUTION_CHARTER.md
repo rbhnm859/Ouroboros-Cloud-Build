@@ -56,6 +56,7 @@ All four families keep the same V42 FULL stack otherwise: marginal rescue ON, op
 ## Permanent Frequency Admission Gate
 Versus V42_REPLAY, every expansion family must satisfy:
 - added_trades > 0
+- net executable trade-count delta > 0 versus V42_REPLAY
 - marginal Net > 0
 - marginal Expectancy > 0
 - marginal PF >= 1.15
