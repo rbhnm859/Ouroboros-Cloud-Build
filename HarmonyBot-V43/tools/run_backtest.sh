@@ -13,7 +13,7 @@ NATIVE="${NATIVE:-true}"; LOGICALGRID="${LOGICALGRID:-true}"; AUCTION="${AUCTION
 HYPOTHESIS="${HYPOTHESIS:-true}"; STRUCTCTX="${STRUCTCTX:-true}"; TEMPORAL="${TEMPORAL:-true}"; CROSSALPHA="${CROSSALPHA:-true}"
 DENSITY="${DENSITY:-true}"; EVENTAUCTION="${EVENTAUCTION:-true}"; OPPLOSS="${OPPLOSS:-true}"
 ALPHAFLOOR="${ALPHAFLOOR:-0.50}"; ABCDTRENDFLOOR="${ABCDTRENDFLOOR:-0.62}"
-ALGO="${ALGO:-seal/algo/HarmonyBot_V43_Canonical_Harmonic_Opportunity_Engine_RC.algo}"
+ALGO="${ALGO:-seal/algo/HarmonyBot_V43_Cross_Regime_Positive_Alpha_Portfolio_RC.algo}"
 IMAGE="${CTRADER_IMAGE:-ghcr.io/spotware/ctrader-console:5.9.11}"
 BACKTEST_TIMEOUT_SECONDS="${BACKTEST_TIMEOUT_SECONDS:-2700}"
 mkdir -p seal/{reports,logs,data}
