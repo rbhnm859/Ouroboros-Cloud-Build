@@ -241,6 +241,21 @@ namespace cAlgo.Robots
         [Parameter("Fibonacci Grid Execution", DefaultValue = true)]
         public bool EnableFibonacciGridExecution { get; set; }
 
+        [Parameter("Universal Harmonic Liberation V54", DefaultValue = false)]
+        public bool EnableUniversalHarmonicLiberationV54 { get; set; }
+
+        [Parameter("Core Alpha Preservation V54", DefaultValue = false)]
+        public bool EnableCoreAlphaPreservationV54 { get; set; }
+
+        [Parameter("Expansion Economic Gate V54", DefaultValue = false)]
+        public bool EnableExpansionEconomicGateV54 { get; set; }
+
+        [Parameter("Family Grid Allocation V54", DefaultValue = false)]
+        public bool EnableFamilyGridAllocationV54 { get; set; }
+
+        [Parameter("State Aware Grid Core V54", DefaultValue = false)]
+        public bool EnableGridStateAwareV54 { get; set; }
+
         [Parameter("Min Harmonic Robustness", DefaultValue = 0.56, MinValue = 0.40, MaxValue = 0.80)]
         public double MinHarmonicRobustness { get; set; }
 
@@ -436,6 +451,9 @@ namespace cAlgo.Robots
             Print("[V54-DETECTOR-ARCH] identityReconstruction={0} boundedPivotGraph={1} maxMicroSkips={2} familyQuota={3} projectedPrz={4} truthLedger={5} rule=DETECT_MANY_EXECUTE_ONE",
                 EnableFamilyIdentityReconstruction, EnableBoundedPivotGraph, MaxMicroPivotSkips, FamilyDetectionQuota,
                 EnableFamilyNativeProjectedPrz, EnableDetectorTruthLedger);
+            Print("[V54-ARCH] liberation={0} corePreservation={1} expansionEconomicGate={2} familyGrid={3} stateAwareGrid={4} gridExecution={5} rule=CORE_ALPHA_PRESERVED_EXPANSION_MUST_EARN_ADMISSION",
+                EnableUniversalHarmonicLiberationV54, EnableCoreAlphaPreservationV54, EnableExpansionEconomicGateV54,
+                EnableFamilyGridAllocationV54, EnableGridStateAwareV54, EnableFibonacciGridExecution);
             Print("[V54-CONVERSION-ARCH-V2] qualification={0} router={1} confirmation={2} contextBus={3} gridExecution={4} rule=FAMILY_NATIVE_POST_DETECTOR_CAUSAL_ISOLATION",
                 EnableFamilyNativeQualificationV2, EnableFamilyNativeRouterV2, EnableFamilyNativeConfirmationV2,
                 EnableOrthogonalContextFeatureBus, EnableFibonacciGridExecution);
@@ -4342,8 +4360,10 @@ namespace cAlgo.Robots
         public HarmonicRoute Route = HarmonicRoute.NO_TRADE;
         public RegimeSnapshot Regime;
         public OrthogonalContextFeatures Context;
+        public string AlphaLane = "LEGACY";
+        public bool IsProvenCoreAlpha;
         public double ConfirmationScore, NetRR, SelectedTarget, Rank;
-        public double AlphaQualityScore, RegimeScore, ContextScore, FamilyQualificationScore, CapitalMinL0Risk, CapitalMinL0Margin;
+        public double AlphaQualityScore, RegimeScore, ContextScore, FamilyQualificationScore, EconomicQualityScore, CapitalMinL0Risk, CapitalMinL0Margin;
         public int RescueBarsObserved;
         public double RescueBestScore;
         public DateTime? ArmedUtc, ParkedUtc, ParkedHardExpiryUtc;
@@ -4406,13 +4426,13 @@ namespace cAlgo.Robots
 
     public sealed class FibonacciBasket
     {
-        public string BasketId, CandidateId, Pattern, ExitOverride, ExitReason;
+        public string BasketId, CandidateId, Pattern, ExitOverride, ExitReason, AlphaLane = "LEGACY";
         public TradeDirection Direction;
         public HarmonicRoute Route;
         public FibonacciBasketState State;
         public DateTime CreatedUtc, ExpirationUtc;
         public double EntryAnchor, AverageEntry, StructuralStop, CanonicalTarget;
-        public double InitialBasketRisk, PlannedWorstCaseRisk, PeakR, MaxAdverseR, RealizedNet, ProtectionFrontier;
+        public double InitialBasketRisk, PlannedWorstCaseRisk, PeakR, MaxAdverseR, RealizedNet, ProtectionFrontier, EconomicQualityScore;
         public int FilledLegs, ClosedLegs;
         public bool IsActive;
         public FibonacciGridPlan Plan;
