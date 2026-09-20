@@ -1,16 +1,16 @@
-name: HarmonyBot V44 Canonical Harmonic Geometry & Opportunity Portfolio
+name: HarmonyBot V44 Pattern Alpha Firewall Portfolio
 
 on:
   push:
     branches:
-      - harmonybot/v44-canonical-harmonic-opportunity-engine
+      - harmonybot/v44-pattern-alpha-firewall-portfolio
     paths:
       - 'HarmonyBot-V44/**'
-      - '.github/workflows/harmonybot-v44-canonical-harmonic-opportunity.yml'
+      - '.github/workflows/harmonybot-v44-pattern-alpha-firewall.yml'
   workflow_dispatch:
 
 concurrency:
-  group: harmonybot-v44-canonical-harmonic-opportunity
+  group: harmonybot-v44-pattern-alpha-firewall
   cancel-in-progress: true
 
 permissions:
@@ -28,7 +28,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: harmonybot/v44-canonical-harmonic-opportunity-engine
+          ref: harmonybot/v44-pattern-alpha-firewall-portfolio
           path: control
           fetch-depth: 1
       - uses: actions/setup-dotnet@v4
@@ -111,7 +111,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: harmonybot/v44-canonical-harmonic-opportunity-engine
+          ref: harmonybot/v44-pattern-alpha-firewall-portfolio
           path: control
           fetch-depth: 1
       - uses: actions/download-artifact@v4
@@ -155,7 +155,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: harmonybot/v44-canonical-harmonic-opportunity-engine
+          ref: harmonybot/v44-pattern-alpha-firewall-portfolio
           path: control
           fetch-depth: 1
       - uses: actions/download-artifact@v4
@@ -190,7 +190,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: harmonybot/v44-canonical-harmonic-opportunity-engine
+          ref: harmonybot/v44-pattern-alpha-firewall-portfolio
           path: control
           fetch-depth: 1
       - uses: actions/download-artifact@v4
@@ -272,7 +272,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: harmonybot/v44-canonical-harmonic-opportunity-engine
+          ref: harmonybot/v44-pattern-alpha-firewall-portfolio
           path: control
           fetch-depth: 1
       - uses: actions/download-artifact@v4
@@ -313,7 +313,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: harmonybot/v44-canonical-harmonic-opportunity-engine
+          ref: harmonybot/v44-pattern-alpha-firewall-portfolio
           path: control
           fetch-depth: 1
       - uses: actions/download-artifact@v4
