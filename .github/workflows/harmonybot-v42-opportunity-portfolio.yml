@@ -5,8 +5,9 @@ on:
     branches:
       - harmonybot/v42-marginal-alpha-opportunity-portfolio
     paths:
-      - 'HarmonyBot-V42/**'
-      - '.github/workflows/harmonybot-v42-opportunity-portfolio.yml'
+      - 'HarmonyBot-V42/src/**'
+      - 'HarmonyBot-V42/HarmonyBotV42.csproj'
+      - 'HarmonyBot-V42/MAJOR_VERSION_EXECUTION_CHARTER.md'
   workflow_dispatch:
 
 concurrency:
@@ -41,6 +42,7 @@ jobs:
         run: |
           set -euo pipefail
           cd control
+          python3 -m py_compile HarmonyBot-V42/tools/static_audit.py HarmonyBot-V42/tools/audit_report.py HarmonyBot-V42/tools/analyze_parallel_dev.py
           python3 HarmonyBot-V42/tools/static_audit.py HarmonyBot-V42/src/HarmonyBotV42.cs
           mkdir -p HarmonyBot-V42/final HarmonyBot-V42/dist
           cp V42_ARCHITECTURE_AUDIT.json HarmonyBot-V42/final/
