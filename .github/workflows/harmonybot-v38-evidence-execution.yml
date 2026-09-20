@@ -1,0 +1,49 @@
+name: HarmonyBot V38 M15 Thesis M5 Evidence Execution
+
+on:
+  push:
+    branches:
+      - harmonybot/v38-m15-m5-evidence-execution
+    paths:
+      - 'HarmonyBot-V38/**'
+      - '.github/workflows/harmonybot-v38-evidence-execution.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  v38_evidence_execution:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 240
+    env:
+      CTRADER_PASSWORD: ${{ secrets.CTRADER_PASSWORD }}
+      CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+      CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+    steps:
+      - name: Checkout V38 branch
+        uses: actions/checkout@v4
+        with:
+          ref: harmonybot/v38-m15-m5-evidence-execution
+          path: control
+          fetch-depth: 1
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Execute fail-fast V38 evidence execution program
+        shell: bash
+        run: |
+          chmod +x control/HarmonyBot-V38/tools/*.sh
+          control/HarmonyBot-V38/tools/orchestrate_development.sh
+
+      - name: Upload V38 evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: HARMONYBOT-V38-EVIDENCE-EXECUTION
+          path: control/HarmonyBot-V38/output
+          retention-days: 30
+          if-no-files-found: warn
