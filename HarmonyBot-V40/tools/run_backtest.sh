@@ -8,7 +8,7 @@ EVIDENCE="${EVIDENCE:-true}"; SURVIVAL="${SURVIVAL:-true}"; ARBITRATION="${ARBIT
 REGIMESEL="${REGIMESEL:-false}"; ROUTESPEC="${ROUTESPEC:-false}"; STRESSQ="${STRESSQ:-false}"
 RANKFIRST="${RANKFIRST:-true}"; FOLLOW="${FOLLOW:-true}"; THESISEXIT="${THESISEXIT:-true}"
 TTL="${TTL:-8}"; MAXCAND="${MAXCAND:-12}"
-ALGO="${ALGO:-seal/algo/HarmonyBot_V40_Regime_Conditioned_Harmonic_Portfolio_RC.algo}"
+ALGO="${ALGO:-seal/algo/HarmonyBot_V40_Attribution_FollowThrough_Portfolio_RC.algo}"
 IMAGE="${CTRADER_IMAGE:-ghcr.io/spotware/ctrader-console:5.9.11}"
 BACKTEST_TIMEOUT_SECONDS="${BACKTEST_TIMEOUT_SECONDS:-2700}"
 mkdir -p seal/{reports,logs,data}
@@ -67,6 +67,5 @@ done
 docker stop --time 3 "$CNAME" >/dev/null 2>&1 || true
 docker rm -f "$CNAME" >/dev/null 2>&1 || true
 wait "$PID" 2>/dev/null || true
-# Keep authenticated account metadata within this isolated job so A/B/C can reuse it.
 test "$DONE" = 1 || { echo "[V40-WATCHDOG-FAIL] run=$RUN_NAME"; tail -400 "seal/logs/$RUN_NAME.log" || true; exit 20; }
 echo "[V40-WATCHDOG] run=$RUN_NAME status=complete"
