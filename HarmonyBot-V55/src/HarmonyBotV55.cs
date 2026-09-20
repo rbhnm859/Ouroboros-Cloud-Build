@@ -2518,15 +2518,12 @@ namespace cAlgo.Robots
             for (int ix = start; ix <= n - 5; ix++)
             for (int ia = ix + 1; ia <= Math.Min(n - 4, ix + 3); ia++)
             for (int ib = ia + 1; ib <= Math.Min(n - 3, ia + 3); ib++)
-            for (int ic = ib + 1; ic <= Math.Min(n - 2, ib + 3); ib += 0)
+            for (int ic = ib + 1; ic <= Math.Min(n - 2, ib + 3); ic++)
+            for (int id = ic + 1; id <= Math.Min(n - 1, ic + 3); id++)
             {
-                for (int id = ic + 1; id <= Math.Min(n - 1, ic + 3); id++)
-                {
-                    int skips = (ia - ix - 1) + (ib - ia - 1) + (ic - ib - 1) + (id - ic - 1);
-                    if (skips <= maxTotalSkips)
-                        yield return new PivotSequence { X = pivots[ix], A = pivots[ia], B = pivots[ib], C = pivots[ic], D = pivots[id] };
-                }
-                break;
+                int skips = (ia - ix - 1) + (ib - ia - 1) + (ic - ib - 1) + (id - ic - 1);
+                if (skips <= maxTotalSkips)
+                    yield return new PivotSequence { X = pivots[ix], A = pivots[ia], B = pivots[ib], C = pivots[ic], D = pivots[id] };
             }
         }
 
@@ -2868,7 +2865,7 @@ namespace cAlgo.Robots
 
         private void PromoteResearchExpansion(ResearchCandidate r)
         {
-            if(r.Promoted||r==null||r.Signal==null)return;
+            if(r==null||r.Promoted||r.Signal==null)return;
             string setup=BuildSetupGeometryKey(r.Signal);
             if(_executedSetupKeys.Contains(setup)){r.TerminalReason="SETUP_ALREADY_EXECUTED";_expansionRejected++;return;}
             string owner;
