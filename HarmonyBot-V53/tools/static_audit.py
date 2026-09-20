@@ -2,7 +2,7 @@
 import json,pathlib,sys
 s=pathlib.Path(sys.argv[1] if len(sys.argv)>1 else "HarmonyBot-V53/src/HarmonyBotV53.cs").read_text(errors="ignore")
 checks={
-"identity":"HarmonyBot V53" in s and "class HarmonyBotV53" in s and 'BotPrefix = "HB52"' in s,
+"identity":"HarmonyBot V53" in s and "class HarmonyBotV53" in s and 'BotPrefix = "HB53"' in s,
 "family_identity_split":"BuildFamilyHypothesisKey" in s and "IdentityKey" in s and "UNDERLYING_GEOMETRY_EXECUTED_BY_" in s,
 "bounded_pivot_graph":"EnumerateBoundedPivotSequences" in s and "MaxMicroPivotSkips" in s,
 "family_quota":"FamilyDetectionQuota" in s and "FAMILY_QUOTA_SELECTED" in s,
