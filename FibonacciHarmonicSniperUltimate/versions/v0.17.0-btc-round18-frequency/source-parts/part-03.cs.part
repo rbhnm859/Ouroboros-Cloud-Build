@@ -1,0 +1,375 @@
+
+            Round5FrameState best = null;
+            int firstWindow = Math.Max(0, pivots.Count - 24);
+            for (int i = firstWindow; i <= pivots.Count - 5; i++)
+            {
+                var x = pivots[i];
+                var a = pivots[i + 1];
+                var b = pivots[i + 2];
+                var c = pivots[i + 3];
+                var d = pivots[i + 4];
+                TradeType? direction = GetDirection(x, a, b, c, d);
+                if (!direction.HasValue)
+                    continue;
+
+                int age = sourceBars.Count - 1 - d.Index;
+                if (age < 0 || age > maxAge)
+                    continue;
+
+                double xa = Math.Abs(a.Price - x.Price);
+                double ab = Math.Abs(b.Price - a.Price);
+                double bc = Math.Abs(c.Price - b.Price);
+                double cd = Math.Abs(d.Price - c.Price);
+                if (xa <= 0 || ab <= 0 || bc <= 0 || cd <= 0)
+                    continue;
+
+                double xb = ab / xa;
+                double ac = bc / ab;
+                double bd = cd / bc;
+                double xd = Math.Abs(a.Price - d.Price) / xa;
+                double cdAb = cd / ab;
+
+                foreach (var def in _allPatterns)
+                {
+                    if (!IsPatternSelected(def, selector))
+                        continue;
+                    double score = def.Score(xb, ac, bd, xd, cdAb, StateRatioTolerancePercent);
+                    if (score < minScore)
+                        continue;
+
+                    double close = sourceBars.ClosePrices[sourceBars.Count - 1];
+                    double invalidation = direction.Value == TradeType.Buy
+                        ? Math.Min(x.Price, d.Price)
+                        : Math.Max(x.Price, d.Price);
+                    bool invalidated = direction.Value == TradeType.Buy ? close <= invalidation : close >= invalidation;
+                    if (invalidated)
+                        continue;
+
+                    double ageFraction = maxAge <= 0 ? 0.0 : Math.Min(1.0, (double)age / maxAge);
+                    double decay = 1.0 - ageFraction * StateAgeDecayPercent / 100.0;
+                    double confidence = Math.Max(0.0, score / 100.0 * decay);
+                    var state = new Round5FrameState(tfName, def.Name, direction.Value, score, confidence, age, d.Index, invalidation);
+                    if (best == null || state.DIndex > best.DIndex || (state.DIndex == best.DIndex && state.Confidence > best.Confidence))
+                        best = state;
+                }
+            }
+            return best;
+        }
+
+        private bool PassRound7InverseSellVeto(PatternMatch lower, Round5Snapshot snapshot)
+        {
+            if (!Round7VetoM30SellAlignment)
+            {
+                if (lower.Direction == TradeType.Buy)
+                    _round7BuyPassthroughCount++;
+                else
+                    _round7SellAcceptedCount++;
+                return true;
+            }
+
+            // Round7 changes only Sell. H1 Buy remains exactly the Growth Champion path.
+            if (lower.Direction == TradeType.Buy)
+            {
+                _round7BuyPassthroughCount++;
+                return true;
+            }
+
+            var m30 = snapshot == null ? null : snapshot.M30;
+            bool alignedSell = m30 != null && m30.Direction == TradeType.Sell;
+            if (alignedSell)
+            {
+                _round7SellVetoedCount++;
+                if (Round7LogVetoedSell)
+                    Print("[R7 VETO SELL] reject H1 Sell | M30={0} score={1:F1} conf={2:F3} age={3}",
+                        m30.PatternName, m30.Score, m30.Confidence, m30.AgeBars);
+                return Reject("round7_inverse_m30_sell_veto");
+            }
+
+            _round7SellAcceptedCount++;
+            if (DebugLogging)
+                Print("[R7 SELL PASS] H1={0} | M30={1}", lower.Definition.Name, DescribeRound5(m30));
+            return true;
+        }
+
+        private bool PassRound6SellConfirmation(PatternMatch lower, Round5Snapshot snapshot)
+        {
+            if (!Round6RequireM30SellConfirm)
+            {
+                if (lower.Direction == TradeType.Buy)
+                    _round6BuyPassthroughCount++;
+                else
+                    _round6SellAcceptedCount++;
+                return true;
+            }
+
+            // Round6 changes only Sell. Buy remains exactly the H1 Champion path.
+            if (lower.Direction == TradeType.Buy)
+            {
+                _round6BuyPassthroughCount++;
+                return true;
+            }
+
+            var m30 = snapshot == null ? null : snapshot.M30;
+            bool aligned = m30 != null && m30.Direction == TradeType.Sell;
+            if (aligned)
+            {
+                _round6SellAcceptedCount++;
+                if (DebugLogging)
+                    Print("[R6 SELL PASS] H1={0} M30={1} score={2:F1} conf={3:F3} age={4}",
+                        lower.Definition.Name, m30.PatternName, m30.Score, m30.Confidence, m30.AgeBars);
+                return true;
+            }
+
+            _round6SellRejectedCount++;
+            if (Round6LogRejectedSell)
+                Print("[R6 SHADOW SELL] reject H1 Sell | M30={0}", DescribeRound5(m30));
+            return Reject("round6_m30_sell_confirmation");
+        }
+
+        private bool PassRound5HierarchyGate(PatternMatch lower, Round5Snapshot snapshot)
+        {
+            if (Round5Mode == Round5DecisionMode.ObserveOnly || snapshot == null)
+            {
+                _round5AcceptedCount++;
+                return true;
+            }
+
+            // Hierarchical macro veto: only a clear D1+H4 agreement against the H1 setup can veto.
+            bool macroOpposes = snapshot.D1 != null && snapshot.H4 != null
+                && snapshot.D1.Direction == snapshot.H4.Direction
+                && snapshot.D1.Direction != lower.Direction;
+            if (macroOpposes)
+            {
+                _round5MacroVetoCount++;
+                _round5ShadowCount++;
+                if (LogShadowConflicts)
+                    Print("[R5 SHADOW] macro veto | D1={0}/{1} H4={2}/{3} lower={4} {5}",
+                        snapshot.D1.PatternName, snapshot.D1.Direction, snapshot.H4.PatternName, snapshot.H4.Direction,
+                        lower.Definition.Name, lower.Direction);
+                return Reject("round5_macro_veto");
+            }
+
+            double signed = 0.0;
+            double total = 0.0;
+            AddRound5Weighted(snapshot.D1, D1Weight, lower.Direction, ref signed, ref total);
+            AddRound5Weighted(snapshot.H4, H4Weight, lower.Direction, ref signed, ref total);
+            AddRound5Weighted(snapshot.H1, H1Weight, lower.Direction, ref signed, ref total);
+            AddRound5Weighted(snapshot.M30, M30Weight, lower.Direction, ref signed, ref total);
+            AddRound5Weighted(snapshot.M15, M15Weight, lower.Direction, ref signed, ref total);
+            AddRound5Weighted(snapshot.M5, M5Weight, lower.Direction, ref signed, ref total);
+            AddRound5Weighted(snapshot.M1, M1Weight, lower.Direction, ref signed, ref total);
+            double normalized = total <= 0 ? 0.0 : signed / total;
+
+            if (DebugLogging)
+                Print("[R5 SNAPSHOT] lower={0} {1} composite={2:F3} D1={3} H4={4} H1={5} M30={6} M15={7} M5={8} M1={9}",
+                    lower.Definition.Name, lower.Direction, normalized,
+                    DescribeRound5(snapshot.D1), DescribeRound5(snapshot.H4), DescribeRound5(snapshot.H1), DescribeRound5(snapshot.M30),
+                    DescribeRound5(snapshot.M15), DescribeRound5(snapshot.M5), DescribeRound5(snapshot.M1));
+
+            if (Round5Mode == Round5DecisionMode.WeightedGate && normalized < WeightedGateThreshold)
+            {
+                _round5WeightedRejectCount++;
+                _round5ShadowCount++;
+                return Reject("round5_weighted_gate");
+            }
+
+            _round5AcceptedCount++;
+            return true;
+        }
+
+        private void AddRound5Weighted(Round5FrameState state, double weight, TradeType desired, ref double signed, ref double total)
+        {
+            if (state == null || weight <= 0)
+                return;
+            double value = weight * state.Confidence;
+            total += value;
+            signed += state.Direction == desired ? value : -value;
+        }
+
+        private string DescribeRound5(Round5FrameState state)
+        {
+            if (state == null)
+                return "Neutral";
+            return state.PatternName + "/" + state.Direction + "/" + state.Confidence.ToString("F2");
+        }
+
+        private void LogRound5Matrix(Round5Snapshot snapshot)
+        {
+            if (!LogPatternMatrix || snapshot == null)
+                return;
+            LogRound5State(snapshot.D1);
+            LogRound5State(snapshot.H4);
+            LogRound5State(snapshot.H1);
+            LogRound5State(snapshot.M30);
+            LogRound5State(snapshot.M15);
+            LogRound5State(snapshot.M5);
+            LogRound5State(snapshot.M1);
+        }
+
+        private void LogRound5State(Round5FrameState state)
+        {
+            if (state == null)
+                return;
+            string key = state.PatternName + "|" + state.Direction + "|" + state.DIndex;
+            string previous;
+            if (_round5LastMatrixKey.TryGetValue(state.TimeFrameName, out previous) && previous == key)
+                return;
+            _round5LastMatrixKey[state.TimeFrameName] = key;
+            Print("[R5 MATRIX] tf={0} pattern={1} dir={2} score={3:F1} confidence={4:F3} age={5} invalidation={6}",
+                state.TimeFrameName, state.PatternName, state.Direction, state.Score, state.Confidence, state.AgeBars, state.InvalidationPrice);
+        }
+
+        private MtfBiasSignal FindHigherTimeframeBias()
+        {
+            if (_higherBars == null || _higherBars.Count < Math.Max(100, HigherPivotLeft + HigherPivotRight + 20))
+                return null;
+
+            var pivots = BuildConfirmedPivots(_higherBars, HigherPivotLeft, HigherPivotRight, HigherPivotLookback);
+            if (pivots.Count < 5)
+                return null;
+
+            var candidates = new List<MtfBiasSignal>();
+            int firstWindow = Math.Max(0, pivots.Count - 20);
+            for (int i = firstWindow; i <= pivots.Count - 5; i++)
+            {
+                var x = pivots[i];
+                var a = pivots[i + 1];
+                var b = pivots[i + 2];
+                var c = pivots[i + 3];
+                var d = pivots[i + 4];
+                TradeType? direction = GetDirection(x, a, b, c, d);
+                if (!direction.HasValue)
+                    continue;
+
+                int age = _higherBars.Count - 1 - d.Index;
+                if (age < 0 || age > HigherMaxPatternAgeBars)
+                    continue;
+
+                double xa = Math.Abs(a.Price - x.Price);
+                double ab = Math.Abs(b.Price - a.Price);
+                double bc = Math.Abs(c.Price - b.Price);
+                double cd = Math.Abs(d.Price - c.Price);
+                if (xa <= 0 || ab <= 0 || bc <= 0 || cd <= 0)
+                    continue;
+
+                double xb = ab / xa;
+                double ac = bc / ab;
+                double bd = cd / bc;
+                double xd = Math.Abs(a.Price - d.Price) / xa;
+                double cdAb = cd / ab;
+
+                foreach (var def in _patterns)
+                {
+                    if (!IsPatternSelected(def, HigherEnabledPatterns))
+                        continue;
+                    double score = def.Score(xb, ac, bd, xd, cdAb, HigherRatioTolerancePercent);
+                    if (score < HigherMinPatternScore)
+                        continue;
+                    candidates.Add(new MtfBiasSignal(def.Name, direction.Value, d.Index, score));
+                }
+            }
+
+            if (candidates.Count == 0)
+                return null;
+
+            return candidates.OrderByDescending(x => x.DIndex).ThenByDescending(x => x.Score).First();
+        }
+
+        private bool PassMultiTimeframeGate(PatternMatch lower, MtfBiasSignal higher)
+        {
+            bool directionNeedsAgreement = MtfMode == MultiTimeframeMode.RequireAgreement
+                || (MtfMode == MultiTimeframeMode.SellRequiresAgreement && lower.Direction == TradeType.Sell)
+                || (MtfMode == MultiTimeframeMode.BuyRequiresAgreement && lower.Direction == TradeType.Buy);
+
+            if (higher == null)
+            {
+                _mtfNoBiasCount++;
+                if (LogShadowConflicts)
+                    Print("[MTF SHADOW] no HTF bias | lower={0} {1} score={2:F1}", lower.Definition.Name, lower.Direction, lower.Score);
+                return !directionNeedsAgreement || MtfMode == MultiTimeframeMode.ScoreOnly || MtfMode == MultiTimeframeMode.Off
+                    ? true : Reject("mtf_no_bias");
+            }
+
+            bool agrees = higher.Direction == lower.Direction;
+            if (!agrees)
+            {
+                _mtfConflictCount++;
+                if (LogShadowConflicts)
+                    Print("[MTF SHADOW] conflict | HTF={0} {1} {2:F1}% | LTF={3} {4} {5:F1}%",
+                        higher.PatternName, higher.Direction, higher.Score, lower.Definition.Name, lower.Direction, lower.Score);
+                return !directionNeedsAgreement || MtfMode == MultiTimeframeMode.ScoreOnly || MtfMode == MultiTimeframeMode.Off
+                    ? true : Reject("mtf_direction_conflict");
+            }
+
+            _mtfAgreementCount++;
+            DateTime lowerDTime = Bars.OpenTimes[lower.D.Index];
+            DateTime higherDTime = _higherBars.OpenTimes[higher.DIndex];
+            bool parentChild = ParentChildMaxHours > 0 && Math.Abs((lowerDTime - higherDTime).TotalHours) <= ParentChildMaxHours;
+            if (parentChild)
+            {
+                _mtfParentChildCount++;
+                if (DebugLogging)
+                    Print("[MTF PARENT_CHILD] HTF={0} {1} D={2:u} | LTF={3} D={4:u}", higher.PatternName, higher.Direction, higherDTime, lower.Definition.Name, lowerDTime);
+            }
+            if (DebugLogging)
+                Print("[MTF AGREE] HTF={0} {1} {2:F1}% | LTF={3} {4} {5:F1}%",
+                    higher.PatternName, higher.Direction, higher.Score, lower.Definition.Name, lower.Direction, lower.Score);
+            return true;
+        }
+
+        private bool IsPatternSelected(PatternDefinition def, string selectorText)
+        {
+            string selector = (selectorText ?? "CORE").Trim();
+            if (selector.Equals("ALL", StringComparison.OrdinalIgnoreCase))
+                return true;
+            if (selector.Equals("CORE", StringComparison.OrdinalIgnoreCase))
+                return def.IsCore;
+            string[] parts = selector.Split(new[] { ',', ';', '|' }, StringSplitOptions.RemoveEmptyEntries);
+            foreach (string part in parts)
+                if (part.Trim().Equals(def.Name, StringComparison.OrdinalIgnoreCase))
+                    return true;
+            return false;
+        }
+
+        private PatternMatch FindBestPattern(List<PivotPoint> pivots)
+        {
+            var candidates = new List<PatternMatch>();
+            int firstWindow = Math.Max(0, pivots.Count - 20);
+
+            for (int i = firstWindow; i <= pivots.Count - 5; i++)
+            {
+                var x = pivots[i];
+                var a = pivots[i + 1];
+                var b = pivots[i + 2];
+                var c = pivots[i + 3];
+                var d = pivots[i + 4];
+
+                TradeType? direction = GetDirection(x, a, b, c, d);
+                if (!direction.HasValue)
+                    continue;
+
+                int age = Bars.Count - 1 - d.Index;
+                if (age < 0 || age > MaxPatternAgeBars)
+                {
+                    if (age > MaxPatternAgeBars && age <= MaxPatternAgeBars + 2) Round10Count("age_miss_0_2", direction.Value);
+                    else if (age > MaxPatternAgeBars && age <= MaxPatternAgeBars + 4) Round10Count("age_miss_2_4", direction.Value);
+                    else Round10Count("age_miss_far", direction.Value);
+                    continue;
+                }
+                Round10Count("age_pass", direction.Value);
+
+                if (direction == TradeType.Buy && d.Index == _lastBullishDIndex)
+                    continue;
+                if (direction == TradeType.Sell && d.Index == _lastBearishDIndex)
+                    continue;
+
+                double xa = Math.Abs(a.Price - x.Price);
+                double ab = Math.Abs(b.Price - a.Price);
+                double bc = Math.Abs(c.Price - b.Price);
+                double cd = Math.Abs(d.Price - c.Price);
+                if (xa <= 0 || ab <= 0 || bc <= 0 || cd <= 0)
+                    continue;
+
+                if (MinXaPips > 0 && xa / Symbol.PipSize < MinXaPips)
+                    continue;
+
