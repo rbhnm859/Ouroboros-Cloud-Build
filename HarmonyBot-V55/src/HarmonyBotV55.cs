@@ -492,7 +492,7 @@ namespace cAlgo.Robots
                     int sep = kv.Key.IndexOf("::", StringComparison.Ordinal);
                     string pattern = sep >= 0 ? kv.Key.Substring(0, sep) : "UNKNOWN";
                     string stage = sep >= 0 ? kv.Key.Substring(sep + 2) : kv.Key;
-                    Print("[V54-DETECTOR-TRUTH] pattern={0} stage={1} count={2}", pattern, stage, kv.Value);
+                    Print("[V55-DETECTOR-TRUTH] pattern={0} stage={1} count={2}", pattern, stage, kv.Value);
                 }
             }
             foreach (var kv in _conversionTruth.OrderBy(x => x.Key))
@@ -500,10 +500,10 @@ namespace cAlgo.Robots
                 int sep = kv.Key.IndexOf("::", StringComparison.Ordinal);
                 string pattern = sep >= 0 ? kv.Key.Substring(0, sep) : "UNKNOWN";
                 string stage = sep >= 0 ? kv.Key.Substring(sep + 2) : kv.Key;
-                Print("[V54-CONVERSION-TRUTH] pattern={0} stage={1} count={2}", pattern, stage, kv.Value);
+                Print("[V55-CONVERSION-TRUTH] pattern={0} stage={1} count={2}", pattern, stage, kv.Value);
             }
-            Print("[V54-GRID-CAUSAL-MODE] enabled={0} rule=GRID_CHANGES_ENTRY_DISTRIBUTION_NOT_SIGNAL_THESIS", EnableFibonacciGridExecution);
-            Print("[V54-SUMMARY] candidates={0} baskets={1} openLedgers={2} executionErrors={3} gridRiskViolations={4} duplicateGridLegs={5} orphanPendingOrders={6} stopWideningViolations={7} gapThroughInvalidations={8} gapThroughSurvivors={9} unprotectedSurvivors={10} postFillProtectionFailures={11} actualBasketRiskViolations={12} executionStateViolations={13} virtualGridFills={14} microModeBaskets={15} capitalRejectedBaskets={16} marginRiskViolations={17}",
+            Print("[V55-GRID-CAUSAL-MODE] enabled={0} rule=GRID_CHANGES_ENTRY_DISTRIBUTION_NOT_SIGNAL_THESIS", EnableFibonacciGridExecution);
+            Print("[V55-SUMMARY] candidates={0} baskets={1} openLedgers={2} executionErrors={3} gridRiskViolations={4} duplicateGridLegs={5} orphanPendingOrders={6} stopWideningViolations={7} gapThroughInvalidations={8} gapThroughSurvivors={9} unprotectedSurvivors={10} postFillProtectionFailures={11} actualBasketRiskViolations={12} executionStateViolations={13} virtualGridFills={14} microModeBaskets={15} capitalRejectedBaskets={16} marginRiskViolations={17}",
                 _candidateSeq, _baskets.Count, _positions.Count, _executionErrors, _gridRiskViolations, _duplicateGridLegs, _orphanPendingOrders, _stopWideningViolations,
                 _gapThroughInvalidations, _gapThroughSurvivors, _unprotectedSurvivors, _postFillProtectionFailures, _actualBasketRiskViolations, _executionStateViolations,
                 _virtualGridFills, _microModeBaskets, _capitalRejectedBaskets, _marginRiskViolations);
