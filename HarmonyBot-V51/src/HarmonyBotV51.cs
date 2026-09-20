@@ -11,7 +11,7 @@ namespace cAlgo.Robots
     public class HarmonyBotV51 : Robot
     {
         private const string Version = "HarmonyBot V51 — Family-Native Mathematical Geometry & Economic Conversion Kernel";
-        private const string BotPrefix = "HB50";
+        private const string BotPrefix = "HB51";
 
         [Parameter("Symbol", DefaultValue = "XAUUSD")]
         public new string SymbolName { get; set; }
