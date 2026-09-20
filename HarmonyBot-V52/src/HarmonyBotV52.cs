@@ -2660,7 +2660,7 @@ namespace cAlgo.Robots
             double timeSym = (Symmetry(t1, t2) + Symmetry(t2, t3) + Symmetry(t3, t4)) / 3.0;
             double pivotQuality = VClamp(Math.Min(Math.Min(xa, ab), Math.Min(bc, cd)) / (atr * 2.0));
 
-            double projectionSpread;
+            double projectionSpread = 0;
             double expectedD = EnableFamilyIdentityReconstruction && EnableFamilyNativeProjectedPrz
                 ? FamilyProjectedPrzCenter(p, x, a, b, c, d, bullish, out projectionSpread)
                 : d.Price;
