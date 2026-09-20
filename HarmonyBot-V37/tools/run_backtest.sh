@@ -5,7 +5,7 @@ set -euo pipefail
 BALANCE="${BALANCE:-10000}"
 RETENTION="${RETENTION:-true}"; AGING="${AGING:-true}"; RECALL="${RECALL:-false}"
 TTL="${TTL:-8}"; MAXCAND="${MAXCAND:-12}"
-ALGO="${ALGO:-seal/algo/HarmonyBot_V37_HighFrequency_Harmonic_Portfolio_RC.algo}"
+ALGO="${ALGO:-seal/algo/HarmonyBot_V37_M15_Intraday_Harmonic_Portfolio_RC.algo}"
 IMAGE="${CTRADER_IMAGE:-ghcr.io/spotware/ctrader-console:5.9.11}"
 BACKTEST_TIMEOUT_SECONDS="${BACKTEST_TIMEOUT_SECONDS:-2700}"
 mkdir -p seal/{reports,logs,data}; printf '%s' "$CTRADER_PASSWORD" > seal/ctrader.pwd; chmod 600 seal/ctrader.pwd
