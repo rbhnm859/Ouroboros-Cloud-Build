@@ -231,10 +231,10 @@ jobs:
           BALANCE: ${{ matrix.balance }}
         run: |
           set -euo pipefail
-          FQ=false; FR=false; FC2=false; CTX=false; GEXEC=true
+          FQ=false; FR=false; FC2=false; CTX=false; GEXEC=true; LIBERATE=false; COREKEEP=false; GRIDV3=false; STATEGRID=false
           case "$CANDIDATE" in
-            V54_CONVERSION_NOGRID) CAN=true; FC=true; GRID=true; STOP=true; JOINT=true; IDENT=true; BOUNDED=true; PRJ=false; FQ=true; FR=true; FC2=true; CTX=true; GEXEC=false;;
-            V54_CONVERSION_GRID) CAN=true; FC=true; GRID=true; STOP=true; JOINT=true; IDENT=true; BOUNDED=true; PRJ=false; FQ=true; FR=true; FC2=true; CTX=true; GEXEC=true;;
+            V54_LIBERATION_LEGACY_GRID) CAN=true; FC=true; GRID=true; STOP=true; JOINT=true; IDENT=true; BOUNDED=true; PRJ=false; FQ=true; FR=true; FC2=true; CTX=true; GEXEC=true; LIBERATE=true; COREKEEP=true; GRIDV3=false; STATEGRID=false;;
+            V54_LIBERATION_GRID_V3) CAN=true; FC=true; GRID=true; STOP=true; JOINT=true; IDENT=true; BOUNDED=true; PRJ=false; FQ=true; FR=true; FC2=true; CTX=true; GEXEC=true; LIBERATE=true; COREKEEP=true; GRIDV3=true; STATEGRID=true;;
             *) exit 31;;
           esac
           chmod +x control/HarmonyBot-V54/tools/*.sh
@@ -243,7 +243,7 @@ jobs:
           A=$(find control/HarmonyBot-V54/shared -type f -name 'HarmonyBot_V54_Universal_Harmonic_Liberation_Grid_Alpha_Core_RC.algo' | head -1); cp "$A" "$W/seal/algo/"
           (
             cd "$W"
-            RUN_NAME="V54-$CANDIDATE-CAPITAL-$BALANCE" START_DATE=04/01/2021 EVAL_DATE=2021-01-11T00:00:00Z END_DATE=30/06/2022 BALANCE="$BALANCE"             FAMNATIVE=false FAMOBS=true CANCONTRACT="$CAN" FAMCONF="$FC" GRIDV2="$GRID" STOPV2="$STOP" JOINT="$JOINT" CORRIDOR=false ANCHORFORENSICS=true IDENT="$IDENT" BOUNDED="$BOUNDED" SKIPS=2 FQUOTA=4 PRJPRZ="$PRJ" DTRUTH=true FAMQUAL="$FQ" FAMROUTE="$FR" FAMCONFV2="$FC2" CTXBUS="$CTX" GRIDEXEC="$GEXEC" PQUEUE=false HANDOFF=false NATIVE=false DECAY=false REVALIDATE=false             BACKTEST_TIMEOUT_SECONDS=1800 "$GITHUB_WORKSPACE/control/HarmonyBot-V54/tools/run_backtest.sh"
+            RUN_NAME="V54-$CANDIDATE-CAPITAL-$BALANCE" START_DATE=04/01/2021 EVAL_DATE=2021-01-11T00:00:00Z END_DATE=30/06/2022 BALANCE="$BALANCE"             FAMNATIVE=false FAMOBS=true CANCONTRACT="$CAN" FAMCONF="$FC" GRIDV2="$GRID" STOPV2="$STOP" JOINT="$JOINT" CORRIDOR=false ANCHORFORENSICS=true IDENT="$IDENT" BOUNDED="$BOUNDED" SKIPS=2 FQUOTA=4 PRJPRZ="$PRJ" DTRUTH=true FAMQUAL="$FQ" FAMROUTE="$FR" FAMCONFV2="$FC2" CTXBUS="$CTX" GRIDEXEC="$GEXEC" LIBERATE="$LIBERATE" COREKEEP="$COREKEEP" GRIDV3="$GRIDV3" STATEGRID="$STATEGRID" PQUEUE=false HANDOFF=false NATIVE=false DECAY=false REVALIDATE=false             BACKTEST_TIMEOUT_SECONDS=1800 "$GITHUB_WORKSPACE/control/HarmonyBot-V54/tools/run_backtest.sh"
           )
           python3 control/HarmonyBot-V54/tools/audit_report.py --report "$W/seal/reports/V54-$CANDIDATE-CAPITAL-$BALANCE.json"             --log "$W/seal/logs/V54-$CANDIDATE-CAPITAL-$BALANCE.log" --out "$O/$BALANCE.json"             --window "CAPITAL_$BALANCE" --family "$CANDIDATE" --years 1.5 --balance "$BALANCE"
       - uses: actions/upload-artifact@v4
@@ -355,7 +355,7 @@ jobs:
           A=$(find control/HarmonyBot-V54/shared -type f -name 'HarmonyBot_V54_Universal_Harmonic_Liberation_Grid_Alpha_Core_RC.algo' | head -1); cp "$A" "$W/seal/algo/"
           (
             cd "$W"
-            RUN_NAME="V54-$CANDIDATE-FRESH-$KIND" START_DATE=02/01/2020 EVAL_DATE=2020-01-09T00:00:00Z END_DATE=30/06/2020 BALANCE="$BALANCE"             FAMNATIVE=false FAMOBS=true CANCONTRACT="$CAN" FAMCONF="$FC" GRIDV2="$GRID" STOPV2="$STOP" JOINT="$JOINT" CORRIDOR=false ANCHORFORENSICS=true IDENT="$IDENT" BOUNDED="$BOUNDED" SKIPS=2 FQUOTA=4 PRJPRZ="$PRJ" DTRUTH=true FAMQUAL="$FQ" FAMROUTE="$FR" FAMCONFV2="$FC2" CTXBUS="$CTX" GRIDEXEC="$GEXEC" PQUEUE=false HANDOFF=false NATIVE=false DECAY=false REVALIDATE=false             BACKTEST_TIMEOUT_SECONDS=1800 "$GITHUB_WORKSPACE/control/HarmonyBot-V54/tools/run_backtest.sh"
+            RUN_NAME="V54-$CANDIDATE-FRESH-$KIND" START_DATE=02/01/2020 EVAL_DATE=2020-01-09T00:00:00Z END_DATE=30/06/2020 BALANCE="$BALANCE"             FAMNATIVE=false FAMOBS=true CANCONTRACT="$CAN" FAMCONF="$FC" GRIDV2="$GRID" STOPV2="$STOP" JOINT="$JOINT" CORRIDOR=false ANCHORFORENSICS=true IDENT="$IDENT" BOUNDED="$BOUNDED" SKIPS=2 FQUOTA=4 PRJPRZ="$PRJ" DTRUTH=true FAMQUAL="$FQ" FAMROUTE="$FR" FAMCONFV2="$FC2" CTXBUS="$CTX" GRIDEXEC="$GEXEC" LIBERATE="$LIBERATE" COREKEEP="$COREKEEP" GRIDV3="$GRIDV3" STATEGRID="$STATEGRID" PQUEUE=false HANDOFF=false NATIVE=false DECAY=false REVALIDATE=false             BACKTEST_TIMEOUT_SECONDS=1800 "$GITHUB_WORKSPACE/control/HarmonyBot-V54/tools/run_backtest.sh"
           )
           python3 control/HarmonyBot-V54/tools/audit_report.py --report "$W/seal/reports/V54-$CANDIDATE-FRESH-$KIND.json"             --log "$W/seal/logs/V54-$CANDIDATE-FRESH-$KIND.log" --out "$O/$KIND.json"             --window "FRESH_$KIND" --family "$CANDIDATE" --years .5 --balance "$BALANCE"
       - uses: actions/upload-artifact@v4
