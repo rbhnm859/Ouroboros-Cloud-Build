@@ -34,3 +34,5 @@ Baseline must reproduce.
 Candidate requires >=90 independent baskets /1.5y, >=60/year, Net>=1800, PF>=2.0, Expectancy>=20, WR>=50%, MaxDD<=6%, A/B/C positive, engineering/risk clean, duplicate setup=0, added cohort vs control Net/Expectancy positive, PF>=1.20, and marginal Net A/B/C each >=0.
 
 Only after DEV pass: actual $100/$150/$200/$300/$500/$1000 validation -> immutable hashes -> exactly one untouched Fresh Alpha + one Fresh $100.
+
+Execution registration: V50 fixed structural-grid workflow armed.
