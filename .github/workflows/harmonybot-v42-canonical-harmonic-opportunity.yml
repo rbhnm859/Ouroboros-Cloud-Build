@@ -380,3 +380,4 @@ jobs:
           name: v42-final-decision
           path: V42_FRESH_VALIDATION.json
           retention-days: 30
+# V42 launch trigger: canonical geometry preregistration locked.
