@@ -5,11 +5,11 @@ for x in ("report","log","out","window","family"): ap.add_argument("--"+x,requir
 ap.add_argument("--years",type=float,required=True); ap.add_argument("--balance",type=float,required=True); ap.add_argument("--data-sha",default="")
 a=ap.parse_args(); d=json.load(open(a.report,encoding="utf-8-sig")); t=pathlib.Path(a.log).read_text(errors="ignore")
 
-rx=re.compile(r"\[V54-BASKET-CLOSED\].*?cid=(\S+)\s+setup=(\S+)\s+pattern=(.*?)\s+subtype=(\S+)\s+route=(\S+)\s+dir=(\S+).*?mfeR=([-0-9.]+)\s+maeR=([-0-9.]+)\s+realizedR=([-0-9.]+)\s+net=([-0-9.]+)\s+reason=(\S+)")
+rx=re.compile(r"\[V54-BASKET-CLOSED\].*?cid=(\S+)\s+setup=(\S+)\s+pattern=(.*?)\s+subtype=(\S+)\s+lane=(\S+)\s+econQ=([-0-9.]+)\s+route=(\S+)\s+dir=(\S+).*?mfeR=([-0-9.]+)\s+maeR=([-0-9.]+)\s+realizedR=([-0-9.]+)\s+net=([-0-9.]+)\s+reason=(\S+)")
 b=[]
 for m in rx.finditer(t):
- b.append({"cid":m.group(1),"setup":m.group(2),"pattern":m.group(3),"subtype":m.group(4),"route":m.group(5),"direction":m.group(6),
-           "mfe":float(m.group(7)),"mae":float(m.group(8)),"r":float(m.group(9)),"net":float(m.group(10)),"reason":m.group(11)})
+ b.append({"cid":m.group(1),"setup":m.group(2),"pattern":m.group(3),"subtype":m.group(4),"alpha_lane":m.group(5),"economic_quality":float(m.group(6)),"route":m.group(7),"direction":m.group(8),
+           "mfe":float(m.group(9)),"mae":float(m.group(10)),"r":float(m.group(11)),"net":float(m.group(12)),"reason":m.group(13)})
 v=[x["net"] for x in b]; gp=sum(x for x in v if x>0); gl=abs(sum(x for x in v if x<0))
 
 pat=(r"\[V54-SUMMARY\].*?executionErrors=(\d+)\s+gridRiskViolations=(\d+)\s+duplicateGridLegs=(\d+)\s+"
