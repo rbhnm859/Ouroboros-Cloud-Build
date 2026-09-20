@@ -59,7 +59,11 @@ events=[e for x in obs for e in x.get("events",[])]
 cf=[q for x in obs for q in x.get("counterfactual",[])]
 cf_starts=sum(x.get("counterfactual_start_count",0) for x in obs)
 cf_logged=sum(x.get("counterfactual_logged_count",0) for x in obs)
-forensics_integrity_pass=(cf_starts>0 and cf_logged==cf_starts)
+cf_armed=sum(sum(v.get("armed",0) for v in x.get("pattern_pipeline",{}).values()) for x in obs)
+# Counterfactual terminal records are intentionally only for Confirming-but-never-Armed setups.
+# Every CF start must therefore end in exactly one of two mutually exclusive buckets:
+# later ARMED, or terminal never-armed shadow outcome.
+forensics_integrity_pass=(cf_starts>0 and cf_starts==cf_logged+cf_armed)
 bars=[q for x in obs for q in x.get("confirm_bars",[])]
 # Keep one terminal record per independent setup.
 cf_by={}
@@ -190,11 +194,13 @@ winner=max(eligible,key=lambda f:(A[f]["net"],A[f]["pf"],A[f]["frequency"])) if 
 forensics={"version":"HarmonyBot V49","source":"COUNTERFACTUAL_NATIVE_CONFIRM pure observation","evidence_window_completed_m1":12,
  "shadow_horizon_minutes":180,"forensics_integrity_pass":forensics_integrity_pass,
  "counterfactual_start_count":cf_starts,"counterfactual_logged_count":cf_logged,
+ "counterfactual_later_armed_count":cf_armed,
  "classification_rule":"positive iff 2R completed-M1 timestamp strictly before SL; negative iff SL strictly before 2R; same-bar ambiguous",
  "family_summary":family_cf,"pattern_route_scale":funnel,
  "root_cause_evidence":{"v48_rigid_ordering_code_confirmed":True,"v48_native_window_bars":4,
  "v49_order_independent_window_bars":12,"post_terminal_shadow_horizon_minutes":180,
- "counterfactual_records":len(cf),"forensics_integrity_pass":forensics_integrity_pass,
+ "counterfactual_records":len(cf),"counterfactual_later_armed_count":cf_armed,
+ "forensics_integrity_pass":forensics_integrity_pass,
  "non_incumbent_positive_setups":sum(z["positive"] for p,z in family_cf.items() if p not in ("AB=CD","Shark"))}}
 front={"version":"HarmonyBot V49","architecture":"HARMONIC_FAMILY_CONFIRMATION_KERNEL","baseline":BASE,"v36":V36,
  "commercial_minimum":COMM,"baseline_reproduction_pass":c["baseline_reproduction_pass"],"families":A,
