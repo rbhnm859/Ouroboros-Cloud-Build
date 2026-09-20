@@ -992,10 +992,10 @@ namespace cAlgo.Robots
 
             if (EnableDiversityScheduler)
                 armedQuery = armedQuery.GroupBy(c => string.IsNullOrWhiteSpace(c.SetupKey) ? c.CandidateId : c.SetupKey)
-                    .Select(g => g.OrderByDescending(c => EnableOpportunityDecayRanking ? OpportunityScore(c, now) : c.Rank).First());
+                    .Select(g => g.OrderByDescending(c => V54ExecutionPriority(c, now)).First());
 
             var armed = armedQuery
-                .OrderByDescending(c => EnableOpportunityDecayRanking ? OpportunityScore(c, now) : c.Rank)
+                .OrderByDescending(c => V54ExecutionPriority(c, now))
                 .ToList();
             if (armed.Count == 0) return;
 
