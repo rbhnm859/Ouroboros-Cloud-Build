@@ -85,7 +85,7 @@ def eff_bucket(x):
  return "LOW_EFF" if e<.16 else ("HIGH_EFF" if e>=.28 else "MID_EFF")
 def groupkey(x): return (x.get("pattern",""),x.get("route",""),vol_bucket(x),eff_bucket(x),x.get("lane",""))
 cv={}
-for f in ["OPPORTUNITY_GRID","FULL_V42"]
+for f in ["OPPORTUNITY_GRID","FULL_V42"]:
  folds={}
  for hold in "ABC":
   train=[x for w in "ABC" if w!=hold for x in read(f,w).get("attribution_outcomes",[])]
