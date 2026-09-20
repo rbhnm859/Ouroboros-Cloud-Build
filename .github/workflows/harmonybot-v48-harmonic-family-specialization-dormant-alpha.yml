@@ -1,4 +1,4 @@
-name: HarmonyBot V48 Alpha-Preserving Throughput Serial Opportunity
+name: HarmonyBot V48 Harmonic Family Specialization Dormant Alpha
 
 on:
   push:
@@ -50,7 +50,7 @@ jobs:
           ! grep -Eq '(^|[^0-9])error (CS|MSB|NETSDK)[0-9]+' HarmonyBot-V48/final/V48_BUILD.log
           ALGO=$(find HarmonyBot-V48/bin/Release -type f -name '*.algo' | head -1)
           test -n "$ALGO" && test -s "$ALGO"
-          cp "$ALGO" HarmonyBot-V48/dist/HarmonyBot_V48_Alpha_Preserving_Throughput_Serial_Opportunity_RC.algo
+          cp "$ALGO" HarmonyBot-V48/dist/HarmonyBot_V48_Harmonic_Family_Specialization_Dormant_Alpha_RC.algo
           sha256sum HarmonyBot-V48/src/HarmonyBotV48.cs "$ALGO" > HarmonyBot-V48/final/SHA256SUMS
           printf '%s\n' "$GITHUB_SHA" > HarmonyBot-V48/final/SOURCE_COMMIT.txt
       - name: Ultra-short full architecture smoke
@@ -60,10 +60,10 @@ jobs:
           chmod +x control/HarmonyBot-V48/tools/*.sh
           W="$GITHUB_WORKSPACE/control/HarmonyBot-V48/smoke-work"; O="$GITHUB_WORKSPACE/control/HarmonyBot-V48/final"
           mkdir -p "$W/seal/algo"
-          cp control/HarmonyBot-V48/dist/HarmonyBot_V48_Alpha_Preserving_Throughput_Serial_Opportunity_RC.algo "$W/seal/algo/"
+          cp control/HarmonyBot-V48/dist/HarmonyBot_V48_Harmonic_Family_Specialization_Dormant_Alpha_RC.algo "$W/seal/algo/"
           (
             cd "$W"
-            RUN_NAME=V48-FULL_V48_FAMILY_PORTFOLIO-SMOKE-B10000 START_DATE=04/01/2021 EVAL_DATE=2021-01-06T00:00:00Z END_DATE=15/01/2021 BALANCE=10000             PQUEUE=true HANDOFF=true NATIVE=true NATIVEBARS=4 DECAY=true HARDLIFE=180 REVALIDATE=true BACKTEST_TIMEOUT_SECONDS=300             "$GITHUB_WORKSPACE/control/HarmonyBot-V48/tools/run_backtest.sh"
+            RUN_NAME=V48-FULL_V48_FAMILY_PORTFOLIO-SMOKE-B10000 START_DATE=04/01/2021 EVAL_DATE=2021-01-06T00:00:00Z END_DATE=15/01/2021 BALANCE=10000             PQUEUE=false HANDOFF=false NATIVE=false NATIVEBARS=4 DECAY=false HARDLIFE=180 REVALIDATE=false RETRACT=true EXTEND=true BACKTEST_TIMEOUT_SECONDS=300             "$GITHUB_WORKSPACE/control/HarmonyBot-V48/tools/run_backtest.sh"
           )
           python3 control/HarmonyBot-V48/tools/audit_report.py             --report "$W/seal/reports/V48-FULL_V48_FAMILY_PORTFOLIO-SMOKE-B10000.json"             --log "$W/seal/logs/V48-FULL_V48_FAMILY_PORTFOLIO-SMOKE-B10000.log"             --out "$O/V48_SMOKE.json" --window SMOKE --family FULL_V48_FAMILY_PORTFOLIO --years .03 --balance 10000
           python3 - "$O/V48_SMOKE.json" <<'PY'
@@ -118,7 +118,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p control/HarmonyBot-V48/dist
-          A=$(find control/HarmonyBot-V48/shared -type f -name 'HarmonyBot_V48_Alpha_Preserving_Throughput_Serial_Opportunity_RC.algo' | head -1)
+          A=$(find control/HarmonyBot-V48/shared -type f -name 'HarmonyBot_V48_Harmonic_Family_Specialization_Dormant_Alpha_RC.algo' | head -1)
           test -n "$A"; cp "$A" control/HarmonyBot-V48/dist/
       - name: Restore persistent XAUUSD M1 cache
         uses: actions/cache@v4
@@ -198,19 +198,19 @@ jobs:
         run: |
           set -euo pipefail
           case "$CANDIDATE" in
-            RETRACEMENT_ACTIVATION) PQ=true; HO=true; NA=false; DE=false; RV=true;;
-            EXTENSION_ACTIVATION) PQ=false; HO=false; NA=true; DE=false; RV=false;;
-            FULL_V48_FAMILY_PORTFOLIO) PQ=true; HO=true; NA=true; DE=true; RV=true;;
+            RETRACEMENT_ACTIVATION) PQ=false; HO=false; NA=false; DE=false; RV=false; RET=true; EXT=false;;
+            EXTENSION_ACTIVATION) PQ=false; HO=false; NA=false; DE=false; RV=false; RET=false; EXT=true;;
+            FULL_V48_FAMILY_PORTFOLIO) PQ=false; HO=false; NA=false; DE=false; RV=false; RET=true; EXT=true;;
             *) exit 31;;
           esac
           chmod +x control/HarmonyBot-V48/tools/*.sh
           W="$GITHUB_WORKSPACE/control/HarmonyBot-V48/capital-$BALANCE"; O="$GITHUB_WORKSPACE/control/HarmonyBot-V48/capital-out-$BALANCE"
           mkdir -p "$W/seal/algo" "$O"
-          A=$(find control/HarmonyBot-V48/shared -type f -name 'HarmonyBot_V48_Alpha_Preserving_Throughput_Serial_Opportunity_RC.algo' | head -1)
+          A=$(find control/HarmonyBot-V48/shared -type f -name 'HarmonyBot_V48_Harmonic_Family_Specialization_Dormant_Alpha_RC.algo' | head -1)
           cp "$A" "$W/seal/algo/"
           (
             cd "$W"
-            RUN_NAME="V48-$CANDIDATE-CAPITAL-$BALANCE" START_DATE=04/01/2021 EVAL_DATE=2021-01-11T00:00:00Z END_DATE=30/06/2022 BALANCE="$BALANCE"             PQUEUE="$PQ" HANDOFF="$HO" NATIVE="$NA" NATIVEBARS=4 DECAY="$DE" HARDLIFE=180 REVALIDATE="$RV"             BACKTEST_TIMEOUT_SECONDS=1800 "$GITHUB_WORKSPACE/control/HarmonyBot-V48/tools/run_backtest.sh"
+            RUN_NAME="V48-$CANDIDATE-CAPITAL-$BALANCE" START_DATE=04/01/2021 EVAL_DATE=2021-01-11T00:00:00Z END_DATE=30/06/2022 BALANCE="$BALANCE"             PQUEUE="$PQ" HANDOFF="$HO" NATIVE="$NA" NATIVEBARS=4 DECAY="$DE" HARDLIFE=180 REVALIDATE="$RV" RETRACT="$RET" EXTEND="$EXT"             BACKTEST_TIMEOUT_SECONDS=1800 "$GITHUB_WORKSPACE/control/HarmonyBot-V48/tools/run_backtest.sh"
           )
           python3 control/HarmonyBot-V48/tools/audit_report.py --report "$W/seal/reports/V48-$CANDIDATE-CAPITAL-$BALANCE.json"             --log "$W/seal/logs/V48-$CANDIDATE-CAPITAL-$BALANCE.log" --out "$O/$BALANCE.json"             --window "CAPITAL_$BALANCE" --family "$CANDIDATE" --years 1.5 --balance "$BALANCE"
       - uses: actions/upload-artifact@v4
@@ -281,7 +281,7 @@ jobs:
           python3 - <<'PY'
           import hashlib,json,pathlib,os
           src=pathlib.Path("control/HarmonyBot-V48/src/HarmonyBotV48.cs")
-          algo=next(pathlib.Path("shared").rglob("HarmonyBot_V48_Alpha_Preserving_Throughput_Serial_Opportunity_RC.algo"))
+          algo=next(pathlib.Path("shared").rglob("HarmonyBot_V48_Harmonic_Family_Specialization_Dormant_Alpha_RC.algo"))
           m={"version":"HarmonyBot V48","candidate":os.environ["CANDIDATE"],"source_commit":os.environ["GITHUB_SHA"],
              "source_sha256":hashlib.sha256(src.read_bytes()).hexdigest(),"algo_sha256":hashlib.sha256(algo.read_bytes()).hexdigest(),
              "fresh_tuning":False,"status":"COMMERCIAL_FREEZE_CANDIDATE_FROZEN"}
@@ -323,19 +323,19 @@ jobs:
         run: |
           set -euo pipefail
           case "$CANDIDATE" in
-            RETRACEMENT_ACTIVATION) PQ=true; HO=true; NA=false; DE=false; RV=true;;
-            EXTENSION_ACTIVATION) PQ=false; HO=false; NA=true; DE=false; RV=false;;
-            FULL_V48_FAMILY_PORTFOLIO) PQ=true; HO=true; NA=true; DE=true; RV=true;;
+            RETRACEMENT_ACTIVATION) PQ=false; HO=false; NA=false; DE=false; RV=false; RET=true; EXT=false;;
+            EXTENSION_ACTIVATION) PQ=false; HO=false; NA=false; DE=false; RV=false; RET=false; EXT=true;;
+            FULL_V48_FAMILY_PORTFOLIO) PQ=false; HO=false; NA=false; DE=false; RV=false; RET=true; EXT=true;;
             *) exit 31;;
           esac
           chmod +x control/HarmonyBot-V48/tools/*.sh
           W="$GITHUB_WORKSPACE/control/HarmonyBot-V48/fresh-$KIND"; O="$GITHUB_WORKSPACE/control/HarmonyBot-V48/fresh-out-$KIND"
           mkdir -p "$W/seal/algo" "$O"
-          A=$(find control/HarmonyBot-V48/shared -type f -name 'HarmonyBot_V48_Alpha_Preserving_Throughput_Serial_Opportunity_RC.algo' | head -1)
+          A=$(find control/HarmonyBot-V48/shared -type f -name 'HarmonyBot_V48_Harmonic_Family_Specialization_Dormant_Alpha_RC.algo' | head -1)
           cp "$A" "$W/seal/algo/"
           (
             cd "$W"
-            RUN_NAME="V48-$CANDIDATE-FRESH-$KIND" START_DATE=02/01/2020 EVAL_DATE=2020-01-09T00:00:00Z END_DATE=30/06/2020 BALANCE="$BALANCE"             PQUEUE="$PQ" HANDOFF="$HO" NATIVE="$NA" NATIVEBARS=4 DECAY="$DE" HARDLIFE=180 REVALIDATE="$RV"             BACKTEST_TIMEOUT_SECONDS=1800 "$GITHUB_WORKSPACE/control/HarmonyBot-V48/tools/run_backtest.sh"
+            RUN_NAME="V48-$CANDIDATE-FRESH-$KIND" START_DATE=02/01/2020 EVAL_DATE=2020-01-09T00:00:00Z END_DATE=30/06/2020 BALANCE="$BALANCE"             PQUEUE="$PQ" HANDOFF="$HO" NATIVE="$NA" NATIVEBARS=4 DECAY="$DE" HARDLIFE=180 REVALIDATE="$RV" RETRACT="$RET" EXTEND="$EXT"             BACKTEST_TIMEOUT_SECONDS=1800 "$GITHUB_WORKSPACE/control/HarmonyBot-V48/tools/run_backtest.sh"
           )
           python3 control/HarmonyBot-V48/tools/audit_report.py --report "$W/seal/reports/V48-$CANDIDATE-FRESH-$KIND.json"             --log "$W/seal/logs/V48-$CANDIDATE-FRESH-$KIND.log" --out "$O/$KIND.json"             --window "FRESH_$KIND" --family "$CANDIDATE" --years .5 --balance "$BALANCE"
       - uses: actions/upload-artifact@v4
