@@ -3567,6 +3567,142 @@ namespace cAlgo.Robots
             return false;
         }
 
+        private bool V54CoreQualityEnvelope(PatternSignal s)
+        {
+            if (s == null || s.Profile == null) return false;
+            return s.GeometryQuality >= Math.Max(MinGeometryQuality, s.Profile.MinGeometry) &&
+                   s.PrzConfluence >= Math.Max(MinPrzConfluence, s.Profile.MinPrz);
+        }
+
+        private double V54FamilyLiberationQualityScore(PatternSignal s)
+        {
+            if (s == null) return 0;
+            string p = s.PatternName ?? "";
+            bool extension = p == "Alt Bat" || p == "Butterfly" || p == "Crab" || p == "Deep Crab";
+            bool retracement = p == "Gartley" || p == "Bat" || p == "Deep Gartley" || p == "Rat";
+            if (extension) return VClamp(.24 * s.GeometryQuality + .34 * s.PrzConfluence + .14 * s.TimeSymmetry + .28 * s.PivotQuality);
+            if (retracement) return VClamp(.34 * s.GeometryQuality + .28 * s.PrzConfluence + .16 * s.TimeSymmetry + .22 * s.PivotQuality);
+            if (p == "AB=CD") return VClamp(.30 * s.GeometryQuality + .24 * s.PrzConfluence + .24 * s.TimeSymmetry + .22 * s.PivotQuality);
+            return VClamp(.30 * s.GeometryQuality + .28 * s.PrzConfluence + .16 * s.TimeSymmetry + .26 * s.PivotQuality);
+        }
+
+        private HarmonicRoute RouteSignalFamilyNativeV54(PatternSignal s, MtfConflict conflict, RegimeSnapshot r, OrthogonalContextFeatures f, double contextScore)
+        {
+            if (s == null || r == null) return HarmonicRoute.NO_TRADE;
+            string p = s.PatternName ?? "";
+            var legacy = RouteSignal(s, conflict, r);
+            if (p == "Shark" || p == "Cypher") return legacy;
+            bool aligned = r.TrendDirection == s.Direction;
+            bool opposed = r.TrendDirection != TradeDirection.Neutral && r.TrendDirection != s.Direction;
+            bool transition = r.Transition || conflict == MtfConflict.TRANSITION || r.TrendDirection == TradeDirection.Neutral;
+            bool extension = p == "Alt Bat" || p == "Butterfly" || p == "Crab" || p == "Deep Crab";
+            bool retracement = p == "Gartley" || p == "Bat" || p == "Deep Gartley" || p == "Rat";
+
+            if (conflict == MtfConflict.CONFLICT && contextScore < .55 && r.ExtensionAtr < 1.10)
+                return HarmonicRoute.NO_TRADE;
+
+            if (extension)
+            {
+                if (r.ExtensionAtr >= .45 || (f != null && f.RangeExtreme >= .60) || opposed)
+                    return HarmonicRoute.EXHAUSTION_REVERSAL;
+                if (transition || contextScore >= .42)
+                    return HarmonicRoute.TRANSITION_REVERSAL;
+                return HarmonicRoute.NO_TRADE;
+            }
+            if (retracement)
+            {
+                if (aligned && conflict != MtfConflict.CONFLICT)
+                    return HarmonicRoute.TREND_ALIGNED_REVERSAL;
+                if (opposed && (r.ExtensionAtr >= .60 || (f != null && f.RangeExtreme >= .65)))
+                    return HarmonicRoute.EXHAUSTION_REVERSAL;
+                if (transition || contextScore >= .40)
+                    return HarmonicRoute.TRANSITION_REVERSAL;
+                return HarmonicRoute.NO_TRADE;
+            }
+            if (p == "5-0")
+            {
+                if (opposed && r.ExtensionAtr >= .55)
+                    return HarmonicRoute.EXHAUSTION_REVERSAL;
+                if (transition || contextScore >= .42)
+                    return HarmonicRoute.TRANSITION_REVERSAL;
+                return HarmonicRoute.NO_TRADE;
+            }
+            if (p == "AB=CD")
+            {
+                if (legacy != HarmonicRoute.NO_TRADE) return legacy;
+                if (contextScore >= .48 && conflict != MtfConflict.CONFLICT)
+                    return HarmonicRoute.TRANSITION_REVERSAL;
+                return HarmonicRoute.NO_TRADE;
+            }
+            return legacy;
+        }
+
+        private bool V54ExpansionEconomicAdmission(CandidateRecord c)
+        {
+            if (c == null || c.Signal == null) return false;
+            if (c.IsProvenCoreAlpha)
+            {
+                c.EconomicQualityScore = 1.0;
+                return c.NetRR >= MinimumNetRR;
+            }
+
+            double rr = VClamp(c.NetRR / 3.0);
+            c.EconomicQualityScore = VClamp(.28 * c.FamilyQualificationScore + .18 * c.ContextScore +
+                                             .22 * c.ConfirmationScore + .12 * c.Signal.PrzConfluence + .20 * rr);
+            string p = c.Signal.PatternName ?? "";
+            double threshold = .62;
+            if (p == "AB=CD") threshold = .70;
+            else if (p == "Rat") threshold = .68;
+            else if (p == "5-0") threshold = .64;
+            else if (p == "Shark" || p == "Cypher") threshold = .58;
+            else if (p == "Alt Bat" || p == "Butterfly" || p == "Crab" || p == "Deep Crab") threshold = .60;
+            else if (p == "Bat" || p == "Deep Gartley") threshold = .60;
+            else if (p == "Gartley") threshold = .62;
+
+            return c.NetRR >= MinimumNetRR && c.EconomicQualityScore >= threshold;
+        }
+
+        private double V54ExecutionPriority(CandidateRecord c, DateTime now)
+        {
+            double x = EnableOpportunityDecayRanking ? OpportunityScore(c, now) : c.Rank;
+            if (EnableCoreAlphaPreservationV54 && c != null && c.IsProvenCoreAlpha) x += 2.0;
+            return x;
+        }
+
+        private int V54GridMaxLegs(string pattern, int routeMax, int profileMax)
+        {
+            int cap = Math.Min(routeMax, profileMax);
+            if (pattern == "Shark" || pattern == "5-0" || pattern == "Crab" || pattern == "Deep Crab")
+                cap = Math.Min(cap, 2);
+            else if (pattern == "Cypher" || pattern == "Alt Bat" || pattern == "Butterfly" ||
+                     pattern == "Deep Gartley" || pattern == "Rat" || pattern == "AB=CD")
+                cap = Math.Min(cap, 3);
+            return Math.Max(1, cap);
+        }
+
+        private double V54GridRiskWeight(string pattern, int leg, int maxLegs)
+        {
+            if (maxLegs <= 1) return leg == 0 ? 1.0 : 0.0;
+            double[] w;
+            if (pattern == "Shark" || pattern == "5-0") w = new[] { .65, .35 };
+            else if (pattern == "Crab" || pattern == "Deep Crab") w = new[] { .60, .40 };
+            else if (pattern == "Cypher") w = new[] { .50, .30, .20 };
+            else if (pattern == "AB=CD" || pattern == "Rat") w = new[] { .50, .30, .20 };
+            else if (pattern == "Alt Bat" || pattern == "Butterfly") w = new[] { .50, .30, .20 };
+            else if (maxLegs >= 4) w = new[] { .45, .30, .15, .10 };
+            else w = new[] { .50, .30, .20 };
+            return leg >= 0 && leg < w.Length ? w[leg] : 0.0;
+        }
+
+        private double V54GridCancelMfeThreshold(FibonacciBasket basket)
+        {
+            if (basket == null) return GridCancelMfeR;
+            if (basket.Candidate != null && basket.Candidate.IsProvenCoreAlpha) return Math.Max(.45, GridCancelMfeR);
+            if (basket.Pattern == "AB=CD" || basket.Pattern == "Rat") return .30;
+            if (basket.Pattern == "Alt Bat" || basket.Pattern == "Butterfly" || basket.Pattern == "Crab" || basket.Pattern == "Deep Crab") return .35;
+            return .40;
+        }
+
         private bool CapitalFeasibilityEligible(CandidateRecord c, out double minL0Risk, out double minL0Margin)
         {
             minL0Risk = 0;
