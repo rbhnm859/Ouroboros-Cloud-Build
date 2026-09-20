@@ -5,11 +5,11 @@ on:
     branches: [harmonybot/v54-universal-harmonic-liberation-grid-alpha-core]
     paths:
       - 'HarmonyBot-V54/**'
-      - '.github/workflows/harmonybot-v54-family-native-conversion-grid-causal.yml'
+      - '.github/workflows/harmonybot-v54-universal-harmonic-liberation-grid-alpha-core.yml'
   workflow_dispatch:
 
 concurrency:
-  group: harmonybot-v54-family-native-conversion-grid-causal
+  group: harmonybot-v54-universal-harmonic-liberation-grid-alpha-core
   cancel-in-progress: true
 
 permissions:
