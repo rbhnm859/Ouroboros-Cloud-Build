@@ -11,7 +11,7 @@ namespace cAlgo.Robots
     public class HarmonyBotV42 : Robot
     {
         private const string Version = "HarmonyBot V42 — Marginal Alpha Opportunity Portfolio & Pattern-Native Execution Engine";
-        private const string BotPrefix = "HB41";
+        private const string BotPrefix = "HB42";
 
         [Parameter("Symbol", DefaultValue = "XAUUSD")]
         public new string SymbolName { get; set; }
