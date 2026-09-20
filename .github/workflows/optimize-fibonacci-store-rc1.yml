@@ -1,0 +1,145 @@
+name: Fibonacci Store RC1 Genetic Optimisation
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [fibonacci-store-v0.4.0-rc1]
+    paths:
+      - '.github/workflows/optimize-fibonacci-store-rc1.yml'
+      - 'FibonacciHarmonicSniperUltimate/versions/v0.4.0-store-rc1/**'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fibonacci-store-rc1-opt-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  optimise:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET 8 SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Install official cTrader CLI for Linux
+        run: |
+          set -euxo pipefail
+          CLI_ROOT="$RUNNER_TEMP/ctrader-cli"
+          mkdir -p "$CLI_ROOT" "$HOME/.local/bin"
+          curl -fsSL "https://getctrader.spotware.com/cli/homebrew/ctrader-cli-5.9.0-linux-x64.tar.gz" -o "$RUNNER_TEMP/ctrader-cli.tar.gz"
+          echo "da0f5fb0c58980be9143fafca9839de784084b6e323321d9e03e5c3e64bec562  $RUNNER_TEMP/ctrader-cli.tar.gz" | sha256sum -c -
+          tar -xzf "$RUNNER_TEMP/ctrader-cli.tar.gz" -C "$CLI_ROOT"
+          find "$CLI_ROOT" -type f | while read -r f; do
+            b="$(basename "$f")"
+            if [[ "$b" != *.* || "$b" == "algohost.netcore" ]]; then chmod +x "$f" || true; fi
+          done
+          CLI_BIN="$(find "$CLI_ROOT" -type f -name ctrader-cli -print -quit)"
+          test -n "$CLI_BIN"
+          ln -sf "$CLI_BIN" "$HOME/.local/bin/ctrader-cli"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          "$HOME/.local/bin/ctrader-cli" --version
+
+      - name: Build Net8 candidate
+        run: |
+          set -euxo pipefail
+          mkdir -p out/cache out/opt
+          dotnet restore FibonacciHarmonicSniperUltimate/versions/v0.4.0-store-rc1/FibonacciHarmonicSniperUltimate.csproj
+          dotnet build FibonacciHarmonicSniperUltimate/versions/v0.4.0-store-rc1/FibonacciHarmonicSniperUltimate.csproj -c Release --no-restore -p:AlgoPublish=False -p:IncludeSource=True
+          ALGO="$(find FibonacciHarmonicSniperUltimate/versions/v0.4.0-store-rc1 -type f -name '*.algo' -print -quit)"
+          test -n "$ALGO" || { echo 'No .algo generated'; exit 1; }
+          cp "$ALGO" out/FibonacciHarmonicSniperUltimate-v0.4.0-store-rc1.algo
+          cp FibonacciHarmonicSniperUltimate/versions/v0.4.0-store-rc1/optimization/store-rc1-genetic.json out/store-rc1-genetic.json
+          ctrader-cli metadata out/FibonacciHarmonicSniperUltimate-v0.4.0-store-rc1.algo
+
+      - name: Create credential file
+        env:
+          CTRADER_PASSWORD: ${{ secrets.CTRADER_PASSWORD }}
+        run: |
+          test -n "${CTRADER_PASSWORD:-}" || exit 1
+          printf '%s' "$CTRADER_PASSWORD" > out/ctrader.pwd
+          chmod 600 out/ctrader.pwd
+
+      - name: Optimise XAUUSD M15 on development data
+        env:
+          CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+          CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+        run: |
+          test -n "${CTRADER_CTID:-}" && test -n "${CTRADER_ACCOUNT:-}"
+          timeout --signal=TERM --kill-after=30s 32m ctrader-cli optimize \
+            out/FibonacciHarmonicSniperUltimate-v0.4.0-store-rc1.algo \
+            --params=out/store-rc1-genetic.json \
+            --ctid="$CTRADER_CTID" --pwd-file=out/ctrader.pwd --account="$CTRADER_ACCOUNT" \
+            --symbol=XAUUSD --timeframe=m15 \
+            --start="01/01/2024 00:00" --end="31/12/2025 23:59" \
+            --balance=10000 --spread=30 --commission=35 --commission-type=UsdPerMillionUsdVolume \
+            --data-mode=m1 --data-dir=out/cache \
+            --method=genetic --cores=2 \
+            --criteria="ProfitFactor:max,NetProfit:max,TotalTrades:max,MaxEquityDrawdownPercentages:min" \
+            --auto-select-best \
+            --optres=out/opt/store-rc1.optres \
+            --passes-dir=out/opt/passes
+
+      - name: Summarise optimisation
+        if: always()
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import json, math, os
+          p=Path('out/opt/store-rc1.optres')
+          if not p.exists():
+              print('No optimisation result file generated')
+              raise SystemExit(1)
+          data=json.loads(p.read_text())
+          Path('out/opt/store-rc1-optres-pretty.json').write_text(json.dumps(data,indent=2))
+          candidates=[]
+          def walk(x):
+              if isinstance(x,dict):
+                  keys={str(k).lower() for k in x.keys()}
+                  if 'profitfactor' in keys or 'netprofit' in keys or 'fitness' in keys:candidates.append(x)
+                  for v in x.values():walk(v)
+              elif isinstance(x,list):
+                  for v in x:walk(v)
+          walk(data)
+          def get(d,*names):
+              for n in names:
+                  for k,v in d.items():
+                      if str(k).lower()==n.lower():
+                          try:return float(v)
+                          except:return v
+              return None
+          rows=[]
+          for c in candidates:
+              pf=get(c,'ProfitFactor'); net=get(c,'NetProfit'); dd=get(c,'MaxEquityDrawdownPercentages','MaxEquityDrawdownPercent'); trades=get(c,'TotalTrades'); fit=get(c,'Fitness')
+              if any(v is not None for v in (pf,net,dd,trades,fit)):rows.append({'fitness':fit,'profit_factor':pf,'net_profit':net,'max_equity_dd_percent':dd,'total_trades':trades,'raw':c})
+          def score(r):
+              f=r['fitness']; return f if isinstance(f,(int,float)) and math.isfinite(f) else -1e300
+          rows=sorted(rows,key=score,reverse=True)
+          summary={'candidate_records_found':len(rows),'top_records':rows[:10]}
+          text=json.dumps(summary,indent=2,default=str)
+          Path('out/opt/top-records.json').write_text(text)
+          print(text)
+          with open(os.environ['GITHUB_STEP_SUMMARY'],'a') as f:f.write('```json\n'+text+'\n```\n')
+          PY
+
+      - name: Remove credential file
+        if: always()
+        run: rm -f out/ctrader.pwd
+
+      - name: Upload optimisation evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Fibonacci-Store-RC1-Optimisation
+          path: |
+            out/opt/store-rc1.optres
+            out/opt/store-rc1-optres-pretty.json
+            out/opt/top-records.json
+            out/opt/passes/**
+          if-no-files-found: warn
+          retention-days: 30

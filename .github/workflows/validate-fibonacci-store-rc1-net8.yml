@@ -1,0 +1,139 @@
+name: Fibonacci Store RC1 Net8 Validation
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [fibonacci-store-v0.4.0-rc1]
+    paths:
+      - '.github/workflows/validate-fibonacci-store-rc1-net8.yml'
+      - 'FibonacciHarmonicSniperUltimate/versions/v0.4.0-store-rc1/**'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fibonacci-store-rc1-net8-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    strategy:
+      fail-fast: false
+      max-parallel: 3
+      matrix:
+        include:
+          - {id: xau-m15-2024, symbol: XAUUSD, period: m15, start: '01/01/2024 00:00', end: '31/12/2024 23:59', min_trades: 25}
+          - {id: xau-m15-2025, symbol: XAUUSD, period: m15, start: '01/01/2025 00:00', end: '31/12/2025 23:59', min_trades: 25}
+          - {id: xau-m15-2026ytd, symbol: XAUUSD, period: m15, start: '01/01/2026 00:00', end: '09/09/2026 23:59', min_trades: 18}
+          - {id: xau-h1-2025, symbol: XAUUSD, period: h1, start: '01/01/2025 00:00', end: '31/12/2025 23:59', min_trades: 12}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Pull current official cTrader CLI
+        run: docker pull ghcr.io/spotware/ctrader-console:latest
+
+      - name: Prepare source and enable trading only in test copy
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import shutil
+          src=Path('FibonacciHarmonicSniperUltimate/versions/v0.4.0-store-rc1')
+          dst=Path('work/FibonacciHarmonicSniperUltimate')
+          if dst.exists(): shutil.rmtree(dst)
+          shutil.copytree(src,dst)
+          p=dst/'FibonacciHarmonicSniperUltimate.cs'
+          t=p.read_text()
+          marker='[Parameter("Trading Enabled", DefaultValue = false'
+          if marker not in t: raise SystemExit('Trading Enabled marker missing')
+          p.write_text(t.replace(marker,'[Parameter("Trading Enabled", DefaultValue = true',1))
+          PY
+
+      - name: Build Net8 algo
+        run: |
+          mkdir -p out/cache out/reports
+          docker run --rm --entrypoint sh -v "$PWD:/repo" -w /repo ghcr.io/spotware/ctrader-console:latest -c \
+            'dotnet restore work/FibonacciHarmonicSniperUltimate/FibonacciHarmonicSniperUltimate.csproj && dotnet build work/FibonacciHarmonicSniperUltimate/FibonacciHarmonicSniperUltimate.csproj -c Release --no-restore -p:AlgoPublish=False -p:IncludeSource=True'
+          ALGO="$(find work -type f -name '*.algo' -print -quit)"
+          test -n "$ALGO" || { echo 'No .algo generated'; exit 1; }
+          cp "$ALGO" out/FibonacciHarmonicSniperUltimate-v0.4.0-store-rc1.algo
+
+      - name: Create credential file
+        env:
+          CTRADER_PASSWORD: ${{ secrets.CTRADER_PASSWORD }}
+        run: |
+          test -n "${CTRADER_PASSWORD:-}" || exit 1
+          printf '%s' "$CTRADER_PASSWORD" > out/ctrader.pwd
+          chmod 600 out/ctrader.pwd
+
+      - name: Backtest ${{ matrix.id }}
+        env:
+          CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+          CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+        run: |
+          test -n "${CTRADER_CTID:-}" && test -n "${CTRADER_ACCOUNT:-}"
+          docker run --rm -v "$PWD/out:/work" \
+            -e "CTID=$CTRADER_CTID" -e 'PWD-FILE=/work/ctrader.pwd' -e "ACCOUNT=$CTRADER_ACCOUNT" \
+            ghcr.io/spotware/ctrader-console:latest \
+            backtest /work/FibonacciHarmonicSniperUltimate-v0.4.0-store-rc1.algo \
+            --environment-variables --exit-on-stop \
+            --symbol=${{ matrix.symbol }} --period=${{ matrix.period }} \
+            --start="${{ matrix.start }}" --end="${{ matrix.end }}" \
+            --balance=10000 --spread=30 --commission=35 --commission-type=UsdPerMillionUsdVolume \
+            --data-mode=m1 --data-dir=/work/cache \
+            --report=/work/reports/${{ matrix.id }}.html --report-json=/work/reports/${{ matrix.id }}.json
+
+      - name: Score period
+        if: always()
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          from datetime import datetime
+          import json, os, math
+          p=Path('out/reports/${{ matrix.id }}.json')
+          if not p.exists(): raise SystemExit('No report')
+          d=json.loads(p.read_text()); m=d.get('main',{}); e=d.get('equity',{}); h=d.get('history',{}).get('items',[])
+          nets=[]
+          for x in h:
+            try: nets.append(float(x.get('netProfit',x.get('NetProfit'))))
+            except: pass
+          gp=sum(x for x in nets if x>0); gl=-sum(x for x in nets if x<0)
+          pf=gp/gl if gl>0 else (999.0 if gp>0 else 0.0)
+          trades=len(nets); wins=sum(x>0 for x in nets); wr=100*wins/trades if trades else 0
+          net=float(m.get('netProfit',sum(nets)) or 0); roi=float(m.get('roi',net/10000*100) or 0)
+          dd=float(e.get('maxEquityDrawdownPercent',0) or 0)
+          s=datetime.strptime('${{ matrix.start }}','%d/%m/%Y %H:%M'); z=datetime.strptime('${{ matrix.end }}','%d/%m/%Y %H:%M')
+          days=max(1,(z-s).total_seconds()/86400)
+          monthly=((1+roi/100)**(30.4375/days)-1)*100 if roi>-100 else None
+          gate=bool(monthly is not None and monthly>=7 and pf>=1.30 and dd<=15 and trades>=int('${{ matrix.min_trades }}') and net>0)
+          r={'case':'${{ matrix.id }}','trades':trades,'win_rate_percent':wr,'net_profit':net,'roi_percent':roi,'monthly_compound_percent':monthly,'profit_factor':pf,'max_equity_drawdown_percent':dd,'store_candidate_gate':gate}
+          out=json.dumps(r,indent=2); Path('out/reports/${{ matrix.id }}-summary.json').write_text(out); print(out)
+          with open(os.environ['GITHUB_STEP_SUMMARY'],'a') as f: f.write('```json\n'+out+'\n```\n')
+          PY
+
+      - name: Remove credential file
+        if: always()
+        run: rm -f out/ctrader.pwd
+
+      - name: Upload report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Fibonacci-Net8-${{ matrix.id }}
+          path: |
+            out/reports/${{ matrix.id }}.html
+            out/reports/${{ matrix.id }}.json
+            out/reports/${{ matrix.id }}-summary.json
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Upload mobile-cloud algo
+        if: matrix.id == 'xau-m15-2026ytd'
+        uses: actions/upload-artifact@v4
+        with:
+          name: FibonacciHarmonicSniperUltimate-v0.4.0-store-rc1-net8
+          path: out/FibonacciHarmonicSniperUltimate-v0.4.0-store-rc1.algo
+          if-no-files-found: error
+          retention-days: 30
