@@ -3411,6 +3411,100 @@ namespace cAlgo.Robots
             return VClamp(.30 * mtf + .25 * directionFit + .20 * volHealth + .25 * persistence);
         }
 
+        private bool V54CoreQualityEnvelope(PatternSignal s)
+        {
+            if (s == null) return false;
+            string p=s.PatternName??"";
+            if (p=="Shark"||p=="Cypher") return s.GeometryQuality>=.50 && s.PrzConfluence>=.50;
+            if (p=="Rat") return s.GeometryQuality>=.58 && s.PrzConfluence>=.58 && s.PivotQuality>=.35;
+            if (p=="AB=CD") return s.GeometryQuality>=.62 && s.PrzConfluence>=.60 && s.TimeSymmetry>=.40 && s.PivotQuality>=.35;
+            return false;
+        }
+
+        private double V54FamilyLiberationQualityScore(PatternSignal s)
+        {
+            if (s==null) return 0;
+            string p=s.PatternName??"";
+            bool ext=p=="Alt Bat"||p=="Butterfly"||p=="Crab"||p=="Deep Crab";
+            bool ret=p=="Gartley"||p=="Bat"||p=="Deep Gartley"||p=="Rat";
+            if(ext) return VClamp(.25*s.GeometryQuality+.35*s.PrzConfluence+.15*s.TimeSymmetry+.25*s.PivotQuality);
+            if(ret) return VClamp(.30*s.GeometryQuality+.30*s.PrzConfluence+.20*s.TimeSymmetry+.20*s.PivotQuality);
+            if(p=="5-0") return VClamp(.25*s.GeometryQuality+.25*s.PrzConfluence+.20*s.TimeSymmetry+.30*s.PivotQuality);
+            return VClamp(.35*s.GeometryQuality+.30*s.PrzConfluence+.15*s.TimeSymmetry+.20*s.PivotQuality);
+        }
+
+        private HarmonicRoute RouteSignalFamilyNativeV54(PatternSignal s, MtfConflict conflict, RegimeSnapshot r, OrthogonalContextFeatures f, double contextScore)
+        {
+            if(s==null||r==null)return HarmonicRoute.NO_TRADE;
+            string p=s.PatternName??"";
+            bool ext=p=="Alt Bat"||p=="Butterfly"||p=="Crab"||p=="Deep Crab";
+            bool ret=p=="Gartley"||p=="Bat"||p=="Deep Gartley"||p=="Rat";
+            bool transition=r.Transition||conflict==MtfConflict.TRANSITION||r.TrendDirection==TradeDirection.Neutral;
+            bool aligned=r.TrendDirection==s.Direction;
+            bool opposed=r.TrendDirection!=TradeDirection.Neutral&&r.TrendDirection!=s.Direction;
+            if(conflict==MtfConflict.CONFLICT&&contextScore<.48)return HarmonicRoute.NO_TRADE;
+            if(ext){
+                if(r.ExtensionAtr>=.55||(f!=null&&f.RangeExtreme>=.62))return HarmonicRoute.EXHAUSTION_REVERSAL;
+                if(transition&&contextScore>=.38)return HarmonicRoute.TRANSITION_REVERSAL;
+                return HarmonicRoute.NO_TRADE;
+            }
+            if(ret){
+                if(aligned&&conflict!=MtfConflict.CONFLICT)return HarmonicRoute.TREND_ALIGNED_REVERSAL;
+                if(transition&&contextScore>=.38)return HarmonicRoute.TRANSITION_REVERSAL;
+                if(opposed&&r.ExtensionAtr>=.70)return HarmonicRoute.EXHAUSTION_REVERSAL;
+                return HarmonicRoute.NO_TRADE;
+            }
+            if(p=="5-0"){
+                if(transition)return HarmonicRoute.TRANSITION_REVERSAL;
+                if(opposed&&r.ExtensionAtr>=.65)return HarmonicRoute.EXHAUSTION_REVERSAL;
+                return HarmonicRoute.NO_TRADE;
+            }
+            return RouteSignal(s,conflict,r);
+        }
+
+        private bool V54ExpansionEconomicAdmission(CandidateRecord c)
+        {
+            if(c==null||c.Signal==null||c.GridPlan==null)return false;
+            if(c.IsProvenCoreAlpha){c.EconomicQualityScore=1.0;return true;}
+            double q=V54FamilyLiberationQualityScore(c.Signal);
+            double context=VClamp(c.ContextScore);
+            double confirm=VClamp(c.ConfirmationScore);
+            double rr=VClamp((c.NetRR-2.0)/2.0);
+            double route=c.Route==HarmonicRoute.TREND_ALIGNED_REVERSAL?.75:c.Route==HarmonicRoute.EXHAUSTION_REVERSAL?.85:.65;
+            c.EconomicQualityScore=VClamp(.25*q+.25*context+.25*confirm+.15*rr+.10*route);
+            double floor=(c.Signal.PatternName=="AB=CD"||c.Signal.PatternName=="Rat")?.68:.60;
+            return c.EconomicQualityScore>=floor;
+        }
+
+        private int V54GridMaxLegs(string pattern,int routeMax,int profileMax)
+        {
+            int n=Math.Min(routeMax,profileMax);
+            if(pattern=="Shark"||pattern=="Cypher")n=Math.Min(n,2);
+            else if(pattern=="5-0"||pattern=="AB=CD"||pattern=="Rat")n=Math.Min(n,3);
+            return Math.Max(1,n);
+        }
+
+        private double V54GridRiskWeight(string pattern,int leg,int maxLegs)
+        {
+            double[] w;
+            if(pattern=="Shark"||pattern=="Cypher")w=new[]{.65,.35};
+            else if(pattern=="Alt Bat"||pattern=="Butterfly"||pattern=="Crab"||pattern=="Deep Crab")w=new[]{.40,.30,.20,.10};
+            else if(pattern=="5-0"||pattern=="AB=CD"||pattern=="Rat")w=new[]{.50,.30,.20};
+            else w=new[]{3.0/7.0,2.0/7.0,1.0/7.0,1.0/7.0};
+            if(leg<0||leg>=w.Length)return 0;
+            double sum=w.Take(Math.Min(maxLegs,w.Length)).Sum();
+            return sum>0?w[leg]/sum:0;
+        }
+
+        private double V54GridCancelMfeThreshold(FibonacciBasket b)
+        {
+            string p=b!=null?b.Pattern??"":"";
+            if(p=="Shark"||p=="Cypher")return .35;
+            if(p=="Alt Bat"||p=="Butterfly"||p=="Crab"||p=="Deep Crab")return .60;
+            if(p=="5-0")return .45;
+            return .50;
+        }
+
         private void ConversionTruth(string pattern, string stage)
         {
             if (string.IsNullOrWhiteSpace(pattern)) pattern = "UNKNOWN";
