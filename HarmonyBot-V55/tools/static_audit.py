@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 import json,pathlib,sys
-s=pathlib.Path(sys.argv[1] if len(sys.argv)>1 else "HarmonyBot-V51/src/HarmonyBotV51.cs").read_text(errors="ignore")
+s=pathlib.Path(sys.argv[1] if len(sys.argv)>1 else "HarmonyBot-V55/src/HarmonyBotV55.cs").read_text(errors="ignore")
 checks={
-"identity":"HarmonyBot V51" in s and "class HarmonyBotV51" in s and 'BotPrefix = "HB51"' in s,
+"identity":"HarmonyBot V55" in s and "class HarmonyBotV55" in s and 'BotPrefix = "HB55"' in s,
 "confirmed_d_m1":"_m1Bars" in s and "ProcessNewM1Close" in s and "TryProjectProfile" not in s,
 "joint_geometry":"EnableFamilyNativeJointGeometry" in s and "FamilyNativeJointGeometryScore" in s and "Math.Exp(-.50 * q)" in s,
 "canonical_family_manifold":"CanonicalAbcdCoordinate" in s and "EnableCanonicalFamilyContracts" in s,
 "native_execution_corridor":"EnableFamilyNativeExecutionCorridor" in s and "Math.Abs(c.Signal.D.Price - stop)" in s,
-"anchor_forensics":"V51-ENTRY-ANCHOR-FORENSICS" in s and "UpdateEntryAnchorForensics" in s,
+"anchor_forensics":"V55-ENTRY-ANCHOR-FORENSICS" in s and "UpdateEntryAnchorForensics" in s,
 "rr_hard_gate":"SelectCanonicalBasketTarget" in s and "MinimumNetRR" in s,
 "risk_cap":'[Parameter("Basket Risk %", DefaultValue = 1.0, MinValue = 0.1, MaxValue = 1.0)]' in s,
 "setup_dedupe":"_executedSetupKeys" in s,
@@ -17,6 +17,6 @@ checks={
 "no_projected_d":"TryProjectProfile" not in s,
 "no_recovery":all(x not in s for x in ["Martingale","Loss Averaging","RecoveryGrid","DCA"]),
 }
-out={"version":"HarmonyBot V51","architecture":"FAMILY_NATIVE_MATH_GEOMETRY_ECONOMIC_CONVERSION","checks":checks,"pass":all(checks.values())}
-pathlib.Path("V51_ARCHITECTURE_AUDIT.json").write_text(json.dumps(out,indent=2))
+out={"version":"HarmonyBot V55","architecture":"FAMILY_NATIVE_MATH_GEOMETRY_ECONOMIC_CONVERSION","checks":checks,"pass":all(checks.values())}
+pathlib.Path("V55_ARCHITECTURE_AUDIT.json").write_text(json.dumps(out,indent=2))
 print(json.dumps(out,indent=2)); raise SystemExit(0 if out["pass"] else 2)
