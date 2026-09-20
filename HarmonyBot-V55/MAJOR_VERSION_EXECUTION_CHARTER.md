@@ -1,44 +1,34 @@
-# HarmonyBot V51 — Family-Native Mathematical Geometry & Economic Conversion Kernel
+# HarmonyBot V55 — Champion Core Rebase & Universal Harmonic Evidence Admission Engine
 
-## Authoritative hypothesis
-V50 proved that structural/grid reconstruction can raise independent executable frequency from the V46 control (39 / 1.5y, 26/y) to 57 / 1.5y (38/y), but the added cohort was heterogeneous and did not pass the commercial gate. V51 therefore does not attempt to force every harmonic family LIVE.
+V55 is a clean major-version rebuild from tested V51 commit `1b670a0f43ba8ecaa637febfdacf605b1b146f01`. It is not a V54 patch.
 
-The preregistered question is: **does a family-native mathematical geometry representation plus a D-to-structural-invalidation execution corridor improve positive independent setups and marginal Alpha without relaxing risk, RR, broker, dedupe, completed-bar or OOS rules?**
+## Role governance
+All 14 configured roles remain active. Risk Engineer, Model Validation Lead, Adversarial Model-Risk Red Team and Data Governance/OOS Custodian retain fail-closed veto.
 
-## Frozen controls
-- V46 SCALE control is immutable and must reproduce 39 trades, Net +1721.72, PF 2.1833, DD 4.56% within analyzer tolerance.
-- V50 FULL control must reproduce 57 trades, Net +1742.74, PF 1.8413, DD 5.17% within analyzer tolerance.
-- Confirmed-D only. No Projected-D primary Alpha.
-- H4/H1/M15/M1 architecture; M15 thesis, M1 completed-bar execution.
-- Fibonacci grid fractions 0/.236/.382/.618 and weights 3/7,2/7,1/7,1/7.
-- Basket risk <=1%, MaxActiveBasket=1, no hedging/Martingale/DCA/Recovery/Loss Averaging.
-- MinimumNetRR=2.0 stays hard. Structural SL is never widened to create RR.
-- Broker min-volume, min-distance, margin and server-side protection stay fail-closed.
-- Fresh/OOS untouched unless DEV + capital + freeze hashes pass.
+## Architectural law
+**Universal Discovery, Selective Capital Admission.**
 
-## V51 causal changes
-1. **Joint Geometry**: legal ratios remain necessary; geometry quality becomes a deterministic normalized quadratic distance to the family ratio manifold rather than an average of independent midpoint scores.
-2. **Canonical AB=CD sub-manifold** for standard families: distance to the nearest preregistered 1.0 / 1.27 / 1.618 family-compatible completion is part of geometry quality.
-3. **Family-Native Execution Corridor**: staged Fibonacci spacing uses |D - structural invalidation| as the execution unit. It does not move the stop and does not alter the 1% basket risk budget.
-4. **Entry Anchor Forensics**: completion-D, first native confirmation, and first native retest are tracked as shadow anchors with MFE/MAE in R. These are forensic observations only in V51 and are not post-hoc selected for LIVE entry.
+1. **Champion Capital Plane** — exact V51 live detector/conversion/grid semantics. Research code may not own its canonical setup key, modify its route, rank, TTL, risk, grid or execution.
+2. **Universal Harmonic Research Plane** — bounded-pivot multi-family hypotheses for all harmonic families, tracked through PRZ, M1 confirmation, RR, legacy-grid counterfactual and shadow outcome without broker orders.
+3. **Evidence-Admitted Expansion Plane** — a research hypothesis may become live only when it is not a champion-equivalent/owned geometry and passes strict V51-quality/route/confirmation plus the preregistered family admission manifest. No qualification/router bypass is permitted.
+4. **AB=CD primitive rule** — standalone expansion requires independent scale, exhaustion route, high geometry/PRZ/confirmation and RR>=2.5.
+5. **Hard core priority** — scheduler always selects Champion Core first. Expansion waits while any active champion thesis exists.
+6. **Legacy Fibonacci Grid is the live control** — 0/.236/.382/.618 and basket risk <=1%. Grid V4 is evidence-governed telemetry/challenger and may not silently change proven core semantics.
+7. **No Martingale, DCA, Recovery, Loss Averaging or Hedging.**
 
-## Fixed DEV: exactly 12
-- V46_SCALE_CONTROL × A/B/C
-- V50_FULL_CONTROL × A/B/C
-- FAMILY_NATIVE_MATH_GEOMETRY × A/B/C
-- FULL_V51_COMMERCIAL × A/B/C
+## Preregistered DEV2 variants
+- V51_CHAMPION_CONTROL
+- V55_CORE_PARITY
+- V55_CORE_PLUS_EXPANSION
+- V55_FULL_GRID_V4
 
-Windows remain A=2021H1, B=2021H2, C=2022H1.
+DEV2 windows are newly preregistered 2023-H1, 2023-H2 and 2024-H1 after repository date-collision audit. Validation windows are 2024-H2 and 2025-H1. Existing 2021-2022 A/B/C are burned research evidence only.
 
-## Promotion
-A family is not forced LIVE. Analyzer emits:
-- LIVE_ELIGIBLE_DEV only when sample and positive economics meet the preregistered development rule.
-- DISABLED_EVIDENCE when a nontrivial sample is demonstrably negative.
-- SHADOW_INSUFFICIENT_OR_UNSTABLE otherwise.
+## Promotion gates
+Commercial DEV2: >=90 baskets / 1.5y; >=60/year; Net>=1800; PF>=2.0; expectancy>=20; WR>=50%; Max DD<=6%; A/B/C positive; unique=baskets; engineering/risk clean.
 
-## Commercial DEV gate
-Controls must reproduce first. Candidate then requires >=90 independent baskets / 1.5y, >=60/y, Net>=1800, PF>=2.0, Expectancy>=20, WR>=50%, MaxDD<=6%, A/B/C positive, unique setups=baskets, engineering/risk clean, aggregate marginal Net/Expectancy positive, marginal PF>=1.20, and marginal A/B/C Net each >=0.
+Core preservation: V55_CORE_PARITY champion setup identities must exactly match V51_CHAMPION_CONTROL. In expansion variants, the champion-lane setup set must remain identical to core parity; champion displacement is a failure.
 
-Only after DEV pass: actual $100/$150/$200/$300/$500/$1000 -> immutable source/.algo hashes -> one untouched Fresh Alpha + one untouched Fresh $100.
+Expansion contribution: expansion cohort must have trades>0, Net>0, expectancy>0, **GrossProfit - 2*GrossLoss >= 0**, and marginal Net>=0 in every DEV2 window.
 
-No result may be called successful before the artifact gates pass. Final project decision is only COMMERCIAL_FREEZE_CANDIDATE_PASS or HOLD_WITH_EVIDENCE.
+Validation is no-tune. Capital compatibility must pass $100/$150/$200/$300/$500/$1000 before freeze. Fresh Alpha + Fresh $100 are consumed exactly once only after DEV2 + Validation + Capital + Freeze hashes pass.
