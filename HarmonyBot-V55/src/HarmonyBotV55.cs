@@ -370,7 +370,7 @@ namespace cAlgo.Robots
             _symbol = Symbols.GetSymbol(SymbolName);
             if (_symbol == null)
             {
-                Print("[V54-FATAL] SYMBOL_NOT_FOUND {0}", SymbolName);
+                Print("[V55-FATAL] SYMBOL_NOT_FOUND {0}", SymbolName);
                 Stop();
                 return;
             }
@@ -382,7 +382,7 @@ namespace cAlgo.Robots
 
             if (!BarsObjectsReady())
             {
-                Print("[V54-FATAL] TIMEFRAME_OBJECT_LOAD_FAILED");
+                Print("[V55-FATAL] TIMEFRAME_OBJECT_LOAD_FAILED");
                 Stop();
                 return;
             }
@@ -393,14 +393,14 @@ namespace cAlgo.Robots
             WarmupBars(_m1Bars, 120, "M1");
 
             if (!BarsReady())
-                Print("[V54-WARMUP-PENDING] H4={0} H1={1} M15={2} M1={3}",
+                Print("[V55-WARMUP-PENDING] H4={0} H1={1} M15={2} M1={3}",
                     Count(_h4Bars), Count(_h1Bars), Count(_m15Bars), Count(_m1Bars));
 
             _londonTz = ResolveTimeZone("Europe/London", "GMT Standard Time");
             _newYorkTz = ResolveTimeZone("America/New_York", "Eastern Standard Time");
             if (_londonTz == null || _newYorkTz == null)
             {
-                Print("[V54-FATAL] DST_TIMEZONE_UNAVAILABLE");
+                Print("[V55-FATAL] DST_TIMEZONE_UNAVAILABLE");
                 Stop();
                 return;
             }
@@ -425,36 +425,36 @@ namespace cAlgo.Robots
 
             PrintBrokerCapabilityProfile();
 
-            Print("[V54-START] version={0} symbol={1} H4={2} H1={3} M15={4} M1={5} profiles={6}",
+            Print("[V55-START] version={0} symbol={1} H4={2} H1={3} M15={4} M1={5} profiles={6}",
                 Version, SymbolName, Count(_h4Bars), Count(_h1Bars), Count(_m15Bars), Count(_m1Bars), _profiles.Count);
-            Print("[V54-TIMEFRAME-AUDIT] primaryPattern=M15 execution=M1 macro=H4 intermediate=H1 allCompletedBars=true");
-            Print("[V54-SESSION-AUDIT] london={0} newYork={1} dstAware=true", _londonTz.Id, _newYorkTz.Id);
-            Print("[V54-ALPHA-CONFIG] qualityObservation={0} legacyRegime={1} legacyEnhancedM1={2} capitalFeasibility={3} transitionVeto={4} exhaustionVeto={5} routeM1Veto={6}",
+            Print("[V55-TIMEFRAME-AUDIT] primaryPattern=M15 execution=M1 macro=H4 intermediate=H1 allCompletedBars=true");
+            Print("[V55-SESSION-AUDIT] london={0} newYork={1} dstAware=true", _londonTz.Id, _newYorkTz.Id);
+            Print("[V55-ALPHA-CONFIG] qualityObservation={0} legacyRegime={1} legacyEnhancedM1={2} capitalFeasibility={3} transitionVeto={4} exhaustionVeto={5} routeM1Veto={6}",
                 EnableHarmonicRobustnessGate, EnableRegimeContextGate, EnableEnhancedM1Confirmation, EnableCapitalFeasibilityGate,
                 EnableTransitionStateVeto, EnableExhaustionEvidenceVeto, EnableRouteSpecificM1Veto);
-            Print("[V54-FREQUENCY-CONFIG] deferredRetention={0} agingPriority={1} ageBoost={2:F3} structuredRecall={3} recallGeometry={4:F3} recallPrz={5:F3} recallConfidence={6:F3}",
+            Print("[V55-FREQUENCY-CONFIG] deferredRetention={0} agingPriority={1} ageBoost={2:F3} structuredRecall={3} recallGeometry={4:F3} recallPrz={5:F3} recallConfidence={6:F3}",
                 EnableDeferredCandidateRetention, EnableFrequencyAgingPriority, CandidateAgeRankBoost, EnableStructuredRecallExpansion,
                 RecallMinGeometry, RecallMinPrz, RecallMinConfidence);
-            Print("[V54-RESTORED-KERNEL] canonicalSetup={0} canonicalStandard={1} independentPivotGraph={2} transitionProof={3} m1Rescue={4} rescueBars={5} diversityScheduler={6} executionClock=M1 projectedD=false",
+            Print("[V55-RESTORED-KERNEL] canonicalSetup={0} canonicalStandard={1} independentPivotGraph={2} transitionProof={3} m1Rescue={4} rescueBars={5} diversityScheduler={6} executionClock=M1 projectedD=false",
                 EnableCanonicalSetupIdentity, EnableCanonicalStandardCoordinates, EnableIndependentPivotGraph,
                 EnableTransitionProofGate, EnableM1RescueLane, M1RescueMaxBars, EnableDiversityScheduler);
-            Print("[V54-CONVERSION-ARCH] scaleRouteAdmission={0} temporalRescue={1} armedGrace={2} graceMinutes={3} preExecutionRevalidation={4}",
+            Print("[V55-CONVERSION-ARCH] scaleRouteAdmission={0} temporalRescue={1} armedGrace={2} graceMinutes={3} preExecutionRevalidation={4}",
                 EnableScaleRouteAdmission, EnableM1TemporalRescue, EnableArmedExecutionGrace, ArmedGraceMinutes,
                 EnablePreExecutionGridRevalidation);
-            Print("[V54-FAMILY-NATIVE] conversion={0} observation={1} principle=PATTERN_IDENTITY_NEQ_EXECUTION_IDENTITY", EnableFamilyNativeConversion, EnableFamilyNativeObservation);
-            Print("[V54-COMPLETION-CONTRACT] canonicalContracts={0} familyCompletion={1} windowBars={2} provenLane=ABCD_SHARK_CYPHER_FROZEN",
+            Print("[V55-FAMILY-NATIVE] conversion={0} observation={1} principle=PATTERN_IDENTITY_NEQ_EXECUTION_IDENTITY", EnableFamilyNativeConversion, EnableFamilyNativeObservation);
+            Print("[V55-COMPLETION-CONTRACT] canonicalContracts={0} familyCompletion={1} windowBars={2} provenLane=ABCD_SHARK_CYPHER_FROZEN",
                 EnableCanonicalFamilyContracts, EnableFamilyCompletionContract, FamilyConfirmationWindowBars);
-            Print("[V54-STRUCTURAL-GRID-CONTRACT] gridSpanV2={0} structuralInvalidationV2={1} rule=PRZ_LEGALITY_PLUS_RISK_RR_NOT_LEGACY_XA_MINSPAN",
+            Print("[V55-STRUCTURAL-GRID-CONTRACT] gridSpanV2={0} structuralInvalidationV2={1} rule=PRZ_LEGALITY_PLUS_RISK_RR_NOT_LEGACY_XA_MINSPAN",
                 EnableGridSpanSemanticV2, EnableStructuralInvalidationV2);
-            Print("[V54-MATH-GEOMETRY] jointGeometry={0} executionCorridor={1} entryAnchorForensics={2} rule=FAMILY_NATIVE_GEOMETRY_WITHOUT_RISK_RELAXATION",
+            Print("[V55-MATH-GEOMETRY] jointGeometry={0} executionCorridor={1} entryAnchorForensics={2} rule=FAMILY_NATIVE_GEOMETRY_WITHOUT_RISK_RELAXATION",
                 EnableFamilyNativeJointGeometry, EnableFamilyNativeExecutionCorridor, EnableEntryAnchorForensics);
-            Print("[V54-DETECTOR-ARCH] identityReconstruction={0} boundedPivotGraph={1} maxMicroSkips={2} familyQuota={3} projectedPrz={4} truthLedger={5} rule=DETECT_MANY_EXECUTE_ONE",
+            Print("[V55-DETECTOR-ARCH] identityReconstruction={0} boundedPivotGraph={1} maxMicroSkips={2} familyQuota={3} projectedPrz={4} truthLedger={5} rule=DETECT_MANY_EXECUTE_ONE",
                 EnableFamilyIdentityReconstruction, EnableBoundedPivotGraph, MaxMicroPivotSkips, FamilyDetectionQuota,
                 EnableFamilyNativeProjectedPrz, EnableDetectorTruthLedger);
-            Print("[V54-CONVERSION-ARCH-V2] qualification={0} router={1} confirmation={2} contextBus={3} gridExecution={4} rule=FAMILY_NATIVE_POST_DETECTOR_CAUSAL_ISOLATION",
+            Print("[V55-CONVERSION-ARCH-V2] qualification={0} router={1} confirmation={2} contextBus={3} gridExecution={4} rule=FAMILY_NATIVE_POST_DETECTOR_CAUSAL_ISOLATION",
                 EnableFamilyNativeQualificationV2, EnableFamilyNativeRouterV2, EnableFamilyNativeConfirmationV2,
                 EnableOrthogonalContextFeatureBus, EnableFibonacciGridExecution);
-            Print("[V54-THROUGHPUT-ARCH] persistentQueue={0} serialHandoff={1} nativeM1={2} nativeBars={3} decayRanking={4} hardLifetimeMinutes={5} alphaKernel=V46_SCALE_CONVERSION_FROZEN",
+            Print("[V55-THROUGHPUT-ARCH] persistentQueue={0} serialHandoff={1} nativeM1={2} nativeBars={3} decayRanking={4} hardLifetimeMinutes={5} alphaKernel=V46_SCALE_CONVERSION_FROZEN",
                 EnablePersistentArmedQueue, EnableEventDrivenSerialHandoff, EnablePatternNativeM1Expansion,
                 PatternNativeM1MaxBars, EnableOpportunityDecayRanking, ParkedHardLifetimeMinutes);
         }
@@ -469,7 +469,7 @@ namespace cAlgo.Robots
             foreach (var kv in _pipeline.OrderBy(k => k.Key))
             {
                 var x = kv.Value;
-                Print("[V54-PIPELINE] pattern={0} detected={1} validated={2} routed={3} prz={4} confirming={5} nativeTemporalPass={6} armed={7} slotBlocked={8} parked={9} revalidated={10} revalidationRejected={11} basketPlanned={12} leg0={13} leg1={14} leg2={15} leg3={16} basketClosed={17} executed={18} expired={19} rejected={20} invalidated={21}",
+                Print("[V55-PIPELINE] pattern={0} detected={1} validated={2} routed={3} prz={4} confirming={5} nativeTemporalPass={6} armed={7} slotBlocked={8} parked={9} revalidated={10} revalidationRejected={11} basketPlanned={12} leg0={13} leg1={14} leg2={15} leg3={16} basketClosed={17} executed={18} expired={19} rejected={20} invalidated={21}",
                     kv.Key, x.Detected, x.Validated, x.Routed, x.PrzWaiting, x.Confirming, x.NativeTemporalPass, x.Armed,
                     x.SlotBlocked, x.Parked, x.Revalidated, x.RevalidationRejected, x.BasketPlanned,
                     x.Leg0Executed, x.Leg1Filled, x.Leg2Filled, x.Leg3Filled, x.BasketClosed, x.Executed, x.Expired, x.Rejected, x.Invalidated);
@@ -478,7 +478,7 @@ namespace cAlgo.Robots
             {
                 foreach (var c in _candidates.Values.Where(x => x.Signal != null && x.CompletionAnchorPrice > 0).OrderBy(x => x.CandidateId))
                 {
-                    Print("[V54-ENTRY-ANCHOR-FORENSICS] cid={0} setup={1} pattern={2} route={3} scale={4} completion={5} confirm={6} retest={7} completionMfeR={8:F3} completionMaeR={9:F3} confirmMfeR={10:F3} confirmMaeR={11:F3} retestMfeR={12:F3} retestMaeR={13:F3}",
+                    Print("[V55-ENTRY-ANCHOR-FORENSICS] cid={0} setup={1} pattern={2} route={3} scale={4} completion={5} confirm={6} retest={7} completionMfeR={8:F3} completionMaeR={9:F3} confirmMfeR={10:F3} confirmMaeR={11:F3} retestMfeR={12:F3} retestMaeR={13:F3}",
                         c.CandidateId, c.SetupKey, c.Signal.PatternName, c.Route, c.Signal.PivotScale,
                         c.CompletionAnchorPrice, c.NativeConfirmAnchorPrice, c.NativeRetestAnchorPrice,
                         c.CompletionAnchorMfeR, c.CompletionAnchorMaeR, c.NativeConfirmMfeR, c.NativeConfirmMaeR,
@@ -507,19 +507,19 @@ namespace cAlgo.Robots
                 _candidateSeq, _baskets.Count, _positions.Count, _executionErrors, _gridRiskViolations, _duplicateGridLegs, _orphanPendingOrders, _stopWideningViolations,
                 _gapThroughInvalidations, _gapThroughSurvivors, _unprotectedSurvivors, _postFillProtectionFailures, _actualBasketRiskViolations, _executionStateViolations,
                 _virtualGridFills, _microModeBaskets, _capitalRejectedBaskets, _marginRiskViolations);
-            Print("[V54-ALPHA-SUMMARY] qualityRejected={0} regimeRejected={1} confirmationRejected={2} capitalInfeasible={3} alphaPassed={4}",
+            Print("[V55-ALPHA-SUMMARY] qualityRejected={0} regimeRejected={1} confirmationRejected={2} capitalInfeasible={3} alphaPassed={4}",
                 _alphaQualityRejected, _regimeRejected, _confirmationRejected, _capitalInfeasibleCandidates, _alphaPassed);
-            Print("[V54-FREQUENCY-SUMMARY] schedulerDeferred={0} schedulerRecoveredExecutions={1} structuredRecallAdmitted={2} activeDeferred={3}",
+            Print("[V55-FREQUENCY-SUMMARY] schedulerDeferred={0} schedulerRecoveredExecutions={1} structuredRecallAdmitted={2} activeDeferred={3}",
                 _schedulerDeferred, _schedulerRecoveredExecutions, _structuredRecallAdmitted, _deferredCandidates.Count);
-            Print("[V54-INDEPENDENT-SETUP-SUMMARY] duplicateSuppressed={0} uniqueExecuted={1} rescueAdmissions={2} transitionProofRejected={3} independentScaleCandidates={4}",
+            Print("[V55-INDEPENDENT-SETUP-SUMMARY] duplicateSuppressed={0} uniqueExecuted={1} rescueAdmissions={2} transitionProofRejected={3} independentScaleCandidates={4}",
                 _canonicalDuplicateSuppressed, _executedSetupKeys.Count, _m1RescueAdmissions, _transitionProofRejected, _independentScaleCandidates);
-            Print("[V54-CONVERSION-SUMMARY] scaleRouteRejected={0} temporalRescueAdmissions={1} armedGraceExtended={2} preExecutionRevalidationRejected={3}",
+            Print("[V55-CONVERSION-SUMMARY] scaleRouteRejected={0} temporalRescueAdmissions={1} armedGraceExtended={2} preExecutionRevalidationRejected={3}",
                 _scaleRouteRejected, _temporalRescueAdmissions, _armedGraceExtended, _preExecutionRevalidationRejected);
             double avgWait = _slotWaitMinutes.Count > 0 ? _slotWaitMinutes.Average() : 0;
             double medWait = Percentile(_slotWaitMinutes, .50);
             double p90Wait = Percentile(_slotWaitMinutes, .90);
             double avgOccupancy = _basketOccupancyMinutes.Count > 0 ? _basketOccupancyMinutes.Average() : 0;
-            Print("[V54-THROUGHPUT-SUMMARY] slotBlocked={0} parked={1} revalidated={2} revalidationRejected={3} recoveredExecutions={4} nativeTemporalPass={5} hardLifetimeExpired={6} decayRejected={7} avgSlotWaitMin={8:F2} medianSlotWaitMin={9:F2} p90SlotWaitMin={10:F2} avgBasketOccupancyMin={11:F2} missedPositive={12} avoidedNegative={13}",
+            Print("[V55-THROUGHPUT-SUMMARY] slotBlocked={0} parked={1} revalidated={2} revalidationRejected={3} recoveredExecutions={4} nativeTemporalPass={5} hardLifetimeExpired={6} decayRejected={7} avgSlotWaitMin={8:F2} medianSlotWaitMin={9:F2} p90SlotWaitMin={10:F2} avgBasketOccupancyMin={11:F2} missedPositive={12} avoidedNegative={13}",
                 _slotBlocked, _parkedCount, _parkedRevalidated, _parkedRevalidationRejected, _parkedRecoveredExecutions,
                 _nativeTemporalPass, _hardLifetimeExpired, _opportunityDecayRejected, avgWait, medWait, p90Wait, avgOccupancy,
                 _missedPositiveSetups, _avoidedNegativeSetups);
@@ -527,12 +527,12 @@ namespace cAlgo.Robots
             {
                 int pass = _familyContractPass.ContainsKey(p) ? _familyContractPass[p] : 0;
                 int reject = _familyContractWindowReject.ContainsKey(p) ? _familyContractWindowReject[p] : 0;
-                Print("[V54-FAMILY-CONTRACT-SUMMARY] pattern={0} pass={1} windowReject={2}", p, pass, reject);
+                Print("[V55-FAMILY-CONTRACT-SUMMARY] pattern={0} pass={1} windowReject={2}", p, pass, reject);
             }
             foreach (var kv in _gridPlanRejectReasons.OrderBy(k => k.Key))
-                Print("[V54-GRID-REJECT-SUMMARY] reason={0} count={1}", kv.Key, kv.Value);
+                Print("[V55-GRID-REJECT-SUMMARY] reason={0} count={1}", kv.Key, kv.Value);
             foreach (var kv in _executionErrorReasons.OrderBy(k => k.Key))
-                Print("[V54-EXECUTION-ERROR-SUMMARY] code={0} count={1}", kv.Key, kv.Value);
+                Print("[V55-EXECUTION-ERROR-SUMMARY] code={0} count={1}", kv.Key, kv.Value);
         }
 
         protected override void OnBar()
@@ -719,7 +719,7 @@ namespace cAlgo.Robots
                 }
                 else record.CapitalFeasible = true;
 
-                Print("[V54-ALPHA-CANDIDATE] cid={0} pattern={1} quality={2:F3} regime={3:F3} conflict={4} route={5} adxH1={6:F2} adxH4={7:F2} adxSlope={8:F2} atrPct={9:F3} efficiency={10:F3} capitalFeasible={11} minL0Risk={12:F4}",
+                Print("[V55-ALPHA-CANDIDATE] cid={0} pattern={1} quality={2:F3} regime={3:F3} conflict={4} route={5} adxH1={6:F2} adxH4={7:F2} adxSlope={8:F2} atrPct={9:F3} efficiency={10:F3} capitalFeasible={11} minL0Risk={12:F4}",
                     record.CandidateId, signal.PatternName, record.AlphaQualityScore, record.RegimeScore, record.Conflict, record.Route,
                     regime.AdxH1, regime.AdxH4, regime.AdxH1Slope, regime.AtrPercentile, regime.Efficiency,
                     record.CapitalFeasible, record.CapitalMinL0Risk);
@@ -1218,7 +1218,7 @@ namespace cAlgo.Robots
             bool avoidedNegative = c.ShadowMaeR >= 1.0 && c.ShadowMaeR > c.ShadowMfeR;
             if (missedPositive) _missedPositiveSetups++;
             if (avoidedNegative) _avoidedNegativeSetups++;
-            Print("[V54-OPPORTUNITY-LOSS] cid={0} setup={1} pattern={2} route={3} scale={4} reason={5} shadowMfeR={6:F3} shadowMaeR={7:F3} missedPositive={8} avoidedNegative={9}",
+            Print("[V55-OPPORTUNITY-LOSS] cid={0} setup={1} pattern={2} route={3} scale={4} reason={5} shadowMfeR={6:F3} shadowMaeR={7:F3} missedPositive={8} avoidedNegative={9}",
                 c.CandidateId, c.SetupKey, c.Signal.PatternName, c.Route, c.Signal.PivotScale, reason,
                 c.ShadowMfeR, c.ShadowMaeR, missedPositive, avoidedNegative);
         }
@@ -1356,12 +1356,12 @@ namespace cAlgo.Robots
             c.SelectedTarget = target;
             c.NetRR = netRr;
 
-            Print("[V54-GRID-PLAN] cid={0} pattern={1} route={2} logicalLegs={3} physicalDepth={4} micro={5} anchor={6} weighted={7} virtualWeighted={8} stop={9} target={10} budget={11:F2} worst={12:F2} margin={13:F2} netRR={14:F3}",
+            Print("[V55-GRID-PLAN] cid={0} pattern={1} route={2} logicalLegs={3} physicalDepth={4} micro={5} anchor={6} weighted={7} virtualWeighted={8} stop={9} target={10} budget={11:F2} worst={12:F2} margin={13:F2} netRR={14:F3}",
                 c.CandidateId, c.Signal.PatternName, c.Route, plan.LogicalLegCount, plan.PhysicalDepth, plan.MicroCapitalMode,
                 anchor, plan.ExpectedWeightedEntry, plan.VirtualWeightedEntry, stop, target, plan.BasketRiskAmount,
                 plan.WorstCaseRisk, plan.EstimatedPhysicalMargin, plan.ExpectedNetRR);
             foreach (var leg in plan.Legs)
-                Print("[V54-GRID-LEG-PLAN] cid={0} leg=L{1} fraction={2:F3} price={3} weight={4:F6} physical={5} volume={6} budget={7:F2} risk={8:F2} minBrokerRisk={9:F2} state={10}",
+                Print("[V55-GRID-LEG-PLAN] cid={0} leg=L{1} fraction={2:F3} price={3} weight={4:F6} physical={5} volume={6} budget={7:F2} risk={8:F2} minBrokerRisk={9:F2} state={10}",
                     c.CandidateId, leg.Index, leg.Fraction, leg.PlannedPrice, leg.RiskWeight, leg.Physical, leg.Volume,
                     leg.RiskBudget, leg.PlannedRisk, leg.MinBrokerRisk, leg.State);
 
@@ -1499,7 +1499,7 @@ namespace cAlgo.Robots
             double[] equities = { 100, 150, 200, 300, 500, 1000 };
             string matrix = string.Join(",", equities.Select(e =>
                 e.ToString("F0", CultureInfo.InvariantCulture) + ":" + EstimateRiskOnlyPhysicalDepth(plan, e)));
-            Print("[V54-CAPITAL-COMPAT] cid={0} logicalLegs={1} riskOnlyPhysicalDepths={2}", plan.CandidateId, plan.LogicalLegCount, matrix);
+            Print("[V55-CAPITAL-COMPAT] cid={0} logicalLegs={1} riskOnlyPhysicalDepths={2}", plan.CandidateId, plan.LogicalLegCount, matrix);
         }
 
         private void ExecuteFibonacciGridPlan(CandidateRecord c)
@@ -1991,7 +1991,7 @@ namespace cAlgo.Robots
                 if ((r == null || !r.IsSuccessful) && PendingOrderStillExists(o.Id))
                     RecordExecutionError("STOP_CANCEL_FAILED_" + (r == null ? "NULL" : r.Error.ToString()), "order=" + o.Id + ";reason=" + reason);
             }
-            Print("[V54-PENDING-CANCEL-ALL] reason={0}", reason);
+            Print("[V55-PENDING-CANCEL-ALL] reason={0}", reason);
         }
 
         private void CloseBasketPositions(FibonacciBasket basket, string reason)
@@ -2184,7 +2184,7 @@ namespace cAlgo.Robots
             if (_postFillValidated.Contains(p.Id)) return;
             if (!_postFillInProgress.Add(p.Id))
             {
-                Print("[V54-POST-FILL-DEDUPE] pos={0} source={1}", p.Id, source);
+                Print("[V55-POST-FILL-DEDUPE] pos={0} source={1}", p.Id, source);
                 return;
             }
 
@@ -2226,7 +2226,7 @@ namespace cAlgo.Robots
             {
                 _executionStateViolations++;
                 basket.ExitOverride = "LATE_FILL_AFTER_TERMINAL_STATE_" + leg.State;
-                Print("[V54-STATE-VIOLATION] basket={0} leg=L{1} prior={2} next=FILLED_UNVERIFIED reason=LATE_FILL_AFTER_TERMINAL_STATE",
+                Print("[V55-STATE-VIOLATION] basket={0} leg=L{1} prior={2} next=FILLED_UNVERIFIED reason=LATE_FILL_AFTER_TERMINAL_STATE",
                     basket.BasketId, leg.Index, leg.State);
                 CancelBasketPending(basket, basket.ExitOverride);
                 FailClosePosition(p, basket, basket.ExitOverride);
@@ -2289,7 +2289,7 @@ namespace cAlgo.Robots
 
             _postFillValidated.Add(p.Id);
             TransitionLegState(basket, leg, GridLegState.PROTECTED, "POST_FILL_PROTECTED");
-            Print("[V54-POST-FILL-AUDIT] basket={0} leg=L{1} pos={2} source={3} entry={4} stop={5} target={6} actualWorst={7:F4} budget={8:F4} protected=true",
+            Print("[V55-POST-FILL-AUDIT] basket={0} leg=L{1} pos={2} source={3} entry={4} stop={5} target={6} actualWorst={7:F4} budget={8:F4} protected=true",
                 basket.BasketId, leg.Index, p.Id, source, p.EntryPrice, basket.StructuralStop, basket.CanonicalTarget, actualWorst, basket.InitialBasketRisk);
         }
 
@@ -2459,7 +2459,7 @@ namespace cAlgo.Robots
             if (!allowed)
             {
                 _executionStateViolations++;
-                Print("[V54-STATE-VIOLATION] basket={0} leg=L{1} prior={2} next={3} reason={4}", basket == null ? "" : basket.BasketId, leg.Index, prior, next, reason);
+                Print("[V55-STATE-VIOLATION] basket={0} leg=L{1} prior={2} next={3} reason={4}", basket == null ? "" : basket.BasketId, leg.Index, prior, next, reason);
             }
             leg.State = next;
             if (basket != null) BasketEvent(basket, "LEG_STATE_L" + leg.Index + "_" + prior + "_TO_" + next + "_" + reason);
@@ -2470,7 +2470,7 @@ namespace cAlgo.Robots
             double min = _symbol.VolumeInUnitsMin;
             double marginBuy = EstimatedMargin(TradeDirection.Buy, min);
             double marginSell = EstimatedMargin(TradeDirection.Sell, min);
-            Print("[V54-BROKER-PROFILE] symbol={0} equity={1:F2} freeMargin={2:F2} minVolume={3} step={4} maxVolume={5} pipValue={6} tickValue={7} minSL={8} minTP={9} minDistanceType={10} minMarginBuy={11:F2} minMarginSell={12:F2} minimumSupportedEquity={13:F2} adaptiveCapital={14} microThreshold={15:F2} initialCapitalEligible={16}",
+            Print("[V55-BROKER-PROFILE] symbol={0} equity={1:F2} freeMargin={2:F2} minVolume={3} step={4} maxVolume={5} pipValue={6} tickValue={7} minSL={8} minTP={9} minDistanceType={10} minMarginBuy={11:F2} minMarginSell={12:F2} minimumSupportedEquity={13:F2} adaptiveCapital={14} microThreshold={15:F2} initialCapitalEligible={16}",
                 SymbolName, Account.Equity, Account.FreeMargin, _symbol.VolumeInUnitsMin, _symbol.VolumeInUnitsStep, _symbol.VolumeInUnitsMax,
                 _symbol.PipValue, _symbol.TickValue, _symbol.MinStopLossDistance, _symbol.MinTakeProfitDistance, _symbol.MinDistanceType,
                 marginBuy, marginSell, MinimumSupportedEquity, AdaptiveCapitalMode, MicroCapitalThreshold, _initialCapitalEligible);
@@ -2491,7 +2491,7 @@ namespace cAlgo.Robots
             PositionLedger l;
             if (!_positions.TryGetValue(p.Id, out l))
             {
-                Print("[V54-LEG-CLOSED] pos={0} basket=UNKNOWN net={1:F2} reason={2}", p.Id, p.NetProfit, args.Reason);
+                Print("[V55-LEG-CLOSED] pos={0} basket=UNKNOWN net={1:F2} reason={2}", p.Id, p.NetProfit, args.Reason);
                 return;
             }
 
@@ -2501,7 +2501,7 @@ namespace cAlgo.Robots
                 basket.RealizedNet += p.NetProfit;
                 basket.ClosedLegs++;
                 double legRealizedR = l.InitialRiskPips > 0 ? p.Pips / l.InitialRiskPips : 0;
-                Print("[V54-LEG-CLOSED] basket={0} cid={1} leg=L{2} pos={3} pattern={4} route={5} dir={6} mfeR={7:F3} maeR={8:F3} realizedR={9:F3} net={10:F2} reason={11}",
+                Print("[V55-LEG-CLOSED] basket={0} cid={1} leg=L{2} pos={3} pattern={4} route={5} dir={6} mfeR={7:F3} maeR={8:F3} realizedR={9:F3} net={10:F2} reason={11}",
                     basket.BasketId, basket.CandidateId, l.LegIndex, p.Id, basket.Pattern, basket.Route, basket.Direction,
                     l.PeakR, l.MaxAdverseR, legRealizedR, p.NetProfit, args.Reason);
 
@@ -2534,14 +2534,14 @@ namespace cAlgo.Robots
                 : 0;
             string setupKey = basket.Candidate != null ? basket.Candidate.SetupKey : "";
             string subtype = basket.Candidate != null && basket.Candidate.Signal != null ? basket.Candidate.Signal.HarmonicSubtype : basket.Pattern;
-            Print("[V54-BASKET-CLOSED] basket={0} cid={1} setup={2} pattern={3} subtype={4} route={5} dir={6} plannedLegs={7} filledLegs={8} anchor={9} avgEntry={10} entryImprovePips={11:F3} stop={12} target={13} initialRisk={14:F2} worstRisk={15:F2} mfeR={16:F3} maeR={17:F3} realizedR={18:F3} net={19:F2} reason={20}",
+            Print("[V55-BASKET-CLOSED] basket={0} cid={1} setup={2} pattern={3} subtype={4} route={5} dir={6} plannedLegs={7} filledLegs={8} anchor={9} avgEntry={10} entryImprovePips={11:F3} stop={12} target={13} initialRisk={14:F2} worstRisk={15:F2} mfeR={16:F3} maeR={17:F3} realizedR={18:F3} net={19:F2} reason={20}",
                 basket.BasketId, basket.CandidateId, setupKey, basket.Pattern, subtype, basket.Route, basket.Direction, basket.Plan.Legs.Count, basket.FilledLegs,
                 basket.EntryAnchor, basket.AverageEntry, entryImprovementPips, basket.StructuralStop, basket.CanonicalTarget,
                 basket.InitialBasketRisk, basket.PlannedWorstCaseRisk, basket.PeakR, basket.MaxAdverseR, realizedR, basket.RealizedNet, reason);
 
             double occupancyMin = Math.Max(0, (Server.Time.ToUniversalTime() - basket.CreatedUtc).TotalMinutes);
             _basketOccupancyMinutes.Add(occupancyMin);
-            Print("[V54-SLOT-OCCUPANCY] basket={0} cid={1} pattern={2} route={3} occupancyMinutes={4:F2} realizedR={5:F3} net={6:F2}",
+            Print("[V55-SLOT-OCCUPANCY] basket={0} cid={1} pattern={2} route={3} occupancyMinutes={4:F2} realizedR={5:F3} net={6:F2}",
                 basket.BasketId, basket.CandidateId, basket.Pattern, basket.Route, occupancyMin, realizedR, basket.RealizedNet);
 
             if (EnableEventDrivenSerialHandoff)
@@ -2595,7 +2595,7 @@ namespace cAlgo.Robots
 
         private void BasketEvent(FibonacciBasket basket, string reason)
         {
-            Print("[V54-BASKET-EVENT] basket={0} cid={1} pattern={2} route={3} state={4} reason={5}",
+            Print("[V55-BASKET-EVENT] basket={0} cid={1} pattern={2} route={3} state={4} reason={5}",
                 basket.BasketId, basket.CandidateId, basket.Pattern, basket.Route, basket.State, reason);
         }
 
@@ -3295,7 +3295,7 @@ namespace cAlgo.Robots
                 if (baseRoute != HarmonicRoute.NO_TRADE)
                 {
                     _structuredRecallAdmitted++;
-                    Print("[V54-RECALL-ADMIT] pattern={0} direction={1} route={2} conflict={3} geometry={4:F3} prz={5:F3} confidence={6:F3} efficiency={7:F3} atrRatio={8:F3} extensionAtr={9:F3}",
+                    Print("[V55-RECALL-ADMIT] pattern={0} direction={1} route={2} conflict={3} geometry={4:F3} prz={5:F3} confidence={6:F3} efficiency={7:F3} atrRatio={8:F3} extensionAtr={9:F3}",
                         s.PatternName, s.Direction, baseRoute, conflict, s.GeometryQuality, s.PrzConfluence, s.Confidence,
                         r.Efficiency, r.AtrRatio, r.ExtensionAtr);
                 }
@@ -3309,7 +3309,7 @@ namespace cAlgo.Robots
                 if (!actualStructuralTransition)
                 {
                     _transitionProofRejected++;
-                    Print("[V54-TRANSITION-PROOF-REJECT] pattern={0} conflict={1} transition={2} adxSlope={3:F2}",
+                    Print("[V55-TRANSITION-PROOF-REJECT] pattern={0} conflict={1} transition={2} adxSlope={3:F2}",
                         s.PatternName, conflict, r.Transition, r.AdxH1Slope);
                     return HarmonicRoute.NO_TRADE;
                 }
@@ -3322,7 +3322,7 @@ namespace cAlgo.Robots
                 if (!(actualStateDisagreement && trendNotStrengthening))
                 {
                     _regimeRejected++;
-                    Print("[V54-ROUTE-VETO] type=TRANSITION_STATE conflict={0} transition={1} adxSlope={2:F2}",
+                    Print("[V55-ROUTE-VETO] type=TRANSITION_STATE conflict={0} transition={1} adxSlope={2:F2}",
                         conflict, r.Transition, r.AdxH1Slope);
                     return HarmonicRoute.NO_TRADE;
                 }
@@ -3335,7 +3335,7 @@ namespace cAlgo.Robots
                 if (!(structurallyExtended && trendNotStrengthening))
                 {
                     _regimeRejected++;
-                    Print("[V54-ROUTE-VETO] type=EXHAUSTION_EVIDENCE extensionAtr={0:F3} adxSlope={1:F2}",
+                    Print("[V55-ROUTE-VETO] type=EXHAUSTION_EVIDENCE extensionAtr={0:F3} adxSlope={1:F2}",
                         r.ExtensionAtr, r.AdxH1Slope);
                     return HarmonicRoute.NO_TRADE;
                 }
@@ -4115,7 +4115,7 @@ namespace cAlgo.Robots
             int n;
             _executionErrorReasons.TryGetValue(code, out n);
             _executionErrorReasons[code] = n + 1;
-            Print("[V54-EXECUTION-ERROR] code={0} detail={1}", code, detail ?? "");
+            Print("[V55-EXECUTION-ERROR] code={0} detail={1}", code, detail ?? "");
         }
 
         private bool PendingOrderStillExists(long id)
@@ -4222,7 +4222,7 @@ namespace cAlgo.Robots
         private void Ledger(CandidateRecord c, CandidateState state, string reason)
         {
             double wait = c.ParkedUtc.HasValue ? Math.Max(0, (Server.Time.ToUniversalTime() - c.ParkedUtc.Value).TotalMinutes) : 0;
-            Print("[V54-EVENT] cid={0} setup={1} pattern={2} subtype={3} scale={4} tf={5} dir={6} state={7} route={8} conflict={9} waitMin={10:F2} reason={11}",
+            Print("[V55-EVENT] cid={0} setup={1} pattern={2} subtype={3} scale={4} tf={5} dir={6} state={7} route={8} conflict={9} waitMin={10:F2} reason={11}",
                 c.CandidateId, c.SetupKey ?? "", c.Signal.PatternName, c.Signal.HarmonicSubtype ?? c.Signal.PatternName,
                 c.Signal.PivotScale, c.Signal.Timeframe, c.Signal.Direction, state, c.Route, c.Conflict, wait, reason);
         }
@@ -4272,11 +4272,11 @@ namespace cAlgo.Robots
                 try { added = bars.LoadMoreHistory(); }
                 catch (Exception ex)
                 {
-                    Print("[V54-WARMUP-ERROR] tf={0} count={1} error={2}", name, bars.Count, ex.Message);
+                    Print("[V55-WARMUP-ERROR] tf={0} count={1} error={2}", name, bars.Count, ex.Message);
                     break;
                 }
                 loops++;
-                Print("[V54-WARMUP] tf={0} added={1} count={2}", name, added, bars.Count);
+                Print("[V55-WARMUP] tf={0} added={1} count={2}", name, added, bars.Count);
                 if (added <= 0) break;
             }
         }
