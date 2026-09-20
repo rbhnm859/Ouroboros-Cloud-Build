@@ -248,7 +248,7 @@ jobs:
           path: control/HarmonyBot-V55/validation-out-${{ matrix.window }}
           retention-days: 30
 
-  validation-gate:
+  validation_gate:
     needs: [analyze, validation]
     if: needs.analyze.outputs.candidate != ''
     runs-on: ubuntu-24.04
@@ -278,13 +278,13 @@ jobs:
           echo "valok=$(cat val.out)" >> "$GITHUB_OUTPUT"
       - uses: actions/upload-artifact@v4
         with:
-          name: v55-validation-gate
+          name: v55-validation_gate
           path: V55_VALIDATION_GATE.json
           retention-days: 30
 
   capital:
-    needs: [analyze, validation-gate, build]
-    if: needs.validation-gate.outputs.valok == 'true'
+    needs: [analyze, validation_gate, build]
+    if: needs.validation_gate.outputs.valok == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 90
     strategy:
@@ -320,9 +320,9 @@ jobs:
           path: control/HarmonyBot-V55/capital-out-${{ matrix.balance }}
           retention-days: 30
 
-  capital-gate:
-    needs: [analyze, validation-gate, capital]
-    if: needs.validation-gate.outputs.valok == 'true'
+  capital_gate:
+    needs: [analyze, validation_gate, capital]
+    if: needs.validation_gate.outputs.valok == 'true'
     runs-on: ubuntu-24.04
     outputs:
       capok: ${{ steps.c.outputs.capok }}
@@ -347,13 +347,13 @@ jobs:
           echo "capok=$(cat cap.out)" >> "$GITHUB_OUTPUT"
       - uses: actions/upload-artifact@v4
         with:
-          name: v55-capital-gate
+          name: v55-capital_gate
           path: V55_CAPITAL_COMPATIBILITY.json
           retention-days: 30
 
   freeze:
-    needs: [analyze, capital-gate, build]
-    if: needs.capital-gate.outputs.capok == 'true'
+    needs: [analyze, capital_gate, build]
+    if: needs.capital_gate.outputs.capok == 'true'
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
@@ -422,7 +422,7 @@ jobs:
           path: control/HarmonyBot-V55/fresh-out-${{ matrix.kind }}
           retention-days: 30
 
-  final-decision:
+  final_decision:
     needs: [analyze, fresh]
     if: always() && needs.fresh.result == 'success'
     runs-on: ubuntu-24.04
@@ -445,7 +445,7 @@ jobs:
           PY
       - uses: actions/upload-artifact@v4
         with:
-          name: v55-final-decision
+          name: v55-final_decision
           path: |
             V55_FRESH_VALIDATION.json
             V55_FINAL_COMMERCIAL_DECISION.json
