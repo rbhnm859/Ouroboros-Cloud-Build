@@ -24,7 +24,17 @@ def agg(f):
  return {"baskets":n,"frequency":n/1.5,"unique_setups":len({r["setup"] for r in rows}),"net":sum(v),"pf":pf(v),"expectancy":sum(v)/n if n else 0,"win_rate":sum(x>0 for x in v)/n if n else 0,"max_dd_pct":max(x["max_dd_pct"] for x in xs),"all_windows_positive":all(x["net"]>0 for x in xs),"engineering_clean":all(x["engineering_clean"] for x in xs),"risk_clean":all(x["actual_basket_risk_violations"]==0 and x["margin_risk_violations"]==0 for x in xs),"windows":{w:rd(f,w) for w in "ABC"},"rows":rows,"pipeline":pipes,"conversion_truth":{p:dict(c) for p,c in conv.items()},"detector_truth":{p:dict(c) for p,c in det.items()}}
 A={f:agg(f) for f in F}
 def repro(z,b): return z["baskets"]==b["baskets"] and abs(z["net"]-b["net"])<=.30 and abs(z["pf"]-b["pf"])<=.006 and abs(z["max_dd_pct"]-b["max_dd_pct"])<=.15
-controls_ok=repro(A["V52_CONTROL_GRID"],V52_GRID); A["V52_CONTROL_GRID"]["control_reproduction_pass"]=controls_ok
+historical_control_reproduced=repro(A["V52_CONTROL_GRID"],V52_GRID)
+A["V52_CONTROL_GRID"]["historical_control_reproduction_pass"]=historical_control_reproduced
+data_snapshot_by_window={}
+data_snapshot_valid=True
+for w in "ABC":
+ shas={A[f]["windows"][w].get("data_snapshot_sha","") for f in F}
+ shas.discard("")
+ data_snapshot_by_window[w]=sorted(shas)
+ if len(shas)!=1: data_snapshot_valid=False
+current_controls_clean=all(A[f]["engineering_clean"] and A[f]["risk_clean"] and A[f]["unique_setups"]==A[f]["baskets"] for f in ["V52_CONTROL_NOGRID","V52_CONTROL_GRID"])
+controls_ok=data_snapshot_valid and current_controls_clean
 for f,z in A.items():
  g=collections.defaultdict(list)
  for r in z["rows"]: g[r.get("pattern","?")].append(r)
@@ -49,5 +59,5 @@ for f,z in A.items():
  z["commercial_gate"]=controls_ok and f.startswith("V53_") and z["baskets"]>=COMM["baskets"] and z["frequency"]>=COMM["frequency"] and z["net"]>=COMM["net"] and z["pf"]>=COMM["pf"] and z["expectancy"]>=COMM["expectancy"] and z["win_rate"]>=COMM["win_rate"] and z["max_dd_pct"]<=COMM["max_dd_pct"] and z["all_windows_positive"] and z["engineering_clean"] and z["risk_clean"] and z["unique_setups"]==z["baskets"]
  z.pop("rows",None)
 eligible=[f for f in ["V53_CONVERSION_NOGRID","V53_CONVERSION_GRID"] if A[f]["commercial_gate"]]; winner=max(eligible,key=lambda f:(A[f]["net"],A[f]["pf"],A[f]["frequency"])) if eligible else None
-front={"version":"HarmonyBot V53","architecture":"FAMILY_NATIVE_CONVERSION_AND_GRID_CAUSAL_ATTRIBUTION","v52_grid_control":V52_GRID,"commercial_minimum":COMM,"controls_reproduced":controls_ok,"families":A,"conversion_attribution":conversion,"grid_causal_attribution":grid_causal,"development_candidate":winner,"status":"COMMERCIAL_FREEZE_CANDIDATE_DEV_PASS" if winner else "HOLD_WITH_EVIDENCE","fresh_used":False,"next_stage":"CAPITAL_COMPATIBILITY" if winner else "STOP_DEV_HOLD"}
+front={"version":"HarmonyBot V53","architecture":"FAMILY_NATIVE_CONVERSION_AND_GRID_CAUSAL_ATTRIBUTION","v52_grid_control":V52_GRID,"commercial_minimum":COMM,"historical_control_reproduced":historical_control_reproduced,"current_snapshot_controls_valid":controls_ok,"data_snapshot_valid":data_snapshot_valid,"data_snapshot_by_window":data_snapshot_by_window,"families":A,"conversion_attribution":conversion,"grid_causal_attribution":grid_causal,"development_candidate":winner,"status":"COMMERCIAL_FREEZE_CANDIDATE_DEV_PASS" if winner else "HOLD_WITH_EVIDENCE","fresh_used":False,"next_stage":"CAPITAL_COMPATIBILITY" if winner else "STOP_DEV_HOLD"}
 (out/"V53_PERFORMANCE_FRONTIER.json").write_text(json.dumps(front,indent=2)); (out/"V53_CONVERSION_TRUTH_LEDGER.json").write_text(json.dumps({f:A[f]["conversion_truth"] for f in F},indent=2)); (out/"V53_FAMILY_CONVERSION_ECONOMICS.json").write_text(json.dumps({f:{"pipeline":A[f]["pipeline"],"pattern_economics":A[f]["pattern_economics"],"starved_families":A[f]["starved_families"]} for f in F},indent=2)); (out/"V53_GRID_CAUSAL_ATTRIBUTION.json").write_text(json.dumps(grid_causal,indent=2)); (out/"candidate.txt").write_text(winner or ""); (out/"V53_FINAL_COMMERCIAL_DECISION.json").write_text(json.dumps({"version":"HarmonyBot V53","decision":"COMMERCIAL_FREEZE_CANDIDATE_DEV_PASS" if winner else "HOLD_WITH_EVIDENCE","stage":"DEV","fresh_used":False},indent=2)); print(json.dumps(front,indent=2))
