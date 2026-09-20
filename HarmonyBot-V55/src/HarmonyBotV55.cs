@@ -3095,24 +3095,6 @@ namespace cAlgo.Robots
             return true;
         }
 
-        private double RangeCoordinate(double value, double lo, double hi)
-        {
-            double half = Math.Max((hi - lo) * .5, 1e-9);
-            return (value - Mid(lo, hi)) / half;
-        }
-
-        private double CanonicalAbcdCoordinate(string pattern, double value)
-        {
-            double[] centers;
-            if (pattern == "Alt Bat") centers = new[] { 1.618 };
-            else if (pattern == "Crab") centers = new[] { 1.27, 1.618 };
-            else if (pattern == "Deep Crab") centers = new[] { 1.0, 1.27 };
-            else if (pattern == "Butterfly") centers = new[] { 1.0, 1.27, 1.618 };
-            else if (pattern == "Gartley" || pattern == "Bat") centers = new[] { 1.0, 1.27 };
-            else centers = new[] { 1.0, 1.27, 1.618 };
-            return centers.Min(x => Math.Abs(value - x) / Math.Max(.08, x * .08));
-        }
-
         private double FamilyNativeJointGeometryScore(PatternProfile p, double xab, double abc, double bcd, double xad, double abcd, double xac)
         {
             var z = new List<double>();
