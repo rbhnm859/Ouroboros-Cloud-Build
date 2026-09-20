@@ -53,7 +53,12 @@ def gd(grid,nogrid):
 grid_causal={"GRID_V3_VS_LEGACY":gd("V54_LIBERATION_GRID_V3","V54_LIBERATION_LEGACY_GRID")}
 def cd(v54,v52):
  a,b=A[v54],A[v52]; aset={r["setup"] for r in a["rows"]}; bset={r["setup"] for r in b["rows"]}; add=[r for r in a["rows"] if r["setup"] not in bset]; rem=[r for r in b["rows"] if r["setup"] not in aset]
- return {"delta_trades":a["baskets"]-b["baskets"],"delta_net":a["net"]-b["net"],"delta_pf":a["pf"]-b["pf"],"delta_expectancy":a["expectancy"]-b["expectancy"],"delta_win_rate":a["win_rate"]-b["win_rate"],"delta_dd":a["max_dd_pct"]-b["max_dd_pct"],"windows":{w:{"delta_net":a["windows"][w]["net"]-b["windows"][w]["net"]} for w in "ABC"},"added_cohort":{"trades":len(add),"net":sum(r["net"] for r in add),"pf":pf([r["net"] for r in add])},"removed_cohort":{"trades":len(rem),"net":sum(r["net"] for r in rem),"pf":pf([r["net"] for r in rem])}}
+ aw={w:{r["setup"] for r in a["windows"][w].get("basket_outcomes",[])} for w in "ABC"}; bw={w:{r["setup"] for r in b["windows"][w].get("basket_outcomes",[])} for w in "ABC"}
+ added_windows={}
+ for w in "ABC":
+  rows=[r for r in a["windows"][w].get("basket_outcomes",[]) if r["setup"] not in bw[w]]; vv=[r["net"] for r in rows]
+  added_windows[w]={"trades":len(rows),"net":sum(vv),"pf":pf(vv),"expectancy":sum(vv)/len(vv) if vv else 0}
+ return {"delta_trades":a["baskets"]-b["baskets"],"delta_net":a["net"]-b["net"],"delta_pf":a["pf"]-b["pf"],"delta_expectancy":a["expectancy"]-b["expectancy"],"delta_win_rate":a["win_rate"]-b["win_rate"],"delta_dd":a["max_dd_pct"]-b["max_dd_pct"],"windows":{w:{"delta_net":a["windows"][w]["net"]-b["windows"][w]["net"]} for w in "ABC"},"added_cohort":{"trades":len(add),"net":sum(r["net"] for r in add),"pf":pf([r["net"] for r in add]),"expectancy":sum(r["net"] for r in add)/len(add) if add else 0,"windows":added_windows},"removed_cohort":{"trades":len(rem),"net":sum(r["net"] for r in rem),"pf":pf([r["net"] for r in rem])}}
 conversion={"LEGACY_GRID_VS_V52":cd("V54_LIBERATION_LEGACY_GRID","V52_LIBERATION_CONTROL"),"GRID_V3_VS_V52":cd("V54_LIBERATION_GRID_V3","V52_LIBERATION_CONTROL")}
 for f,z in A.items():
  z["commercial_gate"]=controls_ok and f.startswith("V54_") and z["baskets"]>=COMM["baskets"] and z["frequency"]>=COMM["frequency"] and z["net"]>=COMM["net"] and z["pf"]>=COMM["pf"] and z["expectancy"]>=COMM["expectancy"] and z["win_rate"]>=COMM["win_rate"] and z["max_dd_pct"]<=COMM["max_dd_pct"] and z["all_windows_positive"] and z["engineering_clean"] and z["risk_clean"] and z["unique_setups"]==z["baskets"]
@@ -62,7 +67,8 @@ core=A["V51_QUALITY_CORE_REPLAY"]; base=A["V52_LIBERATION_CONTROL"]
 for f in ["V54_LIBERATION_LEGACY_GRID","V54_LIBERATION_GRID_V3"]:
  z=A[f]
  z["core_preservation_gate"]=z["net"]>=min(core["net"],base["net"])*.90 and z["pf"]>=min(core["pf"],base["pf"])*.80
- z["expansion_admission_gate"]=conversion["LEGACY_GRID_VS_V52" if f.endswith("LEGACY_GRID") else "GRID_V3_VS_V52"]["added_cohort"]["net"]>0 and conversion["LEGACY_GRID_VS_V52" if f.endswith("LEGACY_GRID") else "GRID_V3_VS_V52"]["added_cohort"]["pf"]>=1.25
+ exp=conversion["LEGACY_GRID_VS_V52" if f.endswith("LEGACY_GRID") else "GRID_V3_VS_V52"]["added_cohort"]
+ z["expansion_admission_gate"]=exp["net"]>0 and exp["expectancy"]>0 and exp["pf"]>=1.25 and all(exp["windows"][w]["net"]>=0 for w in "ABC")
  z["commercial_gate"]=z["commercial_gate"] and z["core_preservation_gate"] and z["expansion_admission_gate"]
 eligible=[f for f in ["V54_LIBERATION_LEGACY_GRID","V54_LIBERATION_GRID_V3"] if A[f]["commercial_gate"]]; winner=max(eligible,key=lambda f:(A[f]["net"],A[f]["pf"],A[f]["frequency"])) if eligible else None
 front={"version":"HarmonyBot V54","architecture":"UNIVERSAL_HARMONIC_LIBERATION_AND_FIBONACCI_GRID_ALPHA_CORE","v52_grid_control":V51_REF,"commercial_minimum":COMM,"historical_control_reproduced":historical_control_reproduced,"current_snapshot_controls_valid":controls_ok,"data_snapshot_valid":data_snapshot_valid,"data_snapshot_by_window":data_snapshot_by_window,"families":A,"conversion_attribution":conversion,"grid_causal_attribution":grid_causal,"development_candidate":winner,"status":"COMMERCIAL_FREEZE_CANDIDATE_DEV_PASS" if winner else "HOLD_WITH_EVIDENCE","fresh_used":False,"next_stage":"CAPITAL_COMPATIBILITY" if winner else "STOP_DEV_HOLD"}
