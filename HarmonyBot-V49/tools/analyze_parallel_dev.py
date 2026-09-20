@@ -150,6 +150,38 @@ for p,z in family_cf.items():
  z["mean_mae_r"]=statistics.mean(z.pop("mae")) if z["setups"] else 0.0
  z["positive_opportunity_per_year"]=z["positive"]/1.5
 
+# Correlate native admissions with immutable grid-plan economic geometry gates.
+trade=[rd("PROVEN_PLUS_NATIVE_LANES",w) for w in "ABC"]
+trade_events=[e for x in trade for e in x.get("events",[])]
+grid_rejects=[e for x in trade for e in x.get("grid_rejections",[])]
+admitted={}
+for e in trade_events:
+ if "V49_NATIVE_EVIDENCE_ADMITTED_" in e.get("reason",""):
+  admitted[e["cid"]]={"setup":e.get("setup"),"pattern":e.get("pattern"),"route":e.get("route"),"scale":e.get("scale")}
+rej_by_cid={e["cid"]:e for e in grid_rejects}
+corr=[]
+for cid,m in admitted.items():
+ r=rej_by_cid.get(cid)
+ row={**m,"cid":cid,"rejected":bool(r),"reason":r.get("reason") if r else None,"detail":r.get("detail") if r else None}
+ if r and r.get("reason")=="CANONICAL_TARGET_RR":
+  import re as _re
+  mm=_re.search(r"rr1=([-0-9.]+);rr2=([-0-9.]+);min=([-0-9.]+)",r.get("detail",""))
+  if mm: row.update({"rr1":float(mm.group(1)),"rr2":float(mm.group(2)),"minimum_rr":float(mm.group(3))})
+ if r and r.get("reason")=="GRID_SPAN_XA":
+  import re as _re
+  mm=_re.search(r"spanXa=([-0-9.]+);min=([-0-9.]+);max=([-0-9.]+)",r.get("detail",""))
+  if mm: row.update({"span_xa":float(mm.group(1)),"min_span_xa":float(mm.group(2)),"max_span_xa":float(mm.group(3))})
+ corr.append(row)
+reason_counts={}
+pattern_reason={}
+for q in corr:
+ rs=q["reason"] or "NOT_REJECTED"
+ reason_counts[rs]=reason_counts.get(rs,0)+1
+ p=q["pattern"]; pattern_reason.setdefault(p,{})[rs]=pattern_reason.setdefault(p,{}).get(rs,0)+1
+grid_forensics={"version":"HarmonyBot V49","source":"PROVEN_PLUS_NATIVE_LANES fixed A/B/C","native_admissions":len(corr),
+ "native_admissions_rejected":sum(q["rejected"] for q in corr),"reason_counts":reason_counts,"pattern_reason_counts":pattern_reason,
+ "records":corr,"interpretation":"diagnostic only; no Alpha/risk/threshold changed"}
+
 eligible=[f for f in ("PROVEN_PLUS_NATIVE_LANES","FULL_V49_COMMERCIAL") if A[f]["commercial_gate"]]
 winner=max(eligible,key=lambda f:(A[f]["net"],A[f]["pf"],A[f]["frequency"])) if eligible else None
 forensics={"version":"HarmonyBot V49","source":"COUNTERFACTUAL_NATIVE_CONFIRM pure observation","evidence_window_completed_m1":12,
@@ -162,6 +194,7 @@ front={"version":"HarmonyBot V49","architecture":"HARMONIC_FAMILY_CONFIRMATION_K
  "commercial_minimum":COMM,"baseline_reproduction_pass":c["baseline_reproduction_pass"],"families":A,
  "development_candidate":winner,"status":"COMMERCIAL_FREEZE_CANDIDATE_DEV_PASS" if winner else "HOLD_WITH_EVIDENCE","fresh_used":False}
 (out/"V49_COUNTERFACTUAL_CONFIRMATION_FORENSICS.json").write_text(json.dumps(forensics,indent=2))
+(out/"V49_GRID_REJECTION_FORENSICS.json").write_text(json.dumps(grid_forensics,indent=2))
 (out/"V49_PATTERN_ROUTE_SCALE_FUNNEL.json").write_text(json.dumps(funnel,indent=2))
 (out/"V49_PERFORMANCE_FRONTIER.json").write_text(json.dumps(front,indent=2))
 (out/"candidate.txt").write_text(winner or "")
