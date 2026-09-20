@@ -1361,7 +1361,9 @@ namespace cAlgo.Robots
                     {
                         double slPips = PriceToPips(Math.Abs(l.PlannedPrice - plan.StructuralStop));
                         double budget = plan.BasketRiskAmount * l.RiskWeight / weightSum;
-                        double volume = VolumeForRiskBudget(budget, slPips);
+                        double volume = !EnableFibonacciGridExecution
+                            ? VolumeForRiskBudgetIncludingCost(budget, slPips)
+                            : VolumeForRiskBudget(budget, slPips);
                         if (volume <= 0) { feasible = false; break; }
 
                         double risk = volume * _symbol.PipValue * slPips;
@@ -1399,7 +1401,9 @@ namespace cAlgo.Robots
             {
                 double slPips = PriceToPips(Math.Abs(l.PlannedPrice - plan.StructuralStop));
                 l.RiskBudget = plan.BasketRiskAmount * l.RiskWeight;
-                double volume = VolumeForRiskBudget(l.RiskBudget, slPips);
+                double volume = !EnableFibonacciGridExecution
+                    ? VolumeForRiskBudgetIncludingCost(l.RiskBudget, slPips)
+                    : VolumeForRiskBudget(l.RiskBudget, slPips);
                 if (volume <= 0) continue;
 
                 double risk = volume * _symbol.PipValue * slPips;
@@ -1524,7 +1528,9 @@ namespace cAlgo.Robots
                 return;
             }
 
-            double volume = VolumeForRiskBudget(l0.RiskBudget, slPips);
+            double volume = !EnableFibonacciGridExecution
+                ? VolumeForRiskBudgetIncludingCost(l0.RiskBudget, slPips)
+                : VolumeForRiskBudget(l0.RiskBudget, slPips);
             if (volume <= 0)
             {
                 basket.State = FibonacciBasketState.RISK_REJECTED;
@@ -1720,6 +1726,17 @@ namespace cAlgo.Robots
         {
             if (riskBudget <= 0 || slPips <= 0 || _symbol.PipValue <= 0) return 0;
             double raw = riskBudget / (slPips * _symbol.PipValue);
+            if (double.IsNaN(raw) || double.IsInfinity(raw) || raw <= 0) return 0;
+            double v = _symbol.NormalizeVolumeInUnits(raw, RoundingMode.Down);
+            if (v < _symbol.VolumeInUnitsMin) return 0;
+            return Math.Min(v, _symbol.VolumeInUnitsMax);
+        }
+
+        private double VolumeForRiskBudgetIncludingCost(double riskBudget, double slPips)
+        {
+            double totalRiskPips = slPips + ModeledCostPips();
+            if (riskBudget <= 0 || totalRiskPips <= 0 || _symbol.PipValue <= 0) return 0;
+            double raw = riskBudget / (totalRiskPips * _symbol.PipValue);
             if (double.IsNaN(raw) || double.IsInfinity(raw) || raw <= 0) return 0;
             double v = _symbol.NormalizeVolumeInUnits(raw, RoundingMode.Down);
             if (v < _symbol.VolumeInUnitsMin) return 0;
