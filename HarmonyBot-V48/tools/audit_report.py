@@ -60,7 +60,7 @@ clean_keys=["execution_errors","grid_risk_violations","duplicate_grid_legs","orp
 "unprotected_survivors","post_fill_protection_failures","actual_basket_risk_violations","execution_state_violations","margin_risk_violations"]
 summary_present=bool(m); clean=summary_present and all(c[k]==0 for k in clean_keys)
 eq=d.get("equity",{}); unique=len({x["setup"] for x in b})
-fm=re.findall(r"\\[V48-FAMILY-REFORM-SUMMARY\\].*?routeRejected=(\\d+)\\s+gridEnvelopeAccepted=(\\d+)\\s+gridEnvelopeRejected=(\\d+)\\s+nativePass=(\\d+)\\s+structuralExtensionRepairs=(\\d+)",t)
+fm=re.findall(r"\[V48-FAMILY-REFORM-SUMMARY\].*?routeRejected=(\d+)\s+gridEnvelopeAccepted=(\d+)\s+gridEnvelopeRejected=(\d+)\s+nativePass=(\d+)\s+structuralExtensionRepairs=(\d+)",t)
 family_metrics={"family_route_rejected":0,"family_grid_envelope_accepted":0,"family_grid_envelope_rejected":0,"family_native_pass":0,"family_structural_extension_repairs":0}
 if fm:
  for k,z in zip(family_metrics.keys(),map(int,fm[-1])): family_metrics[k]=z
