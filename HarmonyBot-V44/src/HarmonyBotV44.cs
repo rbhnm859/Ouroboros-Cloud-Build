@@ -526,6 +526,8 @@ namespace cAlgo.Robots
                 _coreAlphaAdmissions, _rescueEvaluated, _rescueAdmissions, _rescueRejected);
             Print("[V44-CROSS-REGIME-SUMMARY] rejected={0} opportunityLossObserved={1} hypothesisResolutions={2}",
                 _crossRegimeRejected, _opportunityLossObserved, _hypothesisResolutions);
+            Print("[V44-THESIS-SUMMARY] thesisRejected={0} trendPersistenceRejected={1} gridAttributedFailures={2} gridL0Recoveries={3}",
+                _thesisRejected, _trendPersistenceRejected, _gridAttributedFailures, _gridL0Recoveries);
             foreach (var kv in _executionErrorReasons.OrderBy(k => k.Key))
                 Print("[V44-EXECUTION-ERROR-SUMMARY] code={0} count={1}", kv.Key, kv.Value);
         }
@@ -1125,6 +1127,9 @@ namespace cAlgo.Robots
                 c.NetRR, c.AttributionScore, c.MarginalRescueScore, c.Rank,
                 c.HtfContextConfidence, c.TemporalStateScore, c.CrossRegimeAdmissionScore, c.RobustAlphaDensity,
                 c.Regime.RegimeClass, string.IsNullOrWhiteSpace(c.PatternHypotheses) ? c.Signal.PatternName : c.PatternHypotheses);
+            Print("[V44-THESIS-CANDIDATE] cid={0} pattern={1} thesis={2} relation={3} regimeClass={4} persistenceHazard={5:F3} reversalPlausibility={6:F3} resumption={7:F3}",
+                c.CandidateId, c.Signal.PatternName, c.Thesis, c.TrendRelation, c.Regime.RegimeClass,
+                c.TrendPersistenceHazard, c.ReversalPlausibility, c.ContinuationResumptionScore);
         }
 
         private void UpdateActiveBasketFollowThrough(Bars bars, int i, DateTime utc)
@@ -2637,6 +2642,9 @@ namespace cAlgo.Robots
                     c.NetRR, c.AttributionScore, c.MarginalRescueScore, basket.PeakR, basket.MaxAdverseR, realizedR, basket.RealizedNet, reason,
                     c.HtfContextConfidence, c.TemporalStateScore, c.CrossRegimeAdmissionScore, c.RobustAlphaDensity,
                     c.Regime.RegimeClass, string.IsNullOrWhiteSpace(c.PatternHypotheses) ? c.Signal.PatternName : c.PatternHypotheses);
+                Print("[V44-THESIS-OUTCOME] cid={0} pattern={1} route={2} thesis={3} relation={4} regimeClass={5} persistenceHazard={6:F3} reversalPlausibility={7:F3} resumption={8:F3} temporal={9:F3} net={10:F2}",
+                    c.CandidateId, c.Signal.PatternName, c.Route, c.Thesis, c.TrendRelation, c.Regime.RegimeClass,
+                    c.TrendPersistenceHazard, c.ReversalPlausibility, c.ContinuationResumptionScore, c.TemporalStateScore, basket.RealizedNet);
             }
         }
 
