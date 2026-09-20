@@ -2956,7 +2956,9 @@ namespace cAlgo.Robots
             double invalid = PatternStructuralInvalidation(p, x, a, b, c, d, bullish);
             double target1 = bullish ? d.Price + cd * p.Target1Cd : d.Price - cd * p.Target1Cd;
             double target2 = bullish ? d.Price + cd * p.Target2Cd : d.Price - cd * p.Target2Cd;
-            double confidence = VClamp(.40 * geometry + .30 * przConfluence + .15 * timeSym + .15 * pivotQuality);
+            double confidence = EnableAcademicHarmonicContracts
+                ? VClamp(.40 * geometry + .30 * przConfluence + .15 * timeSym + .15 * pivotQuality)
+                : VClamp(.45 * geometry + .25 * przConfluence + .15 * timeSym + .15 * pivotQuality);
 
             signal = new PatternSignal
             {
@@ -3585,6 +3587,7 @@ namespace cAlgo.Robots
 
         private string PatternExecutionArchetype(string pattern)
         {
+            if (!EnableAcademicHarmonicContracts && pattern == "AB=CD") return "COMPLETION_SYMMETRY";
             if (pattern == "Gartley" || pattern == "Bat" || pattern == "Deep Gartley" || pattern == "Rat") return "RETRACEMENT";
             if (pattern == "Alt Bat" || pattern == "Butterfly" || pattern == "Crab" || pattern == "Deep Crab") return "EXTREME_EXTENSION";
             if (pattern == "Shark" || pattern == "5-0") return "TRANSITION";
@@ -3597,6 +3600,18 @@ namespace cAlgo.Robots
         {
             if (!EnablePatternNativeExecution) return 1.0;
             string a = PatternExecutionArchetype(pattern);
+            if (!EnableThesisConsistentRoutes)
+            {
+                if (a == "RETRACEMENT")
+                    return route == HarmonicRoute.CONTINUATION_PULLBACK ? 1.0 : (route == HarmonicRoute.STRUCTURAL_TRANSITION ? .75 : .65);
+                if (a == "EXTREME_EXTENSION")
+                    return route == HarmonicRoute.COUNTERTREND_EXHAUSTION ? 1.0 : (route == HarmonicRoute.STRUCTURAL_TRANSITION ? .80 : .60);
+                if (a == "TRANSITION")
+                    return route == HarmonicRoute.STRUCTURAL_TRANSITION ? 1.0 : (route == HarmonicRoute.COUNTERTREND_EXHAUSTION ? .85 : .60);
+                if (a == "XC_RETRACE")
+                    return route == HarmonicRoute.STRUCTURAL_TRANSITION ? .95 : .80;
+                return .90;
+            }
             if (a == "RETRACEMENT")
                 return route == HarmonicRoute.CONTINUATION_PULLBACK ? 1.0 : (route == HarmonicRoute.STRUCTURAL_TRANSITION ? .78 : .68);
             if (a == "EXTREME_EXTENSION")
@@ -3630,6 +3645,16 @@ namespace cAlgo.Robots
         {
             if (c == null || c.Signal == null || c.Regime == null) return 0;
             double routePrior = PatternRoutePrior(c.Signal.PatternName, c.Route);
+            if (!EnableAcademicHarmonicContracts && !EnableThesisConsistentRoutes)
+            {
+                double structural0 = VClamp(c.HtfContextConfidence);
+                double temporal0 = VClamp(c.TemporalStateScore);
+                double evidence0 = VClamp(c.EvidenceComposite);
+                double rr0 = VClamp(c.NetRR / 3.0);
+                double stress0 = VClamp(c.RegimeStressScore);
+                return VClamp(.20 * c.AlphaQualityScore + .18 * structural0 + .17 * routePrior +
+                              .15 * temporal0 + .12 * evidence0 + .10 * rr0 + .08 * c.RegimeScore - .12 * stress0);
+            }
             double structural = VClamp(c.HtfContextConfidence);
             double temporal = VClamp(c.TemporalStateScore);
             double evidence = VClamp(c.EvidenceComposite);
@@ -3650,6 +3675,26 @@ namespace cAlgo.Robots
             if (c.Conflict == MtfConflict.CONFLICT || c.Route == HarmonicRoute.NO_TRADE) return false;
             double floor = ConditionalAlphaFloor;
             string archetype = PatternExecutionArchetype(c.Signal.PatternName);
+            if (!EnableAcademicHarmonicContracts && !EnableThesisConsistentRoutes)
+            {
+                if (c.Signal.PatternName == "AB=CD")
+                {
+                    if (c.Route == HarmonicRoute.CONTINUATION_PULLBACK)
+                        floor = Math.Max(floor, AbcdTrendAdmissionFloor);
+                    else if (c.Route == HarmonicRoute.COUNTERTREND_EXHAUSTION)
+                        floor = Math.Max(floor, .56);
+                    else if (c.Route == HarmonicRoute.STRUCTURAL_TRANSITION)
+                        floor = Math.Max(.42, floor - .05);
+                }
+                if (archetype == "EXTREME_EXTENSION" && c.Route == HarmonicRoute.CONTINUATION_PULLBACK && c.Regime.ExtensionAtr < .75)
+                    return false;
+                if (archetype == "TRANSITION" && c.Route == HarmonicRoute.CONTINUATION_PULLBACK && c.HtfContextConfidence < .55)
+                    return false;
+                if (c.Route == HarmonicRoute.CONTINUATION_PULLBACK &&
+                    c.Regime.TrendDirection != TradeDirection.Neutral && c.Regime.TrendDirection != c.Signal.Direction)
+                    return false;
+                return c.CrossRegimeAdmissionScore >= floor;
+            }
 
             if (IsAbcdFamily(c.Signal.PatternName))
             {
@@ -3702,6 +3747,11 @@ namespace cAlgo.Robots
             if (a == "TRANSITION") minutes *= .80;
             else if (a == "EXTREME_EXTENSION") minutes *= 1.10;
             double capitalBurden = 1.0 + Math.Max(0, c.GridPlan.EstimatedPhysicalMargin) / Math.Max(Account.Equity, 1.0);
+            if (!EnableHierarchicalAlphaGuard)
+            {
+                double legacyDensity = conservativeEdge * Math.Max(.10, fill) * rr / Math.Max(.50, minutes / 60.0) / capitalBurden;
+                return VClamp(legacyDensity);
+            }
             double reliability = VClamp(.30 * c.HtfContextConfidence + .25 * c.TemporalStateScore +
                                          .25 * c.Signal.PrzConfluence + .20 * c.Signal.GeometryQuality);
             if (c.Signal.Profile != null && c.Signal.Profile.ExperimentalFamily) reliability *= .85;
