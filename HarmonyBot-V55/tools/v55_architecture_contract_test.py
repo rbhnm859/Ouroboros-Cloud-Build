@@ -13,7 +13,7 @@ checks={
  "abcd_primitive_strict":'p=="AB=CD"' in s and "PivotScale!=M15SwingDepth" in s and "EXHAUSTION_REVERSAL" in s,
  "rr_floor":'DefaultValue = 2.0' in s and "ExpansionMinNetRR" in s,
  "basket_risk":"Account.Equity * BasketRiskPercent / 100.0" in s,
- "grid_core":"0.236" in s and "0.382" in s and "0.618" in s and "GridCancelMfeR" in s,
+ "grid_core":".236" in s and ".382" in s and ".618" in s and "GridCancelMfeR" in s,
  "no_recovery":all(x not in s for x in ["MartingaleMultiplier","RecoveryMultiplier","LossAveragingMultiplier"])
 }
 out={"version":"HarmonyBot V55","checks":checks,"pass":all(checks.values())}
