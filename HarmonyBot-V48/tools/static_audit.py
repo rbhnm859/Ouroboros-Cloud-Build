@@ -2,7 +2,7 @@
 import json,pathlib,sys
 s=pathlib.Path(sys.argv[1] if len(sys.argv)>1 else "HarmonyBot-V48/src/HarmonyBotV48.cs").read_text(errors="ignore")
 checks={
- "identity":"HarmonyBot V48" in s and "class HarmonyBotV48" in s and 'BotPrefix = "HB47"' in s,
+ "identity":"HarmonyBot V48" in s and "class HarmonyBotV48" in s and 'BotPrefix = "HB48"' in s,
  "frozen_confirmed_d_m1":"_m1Bars" in s and "ProcessNewM1Close" in s and "TryProjectProfile" not in s and "_m5Bars" not in s,
  "canonical_standard":"double xad = EnableCanonicalStandardCoordinates ? adxa : xdxa;" in s,
  "scale_route_frozen":"SECONDARY_SCALE_ABCD_ROUTE_REJECT" in s and "EnableScaleRouteAdmission" in s,
