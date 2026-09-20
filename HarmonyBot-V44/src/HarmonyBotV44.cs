@@ -1282,29 +1282,47 @@ namespace cAlgo.Robots
             }
         }
 
+        private bool GridFail(CandidateRecord c, string reason)
+        {
+            if (c != null) c.GridFailureReason = reason;
+            if (EnableGridFailureAttribution)
+            {
+                _gridAttributedFailures++;
+                Print("[V44-GRID-FAIL] cid={0} pattern={1} route={2} thesis={3} reason={4}",
+                    c != null ? c.CandidateId : "NONE",
+                    c != null && c.Signal != null ? c.Signal.PatternName : "NONE",
+                    c != null ? c.Route.ToString() : "NONE",
+                    c != null ? c.Thesis.ToString() : "NONE",
+                    reason);
+            }
+            return false;
+        }
+
         private bool TryBuildFibonacciGridPlan(CandidateRecord c)
         {
+            if (c != null) c.GridFailureReason = "";
             var p = c.Signal.Profile;
-            if (p == null || !p.GridEnabled) return false;
-            if (!_initialCapitalEligible) return false;
+            if (p == null || !p.GridEnabled) return GridFail(c, "PROFILE_DISABLED");
+            if (!_initialCapitalEligible) return GridFail(c, "INITIAL_CAPITAL_INELIGIBLE");
 
             double physicalAnchor = c.Signal.Direction == TradeDirection.Buy ? _symbol.Ask : _symbol.Bid;
             double logicalAnchor = EnableLogicalHarmonicGridAnchor ? c.Signal.D.Price : physicalAnchor;
             double stop = c.Signal.StructuralInvalidation;
             double distance = c.Signal.Direction == TradeDirection.Buy ? logicalAnchor - stop : stop - logicalAnchor;
-            if (distance <= PipsToPrice(MinStopLossPips)) return false;
+            if (distance <= PipsToPrice(MinStopLossPips)) return GridFail(c, "STOP_DISTANCE");
             if ((c.Signal.Direction == TradeDirection.Buy && physicalAnchor <= stop) ||
-                (c.Signal.Direction == TradeDirection.Sell && physicalAnchor >= stop)) return false;
+                (c.Signal.Direction == TradeDirection.Sell && physicalAnchor >= stop)) return GridFail(c, "PHYSICAL_ANCHOR_BEYOND_STOP");
 
             double xa = Math.Abs(c.Signal.A.Price - c.Signal.X.Price);
             double spanXa = xa > 0 ? distance / xa : 999;
-            if (spanXa < p.MinimumGridSpanXa || spanXa > p.MaximumGridSpanXa) return false;
+            if (spanXa < p.MinimumGridSpanXa) return GridFail(c, "SPAN_TOO_SMALL");
+            if (spanXa > p.MaximumGridSpanXa) return GridFail(c, "SPAN_TOO_LARGE");
 
             int routeMax = c.Route == HarmonicRoute.TREND_ALIGNED_REVERSAL ? 4 :
                            c.Route == HarmonicRoute.EXHAUSTION_REVERSAL ? 2 :
                            c.Route == HarmonicRoute.TRANSITION_REVERSAL ? (c.Regime != null && c.Regime.Efficiency >= .28 ? 3 : 2) : 0;
             int maxLegs = Math.Min(Math.Min(routeMax, p.MaximumGridLegs), p.GridFractions.Length);
-            if (maxLegs <= 0) return false;
+            if (maxLegs <= 0) return GridFail(c, "ROUTE_DEPTH_ZERO");
 
             var plan = new FibonacciGridPlan
             {
@@ -1321,13 +1339,13 @@ namespace cAlgo.Robots
                 ExpirationUtc = MinDate(c.ExpiryUtc, Server.Time.ToUniversalTime().AddMinutes(p.PendingTtlMinutes)),
                 MicroCapitalMode = AdaptiveCapitalMode && Account.Equity <= MicroCapitalThreshold
             };
-            if (plan.BasketRiskAmount <= 0) return false;
+            if (plan.BasketRiskAmount <= 0) return GridFail(c, "RISK_BUDGET_ZERO");
 
             double przTol = Math.Max(c.Signal.PrzHigh - c.Signal.PrzLow, distance * p.GridStructuralTolerance);
             double legalLow = c.Signal.PrzLow - przTol;
             double legalHigh = c.Signal.PrzHigh + przTol;
             if (EnableLogicalHarmonicGridAnchor && (physicalAnchor < legalLow || physicalAnchor > legalHigh))
-                return false;
+                return GridFail(c, "PHYSICAL_ANCHOR_OUTSIDE_PRZ");
 
             for (int leg = 0; leg < maxLegs; leg++)
             {
@@ -1360,17 +1378,17 @@ namespace cAlgo.Robots
                 });
             }
 
-            if (plan.Legs.Count == 0 || plan.Legs[0].Index != 0) return false;
+            if (plan.Legs.Count == 0 || plan.Legs[0].Index != 0) return GridFail(c, "NO_LOGICAL_L0");
             plan.LogicalLegCount = plan.Legs.Count;
 
             if (!ConfigureCapitalExecution(plan))
             {
                 _capitalRejectedBaskets++;
-                return false;
+                return GridFail(c, "CAPITAL_EXECUTION");
             }
 
             var physical = plan.Legs.Where(x => x.Physical && x.Volume > 0).ToList();
-            if (physical.Count == 0 || physical[0].Index != 0) return false;
+            if (physical.Count == 0 || physical[0].Index != 0) return GridFail(c, "NO_PHYSICAL_L0");
 
             double totalVolume = physical.Sum(l => l.Volume);
             plan.ExpectedWeightedEntry = physical.Sum(l => l.PlannedPrice * l.Volume) / totalVolume;
@@ -1382,7 +1400,7 @@ namespace cAlgo.Robots
 
             double target, netRr;
             if (!SelectCanonicalBasketTarget(c.Signal, plan.ExpectedWeightedEntry, plan.StructuralStop, out target, out netRr))
-                return false;
+                return GridFail(c, "TARGET_RR");
 
             plan.CanonicalTarget = target;
             plan.ExpectedNetRR = netRr;
@@ -1487,8 +1505,46 @@ namespace cAlgo.Robots
             plan.PhysicalDepth = physicalDepth;
             plan.WorstCaseRisk = cumulative;
             plan.EstimatedPhysicalMargin = totalMargin;
-            return plan.Legs[0].Physical && plan.WorstCaseRisk <= plan.BasketRiskAmount + 1e-8 &&
-                   Account.FreeMargin - totalMargin >= plan.BasketRiskAmount * MinFreeMarginRiskMultiple;
+            bool ok = plan.Legs[0].Physical && plan.WorstCaseRisk <= plan.BasketRiskAmount + 1e-8 &&
+                      Account.FreeMargin - totalMargin >= plan.BasketRiskAmount * MinFreeMarginRiskMultiple;
+            if (!ok && EnableGridL0PhysicalRecovery && plan.Legs.Count > 0)
+            {
+                var l0 = plan.Legs[0];
+                double slPips = PriceToPips(Math.Abs(l0.PlannedPrice - plan.StructuralStop));
+                double volume = VolumeForAllInRiskBudget(plan.BasketRiskAmount, slPips);
+                if (volume > 0)
+                {
+                    double risk = volume * _symbol.PipValue * slPips;
+                    double cost = volume * _symbol.PipValue * ModeledCostPips();
+                    double margin = EstimatedMargin(plan.Direction, volume);
+                    if (risk + cost <= plan.BasketRiskAmount + 1e-8 &&
+                        Account.FreeMargin - margin >= plan.BasketRiskAmount * MinFreeMarginRiskMultiple)
+                    {
+                        foreach (var l in plan.Legs)
+                        {
+                            l.Physical = false;
+                            l.Volume = 0;
+                            l.PlannedRisk = 0;
+                            l.ModeledCost = 0;
+                            l.State = GridLegState.VIRTUAL_ONLY;
+                        }
+                        l0.RiskBudget = plan.BasketRiskAmount;
+                        l0.Volume = volume;
+                        l0.PlannedRisk = risk;
+                        l0.ModeledCost = cost;
+                        l0.Physical = true;
+                        l0.State = GridLegState.PLANNED;
+                        plan.PhysicalDepth = 1;
+                        plan.WorstCaseRisk = risk + cost;
+                        plan.EstimatedPhysicalMargin = margin;
+                        _gridL0Recoveries++;
+                        Print("[V44-GRID-RECOVERY] candidate={0} mode=L0_ONLY volume={1} risk={2:F2} margin={3:F2}",
+                            plan.CandidateId, volume, plan.WorstCaseRisk, margin);
+                        return true;
+                    }
+                }
+            }
+            return ok;
         }
 
         private double EstimatedMargin(TradeDirection direction, double volume)
