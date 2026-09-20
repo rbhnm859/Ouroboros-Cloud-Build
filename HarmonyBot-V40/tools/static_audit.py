@@ -1,0 +1,32 @@
+#!/usr/bin/env python3
+import json,sys,pathlib
+p=pathlib.Path(sys.argv[1] if len(sys.argv)>1 else "HarmonyBot-V40/src/HarmonyBotV40.cs")
+s=p.read_text(errors="ignore")
+checks={
+ "identity":"HarmonyBot V40" in s and "class HarmonyBotV40" in s and 'BotPrefix = "HB40"' in s,
+ "m15_thesis":"primaryPattern=M15" in s and "thesis=M15" in s,
+ "m5_execution":"primaryExecution=M5" in s and "ProcessNewM5Close" in s,
+ "m1_not_strategy_dependency":"_m1Bars" not in s and "ProcessNewM1Close" not in s and "M1ConfirmationScore" not in s,
+ "attribution_ledger":"EnableAttributionLedger" in s and "[V40-ATTRIBUTION]" in s and "[V40-ATTRIBUTION-OUTCOME]" in s,
+ "rank_first_portfolio":"EnableRankFirstPortfolio" in s and "AttributionScore(CandidateRecord" in s and "RouteFitScore(CandidateRecord" in s,
+ "follow_through_engine":"EnableFollowThroughEngine" in s and "FollowThroughScore(Bars" in s,
+ "thesis_failure_exit":"EnableThesisFailureExit" in s and "UpdateActiveBasketFollowThrough" in s and "FOLLOWTHROUGH_GIVEBACK_FAILURE" in s,
+ "evidence_is_not_hard_veto_in_rank_first":"!evidencePass && !EnableRankFirstPortfolio" in s and "_rankFirstReleased" in s,
+ "counterfactual_shadow":"CounterfactualShadow" in s and "UpdateCounterfactualShadows" in s,
+ "all_in_risk_normalization":"VolumeForAllInRiskBudget" in s and "remainingAllInBudget" in s,
+ "completed_bar_discipline":"LastClosedIndex" in s and "allCompletedBars=true" in s,
+ "harmonic_core":"BuildPatternProfiles" in s and "DetectPatternCandidates" in s and "TryBuildFibonacciGridPlan" in s,
+ "structured_recall":"StructuredRecallRoute" in s and "EnableStructuredRecallExpansion" in s,
+ "single_active_basket":"OwnPositions().Any() || OwnPendingOrders().Any() || _baskets.Values.Any(b => b.IsActive)" in s,
+ "basket_risk_cap":'[Parameter("Basket Risk %", DefaultValue = 1.0, MinValue = 0.1, MaxValue = 1.0)]' in s,
+ "post_fill_kernel":"PostFillSafetyKernel" in s and "ACTUAL_FILL_RISK_BUDGET_BREACH" in s,
+ "server_protection":"ProtectionType.Absolute" in s and "EnsureServerProtection" in s,
+ "frozen_fib":"new[] { 0.0, .236, .382, .618 }" in s,
+ "frozen_weights":"3.0 / 7.0" in s and "2.0 / 7.0" in s and "1.0 / 7.0" in s,
+ "no_recovery_terms":all(x not in s for x in ["Martingale","Loss Averaging","RecoveryGrid","DCA"]),
+ "no_old_prefix":'"HB39-' not in s and '"HB38-' not in s and '"HB37-' not in s
+}
+out={"version":"HarmonyBot V40","architecture":"ATTRIBUTION_RANK_FIRST_FOLLOW_THROUGH","checks":checks,"pass":all(checks.values())}
+pathlib.Path("V40_ARCHITECTURE_AUDIT.json").write_text(json.dumps(out,indent=2))
+print(json.dumps(out,indent=2))
+raise SystemExit(0 if out["pass"] else 2)
