@@ -10,9 +10,12 @@ TTL="${TTL:-8}"; MAXCAND="${MAXCAND:-12}"
 ALGO="${ALGO:-seal/algo/HarmonyBot_V39_Regime_Conditioned_Harmonic_Portfolio_RC.algo}"
 IMAGE="${CTRADER_IMAGE:-ghcr.io/spotware/ctrader-console:5.9.11}"
 BACKTEST_TIMEOUT_SECONDS="${BACKTEST_TIMEOUT_SECONDS:-2700}"
-mkdir -p seal/{reports,logs,data}; printf '%s' "$CTRADER_PASSWORD" > seal/ctrader.pwd; chmod 600 seal/ctrader.pwd
+mkdir -p seal/{reports,logs,data}
+if [ ! -s seal/ctrader.pwd ]; then printf '%s' "$CTRADER_PASSWORD" > seal/ctrader.pwd; chmod 600 seal/ctrader.pwd; fi
 docker image inspect "$IMAGE" >/dev/null 2>&1 || docker pull "$IMAGE" >/dev/null
-docker run --rm -v "$PWD/seal:/work" "$IMAGE" accounts --ctid="$CTRADER_CTID" --pwd-file=/work/ctrader.pwd > seal/accounts.json
+if [ ! -s seal/accounts.json ]; then
+  docker run --rm -v "$PWD/seal:/work" "$IMAGE" accounts --ctid="$CTRADER_CTID" --pwd-file=/work/ctrader.pwd > seal/accounts.json
+fi
 ACCT=$(python3 - <<'PY'
 import json,os
 a=json.load(open('seal/accounts.json',encoding='utf-8-sig')); e=os.environ['CTRADER_ACCOUNT'].strip()
@@ -60,6 +63,6 @@ done
 docker stop --time 3 "$CNAME" >/dev/null 2>&1 || true
 docker rm -f "$CNAME" >/dev/null 2>&1 || true
 wait "$PID" 2>/dev/null || true
-rm -f seal/ctrader.pwd seal/accounts.json
+# Keep authenticated account metadata within this isolated job so A/B/C can reuse it.
 test "$DONE" = 1 || { echo "[V39-WATCHDOG-FAIL] run=$RUN_NAME"; tail -400 "seal/logs/$RUN_NAME.log" || true; exit 20; }
 echo "[V39-WATCHDOG] run=$RUN_NAME status=complete"
