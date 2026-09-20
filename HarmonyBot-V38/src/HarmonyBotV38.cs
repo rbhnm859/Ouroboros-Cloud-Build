@@ -585,6 +585,11 @@ namespace cAlgo.Robots
                 if (!evidencePass)
                 {
                     _confirmationRejected++;
+                    if (EnableEvidenceAccumulation && !sufficientBars)
+                    {
+                        Event(c, executionTf + "_EVIDENCE_ACCUMULATING_" + c.EvidenceComposite.ToString("F2", CultureInfo.InvariantCulture));
+                        continue;
+                    }
                     if (EnableCandidateSurvival)
                     {
                         _survivalWaits++;
