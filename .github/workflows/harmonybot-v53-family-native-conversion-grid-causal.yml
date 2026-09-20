@@ -9,7 +9,7 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: harmonybot-v53-family-identity-detection-graph
+  group: harmonybot-v53-family-native-conversion-grid-causal
   cancel-in-progress: true
 
 permissions:
@@ -57,8 +57,61 @@ jobs:
             control/HarmonyBot-V53/final
           retention-days: 30
 
-  dev:
+  data-seed:
     needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      max-parallel: 3
+      matrix:
+        window: [A, B, C]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: harmonybot/v53-family-native-conversion-grid-causal
+          path: control
+          fetch-depth: 1
+      - uses: actions/download-artifact@v4
+        with:
+          name: v53-build
+          path: control/HarmonyBot-V53/shared
+      - name: Resolve dates
+        id: d
+        shell: bash
+        run: |
+          case "${{ matrix.window }}" in
+            A) echo "start=04/01/2021" >> "$GITHUB_OUTPUT"; echo "eval=2021-01-11T00:00:00Z" >> "$GITHUB_OUTPUT"; echo "end=30/06/2021" >> "$GITHUB_OUTPUT";;
+            B) echo "start=01/07/2021" >> "$GITHUB_OUTPUT"; echo "eval=2021-07-08T00:00:00Z" >> "$GITHUB_OUTPUT"; echo "end=31/12/2021" >> "$GITHUB_OUTPUT";;
+            C) echo "start=03/01/2022" >> "$GITHUB_OUTPUT"; echo "eval=2022-01-10T00:00:00Z" >> "$GITHUB_OUTPUT"; echo "end=30/06/2022" >> "$GITHUB_OUTPUT";;
+          esac
+      - name: Build immutable market-data snapshot
+        shell: bash
+        run: |
+          set -euo pipefail
+          chmod +x control/HarmonyBot-V53/tools/*.sh
+          W="$GITHUB_WORKSPACE/control/HarmonyBot-V53/data-seed-${{ matrix.window }}"
+          O="$GITHUB_WORKSPACE/control/HarmonyBot-V53/data-seed-out-${{ matrix.window }}"
+          mkdir -p "$W/seal/algo" "$O"
+          A=$(find control/HarmonyBot-V53/shared -type f -name 'HarmonyBot_V53_Family_Native_Conversion_Grid_Causal_RC.algo' | head -1)
+          test -s "$A"; cp "$A" "$W/seal/algo/"
+          (
+            cd "$W"
+            RUN_NAME="V53-DATA-SEED-${{ matrix.window }}" START_DATE="${{ steps.d.outputs.start }}" EVAL_DATE="${{ steps.d.outputs.eval }}" END_DATE="${{ steps.d.outputs.end }}" BALANCE=10000             FAMNATIVE=false FAMOBS=true CANCONTRACT=true FAMCONF=true GRIDV2=true STOPV2=true JOINT=true CORRIDOR=false ANCHORFORENSICS=false             IDENT=true BOUNDED=true SKIPS=2 FQUOTA=4 PRJPRZ=false DTRUTH=false FAMQUAL=false FAMROUTE=false FAMCONFV2=false CTXBUS=false GRIDEXEC=true             PQUEUE=false HANDOFF=false NATIVE=false DECAY=false REVALIDATE=false BACKTEST_TIMEOUT_SECONDS=1800             "$GITHUB_WORKSPACE/control/HarmonyBot-V53/tools/run_backtest.sh"
+          )
+          test -d "$W/seal/data"
+          (cd "$W/seal/data" && find . -type f -print0 | sort -z | xargs -0 sha256sum) | sha256sum | awk '{print $1}' > "$O/data.snapshot.sha"
+          tar -C "$W/seal" -czf "$O/data.tgz" data
+          test -s "$O/data.tgz"; test -s "$O/data.snapshot.sha"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: v53-data-${{ matrix.window }}
+          path: control/HarmonyBot-V53/data-seed-out-${{ matrix.window }}
+          retention-days: 30
+          if-no-files-found: error
+
+  dev:
+    needs: [build, data-seed]
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     strategy:
@@ -92,10 +145,21 @@ jobs:
             B) echo "start=01/07/2021" >> "$GITHUB_OUTPUT"; echo "eval=2021-07-08T00:00:00Z" >> "$GITHUB_OUTPUT"; echo "end=31/12/2021" >> "$GITHUB_OUTPUT";;
             C) echo "start=03/01/2022" >> "$GITHUB_OUTPUT"; echo "eval=2022-01-10T00:00:00Z" >> "$GITHUB_OUTPUT"; echo "end=30/06/2022" >> "$GITHUB_OUTPUT";;
           esac
-      - uses: actions/cache@v4
+      - uses: actions/download-artifact@v4
         with:
-          path: control/HarmonyBot-V53/window-${{ matrix.family }}-${{ matrix.window }}/seal/data
-          key: ctrader-xauusd-m1-${{ matrix.window }}-${{ steps.d.outputs.start }}-${{ steps.d.outputs.end }}-v53
+          name: v53-data-${{ matrix.window }}
+          path: control/HarmonyBot-V53/data-seed
+      - name: Install immutable market-data snapshot
+        shell: bash
+        run: |
+          set -euo pipefail
+          W="control/HarmonyBot-V53/window-${{ matrix.family }}-${{ matrix.window }}/seal"
+          mkdir -p "$W"
+          tar -xzf control/HarmonyBot-V53/data-seed/data.tgz -C "$W"
+          cp control/HarmonyBot-V53/data-seed/data.snapshot.sha "$W/data.snapshot.sha"
+          EXPECTED=$(tr -d '[:space:]' < "$W/data.snapshot.sha")
+          ACTUAL=$((cd "$W/data" && find . -type f -print0 | sort -z | xargs -0 sha256sum) | sha256sum | awk '{print $1}')
+          test "$EXPECTED" = "$ACTUAL"
       - name: Run fixed DEV
         shell: bash
         run: |
