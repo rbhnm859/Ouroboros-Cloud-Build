@@ -321,7 +321,7 @@ jobs:
           retention-days: 30
 
   capital-gate:
-    needs: [analyze, capital]
+    needs: [analyze, validation-gate, capital]
     if: needs.validation-gate.outputs.valok == 'true'
     runs-on: ubuntu-24.04
     outputs:
