@@ -630,10 +630,20 @@ namespace cAlgo.Robots
                 CountPipeline(signal.PatternName).Detected++;
                 Ledger(record, CandidateState.DETECTED, "PATTERN_DETECTED");
 
+                record.IsProvenCoreAlpha = EnableCoreAlphaPreservationV54 && V54CoreQualityEnvelope(signal);
+                record.AlphaLane = record.IsProvenCoreAlpha ? "PROVEN_CORE_ALPHA" : "HARMONIC_EXPANSION_ALPHA";
+
                 double familyQualificationScore;
                 string familyQualificationReason;
                 bool qualificationPass;
-                if (EnableFamilyNativeQualificationV2)
+                if (EnableUniversalHarmonicLiberationV54)
+                {
+                    familyQualificationScore = V54FamilyLiberationQualityScore(signal);
+                    familyQualificationReason = "LIBERATED_IDENTITY";
+                    qualificationPass = true;
+                    ConversionTruth(signal.PatternName, "LIBERATION_IDENTITY_PASS");
+                }
+                else if (EnableFamilyNativeQualificationV2)
                     qualificationPass = FamilyNativeQualificationPass(signal, out familyQualificationScore, out familyQualificationReason);
                 else
                 {
@@ -666,9 +676,26 @@ namespace cAlgo.Robots
                 record.RegimeScore = RegimeContextScore(signal, record.Conflict, regime);
                 record.Context = EnableOrthogonalContextFeatureBus ? BuildOrthogonalContextFeatureBus(signal, regime) : null;
                 record.ContextScore = EnableOrthogonalContextFeatureBus ? FamilyContextScore(signal, record.Context, regime) : .50;
-                record.Route = EnableFamilyNativeRouterV2
-                    ? RouteSignalFamilyNativeV2(signal, record.Conflict, regime, record.Context, record.ContextScore)
-                    : RouteSignal(signal, record.Conflict, regime);
+                if (EnableUniversalHarmonicLiberationV54)
+                {
+                    var legacyRoute = RouteSignal(signal, record.Conflict, regime);
+                    if (record.IsProvenCoreAlpha && legacyRoute != HarmonicRoute.NO_TRADE)
+                    {
+                        record.Route = legacyRoute;
+                        record.AlphaLane = "PROVEN_CORE_ALPHA";
+                        ConversionTruth(signal.PatternName, "CORE_ROUTE_PRESERVED");
+                    }
+                    else
+                    {
+                        record.IsProvenCoreAlpha = false;
+                        record.AlphaLane = "HARMONIC_EXPANSION_ALPHA";
+                        record.Route = RouteSignalFamilyNativeV54(signal, record.Conflict, regime, record.Context, record.ContextScore);
+                    }
+                }
+                else
+                    record.Route = EnableFamilyNativeRouterV2
+                        ? RouteSignalFamilyNativeV2(signal, record.Conflict, regime, record.Context, record.ContextScore)
+                        : RouteSignal(signal, record.Conflict, regime);
 
                 if (record.Route == HarmonicRoute.NO_TRADE)
                 {
@@ -682,7 +709,7 @@ namespace cAlgo.Robots
                 // V47 expands only genuinely independent secondary-scale setups.
                 // V45 DEV showed secondary-scale AB=CD exhaustion positive in A/B/C,
                 // while secondary-scale trend-aligned AB=CD was negative overall.
-                if (EnableScaleRouteAdmission && signal.PivotScale != M15SwingDepth &&
+                if (!EnableUniversalHarmonicLiberationV54 && EnableScaleRouteAdmission && signal.PivotScale != M15SwingDepth &&
                     signal.PatternName == "AB=CD" && record.Route != HarmonicRoute.EXHAUSTION_REVERSAL)
                 {
                     _scaleRouteRejected++;
@@ -705,10 +732,10 @@ namespace cAlgo.Robots
                 }
                 else record.CapitalFeasible = true;
 
-                Print("[V54-ALPHA-CANDIDATE] cid={0} pattern={1} quality={2:F3} regime={3:F3} conflict={4} route={5} adxH1={6:F2} adxH4={7:F2} adxSlope={8:F2} atrPct={9:F3} efficiency={10:F3} capitalFeasible={11} minL0Risk={12:F4}",
+                Print("[V54-ALPHA-CANDIDATE] cid={0} pattern={1} lane={13} familyQuality={14:F3} quality={2:F3} regime={3:F3} conflict={4} route={5} adxH1={6:F2} adxH4={7:F2} adxSlope={8:F2} atrPct={9:F3} efficiency={10:F3} capitalFeasible={11} minL0Risk={12:F4}",
                     record.CandidateId, signal.PatternName, record.AlphaQualityScore, record.RegimeScore, record.Conflict, record.Route,
                     regime.AdxH1, regime.AdxH4, regime.AdxH1Slope, regime.AtrPercentile, regime.Efficiency,
-                    record.CapitalFeasible, record.CapitalMinL0Risk);
+                    record.CapitalFeasible, record.CapitalMinL0Risk, record.AlphaLane, record.FamilyQualificationScore);
 
                 Transition(record, CandidateState.ROUTED, "ROUTE_" + record.Route);
                 CountPipeline(signal.PatternName).Routed++;
