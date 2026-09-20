@@ -851,15 +851,31 @@ namespace cAlgo.Robots
 
                 if (!TryBuildFibonacciGridPlan(c))
                 {
+                    string gridReason = string.IsNullOrWhiteSpace(c.GridFailureReason) ? "GRID_PLAN_UNKNOWN" : c.GridFailureReason;
                     if (EnableCandidateSurvival)
                     {
                         _survivalWaits++;
                         c.GridPlan = null;
-                        Event(c, "GRID_PLAN_DEFERRED_SURVIVAL");
+                        Event(c, "GRID_PLAN_DEFERRED_SURVIVAL:" + gridReason);
                         continue;
                     }
-                    AddCounterfactualShadow(c, "FIB_GRID_PLAN_REJECTED", utc);
-                    Reject(c, "FIB_GRID_PLAN_REJECTED");
+                    AddCounterfactualShadow(c, "FIB_GRID_PLAN_REJECTED:" + gridReason, utc);
+                    Reject(c, "FIB_GRID_PLAN_REJECTED:" + gridReason);
+                    continue;
+                }
+
+                c.TrendPersistenceHazard = TrendPersistenceHazard(c);
+                c.ReversalPlausibility = ReversalPlausibilityScore(c);
+                c.ContinuationResumptionScore = ContinuationResumptionScore(c);
+                if (EnableThesisConsistentRouting && !ThesisExecutionEligible(c))
+                {
+                    _thesisRejected++;
+                    if (EnableTrendPersistenceHazard &&
+                        c.Thesis == ThesisMode.COUNTERTREND_EXHAUSTION &&
+                        c.TrendPersistenceHazard > .65)
+                        _trendPersistenceRejected++;
+                    AddCounterfactualShadow(c, "THESIS_EXECUTION_REJECT", utc);
+                    Reject(c, "THESIS_EXECUTION_REJECT");
                     continue;
                 }
 
@@ -3419,6 +3435,66 @@ namespace cAlgo.Robots
                           .16 * adx + .12 * slopeHealth + .12 * volHealth);
         }
 
+        private double TrendPersistenceHazard(CandidateRecord c)
+        {
+            if (c == null || c.Regime == null) return 1.0;
+            var r = c.Regime;
+            double persistence = VClamp(.45 * r.TrendStrength + .30 * VClamp(r.Efficiency / .35) +
+                                        .15 * VClamp(Math.Max(0, r.AdxH1Slope) / 5.0) + .10 * r.HtfAgreement);
+            if (c.TrendRelation == SignalTrendRelation.WITH_TREND)
+                return VClamp(.35 * (1.0 - r.HtfAgreement) + .25 * (1.0 - VClamp(r.Efficiency / .35)) +
+                              .20 * VClamp(Math.Abs(r.AtrRatio - 1.0) / .80) + .20 * VClamp(r.ExtensionAtr / 2.5));
+            return persistence;
+        }
+
+        private double PullbackLocationScore(CandidateRecord c)
+        {
+            if (c == null || c.Signal == null || c.Regime == null || c.Regime.H1Atr <= 0) return .50;
+            double d = Math.Abs(c.Signal.D.Price - c.Regime.H1Ema50) / c.Regime.H1Atr;
+            return VClamp(1.0 - d / 2.0);
+        }
+
+        private double ContinuationResumptionScore(CandidateRecord c)
+        {
+            if (c == null) return 0;
+            return VClamp(.24 * c.TemporalStateScore + .20 * c.FollowThroughScore + .18 * c.EvidenceComposite +
+                          .16 * c.HtfContextConfidence + .12 * c.RouteFitScore + .10 * PullbackLocationScore(c));
+        }
+
+        private double ReversalPlausibilityScore(CandidateRecord c)
+        {
+            if (c == null || c.Regime == null || c.Signal == null) return 0;
+            double extension = VClamp(c.Regime.ExtensionAtr / 2.0);
+            double deceleration = VClamp((1.5 - c.Regime.AdxH1Slope) / 3.0);
+            double structural = VClamp(.50 * c.Signal.GeometryQuality + .50 * c.Signal.PrzConfluence);
+            double temporal = VClamp(.55 * c.TemporalStateScore + .45 * c.FollowThroughScore);
+            double hazard = TrendPersistenceHazard(c);
+            return VClamp(.22 * extension + .18 * deceleration + .22 * structural + .26 * temporal +
+                          .12 * c.HtfContextConfidence - .25 * hazard);
+        }
+
+        private bool ThesisExecutionEligible(CandidateRecord c)
+        {
+            if (c == null || c.Thesis == ThesisMode.NO_TRADE) return false;
+            if (c.Thesis == ThesisMode.CONTINUATION_PULLBACK)
+            {
+                if (c.TrendRelation != SignalTrendRelation.WITH_TREND) return false;
+                if (EnableContinuationResumptionProof && c.ContinuationResumptionScore < ContinuationMinResumptionScore)
+                    return false;
+                return true;
+            }
+            if (c.Thesis == ThesisMode.COUNTERTREND_EXHAUSTION)
+            {
+                if (c.TrendRelation != SignalTrendRelation.AGAINST_TREND) return false;
+                if (EnableTrendPersistenceHazard && c.ReversalPlausibility < CountertrendMinPlausibility)
+                    return false;
+                return true;
+            }
+            if (c.Thesis == ThesisMode.REGIME_TRANSITION)
+                return c.TemporalStateScore >= .45 || c.FollowThroughScore >= .45;
+            return false;
+        }
+
         private double CrossRegimeAdmissionScore(CandidateRecord c)
         {
             if (c == null || c.Signal == null || c.Regime == null) return 0;
@@ -3428,13 +3504,19 @@ namespace cAlgo.Robots
             double evidence = VClamp(c.EvidenceComposite);
             double rr = VClamp(c.NetRR / 3.0);
             double stress = VClamp(c.RegimeStressScore);
-            return VClamp(.20 * c.AlphaQualityScore + .18 * structural + .17 * routePrior +
-                          .15 * temporal + .12 * evidence + .10 * rr + .08 * c.RegimeScore - .12 * stress);
+            double thesis = c.Thesis == ThesisMode.CONTINUATION_PULLBACK ? c.ContinuationResumptionScore :
+                            c.Thesis == ThesisMode.COUNTERTREND_EXHAUSTION ? c.ReversalPlausibility :
+                            c.TemporalStateScore;
+            double hazard = EnableTrendPersistenceHazard ? c.TrendPersistenceHazard : 0;
+            return VClamp(.18 * c.AlphaQualityScore + .15 * structural + .13 * routePrior +
+                          .14 * temporal + .10 * evidence + .10 * rr + .07 * c.RegimeScore +
+                          .17 * thesis - .10 * stress - .14 * hazard);
         }
 
         private bool CrossRegimeAlphaEligible(CandidateRecord c)
         {
             if (c == null || c.Signal == null || c.Regime == null) return false;
+            if (EnableThesisConsistentRouting && !ThesisExecutionEligible(c)) return false;
             if (c.Conflict == MtfConflict.CONFLICT || c.Route == HarmonicRoute.NO_TRADE) return false;
             double floor = ConditionalAlphaFloor;
             string archetype = PatternExecutionArchetype(c.Signal.PatternName);
