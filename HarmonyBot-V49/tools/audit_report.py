@@ -5,7 +5,7 @@ for x in ("report","log","out","window","family"): ap.add_argument("--"+x,requir
 ap.add_argument("--years",type=float,required=True); ap.add_argument("--balance",type=float,required=True)
 a=ap.parse_args(); d=json.load(open(a.report,encoding="utf-8-sig")); t=pathlib.Path(a.log).read_text(errors="ignore")
 
-rx=re.compile(r"\[V49-BASKET-CLOSED\].*?cid=(\S+)\s+setup=(\S+)\s+pattern=(.*?)\s+subtype=(\S+)\s+route=(\S+)\s+dir=(\S+).*?mfeR=([-0-9.]+)\s+maeR=([-0-9.]+)\s+realizedR=([-0-9.]+)\s+net=([-0-9.]+)\s+reason=(\S+)")
+rx=re.compile(r"\[V49-BASKET-CLOSED\].*?cid=(\S+)\s+setup=(\S+)\s+pattern=(.*?)\s+subtype=(.*?)\s+route=(\S+)\s+dir=(\S+).*?mfeR=([-0-9.]+)\s+maeR=([-0-9.]+)\s+realizedR=([-0-9.]+)\s+net=([-0-9.]+)\s+reason=(\S+)")
 b=[]
 for m in rx.finditer(t):
  b.append({"cid":m.group(1),"setup":m.group(2),"pattern":m.group(3),"subtype":m.group(4),"route":m.group(5),"direction":m.group(6),
@@ -30,7 +30,7 @@ pnames=["detected","validated","routed","prz","confirming","evidence_seen","nati
 for q in pipe_rx.finditer(t):
  pipeline[q.group(1)]={k:z for k,z in zip(pnames,map(int,q.groups()[1:]))}
 
-evrx=re.compile(r"\[V49-EVENT\]\s+cid=(\S+)\s+setup=(\S*)\s+pattern=(.*?)\s+subtype=(\S+)\s+scale=(\d+)\s+tf=(\S+)\s+dir=(\S+)\s+state=(\S+)\s+route=(\S+)\s+conflict=(\S+)\s+waitMin=([-0-9.]+)\s+reason=(.*)$",re.M)
+evrx=re.compile(r"\[V49-EVENT\]\s+cid=(\S+)\s+setup=(\S*)\s+pattern=(.*?)\s+subtype=(.*?)\s+scale=(\d+)\s+tf=(\S+)\s+dir=(\S+)\s+state=(\S+)\s+route=(\S+)\s+conflict=(\S+)\s+waitMin=([-0-9.]+)\s+reason=(.*)$",re.M)
 events=[]
 for q in evrx.finditer(t):
  events.append({"cid":q.group(1),"setup":q.group(2),"pattern":q.group(3),"subtype":q.group(4),"scale":int(q.group(5)),
@@ -38,7 +38,7 @@ for q in evrx.finditer(t):
                 "wait_min":float(q.group(11)),"reason":q.group(12).strip()})
 
 cf_rx=re.compile(
- r"\[V49-CF\]\s+cid=(\S+)\s+setup=(\S*)\s+pattern=(.*?)\s+subtype=(\S+)\s+route=(\S+)\s+scale=(\d+)\s+dir=(\S+)\s+terminal=(\S+)\s+bars=(\d+)\s+legacyBest=([-0-9.]+)\s+nativePass=(True|False)\s+nativePassUtc=(\S+)\s+mfeR=([-0-9.]+)\s+maeR=([-0-9.]+)\s+class=(\S+)\s+oneRUtc=(\S+)\s+twoRUtc=(\S+)\s+slUtc=(\S+)\s+target1Utc=(\S+)\s+target2Utc=(\S+)\s+timeTo1RMin=([-0-9.]+)\s+timeTo2RMin=([-0-9.]+)\s+directionalUtc=(\S+)\s+reclaimUtc=(\S+)\s+bos1Utc=(\S+)\s+bos2Utc=(\S+)\s+rejectionUtc=(\S+)\s+failedExtensionUtc=(\S+)\s+sweepUtc=(\S+)\s+displacementUtc=(\S+)\s+closeBackInsideUtc=(\S+)")
+ r"\[V49-CF\]\s+cid=(\S+)\s+setup=(\S*)\s+pattern=(.*?)\s+subtype=(.*?)\s+route=(\S+)\s+scale=(\d+)\s+dir=(\S+)\s+terminal=(\S+)\s+bars=(\d+)\s+legacyBest=([-0-9.]+)\s+nativePass=(True|False)\s+nativePassUtc=(\S+)\s+mfeR=([-0-9.]+)\s+maeR=([-0-9.]+)\s+class=(\S+)\s+oneRUtc=(\S+)\s+twoRUtc=(\S+)\s+slUtc=(\S+)\s+target1Utc=(\S+)\s+target2Utc=(\S+)\s+timeTo1RMin=([-0-9.]+)\s+timeTo2RMin=([-0-9.]+)\s+directionalUtc=(\S+)\s+reclaimUtc=(\S+)\s+bos1Utc=(\S+)\s+bos2Utc=(\S+)\s+rejectionUtc=(\S+)\s+failedExtensionUtc=(\S+)\s+sweepUtc=(\S+)\s+displacementUtc=(\S+)\s+closeBackInsideUtc=(\S+)")
 cf=[]
 for q in cf_rx.finditer(t):
  g=q.groups()
@@ -49,7 +49,7 @@ for q in cf_rx.finditer(t):
  "directional_utc":g[22],"reclaim_utc":g[23],"bos1_utc":g[24],"bos2_utc":g[25],"rejection_utc":g[26],
  "failed_extension_utc":g[27],"sweep_utc":g[28],"displacement_utc":g[29],"close_back_inside_utc":g[30]})
 
-bar_rx=re.compile(r"\[V49-CONFIRM-BAR\]\s+cid=(\S+)\s+setup=(\S*)\s+time=(\S+)\s+pattern=(.*?)\s+subtype=(\S+)\s+route=(\S+)\s+scale=(\d+)\s+dir=(\S+)\s+bar=(\d+)\s+legacy=([-0-9.]+)\s+directional=(True|False)\s+reclaim=(True|False)\s+bos1=(True|False)\s+bos2=(True|False)\s+rejection=(True|False)\s+failedExtension=(True|False)\s+sweep=(True|False)\s+displacement=(True|False)\s+closeBackInside=(True|False)\s+nativePass=(True|False)")
+bar_rx=re.compile(r"\[V49-CONFIRM-BAR\]\s+cid=(\S+)\s+setup=(\S*)\s+time=(\S+)\s+pattern=(.*?)\s+subtype=(.*?)\s+route=(\S+)\s+scale=(\d+)\s+dir=(\S+)\s+bar=(\d+)\s+legacy=([-0-9.]+)\s+directional=(True|False)\s+reclaim=(True|False)\s+bos1=(True|False)\s+bos2=(True|False)\s+rejection=(True|False)\s+failedExtension=(True|False)\s+sweep=(True|False)\s+displacement=(True|False)\s+closeBackInside=(True|False)\s+nativePass=(True|False)")
 confirm_bars=[]
 for q in bar_rx.finditer(t):
  g=q.groups()
@@ -57,6 +57,12 @@ for q in bar_rx.finditer(t):
  "bar":int(g[8]),"legacy":float(g[9]),"directional":g[10]=="True","reclaim":g[11]=="True","bos1":g[12]=="True","bos2":g[13]=="True",
  "rejection":g[14]=="True","failed_extension":g[15]=="True","sweep":g[16]=="True","displacement":g[17]=="True",
  "close_back_inside":g[18]=="True","native_pass":g[19]=="True"})
+
+grid_rx=re.compile(r"\[V49-GRID-REJECT\]\s+cid=(\S+)\s+setup=(\S*)\s+pattern=(.*?)\s+subtype=(.*?)\s+route=(\S+)\s+scale=(\d+)\s+dir=(\S+)\s+reason=(\S+)\s+detail=(.*)$",re.M)
+grid_rejections=[]
+for q in grid_rx.finditer(t):
+ g=q.groups()
+ grid_rejections.append({"cid":g[0],"setup":g[1],"pattern":g[2],"subtype":g[3],"route":g[4],"scale":int(g[5]),"direction":g[6],"reason":g[7],"detail":g[8].strip()})
 
 clean_keys=["execution_errors","grid_risk_violations","duplicate_grid_legs","orphan_pending_orders","stop_widening_violations","gap_through_survivors",
 "unprotected_survivors","post_fill_protection_failures","actual_basket_risk_violations","execution_state_violations","margin_risk_violations"]
@@ -68,5 +74,5 @@ out={"family":a.family,"window":a.window,"starting_balance":a.balance,"baskets":
 "max_dd_pct":float(eq.get("maxEquityDrawdownPercent",0) or 0),"engineering_clean":clean,"summary_present":summary_present,
 "broker_profile_present":"[V49-BROKER-PROFILE]" in t,"mean_mfe_r":statistics.mean([x["mfe"] for x in b]) if b else 0,
 "mean_mae_r":statistics.mean([x["mae"] for x in b]) if b else 0,"basket_outcomes":b,"pattern_pipeline":pipeline,
-"events":events,"counterfactual":cf,"confirm_bars":confirm_bars,**c}
+"events":events,"counterfactual":cf,"confirm_bars":confirm_bars,"grid_rejections":grid_rejections,**c}
 pathlib.Path(a.out).write_text(json.dumps(out,indent=2)); print(json.dumps(out,indent=2))
