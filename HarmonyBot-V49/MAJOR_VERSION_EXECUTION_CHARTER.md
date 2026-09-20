@@ -35,3 +35,5 @@ Candidate requires >=90 independent baskets /1.5y, >=60/year, Net >=1800, PF >=2
 Family plumbing must be explicit: canonical-family Confirming opportunities cannot disappear silently; each evaluated family must produce contract-pass or explicit contract-window-reject telemetry.
 
 Only after DEV gate passes: $100/$150/$200/$300/$500/$1000 actual executable validation -> immutable hashes -> exactly one untouched Fresh Alpha + one Fresh $100.
+
+Execution registration: V49 fixed root-cause workflow armed.
