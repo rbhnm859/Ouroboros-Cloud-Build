@@ -39,6 +39,7 @@ for q in evrx.finditer(t):
 
 cf_rx=re.compile(
  r"\[V49-CF\]\s+cid=(\S+)\s+setup=(\S*)\s+pattern=(.*?)\s+subtype=(.*?)\s+route=(\S+)\s+scale=(\d+)\s+dir=(\S+)\s+terminal=(\S+)\s+bars=(\d+)\s+legacyBest=([-0-9.]+)\s+nativePass=(True|False)\s+nativePassUtc=(\S+)\s+mfeR=([-0-9.]+)\s+maeR=([-0-9.]+)\s+class=(\S+)\s+oneRUtc=(\S+)\s+twoRUtc=(\S+)\s+slUtc=(\S+)\s+target1Utc=(\S+)\s+target2Utc=(\S+)\s+timeTo1RMin=([-0-9.]+)\s+timeTo2RMin=([-0-9.]+)\s+directionalUtc=(\S+)\s+reclaimUtc=(\S+)\s+bos1Utc=(\S+)\s+bos2Utc=(\S+)\s+rejectionUtc=(\S+)\s+failedExtensionUtc=(\S+)\s+sweepUtc=(\S+)\s+displacementUtc=(\S+)\s+closeBackInsideUtc=(\S+)")
+cf_start_count=len(re.findall(r"\[V49-CF-START\]",t))
 cf=[]
 for q in cf_rx.finditer(t):
  g=q.groups()
@@ -74,5 +75,6 @@ out={"family":a.family,"window":a.window,"starting_balance":a.balance,"baskets":
 "max_dd_pct":float(eq.get("maxEquityDrawdownPercent",0) or 0),"engineering_clean":clean,"summary_present":summary_present,
 "broker_profile_present":"[V49-BROKER-PROFILE]" in t,"mean_mfe_r":statistics.mean([x["mfe"] for x in b]) if b else 0,
 "mean_mae_r":statistics.mean([x["mae"] for x in b]) if b else 0,"basket_outcomes":b,"pattern_pipeline":pipeline,
-"events":events,"counterfactual":cf,"confirm_bars":confirm_bars,"grid_rejections":grid_rejections,**c}
+"events":events,"counterfactual":cf,"counterfactual_start_count":cf_start_count,"counterfactual_logged_count":len(cf),
+"confirm_bars":confirm_bars,"grid_rejections":grid_rejections,**c}
 pathlib.Path(a.out).write_text(json.dumps(out,indent=2)); print(json.dumps(out,indent=2))

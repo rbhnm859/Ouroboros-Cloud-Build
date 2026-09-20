@@ -57,6 +57,9 @@ for f in F:
 obs=[rd("COUNTERFACTUAL_NATIVE_CONFIRM",w) for w in "ABC"]
 events=[e for x in obs for e in x.get("events",[])]
 cf=[q for x in obs for q in x.get("counterfactual",[])]
+cf_starts=sum(x.get("counterfactual_start_count",0) for x in obs)
+cf_logged=sum(x.get("counterfactual_logged_count",0) for x in obs)
+forensics_integrity_pass=(cf_starts>0 and cf_logged==cf_starts)
 bars=[q for x in obs for q in x.get("confirm_bars",[])]
 # Keep one terminal record per independent setup.
 cf_by={}
@@ -182,13 +185,16 @@ grid_forensics={"version":"HarmonyBot V49","source":"PROVEN_PLUS_NATIVE_LANES fi
  "native_admissions_rejected":sum(q["rejected"] for q in corr),"reason_counts":reason_counts,"pattern_reason_counts":pattern_reason,
  "records":corr,"interpretation":"diagnostic only; no Alpha/risk/threshold changed"}
 
-eligible=[f for f in ("PROVEN_PLUS_NATIVE_LANES","FULL_V49_COMMERCIAL") if A[f]["commercial_gate"]]
+eligible=[f for f in ("PROVEN_PLUS_NATIVE_LANES","FULL_V49_COMMERCIAL") if A[f]["commercial_gate"]] if forensics_integrity_pass else []
 winner=max(eligible,key=lambda f:(A[f]["net"],A[f]["pf"],A[f]["frequency"])) if eligible else None
 forensics={"version":"HarmonyBot V49","source":"COUNTERFACTUAL_NATIVE_CONFIRM pure observation","evidence_window_completed_m1":12,
+ "shadow_horizon_minutes":180,"forensics_integrity_pass":forensics_integrity_pass,
+ "counterfactual_start_count":cf_starts,"counterfactual_logged_count":cf_logged,
  "classification_rule":"positive iff 2R completed-M1 timestamp strictly before SL; negative iff SL strictly before 2R; same-bar ambiguous",
  "family_summary":family_cf,"pattern_route_scale":funnel,
  "root_cause_evidence":{"v48_rigid_ordering_code_confirmed":True,"v48_native_window_bars":4,
- "v49_order_independent_window_bars":12,"counterfactual_records":len(cf),
+ "v49_order_independent_window_bars":12,"post_terminal_shadow_horizon_minutes":180,
+ "counterfactual_records":len(cf),"forensics_integrity_pass":forensics_integrity_pass,
  "non_incumbent_positive_setups":sum(z["positive"] for p,z in family_cf.items() if p not in ("AB=CD","Shark"))}}
 front={"version":"HarmonyBot V49","architecture":"HARMONIC_FAMILY_CONFIRMATION_KERNEL","baseline":BASE,"v36":V36,
  "commercial_minimum":COMM,"baseline_reproduction_pass":c["baseline_reproduction_pass"],"families":A,

@@ -16,6 +16,9 @@ At PRZ touch V49 records executable anchor and structural risk. Each completed M
 
 A shadow setup is positive only when 2R is observed on an earlier completed M1 bar than SL. It is negative only when SL is earlier than 2R. Same-bar 2R/SL is ambiguous and never promoted to positive.
 
+### Forensics integrity correction
+Counterfactual price-path tracking uses a fixed 180-minute post-PRZ horizon and continues after planner rejection, candidate expiry, or candidate invalidation for candidates that never reach ARMED. Candidate terminal reason/time remains separately recorded. The shadow path stops on structural 1R SL, or after both 2R and canonical Target2 have been observed, or at the fixed horizon. This is instrumentation-only: it cannot create orders, relax the shared grid, alter risk, or change incumbent Alpha. Every CF start must have exactly one terminal CF record before the analyzer may treat the forensics as valid.
+
 ## Order-independent native evidence window
 Window is fixed at 12 completed M1 bars; no threshold sweep.
 

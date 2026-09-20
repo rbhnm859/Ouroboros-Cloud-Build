@@ -12,6 +12,7 @@ namespace cAlgo.Robots
     {
         private const string Version = "HarmonyBot V49 — Harmonic Family Completion & Confirmation Kernel";
         private const string BotPrefix = "HB49";
+        private const int V49CounterfactualHorizonMinutes = 180;
 
         [Parameter("Symbol", DefaultValue = "XAUUSD")]
         public new string SymbolName { get; set; }
@@ -376,8 +377,8 @@ namespace cAlgo.Robots
                 EnableScaleRouteAdmission, EnableM1TemporalRescue, EnableArmedExecutionGrace, ArmedGraceMinutes,
                 EnablePreExecutionGridRevalidation);
             Print("[V49-FAMILY-NATIVE] conversion={0} observation={1} principle=PATTERN_IDENTITY_NEQ_EXECUTION_IDENTITY", EnableFamilyNativeConversion, EnableFamilyNativeObservation);
-            Print("[V49-CONFIRMATION-KERNEL] cfAudit={0} nativeEvidenceLanes={1} extendedResearch={2} evidenceWindowBars={3} ordering=ORDER_INDEPENDENT alphaKernel=V46_SCALE_CONVERSION_FROZEN",
-                EnableCounterfactualConfirmationAudit, EnableV49NativeEvidenceLanes, EnableV49ExtendedNativeResearch, V49EvidenceWindowBars);
+            Print("[V49-CONFIRMATION-KERNEL] cfAudit={0} nativeEvidenceLanes={1} extendedResearch={2} evidenceWindowBars={3} shadowHorizonMin={4} ordering=ORDER_INDEPENDENT alphaKernel=V46_SCALE_CONVERSION_FROZEN",
+                EnableCounterfactualConfirmationAudit, EnableV49NativeEvidenceLanes, EnableV49ExtendedNativeResearch, V49EvidenceWindowBars, V49CounterfactualHorizonMinutes);
             Print("[V49-THROUGHPUT-ARCH] persistentQueue={0} serialHandoff={1} legacyRigidNative={2} nativeBars={3} decayRanking={4} hardLifetimeMinutes={5}",
                 EnablePersistentArmedQueue, EnableEventDrivenSerialHandoff, EnablePatternNativeM1Expansion,
                 PatternNativeM1MaxBars, EnableOpportunityDecayRanking, ParkedHardLifetimeMinutes);
@@ -390,8 +391,12 @@ namespace cAlgo.Robots
             Positions.Closed -= OnPositionClosed;
             Positions.Opened -= OnPositionOpened;
             PendingOrders.Filled -= OnPendingOrderFilled;
-            foreach (var c in _candidates.Values.Where(x => x.IsActive && x.CfActive && !x.CfEverArmed).ToList())
-                FinalizeV49Counterfactual(c, "BACKTEST_END");
+            foreach (var c in _candidates.Values.Where(x => x.CfActive && !x.CfLogged && !x.CfEverArmed).ToList())
+            {
+                string terminal = string.IsNullOrWhiteSpace(c.CfCandidateTerminalReason) ? "ACTIVE_AT_BACKTEST_END" : c.CfCandidateTerminalReason;
+                string shadow = c.CfShadowComplete ? c.CfShadowCompletionReason : "BACKTEST_END_CENSORED";
+                FinalizeV49Counterfactual(c, terminal + "_" + shadow);
+            }
             foreach (var kv in _pipeline.OrderBy(k => k.Key))
             {
                 var x = kv.Value;
@@ -591,6 +596,10 @@ namespace cAlgo.Robots
             _lastM1Closed = t;
             DateTime utc = DateTime.SpecifyKind(t, DateTimeKind.Utc);
 
+            // Forensic-only shadow book: continue measuring Confirming-but-never-Armed setups
+            // after planner rejection / expiry / invalidation. This cannot create orders or mutate Alpha.
+            UpdateV49CounterfactualBook(i, utc);
+
             foreach (var c in _candidates.Values.Where(x => x.IsActive).ToList())
             {
                 UpdateOpportunityShadow(c, i);
@@ -651,7 +660,6 @@ namespace cAlgo.Robots
 
                     if (c.CfActive)
                     {
-                        UpdateV49CounterfactualShadow(c, i, utc);
                         double nativeEvidenceScore;
                         bool nativeEvidencePass = UpdateV49EvidenceSet(i, c, utc, legacyScore, out nativeEvidenceScore);
                         if (nativeEvidencePass && !c.CfNativePass)
@@ -753,6 +761,7 @@ namespace cAlgo.Robots
                 }
             }
 
+            FinalizeV49CounterfactualBook(utc);
             TryScheduleAndExecute();
         }
 
@@ -2911,6 +2920,7 @@ namespace cAlgo.Robots
             c.CfRiskDistance = Math.Abs(c.CfEntryAnchor - c.Signal.StructuralInvalidation);
             c.CfRiskDistance = Math.Max(c.CfRiskDistance, _symbol.PipSize);
             c.CfBarsObserved = 0;
+            c.CfShadowBarsObserved = 0;
             Print("[V49-CF-START] cid={0} setup={1} pattern={2} subtype={3} route={4} scale={5} dir={6} przTouch={7:o} anchor={8:F5} stop={9:F5} riskDistance={10:F5}",
                 c.CandidateId, c.SetupKey ?? "", c.Signal.PatternName, c.Signal.HarmonicSubtype ?? c.Signal.PatternName,
                 c.Route, c.Signal.PivotScale, c.Signal.Direction, c.PrzTouchUtc.Value, c.CfEntryAnchor,
@@ -2919,7 +2929,9 @@ namespace cAlgo.Robots
 
         private void UpdateV49CounterfactualShadow(CandidateRecord c, int i, DateTime utc)
         {
-            if (c == null || !c.CfActive || c.CfEverArmed || i < 0 || i >= _m1Bars.Count || c.CfRiskDistance <= 0) return;
+            if (c == null || !c.CfActive || c.CfLogged || c.CfEverArmed || c.CfShadowComplete ||
+                i < 0 || i >= _m1Bars.Count || c.CfRiskDistance <= 0 || !c.PrzTouchUtc.HasValue || utc <= c.PrzTouchUtc.Value) return;
+
             double fav, adv;
             if (c.Signal.Direction == TradeDirection.Buy)
             {
@@ -2935,11 +2947,58 @@ namespace cAlgo.Robots
                 if (!c.CfTarget1Utc.HasValue && _m1Bars.LowPrices[i] <= c.Signal.CanonicalTarget1) c.CfTarget1Utc = utc;
                 if (!c.CfTarget2Utc.HasValue && _m1Bars.LowPrices[i] <= c.Signal.CanonicalTarget2) c.CfTarget2Utc = utc;
             }
-            c.CfMfeR = Math.Max(c.CfMfeR, fav);
-            c.CfMaeR = Math.Max(c.CfMaeR, adv);
+
+            c.CfShadowBarsObserved++;
+            if (fav > c.CfMfeR) { c.CfMfeR = fav; c.CfMfeUtc = utc; }
+            if (adv > c.CfMaeR) { c.CfMaeR = adv; c.CfMaeUtc = utc; }
             if (!c.CfOneRUtc.HasValue && fav >= 1.0) c.CfOneRUtc = utc;
             if (!c.CfTwoRUtc.HasValue && fav >= 2.0) c.CfTwoRUtc = utc;
             if (!c.CfSlUtc.HasValue && adv >= 1.0) c.CfSlUtc = utc;
+
+            Print("[V49-CF-SHADOW-BAR] cid={0} setup={1} time={2:o} pattern={3} route={4} scale={5} state={6} active={7} o={8:F5} h={9:F5} l={10:F5} c={11:F5} favR={12:F3} advR={13:F3} mfeR={14:F3} maeR={15:F3}",
+                c.CandidateId, c.SetupKey ?? "", utc, c.Signal.PatternName, c.Route, c.Signal.PivotScale, c.State, c.IsActive,
+                _m1Bars.OpenPrices[i], _m1Bars.HighPrices[i], _m1Bars.LowPrices[i], _m1Bars.ClosePrices[i],
+                fav, adv, c.CfMfeR, c.CfMaeR);
+
+            double ageMin = (utc - c.PrzTouchUtc.Value).TotalMinutes;
+            if (c.CfSlUtc.HasValue)
+            {
+                c.CfShadowComplete = true;
+                c.CfShadowCompletionReason = "SHADOW_SL";
+            }
+            else if (c.CfTwoRUtc.HasValue && c.CfTarget2Utc.HasValue)
+            {
+                c.CfShadowComplete = true;
+                c.CfShadowCompletionReason = "SHADOW_2R_AND_TARGET2";
+            }
+            else if (ageMin >= V49CounterfactualHorizonMinutes)
+            {
+                c.CfShadowComplete = true;
+                c.CfShadowCompletionReason = "SHADOW_HORIZON_180M";
+            }
+        }
+
+        private void UpdateV49CounterfactualBook(int i, DateTime utc)
+        {
+            foreach (var c in _candidates.Values.Where(x => x.CfActive && !x.CfLogged && !x.CfEverArmed && !x.CfShadowComplete).ToList())
+                UpdateV49CounterfactualShadow(c, i, utc);
+        }
+
+        private void MarkV49CounterfactualCandidateTerminal(CandidateRecord c, string reason)
+        {
+            if (c == null || !c.CfActive || c.CfLogged || c.CfEverArmed) return;
+            if (string.IsNullOrWhiteSpace(c.CfCandidateTerminalReason))
+            {
+                c.CfCandidateTerminalReason = reason;
+                c.CfCandidateTerminalUtc = Server.Time.ToUniversalTime();
+            }
+        }
+
+        private void FinalizeV49CounterfactualBook(DateTime utc)
+        {
+            foreach (var c in _candidates.Values.Where(x => x.CfActive && !x.CfLogged && !x.CfEverArmed &&
+                         !string.IsNullOrWhiteSpace(x.CfCandidateTerminalReason) && x.CfShadowComplete).ToList())
+                FinalizeV49Counterfactual(c, c.CfCandidateTerminalReason + "_" + c.CfShadowCompletionReason);
         }
 
         private bool UpdateV49EvidenceSet(int i, CandidateRecord c, DateTime utc, double legacyScore, out double score)
@@ -3035,12 +3094,14 @@ namespace cAlgo.Robots
             if (neg) CountPipeline(c.Signal.PatternName).CounterfactualNegative++;
             double t1r = c.CfOneRUtc.HasValue && c.PrzTouchUtc.HasValue ? (c.CfOneRUtc.Value - c.PrzTouchUtc.Value).TotalMinutes : -1;
             double t2r = c.CfTwoRUtc.HasValue && c.PrzTouchUtc.HasValue ? (c.CfTwoRUtc.Value - c.PrzTouchUtc.Value).TotalMinutes : -1;
-            Print("[V49-CF] cid={0} setup={1} pattern={2} subtype={3} route={4} scale={5} dir={6} terminal={7} bars={8} legacyBest={9:F2} nativePass={10} nativePassUtc={11} mfeR={12:F3} maeR={13:F3} class={14} oneRUtc={15} twoRUtc={16} slUtc={17} target1Utc={18} target2Utc={19} timeTo1RMin={20:F1} timeTo2RMin={21:F1} directionalUtc={22} reclaimUtc={23} bos1Utc={24} bos2Utc={25} rejectionUtc={26} failedExtensionUtc={27} sweepUtc={28} displacementUtc={29} closeBackInsideUtc={30}",
+            double tmfe = c.CfMfeUtc.HasValue && c.PrzTouchUtc.HasValue ? (c.CfMfeUtc.Value - c.PrzTouchUtc.Value).TotalMinutes : -1;
+            Print("[V49-CF] cid={0} setup={1} pattern={2} subtype={3} route={4} scale={5} dir={6} terminal={7} bars={8} legacyBest={9:F2} nativePass={10} nativePassUtc={11} mfeR={12:F3} maeR={13:F3} class={14} oneRUtc={15} twoRUtc={16} slUtc={17} target1Utc={18} target2Utc={19} timeTo1RMin={20:F1} timeTo2RMin={21:F1} directionalUtc={22} reclaimUtc={23} bos1Utc={24} bos2Utc={25} rejectionUtc={26} failedExtensionUtc={27} sweepUtc={28} displacementUtc={29} closeBackInsideUtc={30} shadowBars={31} mfeUtc={32} maeUtc={33} timeToMfeMin={34:F1}",
                 c.CandidateId, c.SetupKey ?? "", c.Signal.PatternName, c.Signal.HarmonicSubtype ?? c.Signal.PatternName, c.Route, c.Signal.PivotScale,
                 c.Signal.Direction, reason, c.CfBarsObserved, c.CfLegacyBestScore, c.CfNativePass, V49Ts(c.CfNativePassUtc), c.CfMfeR, c.CfMaeR, cls,
                 V49Ts(c.CfOneRUtc), V49Ts(c.CfTwoRUtc), V49Ts(c.CfSlUtc), V49Ts(c.CfTarget1Utc), V49Ts(c.CfTarget2Utc), t1r, t2r,
                 V49Ts(c.CfDirectionalUtc), V49Ts(c.CfReclaimUtc), V49Ts(c.CfBos1Utc), V49Ts(c.CfBos2Utc), V49Ts(c.CfRejectionUtc),
-                V49Ts(c.CfFailedExtensionUtc), V49Ts(c.CfSweepUtc), V49Ts(c.CfDisplacementUtc), V49Ts(c.CfCloseBackInsideUtc));
+                V49Ts(c.CfFailedExtensionUtc), V49Ts(c.CfSweepUtc), V49Ts(c.CfDisplacementUtc), V49Ts(c.CfCloseBackInsideUtc),
+                c.CfShadowBarsObserved, V49Ts(c.CfMfeUtc), V49Ts(c.CfMaeUtc), tmfe);
         }
 
         private bool RouteSpecificM1EvidencePass(int i, PatternSignal s, HarmonicRoute route)
@@ -3534,7 +3595,7 @@ namespace cAlgo.Robots
 
         private void Reject(CandidateRecord c, string reason)
         {
-            FinalizeV49Counterfactual(c, "REJECTED_" + reason);
+            MarkV49CounterfactualCandidateTerminal(c, "REJECTED_" + reason);
             c.State = CandidateState.REJECTED;
             c.IsActive = false;
             if (c != null) _parkedCandidateIds.Remove(c.CandidateId);
@@ -3546,7 +3607,7 @@ namespace cAlgo.Robots
 
         private void Expire(CandidateRecord c, string reason)
         {
-            FinalizeV49Counterfactual(c, "EXPIRED_" + reason);
+            MarkV49CounterfactualCandidateTerminal(c, "EXPIRED_" + reason);
             c.State = CandidateState.EXPIRED;
             c.IsActive = false;
             if (c != null) _parkedCandidateIds.Remove(c.CandidateId);
@@ -3558,7 +3619,7 @@ namespace cAlgo.Robots
 
         private void Invalidate(CandidateRecord c, string reason)
         {
-            FinalizeV49Counterfactual(c, "INVALIDATED_" + reason);
+            MarkV49CounterfactualCandidateTerminal(c, "INVALIDATED_" + reason);
             c.State = CandidateState.INVALIDATED;
             c.IsActive = false;
             if (c != null) _parkedCandidateIds.Remove(c.CandidateId);
@@ -3595,7 +3656,9 @@ namespace cAlgo.Robots
         private void TrimCandidateBook()
         {
             if (_candidates.Count <= 2000) return;
-            foreach (var k in _candidates.Where(kv => !kv.Value.IsActive).OrderBy(kv => kv.Value.DetectedUtc).Take(_candidates.Count - 1500).Select(kv => kv.Key).ToList())
+            foreach (var k in _candidates.Where(kv => !kv.Value.IsActive &&
+                         (!kv.Value.CfActive || kv.Value.CfLogged || kv.Value.CfEverArmed))
+                     .OrderBy(kv => kv.Value.DetectedUtc).Take(_candidates.Count - 1500).Select(kv => kv.Key).ToList())
                 _candidates.Remove(k);
         }
 
@@ -3796,11 +3859,12 @@ namespace cAlgo.Robots
         public int NativeM1BarsObserved, NativeStage;
         public double OriginalRank, OriginalGeometry, OriginalPrzConfluence, OriginalM1Evidence, OriginalEntryAnchor, ShadowRiskDistance, ShadowMfeR, ShadowMaeR;
         public bool TemporalDirectional, TemporalReclaim, TemporalBos1, TemporalBos2, TemporalRejection, TemporalFailedExtension, TemporalDisplacement;
-        public bool CfActive, CfLogged, CfEverArmed, CfNativePass, CfNativeAdmitted;
-        public int CfBarsObserved;
+        public bool CfActive, CfLogged, CfEverArmed, CfNativePass, CfNativeAdmitted, CfShadowComplete;
+        public int CfBarsObserved, CfShadowBarsObserved;
         public double CfEntryAnchor, CfRiskDistance, CfMfeR, CfMaeR, CfLegacyBestScore;
+        public string CfCandidateTerminalReason, CfShadowCompletionReason;
         public bool CfDirectional, CfReclaim, CfBos1, CfBos2, CfRejection, CfFailedExtension, CfSweep, CfDisplacement, CfCloseBackInside;
-        public DateTime? CfNativePassUtc, CfOneRUtc, CfTwoRUtc, CfSlUtc, CfTarget1Utc, CfTarget2Utc;
+        public DateTime? CfNativePassUtc, CfOneRUtc, CfTwoRUtc, CfSlUtc, CfTarget1Utc, CfTarget2Utc, CfMfeUtc, CfMaeUtc, CfCandidateTerminalUtc;
         public DateTime? CfDirectionalUtc, CfReclaimUtc, CfBos1Utc, CfBos2Utc, CfRejectionUtc, CfFailedExtensionUtc, CfSweepUtc, CfDisplacementUtc, CfCloseBackInsideUtc;
         public bool CapitalFeasible;
         public FibonacciGridPlan GridPlan;
