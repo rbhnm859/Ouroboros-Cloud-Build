@@ -1,0 +1,4044 @@
+using System;
+using System.Collections.Generic;
+using System.Globalization;
+using System.Linq;
+using cAlgo.API;
+using cAlgo.API.Internals;
+
+namespace cAlgo.Robots
+{
+    [Robot(TimeZone = TimeZones.UTC, AccessRights = AccessRights.None)]
+    public class HarmonyBotV44 : Robot
+    {
+        private const string Version = "HarmonyBot V44 — Thesis-Consistent Route & Physical Grid Portfolio Engine";
+        private const string BotPrefix = "HB44";
+
+        [Parameter("Symbol", DefaultValue = "XAUUSD")]
+        public new string SymbolName { get; set; }
+
+        [Parameter("Trading Enabled", DefaultValue = true)]
+        public bool TradingEnabled { get; set; }
+
+        [Parameter("Basket Risk %", DefaultValue = 1.0, MinValue = 0.1, MaxValue = 1.0)]
+        public double BasketRiskPercent { get; set; }
+
+        [Parameter("Adaptive Capital Mode", DefaultValue = true)]
+        public bool AdaptiveCapitalMode { get; set; }
+
+        [Parameter("Minimum Supported Equity", DefaultValue = 100.0, MinValue = 50.0, MaxValue = 1000.0)]
+        public double MinimumSupportedEquity { get; set; }
+
+        [Parameter("Micro Capital Threshold", DefaultValue = 500.0, MinValue = 100.0, MaxValue = 2000.0)]
+        public double MicroCapitalThreshold { get; set; }
+
+        [Parameter("Grid Cancel MFE R", DefaultValue = 0.50, MinValue = 0.20, MaxValue = 1.0)]
+        public double GridCancelMfeR { get; set; }
+
+        [Parameter("Slippage Stress Pips", DefaultValue = 0.30, MinValue = 0.0, MaxValue = 20.0)]
+        public double SlippageStressPips { get; set; }
+
+        [Parameter("Max Drawdown %", DefaultValue = 10.0, MinValue = 1.0, MaxValue = 20.0)]
+        public double MaxDrawdownPercent { get; set; }
+
+        [Parameter("Daily Loss Limit %", DefaultValue = 3.0, MinValue = 0.5, MaxValue = 10.0)]
+        public double DailyLossLimitPercent { get; set; }
+
+        [Parameter("Max Spread Pips", DefaultValue = 60.0, MinValue = 1.0, MaxValue = 300.0)]
+        public double MaxSpreadPips { get; set; }
+
+        [Parameter("Commission RT Pips", DefaultValue = 0.0, MinValue = 0.0, MaxValue = 100.0)]
+        public double RoundTurnCommissionPips { get; set; }
+
+        [Parameter("Minimum Net RR", DefaultValue = 2.0, MinValue = 1.0, MaxValue = 5.0)]
+        public double MinimumNetRR { get; set; }
+
+        [Parameter("Min SL Pips", DefaultValue = 10.0, MinValue = 1.0, MaxValue = 1000.0)]
+        public double MinStopLossPips { get; set; }
+
+        [Parameter("Min Free Margin Headroom", DefaultValue = 5.0, MinValue = 1.0, MaxValue = 20.0)]
+        public double MinFreeMarginRiskMultiple { get; set; }
+
+        [Parameter("M15 Swing Depth", DefaultValue = 3, MinValue = 2, MaxValue = 8)]
+        public int M15SwingDepth { get; set; }
+
+        [Parameter("M15 Swing Lookback", DefaultValue = 320, MinValue = 100, MaxValue = 1200)]
+        public int M15SwingLookback { get; set; }
+
+        [Parameter("H1 Swing Depth", DefaultValue = 3, MinValue = 2, MaxValue = 8)]
+        public int H1SwingDepth { get; set; }
+
+        [Parameter("H4 Swing Depth", DefaultValue = 2, MinValue = 2, MaxValue = 6)]
+        public int H4SwingDepth { get; set; }
+
+        [Parameter("Portfolio Max Candidates", DefaultValue = 8, MinValue = 2, MaxValue = 12)]
+        public int PortfolioMaxCandidates { get; set; }
+
+        [Parameter("Canonical Geometry Engine", DefaultValue = true)]
+        public bool EnableCanonicalGeometryEngine { get; set; }
+
+        [Parameter("Multi-Scale Pivot Graph", DefaultValue = true)]
+        public bool EnableMultiScalePivotGraph { get; set; }
+
+        [Parameter("Canonical Setup Dedupe", DefaultValue = true)]
+        public bool EnableCanonicalSetupDedupe { get; set; }
+
+        [Parameter("Pattern-Native Execution", DefaultValue = true)]
+        public bool EnablePatternNativeExecution { get; set; }
+
+        [Parameter("Logical Harmonic Grid Anchor", DefaultValue = true)]
+        public bool EnableLogicalHarmonicGridAnchor { get; set; }
+
+        [Parameter("Opportunity Auction Window", DefaultValue = true)]
+        public bool EnableOpportunityAuctionWindow { get; set; }
+
+        [Parameter("Opportunity Auction Minutes", DefaultValue = 5, MinValue = 0, MaxValue = 15)]
+        public int OpportunityAuctionMinutes { get; set; }
+
+        [Parameter("Pattern Hypothesis Set", DefaultValue = true)]
+        public bool EnablePatternHypothesisSet { get; set; }
+
+        [Parameter("Structural Context Vector", DefaultValue = true)]
+        public bool EnableStructuralContextVector { get; set; }
+
+        [Parameter("Pattern Temporal State Machine", DefaultValue = true)]
+        public bool EnablePatternTemporalStateMachine { get; set; }
+
+        [Parameter("Cross-Regime Alpha Admission", DefaultValue = true)]
+        public bool EnableCrossRegimeAlphaAdmission { get; set; }
+
+        [Parameter("Robust Alpha Density", DefaultValue = true)]
+        public bool EnableRobustAlphaDensity { get; set; }
+
+        [Parameter("Event-Driven Opportunity Auction", DefaultValue = true)]
+        public bool EnableEventDrivenOpportunityAuction { get; set; }
+
+        [Parameter("Opportunity Loss Ledger", DefaultValue = true)]
+        public bool EnableOpportunityLossLedger { get; set; }
+
+        [Parameter("Conditional Alpha Floor", DefaultValue = 0.50, MinValue = 0.35, MaxValue = 0.80)]
+        public double ConditionalAlphaFloor { get; set; }
+
+        [Parameter("ABCD Trend Admission Floor", DefaultValue = 0.62, MinValue = 0.45, MaxValue = 0.85)]
+        public double AbcdTrendAdmissionFloor { get; set; }
+
+        [Parameter("Candidate TTL M15 Bars", DefaultValue = 8, MinValue = 2, MaxValue = 24)]
+        public int CandidateTtlM15Bars { get; set; }
+
+        [Parameter("Min Geometry", DefaultValue = 0.55, MinValue = 0.30, MaxValue = 0.90)]
+        public double MinGeometryQuality { get; set; }
+
+        [Parameter("Min PRZ", DefaultValue = 0.55, MinValue = 0.30, MaxValue = 0.90)]
+        public double MinPrzConfluence { get; set; }
+
+        [Parameter("Enhanced Harmonic Quality", DefaultValue = true)]
+        public bool EnableHarmonicRobustnessGate { get; set; }
+
+        [Parameter("Regime Context Gate", DefaultValue = true)]
+        public bool EnableRegimeContextGate { get; set; }
+
+        [Parameter("M15 Confirmation Gate", DefaultValue = true)]
+        public bool EnableM15ConfirmationGate { get; set; }
+
+        [Parameter("M15 Min Confirmation", DefaultValue = 0.45, MinValue = 0.25, MaxValue = 0.80)]
+        public double M15MinConfirmationScore { get; set; }
+
+        [Parameter("M5 Execution Refinement", DefaultValue = false)]
+        public bool EnableM5ExecutionRefinement { get; set; }
+
+        [Parameter("M5 Min Confirmation", DefaultValue = 0.55, MinValue = 0.30, MaxValue = 0.85)]
+        public double M5MinConfirmationScore { get; set; }
+
+        [Parameter("Evidence Accumulation", DefaultValue = true)]
+        public bool EnableEvidenceAccumulation { get; set; }
+
+        [Parameter("Evidence Window M5 Bars", DefaultValue = 4, MinValue = 2, MaxValue = 6)]
+        public int EvidenceWindowM5Bars { get; set; }
+
+        [Parameter("Evidence Minimum Bars", DefaultValue = 2, MinValue = 1, MaxValue = 4)]
+        public int EvidenceMinimumBars { get; set; }
+
+        [Parameter("Evidence Threshold", DefaultValue = 0.58, MinValue = 0.35, MaxValue = 0.85)]
+        public double EvidenceThreshold { get; set; }
+
+        [Parameter("Candidate Survival", DefaultValue = true)]
+        public bool EnableCandidateSurvival { get; set; }
+
+        [Parameter("Opportunity Cost Arbitration", DefaultValue = true)]
+        public bool EnableOpportunityCostArbitration { get; set; }
+
+        [Parameter("Counterfactual Shadow Minutes", DefaultValue = 180, MinValue = 30, MaxValue = 720)]
+        public int CounterfactualShadowMinutes { get; set; }
+
+        [Parameter("Legacy Regime Portfolio Selector", DefaultValue = false)]
+        public bool EnableRegimePortfolioSelector { get; set; }
+
+        [Parameter("Legacy Route Specialization", DefaultValue = false)]
+        public bool EnableRouteSpecialization { get; set; }
+
+        [Parameter("Legacy Stress Quarantine", DefaultValue = false)]
+        public bool EnableStressQuarantine { get; set; }
+
+        [Parameter("Legacy Portfolio Min Edge", DefaultValue = 0.54, MinValue = 0.40, MaxValue = 0.80)]
+        public double PortfolioMinEdgeScore { get; set; }
+
+        [Parameter("Legacy Portfolio Max Stress", DefaultValue = 0.62, MinValue = 0.30, MaxValue = 0.90)]
+        public double PortfolioMaxStressScore { get; set; }
+
+        [Parameter("Attribution Ledger", DefaultValue = true)]
+        public bool EnableAttributionLedger { get; set; }
+
+        [Parameter("Rank-First Portfolio", DefaultValue = true)]
+        public bool EnableRankFirstPortfolio { get; set; }
+
+        [Parameter("M5 Follow-Through Engine", DefaultValue = true)]
+        public bool EnableFollowThroughEngine { get; set; }
+
+        [Parameter("Thesis Failure Exit", DefaultValue = true)]
+        public bool EnableThesisFailureExit { get; set; }
+
+        [Parameter("Thesis Failure Min M5 Bars", DefaultValue = 2, MinValue = 1, MaxValue = 6)]
+        public int ThesisFailureMinM5Bars { get; set; }
+
+        [Parameter("Thesis Failure FT Score", DefaultValue = 0.30, MinValue = 0.10, MaxValue = 0.60)]
+        public double ThesisFailureFollowThroughScore { get; set; }
+
+        [Parameter("Thesis Failure Giveback Peak R", DefaultValue = 0.45, MinValue = 0.20, MaxValue = 1.20)]
+        public double ThesisFailureGivebackPeakR { get; set; }
+
+        [Parameter("Thesis Failure Current R", DefaultValue = 0.05, MinValue = -0.30, MaxValue = 0.50)]
+        public double ThesisFailureCurrentR { get; set; }
+
+        [Parameter("Thesis Failure Loss Cut R", DefaultValue = -0.35, MinValue = -0.90, MaxValue = -0.10)]
+        public double ThesisFailureLossCutR { get; set; }
+
+        [Parameter("Marginal Rescue Lane", DefaultValue = false)]
+        public bool EnableMarginalRescueLane { get; set; }
+
+        [Parameter("Opportunity-Cost Edge Model", DefaultValue = false)]
+        public bool EnableOpportunityCostEdgeModel { get; set; }
+
+        [Parameter("Rescue Min M5 Bars", DefaultValue = 3, MinValue = 2, MaxValue = 6)]
+        public int RescueMinimumBars { get; set; }
+
+        [Parameter("Rescue Min Evidence", DefaultValue = 0.42, MinValue = 0.30, MaxValue = 0.60)]
+        public double RescueMinimumEvidence { get; set; }
+
+        [Parameter("Rescue Min FollowThrough", DefaultValue = 0.55, MinValue = 0.35, MaxValue = 0.80)]
+        public double RescueMinimumFollowThrough { get; set; }
+
+        [Parameter("Rescue Min Edge Score", DefaultValue = 0.62, MinValue = 0.45, MaxValue = 0.80)]
+        public double RescueMinimumEdgeScore { get; set; }
+
+        [Parameter("Capital Feasibility Gate", DefaultValue = false)]
+        public bool EnableCapitalFeasibilityGate { get; set; }
+
+        [Parameter("Transition State Veto", DefaultValue = true)]
+        public bool EnableTransitionStateVeto { get; set; }
+
+        [Parameter("Exhaustion Evidence Veto", DefaultValue = true)]
+        public bool EnableExhaustionEvidenceVeto { get; set; }
+
+        [Parameter("Qualified Dynamic Reroute", DefaultValue = false)]
+        public bool EnableQualifiedDynamicReroute { get; set; }
+
+        [Parameter("Reroute Min Robustness", DefaultValue = 0.62, MinValue = 0.50, MaxValue = 0.85)]
+        public double RerouteMinRobustness { get; set; }
+
+        [Parameter("Reroute Min Time Symmetry", DefaultValue = 0.35, MinValue = 0.20, MaxValue = 0.80)]
+        public double RerouteMinTimeSymmetry { get; set; }
+
+        [Parameter("Reroute Min Pivot Quality", DefaultValue = 0.35, MinValue = 0.20, MaxValue = 0.80)]
+        public double RerouteMinPivotQuality { get; set; }
+
+        [Parameter("Deferred Candidate Retention", DefaultValue = true)]
+        public bool EnableDeferredCandidateRetention { get; set; }
+
+        [Parameter("Frequency Aging Priority", DefaultValue = true)]
+        public bool EnableFrequencyAgingPriority { get; set; }
+
+        [Parameter("Candidate Age Rank Boost", DefaultValue = 0.08, MinValue = 0.0, MaxValue = 0.20)]
+        public double CandidateAgeRankBoost { get; set; }
+
+        [Parameter("Structured Recall Expansion", DefaultValue = true)]
+        public bool EnableStructuredRecallExpansion { get; set; }
+
+        [Parameter("Recall Min Geometry", DefaultValue = 0.72, MinValue = 0.60, MaxValue = 0.90)]
+        public double RecallMinGeometry { get; set; }
+
+        [Parameter("Recall Min PRZ", DefaultValue = 0.72, MinValue = 0.60, MaxValue = 0.90)]
+        public double RecallMinPrz { get; set; }
+
+        [Parameter("Recall Min Confidence", DefaultValue = 0.68, MinValue = 0.55, MaxValue = 0.90)]
+        public double RecallMinConfidence { get; set; }
+
+        [Parameter("Min Harmonic Robustness", DefaultValue = 0.56, MinValue = 0.40, MaxValue = 0.80)]
+        public double MinHarmonicRobustness { get; set; }
+
+        [Parameter("No-MFE Proof R", DefaultValue = 0.15, MinValue = 0.05, MaxValue = 0.40)]
+        public double NoMfeProofR { get; set; }
+
+        [Parameter("No-MFE Kill R", DefaultValue = 0.80, MinValue = 0.50, MaxValue = 1.20)]
+        public double NoMfeKillR { get; set; }
+
+        [Parameter("No-MFE Min Age Minutes", DefaultValue = 3.0, MinValue = 1.0, MaxValue = 30.0)]
+        public double NoMfeMinAgeMinutes { get; set; }
+
+        [Parameter("BreakEven Trigger R", DefaultValue = 1.0, MinValue = 0.8, MaxValue = 2.0)]
+        public double BreakEvenTriggerR { get; set; }
+
+        [Parameter("BreakEven Lock R", DefaultValue = 0.10, MinValue = 0.0, MaxValue = 0.50)]
+        public double BreakEvenLockR { get; set; }
+
+        [Parameter("Trail Trigger R", DefaultValue = 1.50, MinValue = 1.0, MaxValue = 3.0)]
+        public double TrailTriggerR { get; set; }
+
+        [Parameter("Trail Distance R", DefaultValue = 0.75, MinValue = 0.30, MaxValue = 1.50)]
+        public double TrailDistanceR { get; set; }
+
+        [Parameter("Evaluation Start UTC", DefaultValue = "")]
+        public string EvaluationStartUtcIso { get; set; }
+
+        private Symbol _symbol;
+        private Bars _h4Bars;
+        private Bars _h1Bars;
+        private Bars _m15Bars;
+        private Bars _m5Bars;
+        private TimeZoneInfo _londonTz;
+        private TimeZoneInfo _newYorkTz;
+
+        private readonly List<PatternProfile> _profiles = new List<PatternProfile>();
+        private readonly Dictionary<string, CandidateRecord> _candidates = new Dictionary<string, CandidateRecord>();
+        private readonly Dictionary<long, PositionLedger> _positions = new Dictionary<long, PositionLedger>();
+        private readonly Dictionary<string, PipelineCounter> _pipeline = new Dictionary<string, PipelineCounter>();
+        private readonly Dictionary<string, FibonacciBasket> _baskets = new Dictionary<string, FibonacciBasket>();
+        private long _basketSeq;
+        private int _gridRiskViolations;
+        private int _duplicateGridLegs;
+        private int _orphanPendingOrders;
+        private int _stopWideningViolations = 0;
+        private int _gapThroughInvalidations;
+        private int _gapThroughSurvivors;
+        private int _unprotectedSurvivors;
+        private int _postFillProtectionFailures;
+        private int _actualBasketRiskViolations;
+        private int _executionStateViolations;
+        private int _virtualGridFills;
+        private int _microModeBaskets;
+        private int _capitalRejectedBaskets;
+        private int _marginRiskViolations;
+        private int _alphaQualityRejected;
+        private int _regimeRejected;
+        private int _confirmationRejected;
+        private int _capitalInfeasibleCandidates;
+        private int _alphaPassed;
+        private int _schedulerDeferred;
+        private int _schedulerRecoveredExecutions;
+        private int _structuredRecallAdmitted;
+        private int _qualifiedRouteDeferred;
+        private int _qualifiedRouteRecovered;
+        private int _evidenceExecutable;
+        private int _survivalWaits;
+        private int _opportunityArbitrations;
+        private int _executionRiskRenormalizations;
+        private int _executionRiskRejects;
+        private int _shadowTargets;
+        private int _shadowStops;
+        private int _shadowUnresolved;
+        private int _portfolioEvaluated;
+        private int _portfolioAccepted;
+        private int _portfolioRejected;
+        private int _routeSpecializationRejected;
+        private int _stressQuarantineRejected;
+        private int _attributionObserved;
+        private int _rankFirstReleased;
+        private int _followThroughObserved;
+        private int _thesisFailureExits;
+        private int _coreAlphaAdmissions;
+        private int _rescueEvaluated;
+        private int _rescueAdmissions;
+        private int _rescueRejected;
+        private int _crossRegimeRejected;
+        private int _opportunityLossObserved;
+        private int _hypothesisResolutions;
+        private readonly HashSet<string> _deferredCandidates = new HashSet<string>();
+        private readonly Dictionary<string, CounterfactualShadow> _counterfactualShadows = new Dictionary<string, CounterfactualShadow>();
+        private readonly HashSet<string> _qualifiedRouteDeferredCandidates = new HashSet<string>();
+        private readonly HashSet<long> _postFillValidated = new HashSet<long>();
+        private readonly HashSet<long> _postFillInProgress = new HashSet<long>();
+
+        private DateTime _lastM15Closed = DateTime.MinValue;
+        private DateTime _lastM5Closed = DateTime.MinValue;
+        private DateTime _currentDay;
+        private double _dayStartEquity;
+        private double _equityPeak;
+        private bool _dailyLocked;
+        private long _candidateSeq;
+        private int _executionErrors;
+        private readonly Dictionary<string, int> _executionErrorReasons = new Dictionary<string, int>();
+        private DateTime? _evaluationStartUtc;
+        private double _initialEquity;
+        private bool _initialCapitalEligible;
+
+        protected override void OnStart()
+        {
+            _symbol = Symbols.GetSymbol(SymbolName);
+            if (_symbol == null)
+            {
+                Print("[V44-FATAL] SYMBOL_NOT_FOUND {0}", SymbolName);
+                Stop();
+                return;
+            }
+
+            _h4Bars = MarketData.GetBars(TimeFrame.Hour4, SymbolName);
+            _h1Bars = MarketData.GetBars(TimeFrame.Hour, SymbolName);
+            _m15Bars = MarketData.GetBars(TimeFrame.Minute15, SymbolName);
+            _m5Bars = MarketData.GetBars(TimeFrame.Minute5, SymbolName);
+
+            if (!BarsObjectsReady())
+            {
+                Print("[V44-FATAL] TIMEFRAME_OBJECT_LOAD_FAILED");
+                Stop();
+                return;
+            }
+
+            WarmupBars(_h4Bars, 230, "H4");
+            WarmupBars(_h1Bars, 230, "H1");
+            WarmupBars(_m15Bars, 360, "M15");
+            WarmupBars(_m5Bars, 160, "M5");
+
+            if (!BarsReady())
+                Print("[V44-WARMUP-PENDING] H4={0} H1={1} M15={2} M5={3}",
+                    Count(_h4Bars), Count(_h1Bars), Count(_m15Bars), Count(_m5Bars));
+
+            _londonTz = ResolveTimeZone("Europe/London", "GMT Standard Time");
+            _newYorkTz = ResolveTimeZone("America/New_York", "Eastern Standard Time");
+            if (_londonTz == null || _newYorkTz == null)
+            {
+                Print("[V44-FATAL] DST_TIMEZONE_UNAVAILABLE");
+                Stop();
+                return;
+            }
+
+            if (!string.IsNullOrWhiteSpace(EvaluationStartUtcIso))
+            {
+                DateTime parsed;
+                if (DateTime.TryParse(EvaluationStartUtcIso, CultureInfo.InvariantCulture,
+                    DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal, out parsed))
+                    _evaluationStartUtc = parsed;
+            }
+
+            BuildPatternProfiles();
+            _initialEquity = Account.Equity;
+            _initialCapitalEligible = _initialEquity + 1e-8 >= MinimumSupportedEquity;
+            _equityPeak = Account.Equity;
+            ResetDaily(true);
+
+            Positions.Closed += OnPositionClosed;
+            Positions.Opened += OnPositionOpened;
+            PendingOrders.Filled += OnPendingOrderFilled;
+
+            PrintBrokerCapabilityProfile();
+
+            Print("[V44-START] version={0} symbol={1} H4={2} H1={3} M15={4} M5={5} profiles={6}",
+                Version, SymbolName, Count(_h4Bars), Count(_h1Bars), Count(_m15Bars), Count(_m5Bars), _profiles.Count);
+            Print("[V44-TIMEFRAME-AUDIT] primaryPattern=M15 thesis=M15 primaryExecution=M5 evidenceAccumulation=true dualLane=true marginalAlphaAdmission=true attributionLedger=true followThrough=true macro=H4 intermediate=H1 m1StrategyDependency=false allCompletedBars=true candidateSurvival=true opportunityArbitration=true");
+            Print("[V44-SESSION-AUDIT] london={0} newYork={1} dstAware=true", _londonTz.Id, _newYorkTz.Id);
+            Print("[V44-ALPHA-CONFIG] qualityObservation={0} regimeGate={1} m15Gate={2} m5Refinement={3} capitalFeasibility={4} transitionVeto={5} exhaustionVeto={6}",
+                EnableHarmonicRobustnessGate, EnableRegimeContextGate, EnableM15ConfirmationGate, EnableM5ExecutionRefinement,
+                EnableCapitalFeasibilityGate, EnableTransitionStateVeto, EnableExhaustionEvidenceVeto);
+            Print("[V44-FREQUENCY-CONFIG] deferredRetention={0} agingPriority={1} ageBoost={2:F3} structuredRecall={3} qualifiedReroute={4} recallGeometry={5:F3} recallPrz={6:F3} recallConfidence={7:F3}",
+                EnableDeferredCandidateRetention, EnableFrequencyAgingPriority, CandidateAgeRankBoost, EnableStructuredRecallExpansion,
+                EnableQualifiedDynamicReroute, RecallMinGeometry, RecallMinPrz, RecallMinConfidence);
+            Print("[V44-EXECUTION-CONFIG] evidence={0} window={1} minBars={2} threshold={3:F3} survival={4} opportunityArbitration={5} shadowMinutes={6}",
+                EnableEvidenceAccumulation, EvidenceWindowM5Bars, EvidenceMinimumBars, EvidenceThreshold,
+                EnableCandidateSurvival, EnableOpportunityCostArbitration, CounterfactualShadowMinutes);
+            Print("[V44-PORTFOLIO-CONFIG] legacySelector={0} legacyRouteSpecialization={1} legacyStressQuarantine={2} minEdge={3:F3} maxStress={4:F3}",
+                EnableRegimePortfolioSelector, EnableRouteSpecialization, EnableStressQuarantine,
+                PortfolioMinEdgeScore, PortfolioMaxStressScore);
+            Print("[V44-ATTRIBUTION-CONFIG] attribution={0} legacyRankFirst={1} followThrough={2} thesisFailureExit={3} failureBars={4} failureFt={5:F3} givebackPeakR={6:F3} currentR={7:F3} lossCutR={8:F3}",
+                EnableAttributionLedger, EnableRankFirstPortfolio, EnableFollowThroughEngine, EnableThesisFailureExit,
+                ThesisFailureMinM5Bars, ThesisFailureFollowThroughScore, ThesisFailureGivebackPeakR,
+                ThesisFailureCurrentR, ThesisFailureLossCutR);
+            Print("[V44-MARGINAL-ALPHA-CONFIG] rescue={0} opportunityCost={1} rescueBars={2} minEvidence={3:F3} minFollow={4:F3} minEdge={5:F3}",
+                EnableMarginalRescueLane, EnableOpportunityCostEdgeModel, RescueMinimumBars,
+                RescueMinimumEvidence, RescueMinimumFollowThrough, RescueMinimumEdgeScore);
+            Print("[V44-CANONICAL-ARCH] canonicalGeometry={0} multiScalePivot={1} setupDedupe={2} patternNative={3} logicalGrid={4} auction={5} auctionMinutes={6}",
+                EnableCanonicalGeometryEngine, EnableMultiScalePivotGraph, EnableCanonicalSetupDedupe,
+                EnablePatternNativeExecution, EnableLogicalHarmonicGridAnchor, EnableOpportunityAuctionWindow, OpportunityAuctionMinutes);
+        }
+
+        protected override void OnStop()
+        {
+            CancelAllOwnPending("BOT_STOP");
+            EnsureServerProtection();
+            Positions.Closed -= OnPositionClosed;
+            Positions.Opened -= OnPositionOpened;
+            PendingOrders.Filled -= OnPendingOrderFilled;
+            foreach (var kv in _pipeline.OrderBy(k => k.Key))
+            {
+                var x = kv.Value;
+                Print("[V44-PIPELINE] pattern={0} detected={1} validated={2} routed={3} prz={4} confirming={5} armed={6} basketPlanned={7} leg0={8} leg1={9} leg2={10} leg3={11} basketClosed={12} executed={13} expired={14} rejected={15} invalidated={16}",
+                    kv.Key, x.Detected, x.Validated, x.Routed, x.PrzWaiting, x.Confirming, x.Armed, x.BasketPlanned,
+                    x.Leg0Executed, x.Leg1Filled, x.Leg2Filled, x.Leg3Filled, x.BasketClosed, x.Executed, x.Expired, x.Rejected, x.Invalidated);
+            }
+            Print("[V44-SUMMARY] candidates={0} baskets={1} openLedgers={2} executionErrors={3} gridRiskViolations={4} duplicateGridLegs={5} orphanPendingOrders={6} stopWideningViolations={7} gapThroughInvalidations={8} gapThroughSurvivors={9} unprotectedSurvivors={10} postFillProtectionFailures={11} actualBasketRiskViolations={12} executionStateViolations={13} virtualGridFills={14} microModeBaskets={15} capitalRejectedBaskets={16} marginRiskViolations={17}",
+                _candidateSeq, _baskets.Count, _positions.Count, _executionErrors, _gridRiskViolations, _duplicateGridLegs, _orphanPendingOrders, _stopWideningViolations,
+                _gapThroughInvalidations, _gapThroughSurvivors, _unprotectedSurvivors, _postFillProtectionFailures, _actualBasketRiskViolations, _executionStateViolations,
+                _virtualGridFills, _microModeBaskets, _capitalRejectedBaskets, _marginRiskViolations);
+            Print("[V44-ALPHA-SUMMARY] qualityRejected={0} regimeRejected={1} confirmationRejected={2} capitalInfeasible={3} alphaPassed={4}",
+                _alphaQualityRejected, _regimeRejected, _confirmationRejected, _capitalInfeasibleCandidates, _alphaPassed);
+            Print("[V44-FREQUENCY-SUMMARY] schedulerDeferred={0} schedulerRecoveredExecutions={1} structuredRecallAdmitted={2} activeDeferred={3} routeDeferred={4} routeRecovered={5}",
+                _schedulerDeferred, _schedulerRecoveredExecutions, _structuredRecallAdmitted, _deferredCandidates.Count,
+                _qualifiedRouteDeferred, _qualifiedRouteRecovered);
+            Print("[V44-EXECUTION-SUMMARY] evidenceExecutable={0} survivalWaits={1} opportunityArbitrations={2} riskRenormalizations={3} riskRejects={4} shadowTargets={5} shadowStops={6} shadowUnresolved={7}",
+                _evidenceExecutable, _survivalWaits, _opportunityArbitrations, _executionRiskRenormalizations,
+                _executionRiskRejects, _shadowTargets, _shadowStops, _shadowUnresolved);
+            Print("[V44-PORTFOLIO-SUMMARY] evaluated={0} accepted={1} rejected={2} routeSpecializationRejected={3} stressQuarantineRejected={4}",
+                _portfolioEvaluated, _portfolioAccepted, _portfolioRejected, _routeSpecializationRejected, _stressQuarantineRejected);
+            Print("[V44-ATTRIBUTION-SUMMARY] observed={0} legacyRankFirstReleased={1} followThroughObserved={2} thesisFailureExits={3}",
+                _attributionObserved, _rankFirstReleased, _followThroughObserved, _thesisFailureExits);
+            Print("[V44-MARGINAL-ALPHA-SUMMARY] coreAdmissions={0} rescueEvaluated={1} rescueAdmissions={2} rescueRejected={3}",
+                _coreAlphaAdmissions, _rescueEvaluated, _rescueAdmissions, _rescueRejected);
+            Print("[V44-CROSS-REGIME-SUMMARY] rejected={0} opportunityLossObserved={1} hypothesisResolutions={2}",
+                _crossRegimeRejected, _opportunityLossObserved, _hypothesisResolutions);
+            foreach (var kv in _executionErrorReasons.OrderBy(k => k.Key))
+                Print("[V44-EXECUTION-ERROR-SUMMARY] code={0} count={1}", kv.Key, kv.Value);
+        }
+
+        protected override void OnBar()
+        {
+            try
+            {
+                if (!BarsReady()) return;
+                ResetDaily(false);
+                UpdateRiskLocks();
+
+                ProcessNewM15Close();
+                if (EnableM5ExecutionRefinement)
+                    ProcessNewM5Close();
+            }
+            catch (Exception ex)
+            {
+                RecordExecutionError("EXCEPTION_ONBAR", ex.GetType().Name + ":" + ex.Message);
+            }
+        }
+
+        protected override void OnTick()
+        {
+            try
+            {
+                ResetDaily(false);
+                UpdateRiskLocks();
+                ReconcileAndManageBaskets();
+            }
+            catch (Exception ex)
+            {
+                RecordExecutionError("EXCEPTION_ONTICK", ex.GetType().Name + ":" + ex.Message);
+            }
+        }
+
+        private void ProcessNewM15Close()
+        {
+            int i = LastClosedIndex(_m15Bars);
+            if (i < 50) return;
+            DateTime t = _m15Bars.OpenTimes[i];
+            if (t <= _lastM15Closed) return;
+            _lastM15Closed = t;
+
+            double atr = Atr(_m15Bars, 14, i);
+            if (atr <= 0) return;
+
+            var h4State = GetActiveHarmonicState(_h4Bars, H4SwingDepth, 220, 3);
+            var h1State = GetActiveHarmonicState(_h1Bars, H1SwingDepth, 260, 4);
+            var regime = BuildRegimeSnapshot();
+            DateTime utc = Server.Time.ToUniversalTime();
+
+            ReevaluateQualifiedRoutes(h4State, h1State, regime, utc);
+            AdvanceCandidateLifecycleOnBars(_m15Bars, i, utc, "M15", !EnableM5ExecutionRefinement);
+
+            var detected = DetectPatternCandidates(_m15Bars, i, M15SwingDepth, M15SwingLookback, PortfolioMaxCandidates, "M15");
+
+            foreach (var signal in detected)
+            {
+                var selectedSignal = EnablePatternHypothesisSet
+                    ? SelectContextualHypothesis(signal, h4State, h1State, regime)
+                    : signal;
+                if (selectedSignal == null) continue;
+                if (EnablePatternHypothesisSet && !string.IsNullOrWhiteSpace(selectedSignal.HypothesisNames))
+                {
+                    _hypothesisResolutions++;
+                    Print("[V44-HYPOTHESIS] setup={0} selected={1} hypotheses={2}",
+                        BuildSetupGeometryKey(selectedSignal), selectedSignal.PatternName, selectedSignal.HypothesisNames);
+                }
+                string canonicalKey = BuildCanonicalCandidateKey(selectedSignal);
+                if (_candidates.Values.Any(x => x.CanonicalCandidateKey == canonicalKey)) continue;
+                string id = NewCandidateId(selectedSignal);
+
+                var record = new CandidateRecord
+                {
+                    CandidateId = id,
+                    CanonicalCandidateKey = canonicalKey,
+                    Lane = "UNASSIGNED",
+                    Signal = selectedSignal,
+                    State = CandidateState.DETECTED,
+                    DetectedUtc = Server.Time.ToUniversalTime(),
+                    ExpiryUtc = Server.Time.ToUniversalTime().AddMinutes(15.0 * Math.Max(2, Math.Min(CandidateTtlM15Bars, selectedSignal.Profile.MaxAgeM15Bars))),
+                    LastReason = "PATTERN_DETECTED"
+                };
+                _candidates[id] = record;
+                CountPipeline(selectedSignal.PatternName).Detected++;
+                Ledger(record, CandidateState.DETECTED, "PATTERN_DETECTED");
+
+                if (selectedSignal.GeometryQuality < Math.Max(MinGeometryQuality, selectedSignal.Profile.MinGeometry) ||
+                    selectedSignal.PrzConfluence < Math.Max(MinPrzConfluence, selectedSignal.Profile.MinPrz))
+                {
+                    Reject(record, "PATTERN_QUALITY");
+                    continue;
+                }
+
+                record.AlphaQualityScore = HarmonicRobustnessScore(selectedSignal);
+                if (EnableHarmonicRobustnessGate && !HarmonicRobustnessEligible(selectedSignal, record.AlphaQualityScore))
+                {
+                    _alphaQualityRejected++;
+                    Event(record, "HARMONIC_ROBUSTNESS_OBSERVATION_ONLY");
+                }
+
+                Transition(record, CandidateState.VALIDATED, "PATTERN_VALIDATED");
+                CountPipeline(selectedSignal.PatternName).Validated++;
+
+                record.Conflict = ClassifyMtfConflict(selectedSignal.Direction, h4State, h1State);
+                record.Regime = regime;
+                record.RegimeScore = RegimeContextScore(selectedSignal, record.Conflict, regime);
+                record.HtfContextConfidence = EnableStructuralContextVector
+                    ? StructuralContextConfidence(selectedSignal, record.Conflict, regime)
+                    : record.RegimeScore;
+                record.PatternHypotheses = selectedSignal.HypothesisNames;
+                record.Route = RouteSignal(selectedSignal, record.Conflict, regime);
+
+                if (record.Route == HarmonicRoute.NO_TRADE)
+                {
+                    if (EnableRegimeContextGate) _regimeRejected++;
+                    if (EnableQualifiedDynamicReroute && QualifiedDynamicRerouteEligible(record, record.Conflict, regime))
+                    {
+                        if (_qualifiedRouteDeferredCandidates.Add(record.CandidateId))
+                            _qualifiedRouteDeferred++;
+                        Event(record, "ROUTER_DEFERRED_QUALIFIED");
+                        continue;
+                    }
+                    Reject(record, "ROUTER_NO_TRADE");
+                    continue;
+                }
+
+                if (EnableCapitalFeasibilityGate)
+                {
+                    double minL0Risk, minL0Margin;
+                    record.CapitalFeasible = CapitalFeasibilityEligible(record, out minL0Risk, out minL0Margin);
+                    record.CapitalMinL0Risk = minL0Risk;
+                    record.CapitalMinL0Margin = minL0Margin;
+                    if (!record.CapitalFeasible)
+                    {
+                        _capitalInfeasibleCandidates++;
+                        Reject(record, "CAPITAL_INFEASIBLE_PRECHECK");
+                        continue;
+                    }
+                }
+                else record.CapitalFeasible = true;
+
+                Print("[V44-ALPHA-CANDIDATE] cid={0} pattern={1} quality={2:F3} regime={3:F3} conflict={4} route={5} adxH1={6:F2} adxH4={7:F2} adxSlope={8:F2} atrPct={9:F3} efficiency={10:F3} capitalFeasible={11} minL0Risk={12:F4}",
+                    record.CandidateId, selectedSignal.PatternName, record.AlphaQualityScore, record.RegimeScore, record.Conflict, record.Route,
+                    regime.AdxH1, regime.AdxH4, regime.AdxH1Slope, regime.AtrPercentile, regime.Efficiency,
+                    record.CapitalFeasible, record.CapitalMinL0Risk);
+
+                Transition(record, CandidateState.ROUTED, "ROUTE_" + record.Route);
+                CountPipeline(selectedSignal.PatternName).Routed++;
+                Transition(record, CandidateState.WAIT_PRZ, "WAIT_PRZ");
+                CountPipeline(selectedSignal.PatternName).PrzWaiting++;
+            }
+
+            TrimCandidateBook();
+            TryScheduleAndExecute();
+        }
+
+        private void ProcessNewM5Close()
+        {
+            if (!EnableM5ExecutionRefinement) return;
+            int i = LastClosedIndex(_m5Bars);
+            if (i < 10) return;
+            DateTime t = _m5Bars.OpenTimes[i];
+            if (t <= _lastM5Closed) return;
+            _lastM5Closed = t;
+            DateTime utc = Server.Time.ToUniversalTime();
+
+            UpdateCounterfactualShadows(_m5Bars, i, utc);
+            UpdateActiveBasketFollowThrough(_m5Bars, i, utc);
+            AdvanceCandidateLifecycleOnBars(_m5Bars, i, utc, "M5", true);
+            TryScheduleAndExecute();
+        }
+
+        private void AdvanceCandidateLifecycleOnBars(Bars bars, int i, DateTime utc, string executionTf, bool allowArm)
+        {
+            if (bars == null || i < 3 || i >= bars.Count) return;
+
+            foreach (var c in _candidates.Values.Where(x => x.IsActive).ToList())
+            {
+                if (utc >= c.ExpiryUtc)
+                {
+                    AddCounterfactualShadow(c, "TTL_EXPIRED", utc);
+                    Expire(c, "TTL_EXPIRED");
+                    _qualifiedRouteDeferredCandidates.Remove(c.CandidateId);
+                    continue;
+                }
+
+                if (PatternInvalidatedBeforeEntry(c.Signal))
+                {
+                    AddCounterfactualShadow(c, "STRUCTURAL_INVALIDATION", utc);
+                    Invalidate(c, "STRUCTURAL_INVALIDATION");
+                    _qualifiedRouteDeferredCandidates.Remove(c.CandidateId);
+                    continue;
+                }
+
+                if (c.State == CandidateState.WAIT_PRZ)
+                {
+                    if (BarTouchesPrz(bars, i, c.Signal))
+                    {
+                        c.PrzTouchUtc = utc;
+                        c.EvidenceScores.Clear();
+                        c.EvidenceBarsObserved = 0;
+                        c.EvidenceComposite = 0;
+                        c.TemporalStage = 0;
+                        c.TemporalStateScore = 0;
+                        Transition(c, CandidateState.PRZ_TOUCHED, "PRZ_TOUCHED_" + executionTf);
+                        CountPipeline(c.Signal.PatternName).Confirming++;
+                    }
+                    continue;
+                }
+
+                if (c.State == CandidateState.PRZ_TOUCHED)
+                {
+                    if (!allowArm) continue;
+                    if (!c.PrzTouchUtc.HasValue || utc <= c.PrzTouchUtc.Value) continue;
+                    Transition(c, CandidateState.EVIDENCE_BUILDING, "EVIDENCE_BUILDING_" + executionTf);
+                }
+
+                if (c.State != CandidateState.EVIDENCE_BUILDING || !allowArm)
+                    continue;
+
+                if (!c.PrzTouchUtc.HasValue || utc <= c.PrzTouchUtc.Value)
+                    continue;
+
+                double barScore = ExecutionConfirmationScore(bars, i, c.Signal);
+                c.TemporalStateScore = EnablePatternTemporalStateMachine
+                    ? UpdatePatternTemporalState(bars, i, c)
+                    : barScore;
+                if (EnablePatternTemporalStateMachine)
+                    barScore = VClamp(.70 * barScore + .30 * c.TemporalStateScore);
+                c.ConfirmationScore = barScore;
+                c.EvidenceBarsObserved++;
+                c.EvidenceScores.Add(barScore);
+                while (c.EvidenceScores.Count > Math.Max(2, EvidenceWindowM5Bars))
+                    c.EvidenceScores.RemoveAt(0);
+
+                c.EvidenceComposite = EvidenceCompositeScore(c);
+                double threshold = executionTf == "M5" ? EvidenceThreshold : M15MinConfirmationScore;
+                if (c.Route == HarmonicRoute.EXHAUSTION_REVERSAL) threshold += .05;
+                else if (c.Route == HarmonicRoute.TRANSITION_REVERSAL) threshold += .03;
+                threshold = Math.Min(.85, threshold);
+
+                bool sufficientBars = !EnableEvidenceAccumulation || c.EvidenceBarsObserved >= Math.Max(1, EvidenceMinimumBars);
+                bool evidencePass = !EnableEvidenceAccumulation
+                    ? barScore >= (executionTf == "M5" ? M5MinConfirmationScore : M15MinConfirmationScore)
+                    : sufficientBars && c.EvidenceComposite >= threshold;
+
+                c.FollowThroughScore = EnableFollowThroughEngine ? FollowThroughScore(bars, i, c) : c.EvidenceComposite;
+                if (EnableFollowThroughEngine) _followThroughObserved++;
+                c.RegimeStressScore = RegimeStressScore(c);
+                c.RouteFitScore = RouteFitScore(c);
+
+                Print("[V44-EVIDENCE] cid={0} key={1} tf={2} barScore={3:F3} composite={4:F3} follow={5:F3} bars={6} threshold={7:F3} pass={8}",
+                    c.CandidateId, c.CanonicalCandidateKey, executionTf, barScore, c.EvidenceComposite, c.FollowThroughScore,
+                    c.EvidenceBarsObserved, threshold, evidencePass);
+
+                if (!sufficientBars)
+                {
+                    Event(c, executionTf + "_EVIDENCE_ACCUMULATING_" + c.EvidenceComposite.ToString("F2", CultureInfo.InvariantCulture));
+                    continue;
+                }
+
+                bool admitted = false;
+                if (evidencePass)
+                {
+                    c.Lane = "CORE_ALPHA";
+                    c.EvidencePassedAtAdmission = true;
+                    _coreAlphaAdmissions++;
+                    admitted = true;
+                }
+                else
+                {
+                    _confirmationRejected++;
+                    if (!EnableMarginalRescueLane)
+                    {
+                        if (EnableCandidateSurvival)
+                        {
+                            _survivalWaits++;
+                            Event(c, executionTf + "_CORE_EVIDENCE_SURVIVE_" + c.EvidenceComposite.ToString("F2", CultureInfo.InvariantCulture));
+                            continue;
+                        }
+                        AddCounterfactualShadow(c, "CORE_EVIDENCE_REJECT", utc);
+                        Reject(c, executionTf + "_CORE_EVIDENCE_REJECT");
+                        continue;
+                    }
+
+                    if (c.EvidenceBarsObserved < Math.Max(EvidenceMinimumBars, RescueMinimumBars))
+                    {
+                        _survivalWaits++;
+                        Event(c, executionTf + "_RESCUE_EVIDENCE_ACCUMULATING");
+                        continue;
+                    }
+
+                    _rescueEvaluated++;
+                    c.MarginalRescueScore = MarginalRescueScore(c);
+                    bool rescuePass = MarginalRescueEligible(c);
+                    Print("[V44-MARGINAL-RESCUE] cid={0} key={1} pattern={2} route={3} evidence={4:F3} follow={5:F3} routeFit={6:F3} stress={7:F3} score={8:F3} pass={9}",
+                        c.CandidateId, c.CanonicalCandidateKey, c.Signal.PatternName, c.Route, c.EvidenceComposite,
+                        c.FollowThroughScore, c.RouteFitScore, c.RegimeStressScore, c.MarginalRescueScore, rescuePass);
+
+                    if (!rescuePass)
+                    {
+                        _rescueRejected++;
+                        _survivalWaits++;
+                        Event(c, executionTf + "_MARGINAL_RESCUE_SURVIVE_" + c.MarginalRescueScore.ToString("F2", CultureInfo.InvariantCulture));
+                        continue;
+                    }
+
+                    c.Lane = "MARGINAL_RESCUE";
+                    c.EvidencePassedAtAdmission = false;
+                    _rescueAdmissions++;
+                    admitted = true;
+                }
+
+                if (!admitted) continue;
+
+                if (!TryBuildFibonacciGridPlan(c))
+                {
+                    if (EnableCandidateSurvival)
+                    {
+                        _survivalWaits++;
+                        c.GridPlan = null;
+                        Event(c, "GRID_PLAN_DEFERRED_SURVIVAL");
+                        continue;
+                    }
+                    AddCounterfactualShadow(c, "FIB_GRID_PLAN_REJECTED", utc);
+                    Reject(c, "FIB_GRID_PLAN_REJECTED");
+                    continue;
+                }
+
+                c.AttributionScore = AttributionScore(c);
+                c.PortfolioEdgeScore = c.AttributionScore;
+                c.CrossRegimeAdmissionScore = CrossRegimeAdmissionScore(c);
+                c.RobustAlphaDensity = EnableRobustAlphaDensity ? RobustAlphaDensityScore(c) : c.AttributionScore;
+                if (EnableCrossRegimeAlphaAdmission && !CrossRegimeAlphaEligible(c))
+                {
+                    _crossRegimeRejected++;
+                    AddCounterfactualShadow(c, "CROSS_REGIME_ALPHA_REJECT", utc);
+                    Reject(c, "CROSS_REGIME_ALPHA_REJECT");
+                    continue;
+                }
+                if (!PortfolioExecutionEligible(c))
+                {
+                    _portfolioRejected++;
+                    AddCounterfactualShadow(c, "PORTFOLIO_EXECUTION_REJECT", utc);
+                    Reject(c, "PORTFOLIO_EXECUTION_REJECT");
+                    continue;
+                }
+                _portfolioAccepted++;
+                c.Rank = CandidateRank(c);
+                _alphaPassed++;
+                _evidenceExecutable++;
+                if (EnableAttributionLedger) PrintCandidateAttribution(c, executionTf, evidencePass);
+                Transition(c, CandidateState.EXECUTABLE, executionTf + "_" + c.Lane + "_EXECUTABLE");
+                CountPipeline(c.Signal.PatternName).Armed++;
+            }
+        }
+
+        private double EvidenceCompositeScore(CandidateRecord c)
+        {
+            if (c == null || c.EvidenceScores == null || c.EvidenceScores.Count == 0) return 0;
+            double latest = c.EvidenceScores[c.EvidenceScores.Count - 1];
+            double max = c.EvidenceScores.Max();
+            double mean = c.EvidenceScores.Average();
+            double persistence = c.EvidenceScores.Count(x => x >= .50) / (double)c.EvidenceScores.Count;
+            return VClamp(.30 * latest + .30 * max + .25 * mean + .15 * persistence);
+        }
+
+        private double RegimeStressScore(CandidateRecord c)
+        {
+            if (c == null || c.Signal == null || c.Regime == null) return 1.0;
+            var r = c.Regime;
+            bool opposed = r.TrendDirection != TradeDirection.Neutral && r.TrendDirection != c.Signal.Direction;
+            double volStress = VClamp(Math.Abs(r.AtrRatio - 1.0) / .80);
+            double lowEfficiency = 1.0 - VClamp(r.Efficiency / .30);
+            double strengtheningOpposition = opposed ? VClamp(Math.Max(0, r.AdxH1Slope) / 5.0) : 0;
+            double transitionStress = (r.Transition || c.Conflict == MtfConflict.TRANSITION) ? .45 : 0;
+            double mtfStress = c.Conflict == MtfConflict.CONFLICT ? 1.0 :
+                               c.Conflict == MtfConflict.TRANSITION ? .55 :
+                               c.Conflict == MtfConflict.NEUTRAL ? .30 : .10;
+            return VClamp(.28 * volStress + .22 * lowEfficiency + .24 * strengtheningOpposition +
+                          .14 * transitionStress + .12 * mtfStress);
+        }
+
+        private double PortfolioEdgeScore(CandidateRecord c)
+        {
+            if (c == null || c.Signal == null || c.Regime == null || c.GridPlan == null) return 0;
+            double mtf = c.Conflict == MtfConflict.ALIGNED ? 1.0 :
+                         c.Conflict == MtfConflict.SUPPORTED ? .90 :
+                         c.Conflict == MtfConflict.NEUTRAL ? .65 :
+                         c.Conflict == MtfConflict.TRANSITION ? .50 : .15;
+            double structural = HarmonicRobustnessScore(c.Signal);
+            double evidence = VClamp(Math.Max(c.EvidenceComposite, c.ConfirmationScore));
+            double rr = VClamp(c.NetRR / 3.0);
+            double regime = VClamp(c.RegimeScore);
+            double stress = RegimeStressScore(c);
+            return VClamp(.28 * structural + .22 * evidence + .18 * regime + .14 * mtf + .18 * rr - .18 * stress);
+        }
+
+        private bool RouteSpecializationEligible(CandidateRecord c)
+        {
+            if (c == null || c.Signal == null || c.Regime == null) return false;
+            var r = c.Regime;
+            double ev = Math.Max(c.EvidenceComposite, c.ConfirmationScore);
+
+            if (c.Route == HarmonicRoute.TREND_ALIGNED_REVERSAL)
+                return r.TrendDirection == c.Signal.Direction &&
+                       c.Conflict != MtfConflict.CONFLICT &&
+                       r.Efficiency >= .18 &&
+                       r.AtrRatio >= .55 && r.AtrRatio <= 1.65 &&
+                       ev >= .52;
+
+            if (c.Route == HarmonicRoute.EXHAUSTION_REVERSAL)
+                return r.TrendDirection != TradeDirection.Neutral &&
+                       r.TrendDirection != c.Signal.Direction &&
+                       r.ExtensionAtr >= 1.30 &&
+                       r.AdxH1Slope <= .25 &&
+                       c.Signal.GeometryQuality >= .70 &&
+                       c.Signal.PrzConfluence >= .70 &&
+                       ev >= .56;
+
+            if (c.Route == HarmonicRoute.TRANSITION_REVERSAL)
+                return (r.Transition || c.Conflict == MtfConflict.TRANSITION) &&
+                       r.AdxH1Slope <= .50 &&
+                       c.Signal.GeometryQuality >= .72 &&
+                       c.Signal.PrzConfluence >= .72 &&
+                       ev >= .60;
+
+            return false;
+        }
+
+        private bool PortfolioExecutionEligible(CandidateRecord c)
+        {
+            if (c == null) return false;
+            _portfolioEvaluated++;
+
+            if (EnableStressQuarantine)
+            {
+                bool hardStress = c.RegimeStressScore > PortfolioMaxStressScore ||
+                                  c.Regime == null ||
+                                  c.Regime.AtrRatio < .50 || c.Regime.AtrRatio > 1.75 ||
+                                  c.Conflict == MtfConflict.CONFLICT;
+                if (hardStress)
+                {
+                    _stressQuarantineRejected++;
+                    Print("[V44-PORTFOLIO-REJECT] cid={0} reason=STRESS score={1:F3} edge={2:F3} route={3}",
+                        c.CandidateId, c.RegimeStressScore, c.PortfolioEdgeScore, c.Route);
+                    return false;
+                }
+            }
+
+            if (EnableRouteSpecialization && !RouteSpecializationEligible(c))
+            {
+                _routeSpecializationRejected++;
+                Print("[V44-PORTFOLIO-REJECT] cid={0} reason=ROUTE_SPECIALIZATION stress={1:F3} edge={2:F3} route={3}",
+                    c.CandidateId, c.RegimeStressScore, c.PortfolioEdgeScore, c.Route);
+                return false;
+            }
+
+            if (EnableRegimePortfolioSelector && c.PortfolioEdgeScore < PortfolioMinEdgeScore)
+            {
+                Print("[V44-PORTFOLIO-REJECT] cid={0} reason=EDGE_SCORE stress={1:F3} edge={2:F3} route={3}",
+                    c.CandidateId, c.RegimeStressScore, c.PortfolioEdgeScore, c.Route);
+                return false;
+            }
+
+            Print("[V44-PORTFOLIO-ACCEPT] cid={0} pattern={1} route={2} edge={3:F3} stress={4:F3} evidence={5:F3} netRR={6:F3}",
+                c.CandidateId, c.Signal.PatternName, c.Route, c.PortfolioEdgeScore, c.RegimeStressScore,
+                c.EvidenceComposite, c.NetRR);
+            return true;
+        }
+
+        private double RouteFitScore(CandidateRecord c)
+        {
+            if (c == null || c.Signal == null || c.Regime == null) return 0;
+            var r = c.Regime;
+            bool aligned = r.TrendDirection == c.Signal.Direction;
+            bool opposed = r.TrendDirection != TradeDirection.Neutral && !aligned;
+            if (c.Route == HarmonicRoute.TREND_ALIGNED_REVERSAL)
+                return VClamp((aligned ? .55 : .10) + .20 * VClamp(r.Efficiency / .30) +
+                              .15 * (1.0 - VClamp(Math.Abs(r.AtrRatio - 1.0) / .80)) +
+                              .10 * (c.Conflict == MtfConflict.ALIGNED || c.Conflict == MtfConflict.SUPPORTED ? 1.0 : .35));
+            if (c.Route == HarmonicRoute.EXHAUSTION_REVERSAL)
+                return VClamp((opposed ? .30 : .05) + .30 * VClamp(r.ExtensionAtr / 2.0) +
+                              .20 * VClamp((-r.AdxH1Slope + 1.0) / 2.0) +
+                              .20 * VClamp(c.Signal.PrzConfluence));
+            if (c.Route == HarmonicRoute.TRANSITION_REVERSAL)
+                return VClamp((r.Transition || c.Conflict == MtfConflict.TRANSITION ? .45 : .10) +
+                              .20 * (1.0 - VClamp(Math.Abs(r.AtrRatio - 1.0) / .80)) +
+                              .20 * VClamp(c.Signal.GeometryQuality) + .15 * VClamp(c.Signal.TimeSymmetry));
+            return .05;
+        }
+
+        private double FollowThroughScore(Bars bars, int i, CandidateRecord c)
+        {
+            if (bars == null || c == null || c.Signal == null || i < 2 || i >= bars.Count) return 0;
+            double atr = Atr(bars, 14, i);
+            if (atr <= 0) return 0;
+            double close = bars.ClosePrices[i], prevClose = bars.ClosePrices[i - 1];
+            double high = bars.HighPrices[i], low = bars.LowPrices[i];
+            double prevHigh = bars.HighPrices[i - 1], prevLow = bars.LowPrices[i - 1];
+            double open = bars.OpenPrices[i];
+            double range = Math.Max(high - low, _symbol.PipSize);
+            double body = Math.Abs(close - open);
+            double sign = c.Signal.Direction == TradeDirection.Buy ? 1.0 : -1.0;
+            double progress = VClamp(sign * (close - prevClose) / Math.Max(atr * .35, _symbol.PipSize));
+            double bos = c.Signal.Direction == TradeDirection.Buy ? (close > prevHigh ? 1.0 : 0.0) : (close < prevLow ? 1.0 : 0.0);
+            double closeLocation = c.Signal.Direction == TradeDirection.Buy ? VClamp((close - low) / range) : VClamp((high - close) / range);
+            double displacement = VClamp(body / Math.Max(atr * .50, _symbol.PipSize));
+            double przEscape = c.Signal.Direction == TradeDirection.Buy
+                ? VClamp((close - c.Signal.PrzHigh) / Math.Max(atr * .50, _symbol.PipSize))
+                : VClamp((c.Signal.PrzLow - close) / Math.Max(atr * .50, _symbol.PipSize));
+            return VClamp(.25 * progress + .20 * bos + .20 * closeLocation + .15 * displacement + .20 * przEscape);
+        }
+
+        private double AttributionScore(CandidateRecord c)
+        {
+            if (c == null || c.Signal == null || c.Regime == null || c.GridPlan == null) return 0;
+            double structural = VClamp(.32 * c.Signal.GeometryQuality + .24 * c.Signal.PrzConfluence +
+                                       .22 * c.Signal.TimeSymmetry + .22 * c.Signal.PivotQuality);
+            double mtf = c.Conflict == MtfConflict.ALIGNED ? 1.0 :
+                         c.Conflict == MtfConflict.SUPPORTED ? .88 :
+                         c.Conflict == MtfConflict.NEUTRAL ? .62 :
+                         c.Conflict == MtfConflict.TRANSITION ? .52 : .15;
+            double evidence = VClamp(c.EvidenceComposite);
+            double follow = EnableFollowThroughEngine ? VClamp(c.FollowThroughScore) : evidence;
+            double rr = VClamp(c.NetRR / 3.0);
+            double regime = VClamp(c.RegimeScore);
+            double route = VClamp(c.RouteFitScore);
+            double stress = VClamp(c.RegimeStressScore);
+            return VClamp(.24 * structural + .18 * follow + .12 * evidence + .14 * regime +
+                          .10 * mtf + .10 * route + .12 * rr - .12 * stress);
+        }
+
+        private double MarginalRescueScore(CandidateRecord c)
+        {
+            if (c == null || c.Signal == null || c.Regime == null) return 0;
+            double structural = VClamp(.30 * c.Signal.GeometryQuality + .25 * c.Signal.PrzConfluence +
+                                       .20 * c.Signal.TimeSymmetry + .25 * c.Signal.PivotQuality);
+            double evidence = VClamp(c.EvidenceComposite);
+            double follow = VClamp(c.FollowThroughScore);
+            double regime = VClamp(c.RegimeScore);
+            double route = VClamp(c.RouteFitScore);
+            double stress = VClamp(c.RegimeStressScore);
+            double mtf = c.Conflict == MtfConflict.ALIGNED ? 1.0 :
+                         c.Conflict == MtfConflict.SUPPORTED ? .88 :
+                         c.Conflict == MtfConflict.NEUTRAL ? .62 :
+                         c.Conflict == MtfConflict.TRANSITION ? .50 : .10;
+            return VClamp(.24 * structural + .24 * follow + .14 * evidence + .12 * regime +
+                          .10 * route + .10 * mtf - .14 * stress);
+        }
+
+        private bool MarginalRescueEligible(CandidateRecord c)
+        {
+            if (c == null || c.Signal == null || c.Regime == null) return false;
+            if (c.Conflict == MtfConflict.CONFLICT) return false;
+            if (c.EvidenceComposite < RescueMinimumEvidence) return false;
+            if (c.FollowThroughScore < RescueMinimumFollowThrough) return false;
+            if (c.RegimeStressScore > .70) return false;
+            if (c.RouteFitScore < .40) return false;
+            return c.MarginalRescueScore >= RescueMinimumEdgeScore;
+        }
+
+        private void PrintCandidateAttribution(CandidateRecord c, string tf, bool evidencePass)
+        {
+            if (c == null || c.Signal == null || c.Regime == null) return;
+            _attributionObserved++;
+            Print("[V44-ATTRIBUTION] cid={0} key={1} lane={2} pattern={3} route={4} dir={5} tf={6} conflict={7} geom={8:F3} prz={9:F3} time={10:F3} pivot={11:F3} conf={12:F3} alpha={13:F3} regime={14:F3} atrRatio={15:F3} atrPct={16:F3} efficiency={17:F3} extensionAtr={18:F3} adxH1={19:F3} adxH4={20:F3} adxSlope={21:F3} evidence={22:F3} evidencePass={23} follow={24:F3} routeFit={25:F3} stress={26:F3} netRR={27:F3} attr={28:F3} rescue={29:F3} rank={30:F3} htfContext={31:F3} temporal={32:F3} crossRegime={33:F3} alphaDensity={34:F3} regimeClass={35} hypotheses={36}",
+                c.CandidateId, c.CanonicalCandidateKey, c.Lane, c.Signal.PatternName, c.Route, c.Signal.Direction, tf, c.Conflict,
+                c.Signal.GeometryQuality, c.Signal.PrzConfluence, c.Signal.TimeSymmetry, c.Signal.PivotQuality, c.Signal.Confidence,
+                c.AlphaQualityScore, c.RegimeScore, c.Regime.AtrRatio, c.Regime.AtrPercentile, c.Regime.Efficiency,
+                c.Regime.ExtensionAtr, c.Regime.AdxH1, c.Regime.AdxH4, c.Regime.AdxH1Slope,
+                c.EvidenceComposite, evidencePass, c.FollowThroughScore, c.RouteFitScore, c.RegimeStressScore,
+                c.NetRR, c.AttributionScore, c.MarginalRescueScore, c.Rank,
+                c.HtfContextConfidence, c.TemporalStateScore, c.CrossRegimeAdmissionScore, c.RobustAlphaDensity,
+                c.Regime.RegimeClass, string.IsNullOrWhiteSpace(c.PatternHypotheses) ? c.Signal.PatternName : c.PatternHypotheses);
+        }
+
+        private void UpdateActiveBasketFollowThrough(Bars bars, int i, DateTime utc)
+        {
+            if (!EnableThesisFailureExit || bars == null || i < 2) return;
+            foreach (var basket in _baskets.Values.Where(b => b.IsActive).ToList())
+            {
+                var positions = OwnPositions().Where(p => LabelBasketId(p.Label) == basket.BasketId).ToList();
+                if (positions.Count == 0 || basket.Candidate == null) continue;
+                double score = FollowThroughScore(bars, i, basket.Candidate);
+                basket.LastFollowThroughScore = score;
+                basket.FollowThroughBarsObserved++;
+                if (score < ThesisFailureFollowThroughScore) basket.WeakFollowThroughBars++;
+                else basket.WeakFollowThroughBars = 0;
+
+                double currentNet = positions.Sum(p => p.NetProfit);
+                double currentR = basket.InitialBasketRisk > 0 ? (basket.RealizedNet + currentNet) / basket.InitialBasketRisk : 0;
+                double age = (utc - basket.CreatedUtc).TotalMinutes;
+                bool mature = basket.FollowThroughBarsObserved >= Math.Max(1, ThesisFailureMinM5Bars) && age >= 5.0 * Math.Max(1, ThesisFailureMinM5Bars);
+                bool givebackFailure = basket.PeakR >= ThesisFailureGivebackPeakR && currentR <= ThesisFailureCurrentR;
+                bool lossFailure = currentR <= ThesisFailureLossCutR;
+
+                Print("[V44-FOLLOWTHROUGH] basket={0} cid={1} pattern={2} route={3} score={4:F3} weakBars={5} observed={6} currentR={7:F3} peakR={8:F3} mature={9} giveback={10} lossFailure={11}",
+                    basket.BasketId, basket.CandidateId, basket.Pattern, basket.Route, score, basket.WeakFollowThroughBars,
+                    basket.FollowThroughBarsObserved, currentR, basket.PeakR, mature, givebackFailure, lossFailure);
+
+                if (mature && basket.WeakFollowThroughBars >= Math.Max(1, ThesisFailureMinM5Bars) && (givebackFailure || lossFailure))
+                {
+                    _thesisFailureExits++;
+                    basket.ExitOverride = givebackFailure ? "FOLLOWTHROUGH_GIVEBACK_FAILURE" : "FOLLOWTHROUGH_LOSS_FAILURE";
+                    CancelBasketPending(basket, basket.ExitOverride);
+                    CloseBasketPositions(basket, basket.ExitOverride);
+                }
+            }
+        }
+
+        private bool QualifiedDynamicRerouteEligible(CandidateRecord c, MtfConflict conflict, RegimeSnapshot regime)
+        {
+            if (c == null || c.Signal == null || regime == null) return false;
+            var s = c.Signal;
+            if (conflict == MtfConflict.CONFLICT) return false;
+            double robust = HarmonicRobustnessScore(s);
+            if (robust < RerouteMinRobustness) return false;
+            if (s.TimeSymmetry < RerouteMinTimeSymmetry || s.PivotQuality < RerouteMinPivotQuality) return false;
+            if (s.GeometryQuality < Math.Max(RecallMinGeometry, .72) ||
+                s.PrzConfluence < Math.Max(RecallMinPrz, .72) ||
+                s.Confidence < Math.Max(RecallMinConfidence, .68))
+                return false;
+            if (regime.AtrRatio < .55 || regime.AtrRatio > 1.65 || regime.Efficiency < .16)
+                return false;
+            return true;
+        }
+
+        private void ReevaluateQualifiedRoutes(HarmonicState h4State, HarmonicState h1State, RegimeSnapshot regime, DateTime utc)
+        {
+            if (!EnableQualifiedDynamicReroute || _qualifiedRouteDeferredCandidates.Count == 0) return;
+
+            foreach (var id in _qualifiedRouteDeferredCandidates.ToList())
+            {
+                CandidateRecord c;
+                if (!_candidates.TryGetValue(id, out c) || c == null || !c.IsActive || c.State != CandidateState.VALIDATED)
+                {
+                    _qualifiedRouteDeferredCandidates.Remove(id);
+                    continue;
+                }
+
+                if (utc >= c.ExpiryUtc || PatternInvalidatedBeforeEntry(c.Signal))
+                    continue;
+
+                c.Conflict = ClassifyMtfConflict(c.Signal.Direction, h4State, h1State);
+                c.Regime = regime;
+                c.RegimeScore = RegimeContextScore(c.Signal, c.Conflict, regime);
+
+                if (!QualifiedDynamicRerouteEligible(c, c.Conflict, regime))
+                    continue;
+
+                var route = RouteSignal(c.Signal, c.Conflict, regime);
+                if (route == HarmonicRoute.NO_TRADE)
+                    continue;
+
+                c.Route = route;
+                _qualifiedRouteRecovered++;
+                _qualifiedRouteDeferredCandidates.Remove(id);
+                Print("[V44-QUALIFIED-REROUTE] cid={0} pattern={1} direction={2} conflict={3} route={4} quality={5:F3} regime={6:F3}",
+                    c.CandidateId, c.Signal.PatternName, c.Signal.Direction, c.Conflict, c.Route, c.AlphaQualityScore, c.RegimeScore);
+                Transition(c, CandidateState.ROUTED, "QUALIFIED_DYNAMIC_ROUTE_" + c.Route);
+                CountPipeline(c.Signal.PatternName).Routed++;
+                Transition(c, CandidateState.WAIT_PRZ, "WAIT_PRZ_AFTER_QUALIFIED_REROUTE");
+                CountPipeline(c.Signal.PatternName).PrzWaiting++;
+            }
+        }
+
+        private void TryScheduleAndExecute()
+        {
+            if (!TradingEnabled || _dailyLocked || PeakDrawdownExceeded()) return;
+            if (!_initialCapitalEligible) return;
+            if (_evaluationStartUtc.HasValue && Server.Time.ToUniversalTime() < _evaluationStartUtc.Value) return;
+            if (!IsInstitutionalSession(Server.Time.ToUniversalTime())) return;
+            if (!SpreadValid()) return;
+            if (OwnPositions().Any() || OwnPendingOrders().Any() || _baskets.Values.Any(b => b.IsActive)) return;
+
+            var armed = _candidates.Values
+                .Where(c => (c.State == CandidateState.EXECUTABLE || c.State == CandidateState.ARMED) && c.IsActive && c.GridPlan != null)
+                .ToList();
+            foreach (var c in armed)
+                c.Rank = EnableOpportunityCostArbitration ? OpportunityCostRank(c) : CandidateRank(c);
+            armed = armed.OrderByDescending(c => c.Rank).ToList();
+            if (armed.Count == 0) return;
+            if (EnableOpportunityCostArbitration && armed.Count > 1)
+                _opportunityArbitrations++;
+
+            if (!EnableEventDrivenOpportunityAuction && EnableOpportunityAuctionWindow && OpportunityAuctionMinutes > 0)
+            {
+                DateTime now = Server.Time.ToUniversalTime();
+                var auctionReady = armed.Where(c => c.ExecutableUtc.HasValue &&
+                    ((now - c.ExecutableUtc.Value).TotalMinutes >= OpportunityAuctionMinutes ||
+                     (c.ExpiryUtc - now).TotalMinutes <= OpportunityAuctionMinutes)).ToList();
+                if (auctionReady.Count == 0) return;
+                armed = auctionReady.OrderByDescending(c => c.Rank).ToList();
+            }
+            else if (EnableEventDrivenOpportunityAuction && armed.Count > 1)
+            {
+                Print("[V44-AUCTION] mode=EVENT_DRIVEN candidates={0} bestCid={1} bestRank={2:F4}",
+                    armed.Count, armed[0].CandidateId, armed[0].Rank);
+            }
+
+            var winner = armed[0];
+            ExecuteFibonacciGridPlan(winner);
+
+            if (winner.State == CandidateState.EXECUTED)
+            {
+                if (_deferredCandidates.Remove(winner.CandidateId))
+                    _schedulerRecoveredExecutions++;
+
+                foreach (var other in armed.Skip(1))
+                {
+                    if (EnableOpportunityLossLedger)
+                    {
+                        _opportunityLossObserved++;
+                        AddCounterfactualShadow(other, "SLOT_COMPETITION_DEFERRED", Server.Time.ToUniversalTime());
+                        Print("[V44-OPPORTUNITY-LOSS] cid={0} winner={1} pattern={2} route={3} rank={4:F4} winnerRank={5:F4}",
+                            other.CandidateId, winner.CandidateId, other.Signal.PatternName, other.Route, other.Rank, winner.Rank);
+                    }
+                    if (EnableDeferredCandidateRetention)
+                    {
+                        if (_deferredCandidates.Add(other.CandidateId))
+                            _schedulerDeferred++;
+                        Event(other, "SCHEDULER_DEFERRED_KEEP_ALIVE");
+                    }
+                    else
+                    {
+                        Reject(other, "SINGLE_BASKET_SCHEDULER");
+                    }
+                }
+            }
+        }
+
+        private bool TryBuildFibonacciGridPlan(CandidateRecord c)
+        {
+            var p = c.Signal.Profile;
+            if (p == null || !p.GridEnabled) return false;
+            if (!_initialCapitalEligible) return false;
+
+            double physicalAnchor = c.Signal.Direction == TradeDirection.Buy ? _symbol.Ask : _symbol.Bid;
+            double logicalAnchor = EnableLogicalHarmonicGridAnchor ? c.Signal.D.Price : physicalAnchor;
+            double stop = c.Signal.StructuralInvalidation;
+            double distance = c.Signal.Direction == TradeDirection.Buy ? logicalAnchor - stop : stop - logicalAnchor;
+            if (distance <= PipsToPrice(MinStopLossPips)) return false;
+            if ((c.Signal.Direction == TradeDirection.Buy && physicalAnchor <= stop) ||
+                (c.Signal.Direction == TradeDirection.Sell && physicalAnchor >= stop)) return false;
+
+            double xa = Math.Abs(c.Signal.A.Price - c.Signal.X.Price);
+            double spanXa = xa > 0 ? distance / xa : 999;
+            if (spanXa < p.MinimumGridSpanXa || spanXa > p.MaximumGridSpanXa) return false;
+
+            int routeMax = c.Route == HarmonicRoute.TREND_ALIGNED_REVERSAL ? 4 :
+                           c.Route == HarmonicRoute.EXHAUSTION_REVERSAL ? 2 :
+                           c.Route == HarmonicRoute.TRANSITION_REVERSAL ? (c.Regime != null && c.Regime.Efficiency >= .28 ? 3 : 2) : 0;
+            int maxLegs = Math.Min(Math.Min(routeMax, p.MaximumGridLegs), p.GridFractions.Length);
+            if (maxLegs <= 0) return false;
+
+            var plan = new FibonacciGridPlan
+            {
+                CandidateId = c.CandidateId,
+                Pattern = c.Signal.PatternName,
+                Direction = c.Signal.Direction,
+                Route = c.Route,
+                EntryAnchor = physicalAnchor,
+                LogicalAnchor = logicalAnchor,
+                StructuralStop = stop,
+                GridDistance = distance,
+                BasketRiskAmount = Account.Equity * BasketRiskPercent / 100.0,
+                CreatedUtc = Server.Time.ToUniversalTime(),
+                ExpirationUtc = MinDate(c.ExpiryUtc, Server.Time.ToUniversalTime().AddMinutes(p.PendingTtlMinutes)),
+                MicroCapitalMode = AdaptiveCapitalMode && Account.Equity <= MicroCapitalThreshold
+            };
+            if (plan.BasketRiskAmount <= 0) return false;
+
+            double przTol = Math.Max(c.Signal.PrzHigh - c.Signal.PrzLow, distance * p.GridStructuralTolerance);
+            double legalLow = c.Signal.PrzLow - przTol;
+            double legalHigh = c.Signal.PrzHigh + przTol;
+            if (EnableLogicalHarmonicGridAnchor && (physicalAnchor < legalLow || physicalAnchor > legalHigh))
+                return false;
+
+            for (int leg = 0; leg < maxLegs; leg++)
+            {
+                double fraction = p.GridFractions[leg];
+                if (fraction < -1e-9 || fraction > .6180001) continue;
+                double price = leg == 0
+                    ? physicalAnchor
+                    : (c.Signal.Direction == TradeDirection.Buy ? logicalAnchor - fraction * distance : logicalAnchor + fraction * distance);
+                if (price < legalLow || price > legalHigh) continue;
+
+                double riskWeight = leg < p.GridRiskWeights.Length ? p.GridRiskWeights[leg] : 0;
+                double slPips = PriceToPips(Math.Abs(price - stop));
+                if (slPips < MinStopLossPips || riskWeight <= 0) continue;
+
+                double minVolume = _symbol.VolumeInUnitsMin;
+                double minRisk = minVolume * _symbol.PipValue * (slPips + ModeledCostPips());
+                plan.Legs.Add(new FibonacciGridLeg
+                {
+                    Index = leg,
+                    Fraction = fraction,
+                    PlannedPrice = price,
+                    RiskWeight = riskWeight,
+                    RiskBudget = plan.BasketRiskAmount * riskWeight,
+                    MinBrokerRisk = minRisk,
+                    Volume = 0,
+                    PlannedRisk = 0,
+                    ModeledCost = 0,
+                    Physical = false,
+                    State = GridLegState.VIRTUAL_ONLY
+                });
+            }
+
+            if (plan.Legs.Count == 0 || plan.Legs[0].Index != 0) return false;
+            plan.LogicalLegCount = plan.Legs.Count;
+
+            if (!ConfigureCapitalExecution(plan))
+            {
+                _capitalRejectedBaskets++;
+                return false;
+            }
+
+            var physical = plan.Legs.Where(x => x.Physical && x.Volume > 0).ToList();
+            if (physical.Count == 0 || physical[0].Index != 0) return false;
+
+            double totalVolume = physical.Sum(l => l.Volume);
+            plan.ExpectedWeightedEntry = physical.Sum(l => l.PlannedPrice * l.Volume) / totalVolume;
+
+            double virtualDen = plan.Legs.Sum(l => l.RiskWeight / Math.Max(PriceToPips(Math.Abs(l.PlannedPrice - stop)), 1e-9));
+            plan.VirtualWeightedEntry = virtualDen > 0
+                ? plan.Legs.Sum(l => l.PlannedPrice * (l.RiskWeight / Math.Max(PriceToPips(Math.Abs(l.PlannedPrice - stop)), 1e-9))) / virtualDen
+                : plan.ExpectedWeightedEntry;
+
+            double target, netRr;
+            if (!SelectCanonicalBasketTarget(c.Signal, plan.ExpectedWeightedEntry, plan.StructuralStop, out target, out netRr))
+                return false;
+
+            plan.CanonicalTarget = target;
+            plan.ExpectedNetRR = netRr;
+            c.GridPlan = plan;
+            c.SelectedTarget = target;
+            c.NetRR = netRr;
+
+            Print("[V44-GRID-PLAN] cid={0} pattern={1} route={2} logicalLegs={3} physicalDepth={4} micro={5} anchor={6} weighted={7} virtualWeighted={8} stop={9} target={10} budget={11:F2} worst={12:F2} margin={13:F2} netRR={14:F3}",
+                c.CandidateId, c.Signal.PatternName, c.Route, plan.LogicalLegCount, plan.PhysicalDepth, plan.MicroCapitalMode,
+                physicalAnchor, plan.ExpectedWeightedEntry, plan.VirtualWeightedEntry, stop, target, plan.BasketRiskAmount,
+                plan.WorstCaseRisk, plan.EstimatedPhysicalMargin, plan.ExpectedNetRR);
+            foreach (var leg in plan.Legs)
+                Print("[V44-GRID-LEG-PLAN] cid={0} leg=L{1} fraction={2:F3} price={3} weight={4:F6} physical={5} volume={6} budget={7:F2} risk={8:F2} minBrokerRisk={9:F2} state={10}",
+                    c.CandidateId, leg.Index, leg.Fraction, leg.PlannedPrice, leg.RiskWeight, leg.Physical, leg.Volume,
+                    leg.RiskBudget, leg.PlannedRisk, leg.MinBrokerRisk, leg.State);
+
+            PrintCapitalCompatibilityMatrix(plan);
+            return true;
+        }
+
+        private bool ConfigureCapitalExecution(FibonacciGridPlan plan)
+        {
+            foreach (var l in plan.Legs)
+            {
+                l.Physical = false;
+                l.Volume = 0;
+                l.PlannedRisk = 0;
+                l.ModeledCost = 0;
+                l.State = GridLegState.VIRTUAL_ONLY;
+            }
+
+            if (plan.MicroCapitalMode)
+            {
+                for (int depth = plan.Legs.Count; depth >= 1; depth--)
+                {
+                    var prefix = plan.Legs.Take(depth).ToList();
+                    double weightSum = prefix.Sum(x => x.RiskWeight);
+                    if (weightSum <= 0) continue;
+                    double worst = 0, margin = 0;
+                    var vols = new Dictionary<int, double>();
+                    bool feasible = true;
+
+                    foreach (var l in prefix)
+                    {
+                        double slPips = PriceToPips(Math.Abs(l.PlannedPrice - plan.StructuralStop));
+                        double budget = plan.BasketRiskAmount * l.RiskWeight / weightSum;
+                        double volume = VolumeForAllInRiskBudget(budget, slPips);
+                        if (volume <= 0) { feasible = false; break; }
+
+                        double risk = volume * _symbol.PipValue * slPips;
+                        double cost = volume * _symbol.PipValue * ModeledCostPips();
+                        worst += risk + cost;
+                        margin += EstimatedMargin(plan.Direction, volume);
+                        vols[l.Index] = volume;
+                    }
+
+                    if (!feasible || worst > plan.BasketRiskAmount + 1e-8) continue;
+                    if (Account.FreeMargin - margin < plan.BasketRiskAmount * MinFreeMarginRiskMultiple) continue;
+
+                    foreach (var l in prefix)
+                    {
+                        double slPips = PriceToPips(Math.Abs(l.PlannedPrice - plan.StructuralStop));
+                        l.RiskBudget = plan.BasketRiskAmount * l.RiskWeight / weightSum;
+                        l.Volume = vols[l.Index];
+                        l.PlannedRisk = l.Volume * _symbol.PipValue * slPips;
+                        l.ModeledCost = l.Volume * _symbol.PipValue * ModeledCostPips();
+                        l.Physical = true;
+                        l.State = GridLegState.PLANNED;
+                    }
+                    plan.PhysicalDepth = depth;
+                    plan.WorstCaseRisk = worst;
+                    plan.EstimatedPhysicalMargin = margin;
+                    _microModeBaskets++;
+                    return true;
+                }
+                return false;
+            }
+
+            double cumulative = 0, totalMargin = 0;
+            int physicalDepth = 0;
+            foreach (var l in plan.Legs)
+            {
+                double slPips = PriceToPips(Math.Abs(l.PlannedPrice - plan.StructuralStop));
+                l.RiskBudget = plan.BasketRiskAmount * l.RiskWeight;
+                double volume = VolumeForAllInRiskBudget(l.RiskBudget, slPips);
+                if (volume <= 0) continue;
+
+                double risk = volume * _symbol.PipValue * slPips;
+                double cost = volume * _symbol.PipValue * ModeledCostPips();
+                if (cumulative + risk + cost > plan.BasketRiskAmount + 1e-8) continue;
+
+                l.Volume = volume;
+                l.PlannedRisk = risk;
+                l.ModeledCost = cost;
+                l.Physical = true;
+                l.State = GridLegState.PLANNED;
+                cumulative += risk + cost;
+                totalMargin += EstimatedMargin(plan.Direction, volume);
+                if (l.Index == physicalDepth) physicalDepth++;
+            }
+
+            plan.PhysicalDepth = physicalDepth;
+            plan.WorstCaseRisk = cumulative;
+            plan.EstimatedPhysicalMargin = totalMargin;
+            return plan.Legs[0].Physical && plan.WorstCaseRisk <= plan.BasketRiskAmount + 1e-8 &&
+                   Account.FreeMargin - totalMargin >= plan.BasketRiskAmount * MinFreeMarginRiskMultiple;
+        }
+
+        private double EstimatedMargin(TradeDirection direction, double volume)
+        {
+            try
+            {
+                return _symbol.GetEstimatedMargin(direction == TradeDirection.Buy ? TradeType.Buy : TradeType.Sell, volume);
+            }
+            catch { return 0; }
+        }
+
+        private int EstimateRiskOnlyPhysicalDepth(FibonacciGridPlan plan, double equity)
+        {
+            double budget = equity * BasketRiskPercent / 100.0;
+            if (budget <= 0) return 0;
+            for (int depth = plan.Legs.Count; depth >= 1; depth--)
+            {
+                var prefix = plan.Legs.Take(depth).ToList();
+                double ws = prefix.Sum(x => x.RiskWeight);
+                if (ws <= 0) continue;
+                double worst = 0;
+                bool ok = true;
+                foreach (var l in prefix)
+                {
+                    double slPips = PriceToPips(Math.Abs(l.PlannedPrice - plan.StructuralStop));
+                    double legBudget = budget * l.RiskWeight / ws;
+                    double v = VolumeForAllInRiskBudget(legBudget, slPips);
+                    if (v <= 0) { ok = false; break; }
+                    worst += v * _symbol.PipValue * (slPips + ModeledCostPips());
+                }
+                if (ok && worst <= budget + 1e-8) return depth;
+            }
+            return 0;
+        }
+
+        private void PrintCapitalCompatibilityMatrix(FibonacciGridPlan plan)
+        {
+            double[] equities = { 100, 150, 200, 300, 500, 1000 };
+            string matrix = string.Join(",", equities.Select(e =>
+                e.ToString("F0", CultureInfo.InvariantCulture) + ":" + EstimateRiskOnlyPhysicalDepth(plan, e)));
+            Print("[V44-CAPITAL-COMPAT] cid={0} logicalLegs={1} riskOnlyPhysicalDepths={2}", plan.CandidateId, plan.LogicalLegCount, matrix);
+        }
+
+        private void ExecuteFibonacciGridPlan(CandidateRecord c)
+        {
+            var plan = c.GridPlan;
+            if (plan == null || plan.Legs.Count == 0) { Reject(c, "GRID_PLAN_MISSING"); return; }
+            if (Account.FreeMargin < plan.BasketRiskAmount * MinFreeMarginRiskMultiple) { Reject(c, "MARGIN_HEADROOM"); return; }
+            if (plan.WorstCaseRisk > plan.BasketRiskAmount + 1e-8)
+            {
+                _gridRiskViolations++;
+                Reject(c, "WORST_CASE_BASKET_RISK_PLAN");
+                return;
+            }
+
+            string basketId = NewBasketId();
+            plan.BasketId = basketId;
+            var basket = new FibonacciBasket
+            {
+                BasketId = basketId,
+                CandidateId = c.CandidateId,
+                Pattern = c.Signal.PatternName,
+                Direction = c.Signal.Direction,
+                Route = c.Route,
+                State = FibonacciBasketState.PLANNED,
+                CreatedUtc = Server.Time.ToUniversalTime(),
+                ExpirationUtc = plan.ExpirationUtc,
+                EntryAnchor = plan.EntryAnchor,
+                StructuralStop = plan.StructuralStop,
+                CanonicalTarget = plan.CanonicalTarget,
+                InitialBasketRisk = plan.BasketRiskAmount,
+                PlannedWorstCaseRisk = plan.WorstCaseRisk,
+                ProtectionFrontier = plan.StructuralStop,
+                Plan = plan,
+                Candidate = c,
+                IsActive = true
+            };
+            _baskets[basketId] = basket;
+            CountPipeline(c.Signal.PatternName).BasketPlanned++;
+            BasketEvent(basket, "BASKET_PLANNED");
+
+            var l0 = plan.Legs.First(x => x.Index == 0);
+            string l0Label = GridLabel(basketId, 0);
+            if (LegAlreadyExists(l0Label))
+            {
+                _duplicateGridLegs++;
+                basket.State = FibonacciBasketState.CANCELLED;
+                basket.IsActive = false;
+                Reject(c, "DUPLICATE_L0");
+                return;
+            }
+
+            double marketEntry = c.Signal.Direction == TradeDirection.Buy ? _symbol.Ask : _symbol.Bid;
+            double slPips = PriceToPips(Math.Abs(marketEntry - plan.StructuralStop));
+            double tpPips = PriceToPips(Math.Abs(plan.CanonicalTarget - marketEntry));
+            if (!BrokerProtectionDistancesValid(c.Signal.Direction, marketEntry, plan.StructuralStop, plan.CanonicalTarget))
+            {
+                basket.State = FibonacciBasketState.RISK_REJECTED;
+                basket.IsActive = false;
+                Reject(c, "L0_BROKER_MIN_DISTANCE");
+                return;
+            }
+
+            double otherWorst = plan.Legs.Where(x => x.Index != 0 && x.Physical).Sum(x => x.PlannedRisk + x.ModeledCost);
+            double remainingAllInBudget = Math.Max(0, plan.BasketRiskAmount - otherWorst);
+            double liveL0Budget = Math.Min(l0.RiskBudget, remainingAllInBudget);
+            double volume = VolumeForAllInRiskBudget(liveL0Budget, slPips);
+            if (volume <= 0)
+            {
+                _executionRiskRejects++;
+                basket.State = FibonacciBasketState.RISK_REJECTED;
+                basket.IsActive = false;
+                AddCounterfactualShadow(c, "L0_ALLIN_RISK_VOLUME", Server.Time.ToUniversalTime());
+                Reject(c, "L0_ALLIN_RISK_VOLUME");
+                return;
+            }
+
+            double l0Worst = volume * _symbol.PipValue * (slPips + ModeledCostPips());
+            if (Math.Abs(volume - l0.Volume) > Math.Max(1.0, _symbol.VolumeInUnitsStep * .5))
+                _executionRiskRenormalizations++;
+            l0.RiskBudget = liveL0Budget;
+            l0.Volume = volume;
+            l0.PlannedRisk = volume * _symbol.PipValue * slPips;
+            l0.ModeledCost = volume * _symbol.PipValue * ModeledCostPips();
+            plan.WorstCaseRisk = otherWorst + l0Worst;
+
+            if (plan.WorstCaseRisk > plan.BasketRiskAmount + 1e-8)
+            {
+                _executionRiskRejects++;
+                basket.State = FibonacciBasketState.RISK_REJECTED;
+                basket.IsActive = false;
+                AddCounterfactualShadow(c, "L0_ALLIN_RISK_RECHECK", Server.Time.ToUniversalTime());
+                Reject(c, "L0_ALLIN_RISK_RECHECK");
+                return;
+            }
+
+            TransitionLegState(basket, l0, GridLegState.SUBMITTING, "L0_SUBMITTING");
+            TradeType tt = c.Signal.Direction == TradeDirection.Buy ? TradeType.Buy : TradeType.Sell;
+            var tr = ExecuteMarketOrder(tt, SymbolName, volume, l0Label, slPips, tpPips);
+            if (tr == null || !tr.IsSuccessful || tr.Position == null)
+            {
+                string code = "L0_ORDER_" + (tr == null ? "NULL" : tr.Error.ToString());
+                RecordExecutionError(code, "basket=" + basket.BasketId);
+                basket.State = FibonacciBasketState.RISK_REJECTED;
+                basket.IsActive = false;
+                Reject(c, code);
+                return;
+            }
+
+            l0.Volume = volume;
+            l0.PositionId = tr.Position.Id;
+            if (!PositionStillExists(tr.Position.Id))
+            {
+                basket.State = FibonacciBasketState.INVALIDATED;
+                basket.IsActive = false;
+                Invalidate(c, "L0_FAIL_CLOSED_POST_FILL");
+                return;
+            }
+            if (!_postFillValidated.Contains(tr.Position.Id))
+                PostFillSafetyKernel(tr.Position, "L0_RESULT");
+            if (!_postFillValidated.Contains(tr.Position.Id))
+            {
+                basket.ExitOverride = "L0_POST_FILL_NOT_VALIDATED";
+                CancelBasketPending(basket, basket.ExitOverride);
+                if (PositionStillExists(tr.Position.Id))
+                    FailClosePosition(tr.Position, basket, basket.ExitOverride);
+                if (PositionStillExists(tr.Position.Id))
+                    _unprotectedSurvivors++;
+                basket.State = FibonacciBasketState.INVALIDATED;
+                basket.IsActive = false;
+                Invalidate(c, "L0_FAIL_CLOSED_POST_FILL");
+                return;
+            }
+            if (!PositionStillExists(tr.Position.Id))
+            {
+                basket.State = FibonacciBasketState.INVALIDATED;
+                basket.IsActive = false;
+                Invalidate(c, "L0_FAIL_CLOSED_POST_FILL");
+                return;
+            }
+            basket.State = FibonacciBasketState.LEG0_EXECUTED;
+            if (!_positions.ContainsKey(tr.Position.Id)) RegisterFilledPosition(basket, l0, tr.Position);
+            RecordLegFillTelemetry(basket, l0);
+            CountPipeline(c.Signal.PatternName).Leg0Executed++;
+            BasketEvent(basket, "LEG0_EXECUTED");
+            c.PositionId = tr.Position.Id;
+            Transition(c, CandidateState.EXECUTED, "FIB_GRID_LEG0_FILLED");
+            CountPipeline(c.Signal.PatternName).Executed++;
+
+            foreach (var leg in plan.Legs.Where(x => x.Index > 0))
+            {
+                if (!leg.Physical) continue;
+                if (!DeeperLegThesisEligible(basket, leg))
+                {
+                    TransitionLegState(basket, leg, GridLegState.CANCELLED, "DEEPER_LEG_THESIS_REJECT");
+                    continue;
+                }
+                if (PlaceGridLimit(basket, leg))
+                    basket.State = FibonacciBasketState.GRID_PENDING;
+            }
+        }
+
+        private bool PlaceGridLimit(FibonacciBasket basket, FibonacciGridLeg leg)
+        {
+            if (!leg.Physical || leg.Volume <= 0) return false;
+            string label = GridLabel(basket.BasketId, leg.Index);
+            if (LegAlreadyExists(label))
+            {
+                _duplicateGridLegs++;
+                TransitionLegState(basket, leg, GridLegState.REJECTED, "GRID_LEG_DUPLICATE");
+                BasketEvent(basket, "GRID_LEG_DUPLICATE_L" + leg.Index);
+                return false;
+            }
+
+            if ((basket.Direction == TradeDirection.Buy && leg.PlannedPrice >= _symbol.Ask) ||
+                (basket.Direction == TradeDirection.Sell && leg.PlannedPrice <= _symbol.Bid))
+            {
+                TransitionLegState(basket, leg, GridLegState.CANCELLED, "GRID_LEG_PRICE_CROSSED_BEFORE_SUBMIT");
+                BasketEvent(basket, "GRID_LEG_PRICE_CROSSED_BEFORE_SUBMIT_L" + leg.Index);
+                return false;
+            }
+
+            double slPips = PriceToPips(Math.Abs(leg.PlannedPrice - basket.StructuralStop));
+            double tpPips = PriceToPips(Math.Abs(basket.CanonicalTarget - leg.PlannedPrice));
+            if (slPips < MinStopLossPips || tpPips <= 0)
+            {
+                TransitionLegState(basket, leg, GridLegState.REJECTED, "GRID_LEG_GEOMETRY_REJECT");
+                BasketEvent(basket, "GRID_LEG_GEOMETRY_REJECT_L" + leg.Index);
+                return false;
+            }
+
+            if (!BrokerProtectionDistancesValid(basket.Direction, leg.PlannedPrice, basket.StructuralStop, basket.CanonicalTarget))
+            {
+                TransitionLegState(basket, leg, GridLegState.REJECTED, "GRID_LEG_BROKER_MIN_DISTANCE");
+                BasketEvent(basket, "GRID_LEG_BROKER_MIN_DISTANCE_L" + leg.Index);
+                return false;
+            }
+
+            double liveFilledRisk = CurrentFilledStructuralRisk(basket);
+            double livePendingRisk = CurrentPendingStructuralRisk(basket);
+            double nextWorst = liveFilledRisk + livePendingRisk + leg.PlannedRisk + leg.ModeledCost;
+            if (nextWorst > basket.InitialBasketRisk + 1e-8)
+            {
+                TransitionLegState(basket, leg, GridLegState.RISK_REJECTED, "LIVE_FILLED_RISK_REJECT");
+                BasketEvent(basket, "LIVE_FILLED_RISK_REJECT_L" + leg.Index);
+                return false;
+            }
+
+            DateTime nowUtc = Server.Time.ToUniversalTime();
+            if (basket.ExpirationUtc <= nowUtc.AddSeconds(1))
+            {
+                TransitionLegState(basket, leg, GridLegState.EXPIRED, "PENDING_TTL_NOT_STRICTLY_FUTURE");
+                return false;
+            }
+
+            TransitionLegState(basket, leg, GridLegState.SUBMITTING, "LIMIT_SUBMITTING");
+            TradeType tt = basket.Direction == TradeDirection.Buy ? TradeType.Buy : TradeType.Sell;
+            var tr = PlaceLimitOrder(tt, SymbolName, leg.Volume, leg.PlannedPrice, label,
+                basket.StructuralStop, basket.CanonicalTarget, ProtectionType.Absolute, basket.ExpirationUtc,
+                GridComment(basket, leg.Index), false);
+            if (tr == null || !tr.IsSuccessful || tr.PendingOrder == null)
+            {
+                string code = "GRID_LEG_ORDER_" + (tr == null ? "NULL" : tr.Error.ToString());
+                RecordExecutionError(code, "basket=" + basket.BasketId + ";leg=L" + leg.Index);
+                TransitionLegState(basket, leg, GridLegState.REJECTED, "GRID_LEG_SUBMIT_FAILED_" + code);
+                BasketEvent(basket, "GRID_LEG_SUBMIT_FAILED_L" + leg.Index + "_" + code);
+                return false;
+            }
+
+            leg.PendingOrderId = tr.PendingOrder.Id;
+            if (leg.State == GridLegState.SUBMITTING)
+                TransitionLegState(basket, leg, GridLegState.SUBMITTED, "GRID_LEG_SUBMITTED");
+            else
+                BasketEvent(basket, "LIMIT_SUBMIT_RETURN_AFTER_EVENT_L" + leg.Index + "_STATE_" + leg.State);
+            return leg.State == GridLegState.SUBMITTED || leg.State == GridLegState.FILLED_UNVERIFIED || leg.State == GridLegState.PROTECTED;
+        }
+
+        private bool SelectCanonicalBasketTarget(PatternSignal s, double weightedEntry, double stop, out double target, out double netRr)
+        {
+            target = 0; netRr = 0;
+            double riskPips = PriceToPips(Math.Abs(weightedEntry - stop));
+            if (riskPips < MinStopLossPips) return false;
+
+            double[] targets = s.Profile != null && s.Profile.CanonicalTargetPolicy == "T2_PREFERRED"
+                ? new[] { s.CanonicalTarget2, s.CanonicalTarget1 }
+                : new[] { s.CanonicalTarget1, s.CanonicalTarget2 };
+
+            foreach (double t in targets)
+            {
+                if (!GeometryValid(s.Direction, weightedEntry, stop, t)) continue;
+                double rewardPips = PriceToPips(Math.Abs(t - weightedEntry)) - ModeledCostPips();
+                double rr = riskPips > 0 ? rewardPips / riskPips : 0;
+                if (rr >= MinimumNetRR)
+                {
+                    target = t;
+                    netRr = rr;
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        private double VolumeForRiskBudget(double riskBudget, double slPips)
+        {
+            if (riskBudget <= 0 || slPips <= 0 || _symbol.PipValue <= 0) return 0;
+            double raw = riskBudget / (slPips * _symbol.PipValue);
+            if (double.IsNaN(raw) || double.IsInfinity(raw) || raw <= 0) return 0;
+            double v = _symbol.NormalizeVolumeInUnits(raw, RoundingMode.Down);
+            if (v < _symbol.VolumeInUnitsMin) return 0;
+            return Math.Min(v, _symbol.VolumeInUnitsMax);
+        }
+
+        private double VolumeForAllInRiskBudget(double riskBudget, double slPips)
+        {
+            double allInPips = slPips + ModeledCostPips();
+            if (riskBudget <= 0 || allInPips <= 0 || _symbol.PipValue <= 0) return 0;
+            double raw = riskBudget / (allInPips * _symbol.PipValue);
+            if (double.IsNaN(raw) || double.IsInfinity(raw) || raw <= 0) return 0;
+            double v = _symbol.NormalizeVolumeInUnits(raw, RoundingMode.Down);
+            if (v < _symbol.VolumeInUnitsMin) return 0;
+            return Math.Min(v, _symbol.VolumeInUnitsMax);
+        }
+
+        private double ModeledCostPips()
+        {
+            return Math.Max(0, SpreadPips()) + Math.Max(0, RoundTurnCommissionPips) + Math.Max(0, SlippageStressPips);
+        }
+
+        private void ReconcileAndManageBaskets()
+        {
+            ReconcileGridFills();
+            CancelInvalidPendingOrders();
+            RevalidatePendingExposureGovernor();
+
+            foreach (var basket in _baskets.Values.Where(b => b.IsActive).ToList())
+            {
+                UpdateVirtualGridState(basket);
+                var positions = OwnPositions().Where(p => LabelBasketId(p.Label) == basket.BasketId).ToList();
+                var pending = OwnPendingOrders().Where(o => LabelBasketId(o.Label) == basket.BasketId).ToList();
+
+                if (positions.Count == 0)
+                {
+                    if (pending.Count == 0 && basket.State != FibonacciBasketState.PLANNED)
+                        CloseBasketLedger(basket, "NO_OPEN_LEGS");
+                    continue;
+                }
+
+                basket.State = pending.Count > 0 ? FibonacciBasketState.PARTIALLY_FILLED : FibonacciBasketState.BASKET_ACTIVE;
+                basket.FilledLegs = Math.Max(basket.FilledLegs, positions.Count);
+                basket.AverageEntry = WeightedAverageEntry(positions);
+
+                foreach (var p in positions)
+                {
+                    PositionLedger legLedger;
+                    if (!_positions.TryGetValue(p.Id, out legLedger) || legLedger.InitialRiskPips <= 0) continue;
+                    double legR = p.Pips / legLedger.InitialRiskPips;
+                    if (legR > legLedger.PeakR) legLedger.PeakR = legR;
+                    if (-legR > legLedger.MaxAdverseR) legLedger.MaxAdverseR = -legR;
+                }
+
+                double currentNet = positions.Sum(p => p.NetProfit);
+                double currentR = basket.InitialBasketRisk > 0 ? (basket.RealizedNet + currentNet) / basket.InitialBasketRisk : 0;
+                if (currentR > basket.PeakR) basket.PeakR = currentR;
+                if (-currentR > basket.MaxAdverseR) basket.MaxAdverseR = -currentR;
+
+                if (basket.PeakR >= GridCancelMfeR && pending.Count > 0)
+                    CancelBasketPending(basket, "MFE_GRID_CANCEL");
+
+                double age = (Server.Time.ToUniversalTime() - basket.CreatedUtc).TotalMinutes;
+                if (age >= NoMfeMinAgeMinutes && basket.PeakR < NoMfeProofR && currentR <= -Math.Abs(NoMfeKillR))
+                {
+                    basket.ExitOverride = "NO_MFE_THESIS_FAILURE";
+                    CancelBasketPending(basket, basket.ExitOverride);
+                    CloseBasketPositions(basket, basket.ExitOverride);
+                    continue;
+                }
+
+                if (basket.PeakR >= BreakEvenTriggerR)
+                {
+                    double span = Math.Abs(basket.AverageEntry - basket.StructuralStop);
+                    double lockPrice = basket.Direction == TradeDirection.Buy
+                        ? basket.AverageEntry + span * Math.Max(0, BreakEvenLockR)
+                        : basket.AverageEntry - span * Math.Max(0, BreakEvenLockR);
+                    AdvanceBasketProtectionFrontier(basket, lockPrice, "COLLECTIVE_PROTECT");
+                }
+
+                if (basket.PeakR >= TrailTriggerR)
+                {
+                    double trail = FibonacciStructureTrail(basket.Direction);
+                    if (trail > 0) AdvanceBasketProtectionFrontier(basket, trail, "FIB_382_STRUCTURE_TRAIL");
+                }
+            }
+        }
+
+        private void ReconcileGridFills()
+        {
+            foreach (var p in OwnPositions().ToList())
+            {
+                string basketId = LabelBasketId(p.Label);
+                int legIndex = LabelLegIndex(p.Label);
+                FibonacciBasket basket;
+                if (string.IsNullOrWhiteSpace(basketId) || !_baskets.TryGetValue(basketId, out basket))
+                {
+                    _orphanPendingOrders++;
+                    continue;
+                }
+
+                var leg = basket.Plan.Legs.FirstOrDefault(x => x.Index == legIndex);
+                if (leg == null)
+                {
+                    _orphanPendingOrders++;
+                    continue;
+                }
+
+                if (!_postFillValidated.Contains(p.Id))
+                    PostFillSafetyKernel(p, "RECONCILE");
+                if (!_postFillValidated.Contains(p.Id))
+                {
+                    if (PositionStillExists(p.Id))
+                    {
+                        basket.ExitOverride = "RECONCILE_POST_FILL_NOT_VALIDATED";
+                        FailClosePosition(p, basket, basket.ExitOverride);
+                        if (PositionStillExists(p.Id)) _unprotectedSurvivors++;
+                    }
+                    continue;
+                }
+                if (!PositionStillExists(p.Id)) continue;
+
+                if (!_positions.ContainsKey(p.Id))
+                    RegisterFilledPosition(basket, leg, p);
+                RecordLegFillTelemetry(basket, leg);
+            }
+
+            foreach (var o in OwnPendingOrders().ToList())
+            {
+                string basketId = LabelBasketId(o.Label);
+                if (string.IsNullOrWhiteSpace(basketId) || !_baskets.ContainsKey(basketId))
+                {
+                    _orphanPendingOrders++;
+                    var r = CancelPendingOrder(o);
+                    if ((r == null || !r.IsSuccessful) && PendingOrderStillExists(o.Id))
+                        RecordExecutionError("ORPHAN_CANCEL_FAILED_" + (r == null ? "NULL" : r.Error.ToString()), "order=" + o.Id);
+                }
+            }
+        }
+
+        private void RegisterFilledPosition(FibonacciBasket basket, FibonacciGridLeg leg, Position p)
+        {
+            if (_positions.ContainsKey(p.Id)) return;
+            double initialRiskPips = PriceToPips(Math.Abs(p.EntryPrice - basket.StructuralStop));
+            _positions[p.Id] = new PositionLedger
+            {
+                PositionId = p.Id,
+                CandidateId = basket.CandidateId,
+                PatternName = basket.Pattern,
+                Route = basket.Route,
+                Direction = basket.Direction,
+                EntryUtc = p.EntryTime.ToUniversalTime(),
+                InitialRiskPips = initialRiskPips,
+                RiskAmount = p.VolumeInUnits * _symbol.PipValue * initialRiskPips,
+                PeakR = 0,
+                MaxAdverseR = 0,
+                BasketId = basket.BasketId,
+                LegIndex = leg.Index
+            };
+        }
+
+        private void CancelInvalidPendingOrders()
+        {
+            DateTime now = Server.Time.ToUniversalTime();
+            foreach (var basket in _baskets.Values.Where(b => b.IsActive).ToList())
+            {
+                string reason = null;
+                if (now >= basket.ExpirationUtc) reason = "CANDIDATE_TTL_EXPIRED";
+                else if (_dailyLocked) reason = "DAILY_RISK_LOCK";
+                else if (PeakDrawdownExceeded()) reason = "MAX_DRAWDOWN_LOCK";
+                else if (!IsInstitutionalSession(now)) reason = "SESSION_EXPIRED";
+                else if (BasketStructuralInvalidated(basket)) reason = "STRUCTURAL_INVALIDATION";
+                else if (BasketHardConflict(basket)) reason = "MTF_HARD_CONFLICT";
+
+                if (reason == null) continue;
+
+                CancelBasketPending(basket, reason);
+
+                if (!OwnPositions().Any(p => LabelBasketId(p.Label) == basket.BasketId))
+                {
+                    basket.State = reason == "SESSION_EXPIRED" ? FibonacciBasketState.SESSION_EXPIRED :
+                                   reason == "STRUCTURAL_INVALIDATION" ? FibonacciBasketState.INVALIDATED :
+                                   reason == "CANDIDATE_TTL_EXPIRED" ? FibonacciBasketState.EXPIRED : FibonacciBasketState.CANCELLED;
+                    basket.IsActive = false;
+                }
+            }
+        }
+
+        private bool BasketStructuralInvalidated(FibonacciBasket basket)
+        {
+            return basket.Direction == TradeDirection.Buy ? _symbol.Bid <= basket.StructuralStop : _symbol.Ask >= basket.StructuralStop;
+        }
+
+        private bool BasketHardConflict(FibonacciBasket basket)
+        {
+            var h4 = GetActiveHarmonicState(_h4Bars, H4SwingDepth, 220, 3);
+            var h1 = GetActiveHarmonicState(_h1Bars, H1SwingDepth, 260, 4);
+            return ClassifyMtfConflict(basket.Direction, h4, h1) == MtfConflict.CONFLICT &&
+                   basket.Route != HarmonicRoute.EXHAUSTION_REVERSAL;
+        }
+
+        private void CancelBasketPending(FibonacciBasket basket, string reason)
+        {
+            foreach (var o in OwnPendingOrders().Where(x => LabelBasketId(x.Label) == basket.BasketId).ToList())
+            {
+                var r = CancelPendingOrder(o);
+                if (r == null || !r.IsSuccessful)
+                {
+                    if (PendingOrderStillExists(o.Id))
+                        RecordExecutionError("GRID_CANCEL_FAILED_" + (r == null ? "NULL" : r.Error.ToString()),
+                            "basket=" + basket.BasketId + ";order=" + o.Id + ";reason=" + reason);
+                    else
+                        BasketEvent(basket, "GRID_CANCEL_RACE_BENIGN_ORDER_" + o.Id);
+                    continue;
+                }
+
+                var leg = basket.Plan.Legs.FirstOrDefault(x => x.Index == LabelLegIndex(o.Label));
+                if (leg != null && (leg.State == GridLegState.SUBMITTED || leg.State == GridLegState.SUBMITTING)) TransitionLegState(basket, leg, GridLegState.CANCELLED, "PENDING_CANCELLED_" + reason);
+                BasketEvent(basket, "GRID_LEG_CANCELLED_" + reason + "_L" + LabelLegIndex(o.Label));
+            }
+        }
+
+        private void CancelAllOwnPending(string reason)
+        {
+            foreach (var o in OwnPendingOrders().ToList())
+            {
+                var r = CancelPendingOrder(o);
+                if ((r == null || !r.IsSuccessful) && PendingOrderStillExists(o.Id))
+                    RecordExecutionError("STOP_CANCEL_FAILED_" + (r == null ? "NULL" : r.Error.ToString()), "order=" + o.Id + ";reason=" + reason);
+            }
+            Print("[V44-PENDING-CANCEL-ALL] reason={0}", reason);
+        }
+
+        private void CloseBasketPositions(FibonacciBasket basket, string reason)
+        {
+            foreach (var p in OwnPositions().Where(x => LabelBasketId(x.Label) == basket.BasketId).ToList())
+            {
+                PositionLedger l;
+                if (_positions.TryGetValue(p.Id, out l)) l.ExitOverride = reason;
+                var r = ClosePosition(p);
+                if ((r == null || !r.IsSuccessful) && PositionStillExists(p.Id))
+                    RecordExecutionError("CLOSE_FAILED_" + (r == null ? "NULL" : r.Error.ToString()),
+                        "basket=" + basket.BasketId + ";position=" + p.Id + ";reason=" + reason);
+            }
+        }
+
+        private void AdvanceBasketProtectionFrontier(FibonacciBasket basket, double proposal, string reason)
+        {
+            if (proposal <= 0) return;
+            double frontier = basket.ProtectionFrontier;
+            double next = frontier <= 0 ? proposal :
+                (basket.Direction == TradeDirection.Buy ? Math.Max(frontier, proposal) : Math.Min(frontier, proposal));
+
+            // Never generate a widening proposal. Structural stop is the initial floor/ceiling.
+            if (basket.Direction == TradeDirection.Buy)
+                next = Math.Max(next, basket.StructuralStop);
+            else
+                next = Math.Min(next, basket.StructuralStop);
+
+            bool advanced = frontier <= 0 || (basket.Direction == TradeDirection.Buy ? next > frontier + _symbol.TickSize : next < frontier - _symbol.TickSize);
+            if (!advanced) return;
+
+            basket.ProtectionFrontier = next;
+            bool anyApplied = false;
+            foreach (var p in OwnPositions().Where(x => LabelBasketId(x.Label) == basket.BasketId).ToList())
+            {
+                if (TargetTooCloseForProtectionUpdate(p))
+                {
+                    BasketEvent(basket, "FRONTIER_SKIP_TARGET_PROXIMITY_POS_" + p.Id);
+                    continue;
+                }
+
+                double brokerSafe = BrokerSafeStop(p.TradeType, next);
+                if (brokerSafe <= 0) continue;
+
+                bool improves = !p.StopLoss.HasValue ||
+                    (p.TradeType == TradeType.Buy ? brokerSafe > p.StopLoss.Value + _symbol.TickSize : brokerSafe < p.StopLoss.Value - _symbol.TickSize);
+                if (!improves) continue;
+
+                var r = p.ModifyStopLossPrice(brokerSafe);
+                if (r == null || !r.IsSuccessful)
+                {
+                    if (!PositionStillExists(p.Id) || TargetTooCloseForProtectionUpdate(p))
+                    {
+                        BasketEvent(basket, "FRONTIER_MODIFY_RACE_BENIGN_POS_" + p.Id);
+                        continue;
+                    }
+
+                    double retryStop = BrokerSafeStop(p.TradeType, next);
+                    bool retryImproves = retryStop > 0 && (!p.StopLoss.HasValue ||
+                        (p.TradeType == TradeType.Buy ? retryStop > p.StopLoss.Value + _symbol.TickSize : retryStop < p.StopLoss.Value - _symbol.TickSize));
+                    TradeResult retry = retryImproves ? p.ModifyStopLossPrice(retryStop) : null;
+                    if (retry != null && retry.IsSuccessful)
+                    {
+                        anyApplied = true;
+                        BasketEvent(basket, "FRONTIER_RETRY_SUCCESS_POS_" + p.Id);
+                        continue;
+                    }
+
+                    if (!PositionStillExists(p.Id) || TargetTooCloseForProtectionUpdate(p))
+                    {
+                        BasketEvent(basket, "FRONTIER_RETRY_RACE_BENIGN_POS_" + p.Id);
+                        continue;
+                    }
+
+                    RecordExecutionError("FRONTIER_STOP_FAILED_" + (retry != null ? retry.Error.ToString() : (r == null ? "NULL" : r.Error.ToString())),
+                        "basket=" + basket.BasketId + ";position=" + p.Id + ";reason=" + reason);
+                    continue;
+                }
+                anyApplied = true;
+            }
+
+            if (anyApplied)
+            {
+                basket.State = FibonacciBasketState.BASKET_PROTECTED;
+                BasketEvent(basket, "PROTECTION_FRONTIER_ADVANCED_" + reason);
+            }
+        }
+
+        private double BrokerSafeStop(TradeType tradeType, double proposed)
+        {
+            double reference = tradeType == TradeType.Buy ? _symbol.Bid : _symbol.Ask;
+            double minDistance = BrokerMinimumDistancePrice(reference, true);
+            double spreadPrice = Math.Max(0, _symbol.Ask - _symbol.Bid);
+            double safety = Math.Max(_symbol.TickSize * 4.0, Math.Max(minDistance + _symbol.TickSize * 2.0, spreadPrice * 2.0 + _symbol.TickSize * 2.0));
+            double safe = tradeType == TradeType.Buy
+                ? Math.Min(proposed, reference - safety)
+                : Math.Max(proposed, reference + safety);
+            if (tradeType == TradeType.Buy && safe >= reference) return 0;
+            if (tradeType == TradeType.Sell && safe <= reference) return 0;
+            if (_symbol.Digits >= 0)
+                return Math.Round(safe, _symbol.Digits, MidpointRounding.AwayFromZero);
+            return safe;
+        }
+
+        private bool TargetTooCloseForProtectionUpdate(Position p)
+        {
+            if (p == null || !p.TakeProfit.HasValue) return false;
+            double reference = p.TradeType == TradeType.Buy ? _symbol.Bid : _symbol.Ask;
+            double gap = p.TradeType == TradeType.Buy ? p.TakeProfit.Value - reference : reference - p.TakeProfit.Value;
+            if (gap <= 0) return true;
+            double spreadPrice = Math.Max(0, _symbol.Ask - _symbol.Bid);
+            double minTp = BrokerMinimumDistancePrice(reference, false);
+            double raceBuffer = Math.Max(_symbol.TickSize * 4.0, Math.Max(minTp + _symbol.TickSize * 2.0, spreadPrice * 2.0 + _symbol.TickSize * 2.0));
+            return gap <= raceBuffer;
+        }
+
+        private bool DeeperLegThesisEligible(FibonacciBasket basket, FibonacciGridLeg leg)
+        {
+            if (leg.Index <= 0) return true;
+            if (BasketStructuralInvalidated(basket) || BasketHardConflict(basket)) return false;
+            if (_dailyLocked || PeakDrawdownExceeded() || !IsInstitutionalSession(Server.Time.ToUniversalTime())) return false;
+
+            // Causal eligibility only: no historical PF/hour/date lookup and no new Fibonacci levels.
+            int i = LastClosedIndex(_m5Bars);
+            if (i < 3) return false;
+            double close = _m5Bars.ClosePrices[i];
+            double prev = _m5Bars.ClosePrices[i - 1];
+            double impulse = basket.Direction == TradeDirection.Buy ? close - prev : prev - close;
+            bool notAcceleratingAgainst = impulse >= -PipsToPrice(Math.Max(1.0, SpreadPips()));
+            return notAcceleratingAgainst;
+        }
+
+        private double CurrentFilledStructuralRisk(FibonacciBasket basket)
+        {
+            double risk = 0;
+            foreach (var p in OwnPositions().Where(x => LabelBasketId(x.Label) == basket.BasketId))
+            {
+                double d = PriceToPips(Math.Abs(p.EntryPrice - basket.StructuralStop));
+                risk += p.VolumeInUnits * _symbol.PipValue * d;
+            }
+            return risk;
+        }
+
+        private double CurrentPendingStructuralRisk(FibonacciBasket basket)
+        {
+            double risk = 0;
+            foreach (var o in OwnPendingOrders().Where(x => LabelBasketId(x.Label) == basket.BasketId))
+            {
+                double d = PriceToPips(Math.Abs(o.TargetPrice - basket.StructuralStop));
+                risk += o.VolumeInUnits * _symbol.PipValue * d + o.VolumeInUnits * _symbol.PipValue * ModeledCostPips();
+            }
+            return risk;
+        }
+
+        private double FibonacciStructureTrail(TradeDirection direction)
+        {
+            int end = LastClosedIndex(_m5Bars);
+            if (end < 20) return 0;
+            int start = Math.Max(1, end - 20);
+            double hi = double.MinValue, lo = double.MaxValue;
+
+            for (int i = start; i <= end; i++)
+            {
+                hi = Math.Max(hi, _m5Bars.HighPrices[i]);
+                lo = Math.Min(lo, _m5Bars.LowPrices[i]);
+            }
+
+            if (hi <= lo) return 0;
+            return direction == TradeDirection.Buy
+                ? hi - .382 * (hi - lo)
+                : lo + .382 * (hi - lo);
+        }
+
+        private void OnPositionOpened(PositionOpenedEventArgs args)
+        {
+            if (args == null || args.Position == null) return;
+            PostFillSafetyKernel(args.Position, "POSITIONS_OPENED");
+        }
+
+        private void OnPendingOrderFilled(PendingOrderFilledEventArgs args)
+        {
+            if (args == null || args.Position == null) return;
+            PostFillSafetyKernel(args.Position, "PENDING_FILLED");
+        }
+
+        private void PostFillSafetyKernel(Position p, string source)
+        {
+            if (p == null || p.SymbolName != SymbolName || string.IsNullOrWhiteSpace(p.Label) ||
+                !p.Label.StartsWith(BotPrefix + "|", StringComparison.Ordinal)) return;
+            if (_postFillValidated.Contains(p.Id)) return;
+            if (!_postFillInProgress.Add(p.Id))
+            {
+                Print("[V44-POST-FILL-DEDUPE] pos={0} source={1}", p.Id, source);
+                return;
+            }
+
+            try
+            {
+                PostFillSafetyKernelCore(p, source);
+            }
+            finally
+            {
+                _postFillInProgress.Remove(p.Id);
+            }
+        }
+
+        private void PostFillSafetyKernelCore(Position p, string source)
+        {
+            string basketId = LabelBasketId(p.Label);
+            int legIndex = LabelLegIndex(p.Label);
+            FibonacciBasket basket;
+            if (string.IsNullOrWhiteSpace(basketId) || !_baskets.TryGetValue(basketId, out basket))
+            {
+                _orphanPendingOrders++;
+                return;
+            }
+            var leg = basket.Plan.Legs.FirstOrDefault(x => x.Index == legIndex);
+            if (leg == null)
+            {
+                _orphanPendingOrders++;
+                return;
+            }
+
+            if (leg.State == GridLegState.FAIL_CLOSED)
+            {
+                FailClosePosition(p, basket, "REPEAT_POST_FILL_AFTER_FAIL_CLOSED");
+                return;
+            }
+
+            if (leg.State == GridLegState.CANCELLED || leg.State == GridLegState.EXPIRED ||
+                leg.State == GridLegState.REJECTED || leg.State == GridLegState.RISK_REJECTED)
+            {
+                _executionStateViolations++;
+                basket.ExitOverride = "LATE_FILL_AFTER_TERMINAL_STATE_" + leg.State;
+                Print("[V44-STATE-VIOLATION] basket={0} leg=L{1} prior={2} next=FILLED_UNVERIFIED reason=LATE_FILL_AFTER_TERMINAL_STATE",
+                    basket.BasketId, leg.Index, leg.State);
+                CancelBasketPending(basket, basket.ExitOverride);
+                FailClosePosition(p, basket, basket.ExitOverride);
+                return;
+            }
+
+            TransitionLegState(basket, leg, GridLegState.FILLED_UNVERIFIED, "POST_FILL_" + source);
+            leg.PositionId = p.Id;
+            if (!_positions.ContainsKey(p.Id)) RegisterFilledPosition(basket, leg, p);
+
+            bool entryCross = basket.Direction == TradeDirection.Buy
+                ? p.EntryPrice <= basket.StructuralStop
+                : p.EntryPrice >= basket.StructuralStop;
+            bool marketCross = BasketStructuralInvalidated(basket);
+            if (entryCross || marketCross)
+            {
+                _gapThroughInvalidations++;
+                basket.ExitOverride = "GAP_THROUGH_STRUCTURAL_INVALIDATION";
+                TransitionLegState(basket, leg, GridLegState.FAIL_CLOSED, basket.ExitOverride);
+                CancelBasketPending(basket, basket.ExitOverride);
+                FailClosePosition(p, basket, basket.ExitOverride);
+                if (PositionStillExists(p.Id)) _gapThroughSurvivors++;
+                else _positions.Remove(p.Id);
+                return;
+            }
+
+            double actualWorst = ActualBasketWorstRisk(basket);
+            if (actualWorst > basket.InitialBasketRisk + 1e-8)
+            {
+                _actualBasketRiskViolations++;
+                basket.ExitOverride = "ACTUAL_FILL_RISK_BUDGET_BREACH";
+                CancelBasketPending(basket, basket.ExitOverride);
+                TransitionLegState(basket, leg, GridLegState.FAIL_CLOSED, basket.ExitOverride);
+                FailClosePosition(p, basket, basket.ExitOverride);
+                if (!PositionStillExists(p.Id)) _positions.Remove(p.Id);
+                return;
+            }
+
+            if (!EnsurePostFillProtection(p, basket))
+            {
+                basket.ExitOverride = "POST_FILL_PROTECTION_FAIL_CLOSED";
+                CancelBasketPending(basket, basket.ExitOverride);
+                TransitionLegState(basket, leg, GridLegState.FAIL_CLOSED, basket.ExitOverride);
+                FailClosePosition(p, basket, basket.ExitOverride);
+                if (PositionStillExists(p.Id)) _unprotectedSurvivors++;
+                else _positions.Remove(p.Id);
+                return;
+            }
+
+            if (Account.FreeMargin < basket.InitialBasketRisk * MinFreeMarginRiskMultiple)
+            {
+                _marginRiskViolations++;
+                basket.ExitOverride = "POST_FILL_MARGIN_HEADROOM";
+                CancelBasketPending(basket, basket.ExitOverride);
+                TransitionLegState(basket, leg, GridLegState.FAIL_CLOSED, basket.ExitOverride);
+                FailClosePosition(p, basket, basket.ExitOverride);
+                if (!PositionStillExists(p.Id)) _positions.Remove(p.Id);
+                return;
+            }
+
+            _postFillValidated.Add(p.Id);
+            TransitionLegState(basket, leg, GridLegState.PROTECTED, "POST_FILL_PROTECTED");
+            Print("[V44-POST-FILL-AUDIT] basket={0} leg=L{1} pos={2} source={3} entry={4} stop={5} target={6} actualWorst={7:F4} budget={8:F4} protected=true",
+                basket.BasketId, leg.Index, p.Id, source, p.EntryPrice, basket.StructuralStop, basket.CanonicalTarget, actualWorst, basket.InitialBasketRisk);
+        }
+
+        private bool EnsurePostFillProtection(Position p, FibonacciBasket basket)
+        {
+            bool stopAcceptable = p.StopLoss.HasValue &&
+                (p.TradeType == TradeType.Buy ? p.StopLoss.Value + _symbol.TickSize >= basket.StructuralStop
+                                              : p.StopLoss.Value - _symbol.TickSize <= basket.StructuralStop);
+            bool tpAcceptable = p.TakeProfit.HasValue &&
+                (p.TradeType == TradeType.Buy ? p.TakeProfit.Value > p.EntryPrice : p.TakeProfit.Value < p.EntryPrice);
+
+            if (!stopAcceptable)
+            {
+                if (!BrokerStopDistanceValid(p.TradeType, basket.StructuralStop))
+                {
+                    _postFillProtectionFailures++;
+                    return false;
+                }
+                var rs = p.ModifyStopLossPrice(basket.StructuralStop);
+                if (rs == null || !rs.IsSuccessful)
+                {
+                    _postFillProtectionFailures++;
+                    RecordExecutionError("POST_FILL_SL_" + (rs == null ? "NULL" : rs.Error.ToString()),
+                        "basket=" + basket.BasketId + ";position=" + p.Id);
+                    return false;
+                }
+            }
+
+            var live = Positions.FirstOrDefault(x => x.Id == p.Id);
+            if (live == null || !live.StopLoss.HasValue)
+            {
+                _postFillProtectionFailures++;
+                return false;
+            }
+
+            if (!tpAcceptable)
+            {
+                if (!BrokerTargetDistanceValid(p.TradeType, basket.CanonicalTarget))
+                {
+                    _postFillProtectionFailures++;
+                    return false;
+                }
+                var rt = live.ModifyTakeProfitPrice(basket.CanonicalTarget);
+                if (rt == null || !rt.IsSuccessful)
+                {
+                    _postFillProtectionFailures++;
+                    RecordExecutionError("POST_FILL_TP_" + (rt == null ? "NULL" : rt.Error.ToString()),
+                        "basket=" + basket.BasketId + ";position=" + p.Id);
+                    return false;
+                }
+            }
+
+            live = Positions.FirstOrDefault(x => x.Id == p.Id);
+            return live != null && live.StopLoss.HasValue && live.TakeProfit.HasValue;
+        }
+
+        private bool BrokerTargetDistanceValid(TradeType tradeType, double target)
+        {
+            double reference = tradeType == TradeType.Buy ? _symbol.Ask : _symbol.Bid;
+            double minTp = BrokerMinimumDistancePrice(reference, false);
+            return tradeType == TradeType.Buy
+                ? target > reference && target - reference + 1e-12 >= minTp
+                : target < reference && reference - target + 1e-12 >= minTp;
+        }
+
+        private void FailClosePosition(Position p, FibonacciBasket basket, string reason)
+        {
+            var r = ClosePosition(p);
+            if ((r == null || !r.IsSuccessful) && PositionStillExists(p.Id))
+                RecordExecutionError("FAIL_CLOSE_" + (r == null ? "NULL" : r.Error.ToString()),
+                    "basket=" + basket.BasketId + ";position=" + p.Id + ";reason=" + reason);
+        }
+
+        private double ActualBasketWorstRisk(FibonacciBasket basket)
+        {
+            double risk = 0;
+            foreach (var p in OwnPositions().Where(x => LabelBasketId(x.Label) == basket.BasketId))
+            {
+                bool validSide = basket.Direction == TradeDirection.Buy ? p.EntryPrice > basket.StructuralStop : p.EntryPrice < basket.StructuralStop;
+                if (!validSide) return double.MaxValue;
+                double d = PriceToPips(Math.Abs(p.EntryPrice - basket.StructuralStop));
+                risk += p.VolumeInUnits * _symbol.PipValue * (d + ModeledCostPips());
+            }
+            foreach (var o in OwnPendingOrders().Where(x => LabelBasketId(x.Label) == basket.BasketId))
+            {
+                double d = PriceToPips(Math.Abs(o.TargetPrice - basket.StructuralStop));
+                risk += o.VolumeInUnits * _symbol.PipValue * (d + ModeledCostPips());
+            }
+            return risk;
+        }
+
+        private void RecordLegFillTelemetry(FibonacciBasket basket, FibonacciGridLeg leg)
+        {
+            if (leg.FillCounted) return;
+            if (leg.State != GridLegState.PROTECTED || leg.PositionId <= 0 || !_postFillValidated.Contains(leg.PositionId))
+            {
+                _executionStateViolations++;
+                BasketEvent(basket, "FILL_TELEMETRY_WITHOUT_PROTECTION_L" + leg.Index);
+                return;
+            }
+            leg.FillCounted = true;
+            basket.FilledLegs = Math.Max(basket.FilledLegs, basket.Plan.Legs.Count(x => x.FillCounted));
+            if (leg.Index == 1) CountPipeline(basket.Pattern).Leg1Filled++;
+            if (leg.Index == 2) CountPipeline(basket.Pattern).Leg2Filled++;
+            if (leg.Index == 3) CountPipeline(basket.Pattern).Leg3Filled++;
+            BasketEvent(basket, "GRID_LEG_FILLED_L" + leg.Index);
+        }
+
+        private void UpdateVirtualGridState(FibonacciBasket basket)
+        {
+            if (basket == null || !basket.IsActive || BasketStructuralInvalidated(basket)) return;
+            foreach (var leg in basket.Plan.Legs.Where(x => !x.Physical && x.State == GridLegState.VIRTUAL_ONLY).ToList())
+            {
+                bool touched = basket.Direction == TradeDirection.Buy ? _symbol.Ask <= leg.PlannedPrice : _symbol.Bid >= leg.PlannedPrice;
+                if (!touched) continue;
+                if (!DeeperLegThesisEligible(basket, leg))
+                {
+                    TransitionLegState(basket, leg, GridLegState.CANCELLED, "VIRTUAL_THESIS_REJECT");
+                    continue;
+                }
+                _virtualGridFills++;
+                TransitionLegState(basket, leg, GridLegState.VIRTUAL_FILLED, "VIRTUAL_GRID_FILLED");
+            }
+        }
+
+        private void RevalidatePendingExposureGovernor()
+        {
+            foreach (var basket in _baskets.Values.Where(b => b.IsActive).ToList())
+            {
+                foreach (var o in OwnPendingOrders().Where(x => LabelBasketId(x.Label) == basket.BasketId).ToList())
+                {
+                    int index = LabelLegIndex(o.Label);
+                    var leg = basket.Plan.Legs.FirstOrDefault(x => x.Index == index);
+                    if (leg == null || !leg.Physical) continue;
+                    if (DeeperLegThesisEligible(basket, leg)) continue;
+
+                    var r = CancelPendingOrder(o);
+                    if (r == null || !r.IsSuccessful)
+                    {
+                        if (PendingOrderStillExists(o.Id))
+                            RecordExecutionError("EXPOSURE_GOVERNOR_CANCEL_" + (r == null ? "NULL" : r.Error.ToString()),
+                                "basket=" + basket.BasketId + ";order=" + o.Id);
+                        continue;
+                    }
+                    TransitionLegState(basket, leg, GridLegState.CANCELLED, "EXPOSURE_GOVERNOR");
+                }
+            }
+        }
+
+        private void TransitionLegState(FibonacciBasket basket, FibonacciGridLeg leg, GridLegState next, string reason)
+        {
+            GridLegState prior = leg.State;
+            bool allowed =
+                prior == next ||
+                (prior == GridLegState.PLANNED && (next == GridLegState.SUBMITTING || next == GridLegState.CANCELLED ||
+                    next == GridLegState.EXPIRED || next == GridLegState.REJECTED || next == GridLegState.RISK_REJECTED ||
+                    next == GridLegState.VIRTUAL_ONLY)) ||
+                (prior == GridLegState.SUBMITTING && (next == GridLegState.SUBMITTED || next == GridLegState.FILLED_UNVERIFIED ||
+                    next == GridLegState.REJECTED || next == GridLegState.FAIL_CLOSED || next == GridLegState.CANCELLED ||
+                    next == GridLegState.EXPIRED)) ||
+                (prior == GridLegState.SUBMITTED && (next == GridLegState.FILLED_UNVERIFIED || next == GridLegState.CANCELLED ||
+                    next == GridLegState.EXPIRED || next == GridLegState.FAIL_CLOSED)) ||
+                (prior == GridLegState.FILLED_UNVERIFIED && (next == GridLegState.PROTECTED || next == GridLegState.FAIL_CLOSED)) ||
+                (prior == GridLegState.PROTECTED && next == GridLegState.FAIL_CLOSED) ||
+                (prior == GridLegState.VIRTUAL_ONLY && (next == GridLegState.VIRTUAL_FILLED || next == GridLegState.CANCELLED ||
+                    next == GridLegState.EXPIRED));
+            if (!allowed)
+            {
+                _executionStateViolations++;
+                Print("[V44-STATE-VIOLATION] basket={0} leg=L{1} prior={2} next={3} reason={4}", basket == null ? "" : basket.BasketId, leg.Index, prior, next, reason);
+            }
+            leg.State = next;
+            if (basket != null) BasketEvent(basket, "LEG_STATE_L" + leg.Index + "_" + prior + "_TO_" + next + "_" + reason);
+        }
+
+        private void PrintBrokerCapabilityProfile()
+        {
+            double min = _symbol.VolumeInUnitsMin;
+            double marginBuy = EstimatedMargin(TradeDirection.Buy, min);
+            double marginSell = EstimatedMargin(TradeDirection.Sell, min);
+            Print("[V44-BROKER-PROFILE] symbol={0} equity={1:F2} freeMargin={2:F2} minVolume={3} step={4} maxVolume={5} pipValue={6} tickValue={7} minSL={8} minTP={9} minDistanceType={10} minMarginBuy={11:F2} minMarginSell={12:F2} minimumSupportedEquity={13:F2} adaptiveCapital={14} microThreshold={15:F2} initialCapitalEligible={16}",
+                SymbolName, Account.Equity, Account.FreeMargin, _symbol.VolumeInUnitsMin, _symbol.VolumeInUnitsStep, _symbol.VolumeInUnitsMax,
+                _symbol.PipValue, _symbol.TickValue, _symbol.MinStopLossDistance, _symbol.MinTakeProfitDistance, _symbol.MinDistanceType,
+                marginBuy, marginSell, MinimumSupportedEquity, AdaptiveCapitalMode, MicroCapitalThreshold, _initialCapitalEligible);
+        }
+
+        private double WeightedAverageEntry(List<Position> positions)
+        {
+            double volume = positions.Sum(p => p.VolumeInUnits);
+            return volume > 0 ? positions.Sum(p => p.EntryPrice * p.VolumeInUnits) / volume : 0;
+        }
+
+        private void OnPositionClosed(PositionClosedEventArgs args)
+        {
+            var p = args.Position;
+            if (p == null || p.SymbolName != SymbolName || string.IsNullOrWhiteSpace(p.Label) || !p.Label.StartsWith(BotPrefix + "|", StringComparison.Ordinal))
+                return;
+
+            PositionLedger l;
+            if (!_positions.TryGetValue(p.Id, out l))
+            {
+                Print("[V44-LEG-CLOSED] pos={0} basket=UNKNOWN net={1:F2} reason={2}", p.Id, p.NetProfit, args.Reason);
+                return;
+            }
+
+            FibonacciBasket basket = null;
+            if (_baskets.TryGetValue(l.BasketId, out basket))
+            {
+                basket.RealizedNet += p.NetProfit;
+                basket.ClosedLegs++;
+                double legRealizedR = l.InitialRiskPips > 0 ? p.Pips / l.InitialRiskPips : 0;
+                Print("[V44-LEG-CLOSED] basket={0} cid={1} leg=L{2} pos={3} pattern={4} route={5} dir={6} mfeR={7:F3} maeR={8:F3} realizedR={9:F3} net={10:F2} reason={11}",
+                    basket.BasketId, basket.CandidateId, l.LegIndex, p.Id, basket.Pattern, basket.Route, basket.Direction,
+                    l.PeakR, l.MaxAdverseR, legRealizedR, p.NetProfit, args.Reason);
+
+                if (args.Reason.ToString().IndexOf("TakeProfit", StringComparison.OrdinalIgnoreCase) >= 0)
+                    CancelBasketPending(basket, "CANONICAL_TARGET_REACHED");
+            }
+
+            _positions.Remove(p.Id);
+            _postFillValidated.Remove(p.Id);
+
+            if (basket != null &&
+                !OwnPositions().Any(x => LabelBasketId(x.Label) == basket.BasketId) &&
+                !OwnPendingOrders().Any(x => LabelBasketId(x.Label) == basket.BasketId))
+                CloseBasketLedger(basket, string.IsNullOrWhiteSpace(basket.ExitOverride) ? args.Reason.ToString() : basket.ExitOverride);
+        }
+
+        private void CloseBasketLedger(FibonacciBasket basket, string reason)
+        {
+            if (!basket.IsActive) return;
+            basket.IsActive = false;
+            basket.State = FibonacciBasketState.CLOSED;
+            basket.ExitReason = reason;
+
+            double realizedR = basket.InitialBasketRisk > 0 ? basket.RealizedNet / basket.InitialBasketRisk : 0;
+            CountPipeline(basket.Pattern).BasketClosed++;
+            BasketEvent(basket, "BASKET_CLOSED_" + reason);
+
+            double entryImprovementPips = basket.AverageEntry > 0
+                ? PriceToPips(basket.Direction == TradeDirection.Buy ? basket.EntryAnchor - basket.AverageEntry : basket.AverageEntry - basket.EntryAnchor)
+                : 0;
+            Print("[V44-BASKET-CLOSED] basket={0} cid={1} pattern={2} route={3} dir={4} plannedLegs={5} filledLegs={6} anchor={7} avgEntry={8} entryImprovePips={9:F3} stop={10} target={11} initialRisk={12:F2} worstRisk={13:F2} mfeR={14:F3} maeR={15:F3} realizedR={16:F3} net={17:F2} reason={18}",
+                basket.BasketId, basket.CandidateId, basket.Pattern, basket.Route, basket.Direction, basket.Plan.Legs.Count, basket.FilledLegs,
+                basket.EntryAnchor, basket.AverageEntry, entryImprovementPips, basket.StructuralStop, basket.CanonicalTarget,
+                basket.InitialBasketRisk, basket.PlannedWorstCaseRisk, basket.PeakR, basket.MaxAdverseR, realizedR, basket.RealizedNet, reason);
+            if (EnableAttributionLedger && basket.Candidate != null && basket.Candidate.Signal != null && basket.Candidate.Regime != null)
+            {
+                var c = basket.Candidate;
+                Print("[V44-ATTRIBUTION-OUTCOME] cid={0} key={1} lane={2} pattern={3} route={4} dir={5} conflict={6} geom={7:F3} prz={8:F3} time={9:F3} pivot={10:F3} alpha={11:F3} regime={12:F3} atrRatio={13:F3} efficiency={14:F3} extensionAtr={15:F3} adxSlope={16:F3} evidence={17:F3} follow={18:F3} routeFit={19:F3} stress={20:F3} netRR={21:F3} attr={22:F3} rescue={23:F3} mfeR={24:F3} maeR={25:F3} realizedR={26:F3} net={27:F2} reason={28} htfContext={29:F3} temporal={30:F3} crossRegime={31:F3} alphaDensity={32:F3} regimeClass={33} hypotheses={34}",
+                    c.CandidateId, c.CanonicalCandidateKey, c.Lane, c.Signal.PatternName, c.Route, c.Signal.Direction, c.Conflict,
+                    c.Signal.GeometryQuality, c.Signal.PrzConfluence, c.Signal.TimeSymmetry, c.Signal.PivotQuality,
+                    c.AlphaQualityScore, c.RegimeScore, c.Regime.AtrRatio, c.Regime.Efficiency, c.Regime.ExtensionAtr,
+                    c.Regime.AdxH1Slope, c.EvidenceComposite, c.FollowThroughScore, c.RouteFitScore, c.RegimeStressScore,
+                    c.NetRR, c.AttributionScore, c.MarginalRescueScore, basket.PeakR, basket.MaxAdverseR, realizedR, basket.RealizedNet, reason,
+                    c.HtfContextConfidence, c.TemporalStateScore, c.CrossRegimeAdmissionScore, c.RobustAlphaDensity,
+                    c.Regime.RegimeClass, string.IsNullOrWhiteSpace(c.PatternHypotheses) ? c.Signal.PatternName : c.PatternHypotheses);
+            }
+        }
+
+        private IEnumerable<PendingOrder> OwnPendingOrders()
+        {
+            return PendingOrders.Where(o => o.SymbolName == SymbolName &&
+                !string.IsNullOrWhiteSpace(o.Label) && o.Label.StartsWith(BotPrefix + "|", StringComparison.Ordinal));
+        }
+
+        private bool LegAlreadyExists(string label)
+        {
+            return OwnPositions().Any(p => p.Label == label) || OwnPendingOrders().Any(o => o.Label == label);
+        }
+
+        private string NewBasketId()
+        {
+            _basketSeq++;
+            return BotPrefix + "-" + SymbolName + "-" + Server.Time.ToUniversalTime().ToString("yyyyMMdd", CultureInfo.InvariantCulture) + "-" +
+                   _basketSeq.ToString("D6", CultureInfo.InvariantCulture);
+        }
+
+        private string GridLabel(string basketId, int legIndex)
+        {
+            return BotPrefix + "|" + basketId + "|L" + legIndex;
+        }
+
+        private string GridComment(FibonacciBasket basket, int legIndex)
+        {
+            return "cid=" + basket.CandidateId + ";basket=" + basket.BasketId + ";leg=L" + legIndex +
+                   ";pattern=" + basket.Pattern + ";tf=M15;route=" + basket.Route;
+        }
+
+        private string LabelBasketId(string label)
+        {
+            if (string.IsNullOrWhiteSpace(label)) return null;
+            var p = label.Split('|');
+            return p.Length >= 3 && p[0] == BotPrefix ? p[1] : null;
+        }
+
+        private int LabelLegIndex(string label)
+        {
+            if (string.IsNullOrWhiteSpace(label)) return -1;
+            var p = label.Split('|');
+            if (p.Length < 3 || !p[2].StartsWith("L", StringComparison.Ordinal)) return -1;
+            int x;
+            return int.TryParse(p[2].Substring(1), out x) ? x : -1;
+        }
+
+        private void BasketEvent(FibonacciBasket basket, string reason)
+        {
+            Print("[V44-BASKET-EVENT] basket={0} cid={1} pattern={2} route={3} state={4} reason={5}",
+                basket.BasketId, basket.CandidateId, basket.Pattern, basket.Route, basket.State, reason);
+        }
+
+        private DateTime MinDate(DateTime a, DateTime b) { return a <= b ? a : b; }
+
+        // ---------------- Harmonic engine ----------------
+
+        private List<PatternSignal> DetectPatternCandidates(Bars bars, int endIndex, int depth, int lookback, int maxCandidates, string timeframe)
+        {
+            var result = new List<PatternSignal>();
+            if (bars == null || endIndex < 40) return result;
+            double atr = Atr(bars, 14, endIndex);
+            if (atr <= 0) return result;
+
+            int[] scales = EnableMultiScalePivotGraph && string.Equals(timeframe, "M15", StringComparison.OrdinalIgnoreCase)
+                ? new[] { 2, 3, 5 }
+                : new[] { Math.Max(2, depth) };
+
+            foreach (int scale in scales.Distinct())
+            {
+                var pivots = BuildConfirmedPivots(bars, endIndex, lookback, scale);
+                if (pivots.Count < 5) continue;
+
+                int start = Math.Max(0, pivots.Count - 36);
+                for (int i = start; i <= pivots.Count - 5; i++)
+                {
+                    var x = pivots[i];
+                    var a = pivots[i + 1];
+                    var b = pivots[i + 2];
+                    var c = pivots[i + 3];
+                    var d = pivots[i + 4];
+
+                    foreach (var profile in _profiles)
+                    {
+                        PatternSignal sig;
+                        if (!TryMatchProfile(profile, x, a, b, c, d, atr, bars.OpenTimes[d.Index], timeframe, scale, out sig))
+                            continue;
+                        if (endIndex - d.Index > Math.Max(2, profile.MaxAgeM15Bars)) continue;
+                        result.Add(sig);
+                    }
+                }
+            }
+
+            var ordered = result
+                .OrderByDescending(s => s.Confidence)
+                .ThenByDescending(s => s.GeometryQuality);
+
+            if (EnableCanonicalSetupDedupe)
+                ordered = ordered.GroupBy(BuildSetupGeometryKey)
+                    .Select(g =>
+                    {
+                        var hs = g.OrderByDescending(s => s.Confidence).ThenByDescending(s => s.GeometryQuality).ToList();
+                        var best = hs[0];
+                        best.Hypotheses = hs;
+                        best.HypothesisNames = string.Join(",", hs.Select(x => x.PatternName).Distinct());
+                        return best;
+                    })
+                    .OrderByDescending(s => s.Confidence).ThenByDescending(s => s.GeometryQuality);
+
+            return ordered
+                .GroupBy(s => s.PatternName + "|" + s.Direction + "|" + s.CompletionTime.ToString("O") + "|" + s.PivotScale)
+                .Select(g => g.First())
+                .Take(Math.Max(1, maxCandidates))
+                .ToList();
+        }
+
+        private PatternSignal SelectContextualHypothesis(PatternSignal seed, HarmonicState h4, HarmonicState h1, RegimeSnapshot regime)
+        {
+            if (seed == null) return null;
+            var hs = seed.Hypotheses != null && seed.Hypotheses.Count > 0
+                ? seed.Hypotheses
+                : new List<PatternSignal> { seed };
+            PatternSignal best = null;
+            double bestScore = double.MinValue;
+            foreach (var h in hs)
+            {
+                var conflict = ClassifyMtfConflict(h.Direction, h4, h1);
+                var route = RouteSignalV34(h, conflict, regime);
+                double routePrior = route == HarmonicRoute.NO_TRADE ? .30 : PatternRoutePrior(h.PatternName, route);
+                double context = StructuralContextConfidence(h, conflict, regime);
+                double score = .50 * h.Confidence + .20 * HarmonicRobustnessScore(h) + .15 * routePrior + .15 * context;
+                if (score > bestScore)
+                {
+                    bestScore = score;
+                    best = h;
+                }
+            }
+            if (best != null)
+            {
+                best.Hypotheses = hs;
+                best.HypothesisNames = string.Join(",", hs.Select(x => x.PatternName).Distinct());
+            }
+            return best ?? seed;
+        }
+
+        private HarmonicState GetActiveHarmonicState(Bars bars, int depth, int lookback, int maxAge)
+        {
+            int i = LastClosedIndex(bars);
+            if (i < 40) return HarmonicState.Neutral;
+            var xs = DetectPatternCandidates(bars, i, depth, lookback, 4, bars.TimeFrame.ToString());
+            var best = xs.Where(x => i - x.D.Index <= maxAge).OrderByDescending(x => x.Confidence).FirstOrDefault();
+            if (best == null) return HarmonicState.Neutral;
+            return best.Direction == TradeDirection.Buy ? HarmonicState.Bullish : HarmonicState.Bearish;
+        }
+
+        private bool TryMatchProfile(PatternProfile p, PivotPoint x, PivotPoint a, PivotPoint b, PivotPoint c, PivotPoint d,
+            double atr, DateTime completion, string timeframe, int pivotScale, out PatternSignal signal)
+        {
+            signal = null;
+            bool bullish = a.Price > x.Price && b.Price < a.Price && c.Price > b.Price && d.Price < c.Price;
+            bool bearish = a.Price < x.Price && b.Price > a.Price && c.Price < b.Price && d.Price > c.Price;
+            if (!bullish && !bearish) return false;
+
+            double xa = Math.Abs(a.Price - x.Price);
+            double ab = Math.Abs(b.Price - a.Price);
+            double bc = Math.Abs(c.Price - b.Price);
+            double cd = Math.Abs(d.Price - c.Price);
+            double ad = Math.Abs(d.Price - a.Price);
+            double xd = Math.Abs(d.Price - x.Price);
+            double xc = Math.Abs(c.Price - x.Price);
+            if (xa <= 0 || ab <= 0 || bc <= 0 || cd <= 0 || atr <= 0) return false;
+            if (Math.Min(Math.Min(xa, ab), Math.Min(bc, cd)) < atr * 0.45) return false;
+
+            // Explicit canonical coordinates. AD/XA is the standard XA completion retracement/extension.
+            double xab = ab / xa;
+            double abc = bc / ab;
+            double bcd = cd / bc;
+            double adxa = ad / xa;
+            double xdxa = xd / xa;
+            double abcd = cd / ab;
+            double xac = xc / xa;
+            double cdxc = cd / Math.Max(xc, 1e-9);
+            double standardCompletion = EnableCanonicalGeometryEngine ? adxa : xdxa;
+
+            bool ratioOk;
+            if (p.Mode == PatternMode.ABCD)
+                ratioOk = InRange(abc, p.AbcMin, p.AbcMax) && InRange(bcd, p.BcdMin, p.BcdMax) && InRange(abcd, p.AbcDMin, p.AbcDMax);
+            else if (p.Mode == PatternMode.CYPHER)
+                ratioOk = InRange(xab, .382, .618) && InRange(xac, 1.13, 1.414) && InRange(cdxc, .70, .90);
+            else if (p.Mode == PatternMode.SHARK)
+                ratioOk = InRange(abc, 1.13, 1.618) && InRange(bcd, 1.13, 2.24) && InRange(xdxa, .85, 1.25);
+            else if (p.Mode == PatternMode.FIVEZERO)
+                ratioOk = InRange(xab, 1.13, 1.618) && InRange(abc, 1.618, 2.24) && InRange(bcd, .45, .65);
+            else
+                ratioOk = InRange(xab, p.XabMin, p.XabMax) && InRange(abc, p.AbcMin, p.AbcMax) &&
+                          InRange(bcd, p.BcdMin, p.BcdMax) && InRange(standardCompletion, p.AdXaMin, p.AdXaMax);
+
+            if (!ratioOk) return false;
+
+            double geometry;
+            if (p.Mode == PatternMode.STANDARD)
+                geometry = (RatioScore(xab, Mid(p.XabMin, p.XabMax)) + RatioScore(abc, Mid(p.AbcMin, p.AbcMax)) +
+                            RatioScore(bcd, Mid(p.BcdMin, p.BcdMax)) + RatioScore(standardCompletion, Mid(p.AdXaMin, p.AdXaMax))) / 4.0;
+            else if (p.Mode == PatternMode.ABCD)
+                geometry = VClamp((RatioScore(abc, Mid(p.AbcMin, p.AbcMax)) + RatioScore(bcd, Mid(p.BcdMin, p.BcdMax)) +
+                                   RatioScore(abcd, Mid(p.AbcDMin, p.AbcDMax))) / 3.0);
+            else if (p.Mode == PatternMode.CYPHER)
+                geometry = VClamp((RatioScore(xab, .50) + RatioScore(xac, 1.272) + RatioScore(cdxc, .786)) / 3.0);
+            else if (p.Mode == PatternMode.SHARK)
+                geometry = VClamp((RatioScore(abc, 1.374) + RatioScore(bcd, 1.685) + RatioScore(xdxa, 1.05)) / 3.0);
+            else
+                geometry = VClamp((RatioScore(xab, 1.374) + RatioScore(abc, 1.929) + RatioScore(bcd, .55)) / 3.0);
+
+            int t1 = Math.Max(1, a.Index - x.Index);
+            int t2 = Math.Max(1, b.Index - a.Index);
+            int t3 = Math.Max(1, c.Index - b.Index);
+            int t4 = Math.Max(1, d.Index - c.Index);
+            double timeSym = (Symmetry(t1, t2) + Symmetry(t2, t3) + Symmetry(t3, t4)) / 3.0;
+            double pivotQuality = VClamp(Math.Min(Math.Min(xa, ab), Math.Min(bc, cd)) / (atr * 2.0));
+
+            double przHalf = atr * p.PrzWidthAtr;
+            double przLow = d.Price - przHalf;
+            double przHigh = d.Price + przHalf;
+            double przConfluence = p.Mode == PatternMode.STANDARD
+                ? VClamp(1.0 - Math.Abs(standardCompletion - Mid(p.AdXaMin, p.AdXaMax)) / Math.Max(.15, p.AdXaMax - p.AdXaMin + .05))
+                : VClamp((geometry + timeSym) / 2.0);
+
+            double invalid = PatternStructuralInvalidation(p, x, a, b, c, d, bullish);
+            double target1 = bullish ? d.Price + cd * p.Target1Cd : d.Price - cd * p.Target1Cd;
+            double target2 = bullish ? d.Price + cd * p.Target2Cd : d.Price - cd * p.Target2Cd;
+            double confidence = VClamp(0.45 * geometry + 0.25 * przConfluence + 0.15 * timeSym + 0.15 * pivotQuality);
+
+            signal = new PatternSignal
+            {
+                PatternName = p.Name,
+                Profile = p,
+                Direction = bullish ? TradeDirection.Buy : TradeDirection.Sell,
+                X = x, A = a, B = b, C = c, D = d,
+                PivotScale = pivotScale,
+                Xab = xab, Abc = abc, Bcd = bcd, AdXa = adxa, XdXa = xdxa, AbCd = abcd, Xac = xac, CdXc = cdxc,
+                PrzLow = przLow, PrzHigh = przHigh,
+                GeometryQuality = geometry,
+                PrzConfluence = przConfluence,
+                TimeSymmetry = timeSym,
+                PivotQuality = pivotQuality,
+                Confidence = confidence,
+                StructuralInvalidation = invalid,
+                CanonicalTarget1 = target1,
+                CanonicalTarget2 = target2,
+                CompletionTime = DateTime.SpecifyKind(completion, DateTimeKind.Utc),
+                Timeframe = timeframe
+            };
+            return true;
+        }
+
+        private List<PivotPoint> BuildConfirmedPivots(Bars bars, int endIndex, int lookback, int depth)
+        {
+            var raw = new List<PivotPoint>();
+            int last = Math.Min(endIndex - depth, bars.Count - 1 - depth);
+            int start = Math.Max(depth, last - lookback);
+            for (int i = start; i <= last; i++)
+            {
+                bool hi = true, lo = true;
+                for (int j = i - depth; j <= i + depth; j++)
+                {
+                    if (j == i) continue;
+                    if (bars.HighPrices[j] >= bars.HighPrices[i]) hi = false;
+                    if (bars.LowPrices[j] <= bars.LowPrices[i]) lo = false;
+                    if (!hi && !lo) break;
+                }
+                if (hi) raw.Add(new PivotPoint { Index = i, Price = bars.HighPrices[i], IsHigh = true });
+                if (lo) raw.Add(new PivotPoint { Index = i, Price = bars.LowPrices[i], IsHigh = false });
+            }
+
+            raw = raw.OrderBy(x => x.Index).ToList();
+            var compressed = new List<PivotPoint>();
+            foreach (var p in raw)
+            {
+                if (compressed.Count == 0) { compressed.Add(p); continue; }
+                var lastP = compressed[compressed.Count - 1];
+                if (lastP.IsHigh == p.IsHigh)
+                {
+                    if ((p.IsHigh && p.Price > lastP.Price) || (!p.IsHigh && p.Price < lastP.Price))
+                        compressed[compressed.Count - 1] = p;
+                }
+                else compressed.Add(p);
+            }
+            return compressed;
+        }
+
+        private void BuildPatternProfiles()
+        {
+            _profiles.Clear();
+            AddStd("Gartley", .55, .70, .382, .886, 1.13, 1.618, .72, .82, .12, .18, .618, 1.00, 8, .55, .55);
+            AddStd("Bat", .382, .52, .382, .886, 1.13, 2.618, .84, .92, .13, .18, .618, 1.00, 8, .55, .55);
+            AddStd("Alt Bat", .35, .43, .382, .886, 2.0, 3.618, 1.05, 1.18, .13, .20, .618, 1.00, 7, .58, .58);
+            AddStd("Butterfly", .75, .82, .382, .886, 1.618, 2.618, 1.22, 1.35, .14, .20, .618, 1.00, 7, .58, .58);
+            AddStd("Crab", .382, .65, .382, .886, 2.24, 3.618, 1.55, 1.72, .15, .22, .618, 1.00, 6, .60, .60);
+            AddStd("Deep Crab", .82, .90, .382, .886, 2.0, 3.618, 1.55, 1.72, .15, .22, .618, 1.00, 6, .60, .60);
+            AddStd("Deep Gartley", .70, .82, .382, .886, 1.13, 2.0, .82, .95, .13, .20, .618, 1.00, 7, .58, .58);
+            AddStd("Rat", .50, .82, .382, .886, 1.272, 2.618, .88, 1.13, .14, .20, .618, 1.00, 7, .58, .58);
+
+            _profiles.Add(new PatternProfile { Name = "Cypher", Mode = PatternMode.CYPHER, AbcMin = 1.13, AbcMax = 1.414, BcdMin = .70, BcdMax = .90, AdXaMin = .70, AdXaMax = .90, PrzWidthAtr = .12, StopBufferAtr = .18, Target1Cd = .50, Target2Cd = .886, MaxAgeM15Bars = 6, MinGeometry = .60, MinPrz = .60 });
+            _profiles.Add(new PatternProfile { Name = "Shark", Mode = PatternMode.SHARK, AbcMin = 1.13, AbcMax = 1.618, BcdMin = 1.13, BcdMax = 2.24, AdXaMin = .85, AdXaMax = 1.25, PrzWidthAtr = .14, StopBufferAtr = .20, Target1Cd = .50, Target2Cd = .886, MaxAgeM15Bars = 6, MinGeometry = .60, MinPrz = .60 });
+            _profiles.Add(new PatternProfile { Name = "5-0", Mode = PatternMode.FIVEZERO, AbcMin = 1.618, AbcMax = 2.24, BcdMin = .45, BcdMax = .65, AdXaMin = .8, AdXaMax = 1.3, PrzWidthAtr = .14, StopBufferAtr = .20, Target1Cd = .50, Target2Cd = 1.00, MaxAgeM15Bars = 6, MinGeometry = .60, MinPrz = .60 });
+            _profiles.Add(new PatternProfile { Name = "AB=CD", Mode = PatternMode.ABCD, AbcMin = .382, AbcMax = .886, BcdMin = 1.13, BcdMax = 2.618, AbcDMin = .80, AbcDMax = 1.25, AdXaMin = .5, AdXaMax = 1.5, PrzWidthAtr = .12, StopBufferAtr = .18, Target1Cd = .618, Target2Cd = 1.00, MaxAgeM15Bars = 8, MinGeometry = .55, MinPrz = .55 });
+            ConfigureFibonacciGridProfiles();
+        }
+
+        private void AddStd(string name, double xab1, double xab2, double abc1, double abc2, double bcd1, double bcd2,
+            double adxa1, double adxa2, double przAtr, double stopAtr, double t1, double t2, int age, double minGeom, double minPrz)
+        {
+            _profiles.Add(new PatternProfile
+            {
+                Name = name, Mode = PatternMode.STANDARD,
+                XabMin = xab1, XabMax = xab2, AbcMin = abc1, AbcMax = abc2, BcdMin = bcd1, BcdMax = bcd2,
+                AdXaMin = adxa1, AdXaMax = adxa2, PrzWidthAtr = przAtr, StopBufferAtr = stopAtr,
+                Target1Cd = t1, Target2Cd = t2, MaxAgeM15Bars = age, MinGeometry = minGeom, MinPrz = minPrz
+            });
+        }
+
+
+        private void ConfigureFibonacciGridProfiles()
+        {
+            ConfigureGrid("Gartley", new[] { 0.0, .236, .382, .618 }, 4, .65, 1.05, .65, 90, .030, "PRZ_CONFIRM", "T1_THEN_T2");
+            ConfigureGrid("Bat", new[] { 0.0, .236, .382, .618 }, 4, .75, 1.10, .65, 90, .025, "DEEP_PRZ_CONFIRM", "T1_THEN_T2");
+            ConfigureGrid("Alt Bat", new[] { 0.0, .236, .382 }, 3, .02, .35, .42, 75, .030, "EXTENSION_PRZ_CONFIRM", "T1_THEN_T2");
+            ConfigureGrid("Butterfly", new[] { 0.0, .236, .382 }, 3, .02, .35, .42, 75, .035, "EXTENSION_PRZ_CONFIRM", "T1_THEN_T2");
+            ConfigureGrid("Crab", new[] { 0.0, .236 }, 2, .02, .40, .26, 60, .030, "EXTREME_PRZ_CONFIRM", "T2_PREFERRED");
+            ConfigureGrid("Deep Crab", new[] { 0.0, .236 }, 2, .02, .40, .26, 60, .030, "EXTREME_PRZ_CONFIRM", "T2_PREFERRED");
+            ConfigureGrid("Cypher", new[] { 0.0, .236, .382 }, 3, .02, .60, .42, 75, .050, "XC_RETRACE_CONFIRM", "T1_THEN_T2");
+            ConfigureGrid("Shark", new[] { 0.0, .236 }, 2, .02, .60, .26, 60, .050, "EXTREME_PRZ_CONFIRM", "T1_THEN_T2");
+            ConfigureGrid("5-0", new[] { 0.0, .236 }, 2, .02, .60, .26, 60, .050, "REVERSAL_PRZ_CONFIRM", "T1_THEN_T2");
+            ConfigureGrid("AB=CD", new[] { 0.0, .236, .382, .618 }, 4, .02, .80, .65, 90, .050, "ABCD_COMPLETION_CONFIRM", "T1_THEN_T2");
+            ConfigureGrid("Deep Gartley", new[] { 0.0, .236, .382 }, 3, .70, 1.20, .42, 75, .030, "DEEP_PRZ_CONFIRM", "T1_THEN_T2");
+            ConfigureGrid("Rat", new[] { 0.0, .236, .382 }, 3, .02, 1.40, .42, 75, .035, "RATIO_PRZ_CONFIRM", "T1_THEN_T2");
+        }
+
+        private void ConfigureGrid(string name, double[] fractions, int maxLegs, double minSpanXa, double maxSpanXa,
+            double tolerance, int ttlMinutes, double stopFibBuffer, string anchorRule, string targetPolicy)
+        {
+            var p = _profiles.FirstOrDefault(x => x.Name == name);
+            if (p == null) return;
+            p.GridEnabled = true;
+            p.GridFractions = fractions;
+            p.MaximumGridLegs = maxLegs;
+            p.GridRiskWeights = new[] { 3.0 / 7.0, 2.0 / 7.0, 1.0 / 7.0, 1.0 / 7.0 };
+            p.GridAnchorRule = anchorRule;
+            p.MinimumGridSpanXa = minSpanXa;
+            p.MaximumGridSpanXa = maxSpanXa;
+            p.GridStructuralTolerance = tolerance;
+            p.PendingTtlMinutes = ttlMinutes;
+            p.StructuralStopFibBuffer = stopFibBuffer;
+            p.CanonicalTargetPolicy = targetPolicy;
+        }
+
+        private double PatternStructuralInvalidation(PatternProfile p, PivotPoint x, PivotPoint a, PivotPoint b, PivotPoint c, PivotPoint d, bool bullish)
+        {
+            double xa = Math.Abs(a.Price - x.Price);
+            double ab = Math.Abs(b.Price - a.Price);
+            double cd = Math.Abs(d.Price - c.Price);
+            double buffer = Math.Max(_symbol.PipSize * MinStopLossPips, Math.Max(xa, cd) * Math.Max(.01, p.StructuralStopFibBuffer));
+
+            if (p.Mode == PatternMode.STANDARD)
+            {
+                if (p.AdXaMax <= 1.0)
+                    return bullish ? x.Price - buffer : x.Price + buffer;
+
+                double extensionBeyondX = EnableCanonicalGeometryEngine ? Math.Max(0, p.AdXaMax - 1.0) : p.AdXaMax;
+                double extreme = bullish ? x.Price - extensionBeyondX * xa : x.Price + extensionBeyondX * xa;
+                return bullish ? extreme - buffer : extreme + buffer;
+            }
+
+            if (p.Mode == PatternMode.ABCD)
+            {
+                double fibBuffer = Math.Max(buffer, ab * .118);
+                return bullish ? d.Price - fibBuffer : d.Price + fibBuffer;
+            }
+
+            if (p.Mode == PatternMode.CYPHER)
+            {
+                double fibBuffer = Math.Max(buffer, Math.Abs(c.Price - x.Price) * .118);
+                return bullish ? d.Price - fibBuffer : d.Price + fibBuffer;
+            }
+
+            if (p.Mode == PatternMode.SHARK || p.Mode == PatternMode.FIVEZERO)
+            {
+                double fibBuffer = Math.Max(buffer, cd * .118);
+                return bullish ? d.Price - fibBuffer : d.Price + fibBuffer;
+            }
+
+            return bullish ? d.Price - buffer : d.Price + buffer;
+        }
+
+        // ---------------- MTF conflict / regime / router ----------------
+
+        private MtfConflict ClassifyMtfConflict(TradeDirection direction, HarmonicState h4, HarmonicState h1)
+        {
+            int same = 0, opposite = 0, neutral = 0;
+            foreach (var s in new[] { h4, h1 })
+            {
+                if (s == HarmonicState.Neutral) neutral++;
+                else if ((direction == TradeDirection.Buy && s == HarmonicState.Bullish) ||
+                         (direction == TradeDirection.Sell && s == HarmonicState.Bearish)) same++;
+                else opposite++;
+            }
+            if (same == 2) return MtfConflict.ALIGNED;
+            if (same == 1 && neutral == 1) return MtfConflict.SUPPORTED;
+            if (same == 1 && opposite == 1) return MtfConflict.TRANSITION;
+            if (opposite == 2) return MtfConflict.CONFLICT;
+            return MtfConflict.NEUTRAL;
+        }
+
+        private RegimeSnapshot BuildRegimeSnapshot()
+        {
+            int h4 = LastClosedIndex(_h4Bars);
+            int h1 = LastClosedIndex(_h1Bars);
+            int m15 = LastClosedIndex(_m15Bars);
+            var r = new RegimeSnapshot();
+
+            double h4e50 = Ema(_h4Bars.ClosePrices, 50, h4);
+            double h4e200 = Ema(_h4Bars.ClosePrices, 200, h4);
+            double h4e50Prev = Ema(_h4Bars.ClosePrices, 50, Math.Max(1, h4 - 3));
+            double h1e50 = Ema(_h1Bars.ClosePrices, 50, h1);
+            double h1e200 = Ema(_h1Bars.ClosePrices, 200, h1);
+            double h1e50Prev = Ema(_h1Bars.ClosePrices, 50, Math.Max(1, h1 - 4));
+
+            int h4Dir = TrendVote(h4e50, h4e200, h4e50 - h4e50Prev);
+            int h1Dir = TrendVote(h1e50, h1e200, h1e50 - h1e50Prev);
+            int sum = h4Dir + h1Dir;
+            r.H4DirectionVote = h4Dir;
+            r.H1DirectionVote = h1Dir;
+            r.HtfAgreement = h4Dir != 0 && h1Dir != 0 && h4Dir == h1Dir ? 1.0 :
+                             h4Dir != 0 && h1Dir != 0 && h4Dir != h1Dir ? 0.0 : 0.50;
+            r.TrendDirection = sum > 0 ? TradeDirection.Buy : sum < 0 ? TradeDirection.Sell : TradeDirection.Neutral;
+            r.Transition = h4Dir != 0 && h1Dir != 0 && h4Dir != h1Dir;
+
+            double atrNow = Atr(_m15Bars, 14, m15);
+            double atrBase = RollingAtrMean(_m15Bars, 14, m15, 120);
+            r.AtrRatio = atrBase > 0 ? atrNow / atrBase : 1.0;
+            r.AtrPercentile = AtrPercentile(_m15Bars, 14, m15, 120);
+            r.Efficiency = EfficiencyRatio(_m15Bars.ClosePrices, m15, 20);
+            r.AdxH1 = Adx(_h1Bars, 14, h1);
+            r.AdxH4 = Adx(_h4Bars, 14, h4);
+            double adxH1Prev = Adx(_h1Bars, 14, Math.Max(30, h1 - 4));
+            r.AdxH1Slope = r.AdxH1 - adxH1Prev;
+            r.TrendStrength = VClamp(((r.AdxH1 + r.AdxH4) * 0.5) / 40.0);
+            double refEma = h1e50;
+            double h1Atr = Atr(_h1Bars, 14, h1);
+            r.ExtensionAtr = h1Atr > 0 ? Math.Abs(_h1Bars.ClosePrices[h1] - refEma) / h1Atr : 0;
+            r.RegimeClass = r.Transition ? "TRANSITION" :
+                            r.TrendStrength >= .65 && r.Efficiency >= .20 ? "PERSISTENT_TREND" :
+                            r.Efficiency < .14 ? "LOW_EFFICIENCY" :
+                            r.AtrRatio >= 1.35 ? "HIGH_VOLATILITY" :
+                            r.AtrRatio <= .75 ? "LOW_VOLATILITY" : "BALANCED";
+            return r;
+        }
+
+        private HarmonicRoute RouteSignalV34(PatternSignal s, MtfConflict conflict, RegimeSnapshot r)
+        {
+            bool trendAligned = r.TrendDirection == s.Direction;
+            bool trendOpposed = r.TrendDirection != TradeDirection.Neutral && r.TrendDirection != s.Direction;
+            bool strong = s.GeometryQuality >= .68 && s.PrzConfluence >= .68 && s.Confidence >= .64;
+            bool exhaustion = trendOpposed && r.ExtensionAtr >= 1.20 && strong && r.AtrRatio <= 1.80;
+            bool transition = conflict == MtfConflict.TRANSITION || r.Transition || r.TrendDirection == TradeDirection.Neutral;
+
+            if ((conflict == MtfConflict.ALIGNED || conflict == MtfConflict.SUPPORTED || conflict == MtfConflict.NEUTRAL) &&
+                trendAligned && r.Efficiency >= .18 && r.AtrRatio >= .55 && r.AtrRatio <= 1.75)
+                return HarmonicRoute.TREND_ALIGNED_REVERSAL;
+
+            if (exhaustion && (conflict != MtfConflict.CONFLICT || (s.GeometryQuality >= .75 && s.PrzConfluence >= .75)))
+                return HarmonicRoute.EXHAUSTION_REVERSAL;
+
+            if (transition && strong && r.AtrRatio >= .50 && r.AtrRatio <= 1.80)
+                return HarmonicRoute.TRANSITION_REVERSAL;
+
+            return HarmonicRoute.NO_TRADE;
+        }
+
+
+        private HarmonicRoute StructuredRecallRoute(PatternSignal s, MtfConflict conflict, RegimeSnapshot r)
+        {
+            if (s == null || r == null) return HarmonicRoute.NO_TRADE;
+            if (conflict == MtfConflict.CONFLICT) return HarmonicRoute.NO_TRADE;
+            if (s.GeometryQuality < RecallMinGeometry || s.PrzConfluence < RecallMinPrz || s.Confidence < RecallMinConfidence)
+                return HarmonicRoute.NO_TRADE;
+            if (r.AtrRatio < .55 || r.AtrRatio > 1.75 || r.Efficiency < .14)
+                return HarmonicRoute.NO_TRADE;
+
+            bool aligned = r.TrendDirection == s.Direction;
+            bool opposed = r.TrendDirection != TradeDirection.Neutral && r.TrendDirection != s.Direction;
+            bool transition = r.Transition || conflict == MtfConflict.TRANSITION || r.TrendDirection == TradeDirection.Neutral;
+
+            if (aligned && (conflict == MtfConflict.ALIGNED || conflict == MtfConflict.SUPPORTED || conflict == MtfConflict.NEUTRAL))
+                return HarmonicRoute.TREND_ALIGNED_REVERSAL;
+
+            if (opposed && r.ExtensionAtr >= 1.00 && r.AdxH1Slope <= .50)
+                return HarmonicRoute.EXHAUSTION_REVERSAL;
+
+            if (transition && r.AdxH1Slope <= 1.00)
+                return HarmonicRoute.TRANSITION_REVERSAL;
+
+            return HarmonicRoute.NO_TRADE;
+        }
+
+        private HarmonicRoute RouteSignal(PatternSignal s, MtfConflict conflict, RegimeSnapshot r)
+        {
+            HarmonicRoute baseRoute = RouteSignalV34(s, conflict, r);
+            if (baseRoute == HarmonicRoute.NO_TRADE && EnableStructuredRecallExpansion)
+            {
+                baseRoute = StructuredRecallRoute(s, conflict, r);
+                if (baseRoute != HarmonicRoute.NO_TRADE)
+                {
+                    _structuredRecallAdmitted++;
+                    Print("[V44-RECALL-ADMIT] pattern={0} direction={1} route={2} conflict={3} geometry={4:F3} prz={5:F3} confidence={6:F3} efficiency={7:F3} atrRatio={8:F3} extensionAtr={9:F3}",
+                        s.PatternName, s.Direction, baseRoute, conflict, s.GeometryQuality, s.PrzConfluence, s.Confidence,
+                        r.Efficiency, r.AtrRatio, r.ExtensionAtr);
+                }
+            }
+            if (baseRoute == HarmonicRoute.NO_TRADE)
+                return HarmonicRoute.NO_TRADE;
+
+            if (baseRoute == HarmonicRoute.TRANSITION_REVERSAL && EnableTransitionStateVeto)
+            {
+                bool actualStateDisagreement = r.Transition || conflict == MtfConflict.TRANSITION;
+                bool trendNotStrengthening = r.AdxH1Slope <= 0;
+                if (!(actualStateDisagreement && trendNotStrengthening))
+                {
+                    _regimeRejected++;
+                    Print("[V44-ROUTE-VETO] type=TRANSITION_STATE conflict={0} transition={1} adxSlope={2:F2}",
+                        conflict, r.Transition, r.AdxH1Slope);
+                    return HarmonicRoute.NO_TRADE;
+                }
+            }
+
+            if (baseRoute == HarmonicRoute.EXHAUSTION_REVERSAL && EnableExhaustionEvidenceVeto)
+            {
+                bool structurallyExtended = r.ExtensionAtr >= 1.20;
+                bool trendNotStrengthening = r.AdxH1Slope <= 0;
+                if (!(structurallyExtended && trendNotStrengthening))
+                {
+                    _regimeRejected++;
+                    Print("[V44-ROUTE-VETO] type=EXHAUSTION_EVIDENCE extensionAtr={0:F3} adxSlope={1:F2}",
+                        r.ExtensionAtr, r.AdxH1Slope);
+                    return HarmonicRoute.NO_TRADE;
+                }
+            }
+
+            return baseRoute;
+        }
+
+        private double HarmonicRobustnessScore(PatternSignal s)
+        {
+            if (s == null) return 0;
+            return VClamp(.35 * s.GeometryQuality + .25 * s.PrzConfluence +
+                          .20 * s.TimeSymmetry + .20 * s.PivotQuality);
+        }
+
+        private bool HarmonicRobustnessEligible(PatternSignal s, double score)
+        {
+            if (s == null) return false;
+            if (score < MinHarmonicRobustness) return false;
+            // Prevent a strong ratio fit from fully compensating for weak temporal/pivot structure.
+            if (s.TimeSymmetry < .25 || s.PivotQuality < .25) return false;
+            return true;
+        }
+
+        private double RegimeContextScore(PatternSignal s, MtfConflict conflict, RegimeSnapshot r)
+        {
+            if (s == null || r == null) return 0;
+            double mtf = conflict == MtfConflict.ALIGNED ? 1.0 :
+                         conflict == MtfConflict.SUPPORTED ? .85 :
+                         conflict == MtfConflict.TRANSITION ? .65 :
+                         conflict == MtfConflict.NEUTRAL ? .60 : .30;
+            double directionFit = r.TrendDirection == s.Direction ? 1.0 :
+                                  r.TrendDirection == TradeDirection.Neutral ? .65 : .35;
+            double volHealth = 1.0 - Math.Min(1.0, Math.Abs(r.AtrPercentile - .55) / .55);
+            double persistence = VClamp(.55 * r.Efficiency + .45 * r.TrendStrength);
+            return VClamp(.30 * mtf + .25 * directionFit + .20 * volHealth + .25 * persistence);
+        }
+
+        private bool CapitalFeasibilityEligible(CandidateRecord c, out double minL0Risk, out double minL0Margin)
+        {
+            minL0Risk = 0;
+            minL0Margin = 0;
+            if (c == null || c.Signal == null || _symbol == null) return false;
+            double anchor = c.Signal.Direction == TradeDirection.Buy ? _symbol.Ask : _symbol.Bid;
+            double stop = c.Signal.StructuralInvalidation;
+            if ((c.Signal.Direction == TradeDirection.Buy && stop >= anchor) ||
+                (c.Signal.Direction == TradeDirection.Sell && stop <= anchor))
+                return false;
+
+            double slPips = PriceToPips(Math.Abs(anchor - stop));
+            if (slPips < MinStopLossPips) return false;
+            double minVolume = _symbol.VolumeInUnitsMin;
+            if (minVolume <= 0) return false;
+            minL0Risk = minVolume * _symbol.PipValue * (slPips + ModeledCostPips());
+            minL0Margin = EstimatedMargin(c.Signal.Direction, minVolume);
+            double budget = Account.Equity * BasketRiskPercent / 100.0;
+            if (minL0Risk > budget + 1e-8) return false;
+            if (Account.FreeMargin - minL0Margin < budget * MinFreeMarginRiskMultiple) return false;
+            return true;
+        }
+
+        private double DirectionalIndex(Bars bars, int period, int end)
+        {
+            if (bars == null || end < period + 1 || end >= bars.Count) return 0;
+            double trSum = 0, plusSum = 0, minusSum = 0;
+            int start = Math.Max(1, end - period + 1);
+            for (int i = start; i <= end; i++)
+            {
+                double up = bars.HighPrices[i] - bars.HighPrices[i - 1];
+                double down = bars.LowPrices[i - 1] - bars.LowPrices[i];
+                double plusDm = up > down && up > 0 ? up : 0;
+                double minusDm = down > up && down > 0 ? down : 0;
+                double prevClose = bars.ClosePrices[i - 1];
+                double tr = Math.Max(bars.HighPrices[i] - bars.LowPrices[i],
+                    Math.Max(Math.Abs(bars.HighPrices[i] - prevClose), Math.Abs(bars.LowPrices[i] - prevClose)));
+                trSum += tr; plusSum += plusDm; minusSum += minusDm;
+            }
+            if (trSum <= 0) return 0;
+            double plusDi = 100.0 * plusSum / trSum;
+            double minusDi = 100.0 * minusSum / trSum;
+            double den = plusDi + minusDi;
+            return den > 0 ? 100.0 * Math.Abs(plusDi - minusDi) / den : 0;
+        }
+
+        private double Adx(Bars bars, int period, int end)
+        {
+            if (bars == null || end < period * 2 || end >= bars.Count) return 0;
+            int start = Math.Max(period + 1, end - period + 1);
+            double sum = 0; int n = 0;
+            for (int i = start; i <= end; i++)
+            {
+                double dx = DirectionalIndex(bars, period, i);
+                if (dx < 0) continue;
+                sum += dx; n++;
+            }
+            return n > 0 ? sum / n : 0;
+        }
+
+        // ---------------- Intraday confirmation / scheduler ----------------
+
+        private bool BarTouchesPrz(Bars bars, int i, PatternSignal s)
+        {
+            if (bars == null || i < 0 || i >= bars.Count) return false;
+            return bars.HighPrices[i] >= s.PrzLow && bars.LowPrices[i] <= s.PrzHigh;
+        }
+
+        private double UpdatePatternTemporalState(Bars bars, int i, CandidateRecord c)
+        {
+            if (bars == null || c == null || c.Signal == null || i < 2 || i >= bars.Count) return 0;
+            var s = c.Signal;
+            double o = bars.OpenPrices[i], cl = bars.ClosePrices[i], h = bars.HighPrices[i], l = bars.LowPrices[i];
+            double ph = bars.HighPrices[i - 1], pl = bars.LowPrices[i - 1];
+            double body = Math.Max(Math.Abs(cl - o), _symbol.PipSize);
+            double atr = Atr(bars, 14, i);
+            bool directional, reclaim, bos, rejection, failedExtension;
+            if (s.Direction == TradeDirection.Buy)
+            {
+                directional = cl > o;
+                reclaim = cl > s.PrzLow;
+                bos = cl > ph;
+                rejection = Math.Max(0, Math.Min(o, cl) - l) >= body * .5;
+                failedExtension = l < pl && cl > pl;
+            }
+            else
+            {
+                directional = cl < o;
+                reclaim = cl < s.PrzHigh;
+                bos = cl < pl;
+                rejection = Math.Max(0, h - Math.Max(o, cl)) >= body * .5;
+                failedExtension = h > ph && cl < ph;
+            }
+            bool displacement = atr > 0 && body >= atr * .25;
+            string a = PatternExecutionArchetype(s.PatternName);
+
+            if (a == "EXTREME_EXTENSION")
+            {
+                if (c.TemporalStage == 0 && (failedExtension || rejection)) c.TemporalStage = 1;
+                if (c.TemporalStage == 1 && reclaim) c.TemporalStage = 2;
+                if (c.TemporalStage == 2 && directional && displacement) c.TemporalStage = 3;
+            }
+            else if (a == "TRANSITION")
+            {
+                if (c.TemporalStage == 0 && failedExtension) c.TemporalStage = 1;
+                if (c.TemporalStage == 1 && bos) c.TemporalStage = 2;
+                if (c.TemporalStage == 2 && (reclaim || displacement)) c.TemporalStage = 3;
+            }
+            else if (a == "XC_RETRACE")
+            {
+                if (c.TemporalStage == 0 && (reclaim || rejection)) c.TemporalStage = 1;
+                if (c.TemporalStage == 1 && bos) c.TemporalStage = 2;
+                if (c.TemporalStage == 2 && displacement) c.TemporalStage = 3;
+            }
+            else
+            {
+                if (c.TemporalStage == 0 && (rejection || reclaim)) c.TemporalStage = 1;
+                if (c.TemporalStage == 1 && directional) c.TemporalStage = 2;
+                if (c.TemporalStage == 2 && (bos || displacement)) c.TemporalStage = 3;
+            }
+
+            double stage = c.TemporalStage / 3.0;
+            double current = (directional ? .20 : 0) + (reclaim ? .20 : 0) + (bos ? .20 : 0) +
+                             (rejection ? .15 : 0) + (failedExtension ? .15 : 0) + (displacement ? .10 : 0);
+            return VClamp(.65 * stage + .35 * current);
+        }
+
+        private double ExecutionConfirmationScore(Bars bars, int i, PatternSignal s)
+        {
+            if (bars == null || i < 2 || i >= bars.Count) return 0;
+            double o = bars.OpenPrices[i], c = bars.ClosePrices[i], h = bars.HighPrices[i], l = bars.LowPrices[i];
+            double pc = bars.ClosePrices[i - 1], ph = bars.HighPrices[i - 1], pl = bars.LowPrices[i - 1];
+            double body = Math.Max(Math.Abs(c - o), _symbol.PipSize);
+            double atr = Atr(bars, 14, i);
+
+            bool directional, reclaim, bos, rejection, failedExtension;
+            if (s.Direction == TradeDirection.Buy)
+            {
+                directional = c > o;
+                reclaim = c > s.PrzLow && c >= pc;
+                bos = c > ph;
+                rejection = Math.Max(0, Math.Min(o, c) - l) >= body * .5;
+                failedExtension = l < pl && c > pl;
+            }
+            else
+            {
+                directional = c < o;
+                reclaim = c < s.PrzHigh && c <= pc;
+                bos = c < pl;
+                rejection = Math.Max(0, h - Math.Max(o, c)) >= body * .5;
+                failedExtension = h > ph && c < ph;
+            }
+
+            bool displacement = atr > 0 && body >= atr * .25;
+            if (!EnablePatternNativeExecution)
+                return VClamp((directional ? .18 : 0) + (reclaim ? .22 : 0) + (bos ? .25 : 0) +
+                              (rejection ? .15 : 0) + (failedExtension ? .10 : 0) + (displacement ? .10 : 0));
+
+            string a = PatternExecutionArchetype(s.PatternName);
+            if (a == "RETRACEMENT")
+                return VClamp((directional ? .15 : 0) + (reclaim ? .25 : 0) + (bos ? .25 : 0) +
+                              (rejection ? .15 : 0) + (failedExtension ? .05 : 0) + (displacement ? .15 : 0));
+            if (a == "EXTREME_EXTENSION")
+                return VClamp((directional ? .12 : 0) + (reclaim ? .25 : 0) + (bos ? .10 : 0) +
+                              (rejection ? .25 : 0) + (failedExtension ? .18 : 0) + (displacement ? .10 : 0));
+            if (a == "TRANSITION")
+                return VClamp((directional ? .15 : 0) + (reclaim ? .15 : 0) + (bos ? .25 : 0) +
+                              (rejection ? .10 : 0) + (failedExtension ? .20 : 0) + (displacement ? .15 : 0));
+            if (a == "XC_RETRACE")
+                return VClamp((directional ? .15 : 0) + (reclaim ? .25 : 0) + (bos ? .20 : 0) +
+                              (rejection ? .15 : 0) + (failedExtension ? .10 : 0) + (displacement ? .15 : 0));
+
+            return VClamp((directional ? .18 : 0) + (reclaim ? .22 : 0) + (bos ? .25 : 0) +
+                          (rejection ? .15 : 0) + (failedExtension ? .10 : 0) + (displacement ? .10 : 0));
+        }
+
+        private string PatternExecutionArchetype(string pattern)
+        {
+            if (pattern == "Gartley" || pattern == "Bat" || pattern == "Deep Gartley" || pattern == "Rat") return "RETRACEMENT";
+            if (pattern == "Alt Bat" || pattern == "Butterfly" || pattern == "Crab" || pattern == "Deep Crab") return "EXTREME_EXTENSION";
+            if (pattern == "Shark" || pattern == "5-0") return "TRANSITION";
+            if (pattern == "Cypher") return "XC_RETRACE";
+            return "COMPLETION_SYMMETRY";
+        }
+
+        private double PatternRoutePrior(string pattern, HarmonicRoute route)
+        {
+            if (!EnablePatternNativeExecution) return 1.0;
+            string a = PatternExecutionArchetype(pattern);
+            if (a == "RETRACEMENT")
+                return route == HarmonicRoute.TREND_ALIGNED_REVERSAL ? 1.0 : (route == HarmonicRoute.TRANSITION_REVERSAL ? .75 : .65);
+            if (a == "EXTREME_EXTENSION")
+                return route == HarmonicRoute.EXHAUSTION_REVERSAL ? 1.0 : (route == HarmonicRoute.TRANSITION_REVERSAL ? .80 : .60);
+            if (a == "TRANSITION")
+                return route == HarmonicRoute.TRANSITION_REVERSAL ? 1.0 : (route == HarmonicRoute.EXHAUSTION_REVERSAL ? .85 : .60);
+            if (a == "XC_RETRACE")
+                return route == HarmonicRoute.TRANSITION_REVERSAL ? .95 : .80;
+            return .90;
+        }
+
+        private double StructuralContextConfidence(PatternSignal s, MtfConflict conflict, RegimeSnapshot r)
+        {
+            if (s == null || r == null) return 0;
+            double directionFit = r.TrendDirection == s.Direction ? 1.0 :
+                                  r.TrendDirection == TradeDirection.Neutral ? .55 : .20;
+            double conflictFit = conflict == MtfConflict.ALIGNED ? 1.0 :
+                                 conflict == MtfConflict.SUPPORTED ? .85 :
+                                 conflict == MtfConflict.NEUTRAL ? .60 :
+                                 conflict == MtfConflict.TRANSITION ? .50 : .10;
+            double adx = VClamp(((r.AdxH1 + r.AdxH4) * .5) / 35.0);
+            double slopeHealth = VClamp((2.0 - Math.Abs(r.AdxH1Slope)) / 2.0);
+            double volHealth = 1.0 - VClamp(Math.Abs(r.AtrRatio - 1.0) / .90);
+            return VClamp(.24 * directionFit + .18 * conflictFit + .18 * r.HtfAgreement +
+                          .16 * adx + .12 * slopeHealth + .12 * volHealth);
+        }
+
+        private double CrossRegimeAdmissionScore(CandidateRecord c)
+        {
+            if (c == null || c.Signal == null || c.Regime == null) return 0;
+            double routePrior = PatternRoutePrior(c.Signal.PatternName, c.Route);
+            double structural = VClamp(c.HtfContextConfidence);
+            double temporal = VClamp(c.TemporalStateScore);
+            double evidence = VClamp(c.EvidenceComposite);
+            double rr = VClamp(c.NetRR / 3.0);
+            double stress = VClamp(c.RegimeStressScore);
+            return VClamp(.20 * c.AlphaQualityScore + .18 * structural + .17 * routePrior +
+                          .15 * temporal + .12 * evidence + .10 * rr + .08 * c.RegimeScore - .12 * stress);
+        }
+
+        private bool CrossRegimeAlphaEligible(CandidateRecord c)
+        {
+            if (c == null || c.Signal == null || c.Regime == null) return false;
+            if (c.Conflict == MtfConflict.CONFLICT || c.Route == HarmonicRoute.NO_TRADE) return false;
+            double floor = ConditionalAlphaFloor;
+            string archetype = PatternExecutionArchetype(c.Signal.PatternName);
+
+            if (c.Signal.PatternName == "AB=CD")
+            {
+                if (c.Route == HarmonicRoute.TREND_ALIGNED_REVERSAL)
+                    floor = Math.Max(floor, AbcdTrendAdmissionFloor);
+                else if (c.Route == HarmonicRoute.EXHAUSTION_REVERSAL)
+                    floor = Math.Max(floor, .56);
+                else if (c.Route == HarmonicRoute.TRANSITION_REVERSAL)
+                    floor = Math.Max(.42, floor - .05);
+            }
+
+            if (archetype == "EXTREME_EXTENSION" &&
+                c.Route == HarmonicRoute.TREND_ALIGNED_REVERSAL &&
+                c.Regime.ExtensionAtr < .75)
+                return false;
+
+            if (archetype == "TRANSITION" &&
+                c.Route == HarmonicRoute.TREND_ALIGNED_REVERSAL &&
+                c.HtfContextConfidence < .55)
+                return false;
+
+            if (c.Route == HarmonicRoute.TREND_ALIGNED_REVERSAL &&
+                c.Regime.TrendDirection != TradeDirection.Neutral &&
+                c.Regime.TrendDirection != c.Signal.Direction)
+                return false;
+
+            return c.CrossRegimeAdmissionScore >= floor;
+        }
+
+        private double RobustAlphaDensityScore(CandidateRecord c)
+        {
+            if (c == null || c.Signal == null || c.Regime == null || c.GridPlan == null) return 0;
+            double fill = VClamp(.45 * c.EvidenceComposite + .30 * c.TemporalStateScore + .25 * c.FollowThroughScore);
+            double conservativeEdge = Math.Max(0, c.CrossRegimeAdmissionScore - .10 - .15 * c.RegimeStressScore);
+            double rr = Math.Min(2.0, Math.Max(.25, c.NetRR));
+            double minutes = c.Route == HarmonicRoute.TREND_ALIGNED_REVERSAL ? 75.0 :
+                             c.Route == HarmonicRoute.EXHAUSTION_REVERSAL ? 105.0 : 60.0;
+            string a = PatternExecutionArchetype(c.Signal.PatternName);
+            if (a == "TRANSITION") minutes *= .80;
+            else if (a == "EXTREME_EXTENSION") minutes *= 1.10;
+            double capitalBurden = 1.0 + Math.Max(0, c.GridPlan.EstimatedPhysicalMargin) / Math.Max(Account.Equity, 1.0);
+            double density = conservativeEdge * Math.Max(.10, fill) * rr / Math.Max(.50, minutes / 60.0) / capitalBurden;
+            return VClamp(density);
+        }
+
+        private double CandidateRank(CandidateRecord c)
+        {
+            double mtf = c.Conflict == MtfConflict.ALIGNED ? 1.0 :
+                         c.Conflict == MtfConflict.SUPPORTED ? .85 :
+                         c.Conflict == MtfConflict.TRANSITION ? .70 :
+                         c.Conflict == MtfConflict.NEUTRAL ? .60 : .40;
+            double regime = VClamp(.45 * c.Regime.Efficiency + .25 * (1.0 - Math.Min(1.0, Math.Abs(c.Regime.AtrRatio - 1.0))) +
+                                   .30 * Math.Min(1.0, c.Regime.ExtensionAtr / 2.0));
+            double baseRank = EnableOpportunityCostEdgeModel
+                ? VClamp(.48 * c.AttributionScore + .20 * c.RouteFitScore + .18 * c.FollowThroughScore +
+                         .14 * (c.Lane == "MARGINAL_RESCUE" ? c.MarginalRescueScore : c.EvidenceComposite))
+                : (.20 * c.Signal.GeometryQuality + .12 * c.Signal.PrzConfluence + .13 * mtf + .13 * regime +
+                   .12 * c.ConfirmationScore + .15 * VClamp(c.NetRR / 3.0) + .15 * VClamp(c.PortfolioEdgeScore));
+            baseRank *= (0.85 + 0.30 * PatternRoutePrior(c.Signal.PatternName, c.Route));
+            if (EnableRobustAlphaDensity)
+                baseRank = VClamp(.72 * baseRank + .28 * c.RobustAlphaDensity);
+            if (!EnableFrequencyAgingPriority || CandidateAgeRankBoost <= 0) return baseRank;
+            double ttl = Math.Max(60.0, (c.ExpiryUtc - c.DetectedUtc).TotalSeconds);
+            double age = Math.Max(0.0, (Server.Time.ToUniversalTime() - c.DetectedUtc).TotalSeconds);
+            double ageFrac = VClamp(age / ttl);
+            return baseRank + CandidateAgeRankBoost * ageFrac;
+        }
+
+        private double OpportunityCostRank(CandidateRecord c)
+        {
+            if (c == null || c.Signal == null || c.Regime == null || c.GridPlan == null) return 0;
+            double ttl = Math.Max(60.0, (c.ExpiryUtc - c.DetectedUtc).TotalSeconds);
+            double age = Math.Max(0.0, (Server.Time.ToUniversalTime() - c.DetectedUtc).TotalSeconds);
+            double urgency = .70 + .30 * VClamp(age / ttl);
+            double readiness = VClamp(Math.Max(c.EvidenceComposite, c.ConfirmationScore));
+            double structural = VClamp(.35 * c.Signal.GeometryQuality + .25 * c.Signal.PrzConfluence +
+                                       .20 * c.Signal.TimeSymmetry + .20 * c.Signal.PivotQuality);
+            double edge = EnableOpportunityCostEdgeModel
+                ? VClamp(.52 * c.AttributionScore + .18 * readiness + .15 * VClamp(c.NetRR / 3.0) +
+                         .15 * (c.Lane == "MARGINAL_RESCUE" ? c.MarginalRescueScore : c.EvidenceComposite))
+                : VClamp(.20 * c.AlphaQualityScore + .15 * c.RegimeScore + .20 * readiness +
+                         .20 * VClamp(c.NetRR / 3.0) + .25 * VClamp(c.PortfolioEdgeScore));
+            double capitalOccupancy = 1.0 + Math.Max(0, c.GridPlan.EstimatedPhysicalMargin) / Math.Max(Account.Equity, 1.0);
+            double expectedMinutes = c.Route == HarmonicRoute.TREND_ALIGNED_REVERSAL ? 75.0 :
+                                     c.Route == HarmonicRoute.EXHAUSTION_REVERSAL ? 105.0 : 90.0;
+            double profitDensityProxy = Math.Max(.25, c.NetRR) / expectedMinutes;
+            double routePrior = 0.85 + 0.30 * PatternRoutePrior(c.Signal.PatternName, c.Route);
+            double densityBoost = EnableRobustAlphaDensity ? (0.80 + 0.40 * c.RobustAlphaDensity) : 1.0;
+            return edge * Math.Max(.10, readiness) * urgency * Math.Max(.10, structural) * routePrior * densityBoost *
+                   (EnableOpportunityCostEdgeModel ? (1.0 + 20.0 * profitDensityProxy) : 1.0) / capitalOccupancy;
+        }
+
+        // ---------------- Risk / session / safety ----------------
+
+        private bool IsInstitutionalSession(DateTime utc)
+        {
+            utc = DateTime.SpecifyKind(utc, DateTimeKind.Utc);
+            DateTime londonLocal = TimeZoneInfo.ConvertTimeFromUtc(utc, _londonTz);
+            DateTime nyLocal = TimeZoneInfo.ConvertTimeFromUtc(utc, _newYorkTz);
+            DateTime londonOpenLocal = DateTime.SpecifyKind(londonLocal.Date.AddHours(8), DateTimeKind.Unspecified);
+            DateTime nyCloseLocal = DateTime.SpecifyKind(nyLocal.Date.AddHours(17), DateTimeKind.Unspecified);
+            DateTime londonOpenUtc = TimeZoneInfo.ConvertTimeToUtc(londonOpenLocal, _londonTz);
+            DateTime nyCloseUtc = TimeZoneInfo.ConvertTimeToUtc(nyCloseLocal, _newYorkTz);
+            return utc >= londonOpenUtc && utc < nyCloseUtc;
+        }
+
+        private TimeZoneInfo ResolveTimeZone(string iana, string windows)
+        {
+            try { return TimeZoneInfo.FindSystemTimeZoneById(iana); }
+            catch { try { return TimeZoneInfo.FindSystemTimeZoneById(windows); } catch { return null; } }
+        }
+
+        private IEnumerable<Position> OwnPositions()
+        {
+            return Positions.Where(p => p.SymbolName == SymbolName && !string.IsNullOrWhiteSpace(p.Label) && p.Label.StartsWith(BotPrefix + "|", StringComparison.Ordinal));
+        }
+
+        private void ResetDaily(bool force)
+        {
+            DateTime d = Server.Time.ToUniversalTime().Date;
+            if (!force && d == _currentDay) return;
+            _currentDay = d;
+            _dayStartEquity = Account.Equity;
+            _dailyLocked = false;
+        }
+
+        private void UpdateRiskLocks()
+        {
+            if (Account.Equity > _equityPeak) _equityPeak = Account.Equity;
+            if (_dayStartEquity > 0)
+            {
+                double dd = 100.0 * (_dayStartEquity - Account.Equity) / _dayStartEquity;
+                if (dd >= DailyLossLimitPercent) _dailyLocked = true;
+            }
+        }
+
+        private bool PeakDrawdownExceeded()
+        {
+            if (_equityPeak <= 0) return false;
+            return 100.0 * (_equityPeak - Account.Equity) / _equityPeak >= MaxDrawdownPercent;
+        }
+
+        private bool SpreadValid() { return SpreadPips() <= MaxSpreadPips; }
+        private double SpreadPips() { return _symbol.PipSize > 0 ? (_symbol.Ask - _symbol.Bid) / _symbol.PipSize : 99999; }
+
+        private void EnsureServerProtection()
+        {
+            foreach (var p in OwnPositions())
+            {
+                if (p.StopLoss.HasValue && p.TakeProfit.HasValue) continue;
+
+                PositionLedger l;
+                FibonacciBasket basket;
+                if (!_positions.TryGetValue(p.Id, out l) ||
+                    string.IsNullOrWhiteSpace(l.BasketId) ||
+                    !_baskets.TryGetValue(l.BasketId, out basket))
+                    continue;
+
+                TradeType tt = p.TradeType;
+                TradeDirection direction = tt == TradeType.Buy ? TradeDirection.Buy : TradeDirection.Sell;
+                if (!BrokerStopDistanceValid(tt, basket.StructuralStop) || !BrokerTargetDistanceValid(tt, basket.CanonicalTarget))
+                {
+                    basket.ExitOverride = "SERVER_PROTECTION_DISTANCE_FAIL_CLOSED";
+                    FailClosePosition(p, basket, basket.ExitOverride);
+                    if (PositionStillExists(p.Id)) _unprotectedSurvivors++;
+                    continue;
+                }
+
+                TradeResult rs = p.StopLoss.HasValue ? null : p.ModifyStopLossPrice(basket.StructuralStop);
+                if (rs != null && !rs.IsSuccessful)
+                {
+                    RecordExecutionError("SERVER_SL_FAILED_" + rs.Error, "basket=" + basket.BasketId + ";position=" + p.Id);
+                    basket.ExitOverride = "SERVER_PROTECTION_FAIL_CLOSED";
+                    FailClosePosition(p, basket, basket.ExitOverride);
+                    if (PositionStillExists(p.Id)) _unprotectedSurvivors++;
+                    continue;
+                }
+                var live = Positions.FirstOrDefault(x => x.Id == p.Id);
+                TradeResult rt = live != null && !live.TakeProfit.HasValue ? live.ModifyTakeProfitPrice(basket.CanonicalTarget) : null;
+                if (rt != null && !rt.IsSuccessful)
+                {
+                    RecordExecutionError("SERVER_TP_FAILED_" + rt.Error, "basket=" + basket.BasketId + ";position=" + p.Id);
+                    basket.ExitOverride = "SERVER_PROTECTION_FAIL_CLOSED";
+                    FailClosePosition(p, basket, basket.ExitOverride);
+                    if (PositionStillExists(p.Id)) _unprotectedSurvivors++;
+                }
+            }
+        }
+
+        private void RecordExecutionError(string code, string detail)
+        {
+            _executionErrors++;
+            if (string.IsNullOrWhiteSpace(code)) code = "UNKNOWN";
+            int n;
+            _executionErrorReasons.TryGetValue(code, out n);
+            _executionErrorReasons[code] = n + 1;
+            Print("[V44-EXECUTION-ERROR] code={0} detail={1}", code, detail ?? "");
+        }
+
+        private bool PendingOrderStillExists(long id)
+        {
+            return PendingOrders.Any(o => o.Id == id);
+        }
+
+        private bool PositionStillExists(long id)
+        {
+            return Positions.Any(p => p.Id == id);
+        }
+
+        private double BrokerMinimumDistancePrice(double referencePrice, bool stopLoss)
+        {
+            double d = stopLoss ? _symbol.MinStopLossDistance : _symbol.MinTakeProfitDistance;
+            if (d <= 0) return 0;
+            if (_symbol.MinDistanceType == SymbolMinDistanceType.Pips)
+                return d * _symbol.PipSize;
+            return Math.Abs(referencePrice) * d / 100.0;
+        }
+
+        private bool BrokerProtectionDistancesValid(TradeDirection direction, double entry, double stop, double target)
+        {
+            if (!GeometryValid(direction, entry, stop, target)) return false;
+            double minSl = BrokerMinimumDistancePrice(entry, true);
+            double minTp = BrokerMinimumDistancePrice(entry, false);
+            return Math.Abs(entry - stop) + 1e-12 >= minSl &&
+                   Math.Abs(target - entry) + 1e-12 >= minTp;
+        }
+
+        private bool BrokerStopDistanceValid(TradeType tradeType, double proposedStop)
+        {
+            double reference = tradeType == TradeType.Buy ? _symbol.Bid : _symbol.Ask;
+            double minSl = BrokerMinimumDistancePrice(reference, true);
+            return tradeType == TradeType.Buy
+                ? proposedStop < reference && reference - proposedStop + 1e-12 >= minSl
+                : proposedStop > reference && proposedStop - reference + 1e-12 >= minSl;
+        }
+
+        // ---------------- Counterfactual shadow ledger ----------------
+
+        private void AddCounterfactualShadow(CandidateRecord c, string reason, DateTime utc)
+        {
+            if (c == null || c.Signal == null || string.IsNullOrWhiteSpace(c.CandidateId)) return;
+            if (_counterfactualShadows.ContainsKey(c.CandidateId)) return;
+            double entry = c.PrzTouchUtc.HasValue
+                ? Mid(c.Signal.PrzLow, c.Signal.PrzHigh)
+                : c.Signal.D.Price;
+            double risk = Math.Abs(entry - c.Signal.StructuralInvalidation);
+            if (risk <= _symbol.PipSize) return;
+            _counterfactualShadows[c.CandidateId] = new CounterfactualShadow
+            {
+                CandidateId = c.CandidateId,
+                Pattern = c.Signal.PatternName,
+                Direction = c.Signal.Direction,
+                EntryReference = entry,
+                Stop = c.Signal.StructuralInvalidation,
+                Target = c.Signal.CanonicalTarget1,
+                CreatedUtc = utc,
+                ExpiryUtc = utc.AddMinutes(Math.Max(30, CounterfactualShadowMinutes)),
+                TerminalReason = reason
+            };
+            Print("[V44-SHADOW-START] cid={0} pattern={1} reason={2} entry={3} stop={4} target={5}",
+                c.CandidateId, c.Signal.PatternName, reason, entry, c.Signal.StructuralInvalidation, c.Signal.CanonicalTarget1);
+        }
+
+        private void UpdateCounterfactualShadows(Bars bars, int i, DateTime utc)
+        {
+            if (bars == null || i < 0 || i >= bars.Count || _counterfactualShadows.Count == 0) return;
+            foreach (var sh in _counterfactualShadows.Values.Where(x => !x.Resolved).ToList())
+            {
+                double risk = Math.Abs(sh.EntryReference - sh.Stop);
+                if (risk <= _symbol.PipSize) { sh.Resolved = true; _shadowUnresolved++; continue; }
+
+                double favorable = sh.Direction == TradeDirection.Buy
+                    ? bars.HighPrices[i] - sh.EntryReference
+                    : sh.EntryReference - bars.LowPrices[i];
+                double adverse = sh.Direction == TradeDirection.Buy
+                    ? sh.EntryReference - bars.LowPrices[i]
+                    : bars.HighPrices[i] - sh.EntryReference;
+                sh.MaxMfeR = Math.Max(sh.MaxMfeR, favorable / risk);
+                sh.MaxMaeR = Math.Max(sh.MaxMaeR, adverse / risk);
+
+                bool stopHit = sh.Direction == TradeDirection.Buy ? bars.LowPrices[i] <= sh.Stop : bars.HighPrices[i] >= sh.Stop;
+                bool targetHit = sh.Direction == TradeDirection.Buy ? bars.HighPrices[i] >= sh.Target : bars.LowPrices[i] <= sh.Target;
+
+                if (stopHit || targetHit)
+                {
+                    // Conservative same-bar ordering: count stop first when both are touched.
+                    sh.Outcome = stopHit ? "STOP" : "TARGET";
+                    sh.Resolved = true;
+                    sh.ResolvedUtc = utc;
+                    if (stopHit) _shadowStops++; else _shadowTargets++;
+                    Print("[V44-SHADOW-RESOLVE] cid={0} outcome={1} mfeR={2:F3} maeR={3:F3} reason={4}",
+                        sh.CandidateId, sh.Outcome, sh.MaxMfeR, sh.MaxMaeR, sh.TerminalReason);
+                    continue;
+                }
+
+                if (utc >= sh.ExpiryUtc)
+                {
+                    sh.Outcome = "UNRESOLVED";
+                    sh.Resolved = true;
+                    sh.ResolvedUtc = utc;
+                    _shadowUnresolved++;
+                    Print("[V44-SHADOW-RESOLVE] cid={0} outcome=UNRESOLVED mfeR={1:F3} maeR={2:F3} reason={3}",
+                        sh.CandidateId, sh.MaxMfeR, sh.MaxMaeR, sh.TerminalReason);
+                }
+            }
+        }
+
+        // ---------------- Candidate state / telemetry ----------------
+
+        private string BuildSetupGeometryKey(PatternSignal s)
+        {
+            if (s == null) return "INVALID";
+            string px(double v) { return Math.Round(v, _symbol.Digits).ToString("F" + _symbol.Digits, CultureInfo.InvariantCulture); }
+            return s.Direction + "|" + s.CompletionTime.ToString("yyyyMMddHHmm", CultureInfo.InvariantCulture) + "|" +
+                   s.PivotScale + "|" + px(s.X.Price) + "|" + px(s.A.Price) + "|" + px(s.B.Price) + "|" +
+                   px(s.C.Price) + "|" + px(s.D.Price);
+        }
+
+        private string BuildCanonicalCandidateKey(PatternSignal s)
+        {
+            if (s == null) return "INVALID";
+            if (EnableCanonicalSetupDedupe) return "SETUP|" + BuildSetupGeometryKey(s);
+            string px(double v) { return Math.Round(v, _symbol.Digits).ToString("F" + _symbol.Digits, CultureInfo.InvariantCulture); }
+            return s.PatternName.Replace(" ", "") + "|" + s.Direction + "|" +
+                   s.CompletionTime.ToString("yyyyMMddHHmm", CultureInfo.InvariantCulture) + "|" +
+                   px(s.X.Price) + "|" + px(s.A.Price) + "|" + px(s.B.Price) + "|" + px(s.C.Price) + "|" + px(s.D.Price);
+        }
+
+        private string NewCandidateId(PatternSignal s)
+        {
+            _candidateSeq++;
+            return "V44-" + _candidateSeq.ToString("D8", CultureInfo.InvariantCulture) + "-" +
+                   s.PatternName.Replace(" ", "") + "-" + s.Direction + "-" + s.CompletionTime.ToString("yyyyMMddHHmm", CultureInfo.InvariantCulture);
+        }
+
+        private void Transition(CandidateRecord c, CandidateState next, string reason)
+        {
+            CandidateState prior = c.State;
+            c.State = next;
+            if (next == CandidateState.EXECUTABLE && !c.ExecutableUtc.HasValue)
+                c.ExecutableUtc = Server.Time.ToUniversalTime();
+            c.LastReason = reason;
+            Event(c, prior + "->" + next + ":" + reason);
+        }
+
+        private void Reject(CandidateRecord c, string reason)
+        {
+            if (c != null && c.PositionId == 0 && c.State != CandidateState.EXECUTED)
+                AddCounterfactualShadow(c, reason, Server.Time.ToUniversalTime());
+            c.State = CandidateState.REJECTED;
+            c.IsActive = false;
+            c.LastReason = reason;
+            CountPipeline(c.Signal.PatternName).Rejected++;
+            Event(c, "REJECTED:" + reason);
+        }
+
+        private void Expire(CandidateRecord c, string reason)
+        {
+            if (c != null && c.PositionId == 0 && c.State != CandidateState.EXECUTED)
+                AddCounterfactualShadow(c, reason, Server.Time.ToUniversalTime());
+            c.State = CandidateState.EXPIRED;
+            c.IsActive = false;
+            c.LastReason = reason;
+            CountPipeline(c.Signal.PatternName).Expired++;
+            Event(c, "EXPIRED:" + reason);
+        }
+
+        private void Invalidate(CandidateRecord c, string reason)
+        {
+            if (c != null && c.PositionId == 0 && c.State != CandidateState.EXECUTED)
+                AddCounterfactualShadow(c, reason, Server.Time.ToUniversalTime());
+            c.State = CandidateState.INVALIDATED;
+            c.IsActive = false;
+            c.LastReason = reason;
+            CountPipeline(c.Signal.PatternName).Invalidated++;
+            Event(c, "INVALIDATED:" + reason);
+        }
+
+        private void Ledger(CandidateRecord c, CandidateState state, string reason)
+        {
+            Print("[V44-EVENT] cid={0} pattern={1} tf={2} dir={3} state={4} route={5} conflict={6} reason={7}",
+                c.CandidateId, c.Signal.PatternName, c.Signal.Timeframe, c.Signal.Direction, state, c.Route, c.Conflict, reason);
+        }
+
+        private void Event(CandidateRecord c, string reason)
+        {
+            Ledger(c, c.State, reason);
+        }
+
+        private PipelineCounter CountPipeline(string pattern)
+        {
+            PipelineCounter x;
+            if (!_pipeline.TryGetValue(pattern, out x))
+            {
+                x = new PipelineCounter();
+                _pipeline[pattern] = x;
+            }
+            return x;
+        }
+
+        private void TrimCandidateBook()
+        {
+            if (_candidates.Count <= 2000) return;
+            foreach (var k in _candidates.Where(kv => !kv.Value.IsActive).OrderBy(kv => kv.Value.DetectedUtc).Take(_candidates.Count - 1500).Select(kv => kv.Key).ToList())
+                _candidates.Remove(k);
+        }
+
+        private bool PatternInvalidatedBeforeEntry(PatternSignal s)
+        {
+            return s.Direction == TradeDirection.Buy ? _symbol.Bid <= s.StructuralInvalidation : _symbol.Ask >= s.StructuralInvalidation;
+        }
+
+        // ---------------- Math ----------------
+
+        private bool BarsObjectsReady()
+        {
+            return _h4Bars != null && _h1Bars != null && _m15Bars != null && _m5Bars != null;
+        }
+
+        private void WarmupBars(Bars bars, int minimum, string name)
+        {
+            if (bars == null) return;
+            int loops = 0;
+            while (bars.Count < minimum && loops < 32)
+            {
+                int added = 0;
+                try { added = bars.LoadMoreHistory(); }
+                catch (Exception ex)
+                {
+                    Print("[V44-WARMUP-ERROR] tf={0} count={1} error={2}", name, bars.Count, ex.Message);
+                    break;
+                }
+                loops++;
+                Print("[V44-WARMUP] tf={0} added={1} count={2}", name, added, bars.Count);
+                if (added <= 0) break;
+            }
+        }
+
+        private bool BarsReady()
+        {
+            return BarsObjectsReady() && Count(_h4Bars) >= 230 && Count(_h1Bars) >= 230 && Count(_m15Bars) >= 360 && Count(_m5Bars) >= 80;
+        }
+
+        private int Count(Bars b) { return b == null ? 0 : b.Count; }
+        private int LastClosedIndex(Bars b) { return b == null ? -1 : b.Count - 2; }
+        private double PriceToPips(double d) { return _symbol.PipSize > 0 ? d / _symbol.PipSize : 0; }
+        private double PipsToPrice(double p) { return p * _symbol.PipSize; }
+        private bool InRange(double x, double a, double b) { return x >= a && x <= b; }
+        private double Mid(double a, double b) { return (a + b) / 2.0; }
+        private double VClamp(double x) { return Math.Max(0, Math.Min(1, x)); }
+        private double RatioScore(double x, double ideal) { return ideal <= 0 ? 0 : VClamp(1.0 - Math.Abs(x - ideal) / ideal); }
+        private double Symmetry(double a, double b) { return a <= 0 || b <= 0 ? 0 : Math.Min(a, b) / Math.Max(a, b); }
+
+        private bool GeometryValid(TradeDirection d, double entry, double sl, double tp)
+        {
+            return d == TradeDirection.Buy ? sl < entry && entry < tp : tp < entry && entry < sl;
+        }
+
+        private double Atr(Bars bars, int period, int end)
+        {
+            if (bars == null || end < period + 1 || end >= bars.Count) return 0;
+            double sum = 0;
+            for (int i = end - period + 1; i <= end; i++)
+            {
+                double h = bars.HighPrices[i], l = bars.LowPrices[i], pc = bars.ClosePrices[i - 1];
+                sum += Math.Max(h - l, Math.Max(Math.Abs(h - pc), Math.Abs(l - pc)));
+            }
+            return sum / period;
+        }
+
+        private double RollingAtrMean(Bars bars, int period, int end, int lookback)
+        {
+            int start = Math.Max(period + 1, end - lookback + 1);
+            double sum = 0; int n = 0;
+            for (int i = start; i <= end; i++)
+            {
+                double a = Atr(bars, period, i);
+                if (a > 0) { sum += a; n++; }
+            }
+            return n > 0 ? sum / n : 0;
+        }
+
+        private double AtrPercentile(Bars bars, int period, int end, int lookback)
+        {
+            double now = Atr(bars, period, end);
+            if (now <= 0) return .5;
+            int start = Math.Max(period + 1, end - lookback + 1), n = 0, below = 0;
+            for (int i = start; i <= end; i++)
+            {
+                double a = Atr(bars, period, i);
+                if (a <= 0) continue;
+                n++; if (a <= now) below++;
+            }
+            return n > 0 ? (double)below / n : .5;
+        }
+
+        private double Ema(DataSeries s, int period, int end)
+        {
+            if (s == null || end <= 0 || end >= s.Count) return 0;
+            int start = Math.Max(0, end - period * 6);
+            double k = 2.0 / (period + 1.0), ema = s[start];
+            for (int i = start + 1; i <= end; i++) ema = s[i] * k + ema * (1.0 - k);
+            return ema;
+        }
+
+        private int TrendVote(double fast, double slow, double slope)
+        {
+            if (fast > slow && slope > 0) return 1;
+            if (fast < slow && slope < 0) return -1;
+            return 0;
+        }
+
+        private double EfficiencyRatio(DataSeries s, int end, int period)
+        {
+            if (s == null || end < period || end >= s.Count) return 0;
+            double net = Math.Abs(s[end] - s[end - period]), path = 0;
+            for (int i = end - period + 1; i <= end; i++) path += Math.Abs(s[i] - s[i - 1]);
+            return path > 0 ? VClamp(net / path) : 0;
+        }
+    }
+
+    public enum TradeDirection { Neutral, Buy, Sell }
+    public enum HarmonicState { Neutral, Bullish, Bearish }
+    public enum MtfConflict { NEUTRAL, ALIGNED, SUPPORTED, TRANSITION, CONFLICT }
+    public enum HarmonicRoute { NO_TRADE, TREND_ALIGNED_REVERSAL, EXHAUSTION_REVERSAL, TRANSITION_REVERSAL }
+    public enum CandidateState { DETECTED, VALIDATED, ROUTED, WAIT_PRZ, PRZ_TOUCHED, EVIDENCE_BUILDING, EXECUTABLE, CONFIRMING, ARMED, EXECUTED, EXPIRED, REJECTED, INVALIDATED }
+    public enum PatternMode { STANDARD, ABCD, CYPHER, SHARK, FIVEZERO }
+
+    public sealed class PatternProfile
+    {
+        public string Name;
+        public PatternMode Mode;
+        public double XabMin, XabMax, AbcMin, AbcMax, BcdMin, BcdMax, AdXaMin, AdXaMax, AbcDMin, AbcDMax;
+        public double PrzWidthAtr, StopBufferAtr, Target1Cd, Target2Cd;
+        public int MaxAgeM15Bars;
+        public double MinGeometry, MinPrz;
+        public bool GridEnabled;
+        public double[] GridFractions = new double[0];
+        public int MaximumGridLegs;
+        public double[] GridRiskWeights = new double[0];
+        public string GridAnchorRule;
+        public double MinimumGridSpanXa, MaximumGridSpanXa, GridStructuralTolerance, StructuralStopFibBuffer;
+        public int PendingTtlMinutes;
+        public string CanonicalTargetPolicy;
+    }
+
+    public sealed class PivotPoint
+    {
+        public int Index;
+        public double Price;
+        public bool IsHigh;
+    }
+
+    public sealed class PatternSignal
+    {
+        public string PatternName;
+        public PatternProfile Profile;
+        public TradeDirection Direction;
+        public PivotPoint X, A, B, C, D;
+        public int PivotScale;
+        public double Xab, Abc, Bcd, AdXa, XdXa, AbCd, Xac, CdXc;
+        public double PrzLow, PrzHigh;
+        public double GeometryQuality, PrzConfluence, TimeSymmetry, PivotQuality, Confidence;
+        public double StructuralInvalidation, CanonicalTarget1, CanonicalTarget2;
+        public DateTime CompletionTime;
+        public string Timeframe;
+        public List<PatternSignal> Hypotheses = new List<PatternSignal>();
+        public string HypothesisNames;
+    }
+
+    public sealed class RegimeSnapshot
+    {
+        public TradeDirection TrendDirection;
+        public bool Transition;
+        public double AtrRatio;
+        public double AtrPercentile;
+        public double Efficiency;
+        public double ExtensionAtr;
+        public double AdxH1;
+        public double AdxH4;
+        public double AdxH1Slope;
+        public double TrendStrength;
+        public int H4DirectionVote, H1DirectionVote;
+        public double HtfAgreement;
+        public string RegimeClass;
+    }
+
+    public sealed class CandidateRecord
+    {
+        public string CandidateId;
+        public string CanonicalCandidateKey;
+        public string Lane;
+        public PatternSignal Signal;
+        public CandidateState State;
+        public bool IsActive = true;
+        public DateTime DetectedUtc, ExpiryUtc;
+        public DateTime? PrzTouchUtc, ExecutableUtc;
+        public MtfConflict Conflict = MtfConflict.NEUTRAL;
+        public HarmonicRoute Route = HarmonicRoute.NO_TRADE;
+        public RegimeSnapshot Regime;
+        public double ConfirmationScore, NetRR, SelectedTarget, Rank;
+        public double EvidenceComposite;
+        public double FollowThroughScore, RouteFitScore, AttributionScore, MarginalRescueScore;
+        public double PortfolioEdgeScore, RegimeStressScore;
+        public int EvidenceBarsObserved;
+        public readonly List<double> EvidenceScores = new List<double>();
+        public double AlphaQualityScore, RegimeScore, CapitalMinL0Risk, CapitalMinL0Margin;
+        public double HtfContextConfidence, TemporalStateScore, CrossRegimeAdmissionScore, RobustAlphaDensity;
+        public int TemporalStage;
+        public string PatternHypotheses;
+        public bool CapitalFeasible;
+        public bool EvidencePassedAtAdmission;
+        public FibonacciGridPlan GridPlan;
+        public long PositionId;
+        public string LastReason;
+    }
+
+    public sealed class CounterfactualShadow
+    {
+        public string CandidateId, Pattern, TerminalReason, Outcome;
+        public TradeDirection Direction;
+        public double EntryReference, Stop, Target, MaxMfeR, MaxMaeR;
+        public DateTime CreatedUtc, ExpiryUtc, ResolvedUtc;
+        public bool Resolved;
+    }
+
+    public sealed class PositionLedger
+    {
+        public long PositionId;
+        public string CandidateId;
+        public string PatternName;
+        public HarmonicRoute Route;
+        public TradeDirection Direction;
+        public DateTime EntryUtc;
+        public double InitialRiskPips;
+        public double RiskAmount;
+        public double PeakR;
+        public double MaxAdverseR;
+        public string ExitOverride;
+        public string BasketId;
+        public int LegIndex;
+    }
+
+    public enum GridLegState { PLANNED, SUBMITTING, SUBMITTED, FILLED_UNVERIFIED, PROTECTED, VIRTUAL_ONLY, VIRTUAL_FILLED, FAIL_CLOSED, CANCELLED, EXPIRED, REJECTED, RISK_REJECTED }
+    public enum FibonacciBasketState { PLANNED, LEG0_EXECUTED, GRID_PENDING, PARTIALLY_FILLED, BASKET_ACTIVE, BASKET_PROTECTED, CLOSED, CANCELLED, EXPIRED, INVALIDATED, RISK_REJECTED, MARGIN_REJECTED, SESSION_EXPIRED }
+
+    public sealed class FibonacciGridLeg
+    {
+        public int Index;
+        public double Fraction, PlannedPrice, RiskWeight, RiskBudget, Volume, PlannedRisk, ModeledCost, MinBrokerRisk;
+        public long PendingOrderId, PositionId;
+        public bool Physical, FillCounted;
+        public GridLegState State;
+    }
+
+    public sealed class FibonacciGridPlan
+    {
+        public string CandidateId, BasketId, Pattern;
+        public TradeDirection Direction;
+        public HarmonicRoute Route;
+        public DateTime CreatedUtc, ExpirationUtc;
+        public double EntryAnchor, LogicalAnchor, StructuralStop, GridDistance, CanonicalTarget, ExpectedWeightedEntry;
+        public double BasketRiskAmount, WorstCaseRisk, ExpectedNetRR, VirtualWeightedEntry, EstimatedPhysicalMargin;
+        public int LogicalLegCount, PhysicalDepth;
+        public bool MicroCapitalMode;
+        public readonly List<FibonacciGridLeg> Legs = new List<FibonacciGridLeg>();
+    }
+
+    public sealed class FibonacciBasket
+    {
+        public string BasketId, CandidateId, Pattern, ExitOverride, ExitReason;
+        public TradeDirection Direction;
+        public HarmonicRoute Route;
+        public FibonacciBasketState State;
+        public DateTime CreatedUtc, ExpirationUtc;
+        public double EntryAnchor, AverageEntry, StructuralStop, CanonicalTarget;
+        public double InitialBasketRisk, PlannedWorstCaseRisk, PeakR, MaxAdverseR, RealizedNet, ProtectionFrontier;
+        public double LastFollowThroughScore;
+        public int FilledLegs, ClosedLegs, FollowThroughBarsObserved, WeakFollowThroughBars;
+        public bool IsActive;
+        public FibonacciGridPlan Plan;
+        public CandidateRecord Candidate;
+    }
+
+    public sealed class PipelineCounter
+    {
+        public long Detected, Validated, Routed, PrzWaiting, Confirming, Armed, BasketPlanned;
+        public long Leg0Executed, Leg1Filled, Leg2Filled, Leg3Filled, BasketClosed;
+        public long Executed, Expired, Rejected, Invalidated;
+    }
+}
