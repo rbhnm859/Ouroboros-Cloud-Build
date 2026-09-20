@@ -1,0 +1,383 @@
+name: HarmonyBot V44 Canonical Harmonic Geometry & Opportunity Portfolio
+
+on:
+  push:
+    branches:
+      - harmonybot/v44-canonical-harmonic-opportunity-engine
+    paths:
+      - 'HarmonyBot-V44/**'
+      - '.github/workflows/harmonybot-v44-canonical-harmonic-opportunity.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: harmonybot-v44-canonical-harmonic-opportunity
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  CTRADER_PASSWORD: ${{ secrets.CTRADER_PASSWORD }}
+  CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+  CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+
+jobs:
+  build-smoke:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: harmonybot/v44-canonical-harmonic-opportunity-engine
+          path: control
+          fetch-depth: 1
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+          cache: true
+          cache-dependency-path: control/HarmonyBot-V44/HarmonyBotV44.csproj
+      - name: Static audit and build once
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd control
+          python3 HarmonyBot-V44/tools/static_audit.py HarmonyBot-V44/src/HarmonyBotV44.cs
+          python3 HarmonyBot-V44/tools/geometry_contract_test.py HarmonyBot-V44/src/HarmonyBotV44.cs
+          mkdir -p HarmonyBot-V44/final HarmonyBot-V44/dist
+          cp V44_ARCHITECTURE_AUDIT.json V44_GEOMETRY_CONTRACT_TEST.json HarmonyBot-V44/final/
+          dotnet restore HarmonyBot-V44/HarmonyBotV44.csproj
+          dotnet build HarmonyBot-V44/HarmonyBotV44.csproj -c Release --no-restore --nologo 2>&1 | tee HarmonyBot-V44/final/V44_BUILD.log
+          ! grep -Eq '(^|[^0-9])error (CS|MSB|NETSDK)[0-9]+' HarmonyBot-V44/final/V44_BUILD.log
+          ALGO=$(find HarmonyBot-V44/bin/Release -type f -name '*.algo' | head -1)
+          test -n "$ALGO" && test -s "$ALGO"
+          cp "$ALGO" HarmonyBot-V44/dist/HarmonyBot_V44_Canonical_Harmonic_Opportunity_Engine_RC.algo
+          sha256sum HarmonyBot-V44/src/HarmonyBotV44.cs "$ALGO" > HarmonyBot-V44/final/SHA256SUMS
+          printf '%s\n' "$GITHUB_SHA" > HarmonyBot-V44/final/SOURCE_COMMIT.txt
+      - name: Ultra-short engineering smoke
+        shell: bash
+        run: |
+          set -euo pipefail
+          chmod +x control/HarmonyBot-V44/tools/*.sh
+          W="$GITHUB_WORKSPACE/control/HarmonyBot-V44/smoke-work"
+          O="$GITHUB_WORKSPACE/control/HarmonyBot-V44/final"
+          mkdir -p "$W/seal/algo"
+          cp control/HarmonyBot-V44/dist/HarmonyBot_V44_Canonical_Harmonic_Opportunity_Engine_RC.algo "$W/seal/algo/"
+          (
+            cd "$W"
+            RUN_NAME=V44-FULL_V44-SMOKE-B10000 START_DATE=04/01/2021 EVAL_DATE=2021-01-06T00:00:00Z END_DATE=15/01/2021 BALANCE=10000 \
+            RESCUE=true OCMODEL=true FOLLOW=true THESISEXIT=true CANONICAL=true MULTISCALE=true DEDUPE=true NATIVE=true LOGICALGRID=true AUCTION=true AUCTION_MINUTES=5 TTL=8 MAXCAND=12 BACKTEST_TIMEOUT_SECONDS=300 \
+            "$GITHUB_WORKSPACE/control/HarmonyBot-V44/tools/run_backtest.sh"
+          )
+          python3 control/HarmonyBot-V44/tools/audit_report.py \
+            --report "$W/seal/reports/V44-FULL_V44-SMOKE-B10000.json" --log "$W/seal/logs/V44-FULL_V44-SMOKE-B10000.log" \
+            --out "$O/V44_SMOKE.json" --window SMOKE --family FULL_V44 --years .03 --balance 10000
+          python3 - "$O/V44_SMOKE.json" <<'PY'
+          import json,sys
+          x=json.load(open(sys.argv[1]))
+          assert x["summary_present"] and x["broker_profile_present"]
+          assert x["execution_errors"]==0 and x["actual_basket_risk_violations"]==0
+          assert x["margin_risk_violations"]==0 and x["unprotected_survivors"]==0
+          print("[V44-SMOKE] PASS")
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: v44-build-smoke
+          path: |
+            control/HarmonyBot-V44/dist
+            control/HarmonyBot-V44/final
+          retention-days: 30
+
+  dev:
+    needs: build-smoke
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      max-parallel: 12
+      matrix:
+        include:
+          - {family: V41_REPLAY, rescue: "false", ocmodel: "false", follow: "false", thesisexit: "false", window: A, start: "04/01/2021", eval: "2021-01-11T00:00:00Z", end: "30/06/2021"}
+          - {family: V41_REPLAY, rescue: "false", ocmodel: "false", follow: "false", thesisexit: "false", window: B, start: "01/07/2021", eval: "2021-07-08T00:00:00Z", end: "31/12/2021"}
+          - {family: V41_REPLAY, rescue: "false", ocmodel: "false", follow: "false", thesisexit: "false", window: C, start: "03/01/2022", eval: "2022-01-10T00:00:00Z", end: "30/06/2022"}
+          - {family: CANONICAL_GEOMETRY, rescue: "false", ocmodel: "false", follow: "true", thesisexit: "true", window: A, start: "04/01/2021", eval: "2021-01-11T00:00:00Z", end: "30/06/2021"}
+          - {family: CANONICAL_GEOMETRY, rescue: "false", ocmodel: "false", follow: "true", thesisexit: "true", window: B, start: "01/07/2021", eval: "2021-07-08T00:00:00Z", end: "31/12/2021"}
+          - {family: CANONICAL_GEOMETRY, rescue: "false", ocmodel: "false", follow: "true", thesisexit: "true", window: C, start: "03/01/2022", eval: "2022-01-10T00:00:00Z", end: "30/06/2022"}
+          - {family: PATTERN_NATIVE, rescue: "true", ocmodel: "false", follow: "true", thesisexit: "true", window: A, start: "04/01/2021", eval: "2021-01-11T00:00:00Z", end: "30/06/2021"}
+          - {family: PATTERN_NATIVE, rescue: "true", ocmodel: "false", follow: "true", thesisexit: "true", window: B, start: "01/07/2021", eval: "2021-07-08T00:00:00Z", end: "31/12/2021"}
+          - {family: PATTERN_NATIVE, rescue: "true", ocmodel: "false", follow: "true", thesisexit: "true", window: C, start: "03/01/2022", eval: "2022-01-10T00:00:00Z", end: "30/06/2022"}
+          - {family: FULL_V44, rescue: "true", ocmodel: "true", follow: "true", thesisexit: "true", window: A, start: "04/01/2021", eval: "2021-01-11T00:00:00Z", end: "30/06/2021"}
+          - {family: FULL_V44, rescue: "true", ocmodel: "true", follow: "true", thesisexit: "true", window: B, start: "01/07/2021", eval: "2021-07-08T00:00:00Z", end: "31/12/2021"}
+          - {family: FULL_V44, rescue: "true", ocmodel: "true", follow: "true", thesisexit: "true", window: C, start: "03/01/2022", eval: "2022-01-10T00:00:00Z", end: "30/06/2022"}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: harmonybot/v44-canonical-harmonic-opportunity-engine
+          path: control
+          fetch-depth: 1
+      - uses: actions/download-artifact@v4
+        with:
+          name: v44-build-smoke
+          path: control/HarmonyBot-V44/shared
+      - name: Prepare immutable algo
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p control/HarmonyBot-V44/dist
+          A=$(find control/HarmonyBot-V44/shared -type f -name 'HarmonyBot_V44_Canonical_Harmonic_Opportunity_Engine_RC.algo' | head -1)
+          test -n "$A"; cp "$A" control/HarmonyBot-V44/dist/
+      - name: Restore persistent XAUUSD M1 cache
+        uses: actions/cache@v4
+        with:
+          path: control/HarmonyBot-V44/window-${{ matrix.family }}-${{ matrix.window }}/seal/data
+          key: ctrader-xauusd-m1-${{ matrix.window }}-${{ matrix.start }}-${{ matrix.end }}-v1
+      - name: Run one V44 DEV window
+        shell: bash
+        run: |
+          chmod +x control/HarmonyBot-V44/tools/*.sh
+          control/HarmonyBot-V44/tools/run_window.sh \
+            "${{ matrix.family }}" "${{ matrix.window }}" "${{ matrix.start }}" "${{ matrix.eval }}" "${{ matrix.end }}" \
+            "${{ matrix.rescue }}" "${{ matrix.ocmodel }}" "${{ matrix.follow }}" "${{ matrix.thesisexit }}"
+      - name: Upload window evidence immediately
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: v44-dev-${{ matrix.family }}-${{ matrix.window }}
+          path: control/HarmonyBot-V44/output-${{ matrix.family }}-${{ matrix.window }}
+          retention-days: 30
+          if-no-files-found: error
+
+  analyze:
+    needs: dev
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    outputs:
+      candidate: ${{ steps.gate.outputs.candidate }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: harmonybot/v44-canonical-harmonic-opportunity-engine
+          path: control
+          fetch-depth: 1
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: v44-dev-*
+          path: control/HarmonyBot-V44/merged
+          merge-multiple: true
+      - name: Paired marginal cohort + cross-validation + promotion gates
+        id: gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p control/HarmonyBot-V44/final
+          python3 control/HarmonyBot-V44/tools/analyze_parallel_dev.py control/HarmonyBot-V44/merged control/HarmonyBot-V44/final
+          echo "candidate=$(cat control/HarmonyBot-V44/final/candidate.txt)" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: HARMONYBOT-V44-CANONICAL-HARMONIC-FRONTIER
+          path: control/HarmonyBot-V44/final
+          retention-days: 30
+
+  capital:
+    needs: analyze
+    if: needs.analyze.outputs.candidate != ''
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      max-parallel: 6
+      matrix:
+        balance: [100,150,200,300,500,1000]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: harmonybot/v44-canonical-harmonic-opportunity-engine
+          path: control
+          fetch-depth: 1
+      - uses: actions/download-artifact@v4
+        with:
+          name: v44-build-smoke
+          path: control/HarmonyBot-V44/shared
+      - name: Run capital compatibility
+        shell: bash
+        env:
+          CANDIDATE: ${{ needs.analyze.outputs.candidate }}
+          BALANCE: ${{ matrix.balance }}
+        run: |
+          set -euo pipefail
+          case "$CANDIDATE" in
+            V41_REPLAY) RS=false; OC=false; FT=false; TX=false; CA=false; MS=false; DD=false; NA=false; LG=false; AU=false;;
+            CANONICAL_GEOMETRY) RS=false; OC=false; FT=false; TX=false; CA=true; MS=true; DD=true; NA=false; LG=true; AU=false;;
+            PATTERN_NATIVE) RS=false; OC=false; FT=true; TX=true; CA=true; MS=true; DD=true; NA=true; LG=true; AU=false;;
+            FULL_V44) RS=true; OC=true; FT=true; TX=true; CA=true; MS=true; DD=true; NA=true; LG=true; AU=true;;
+            *) exit 31;;
+          esac
+          chmod +x control/HarmonyBot-V44/tools/*.sh
+          W="$GITHUB_WORKSPACE/control/HarmonyBot-V44/capital-$BALANCE"; O="$GITHUB_WORKSPACE/control/HarmonyBot-V44/capital-out-$BALANCE"
+          mkdir -p "$W/seal/algo" "$O"
+          A=$(find control/HarmonyBot-V44/shared -type f -name 'HarmonyBot_V44_Canonical_Harmonic_Opportunity_Engine_RC.algo' | head -1)
+          cp "$A" "$W/seal/algo/"
+          (
+            cd "$W"
+            RUN_NAME="V44-$CANDIDATE-CAPITAL-$BALANCE" START_DATE=04/01/2021 EVAL_DATE=2021-01-11T00:00:00Z END_DATE=30/06/2022 BALANCE="$BALANCE" \
+            RESCUE="$RS" OCMODEL="$OC" FOLLOW="$FT" THESISEXIT="$TX" CANONICAL="$CA" MULTISCALE="$MS" DEDUPE="$DD" NATIVE="$NA" LOGICALGRID="$LG" AUCTION="$AU" AUCTION_MINUTES=5 TTL=8 MAXCAND=12 BACKTEST_TIMEOUT_SECONDS=1800 \
+            "$GITHUB_WORKSPACE/control/HarmonyBot-V44/tools/run_backtest.sh"
+          )
+          python3 control/HarmonyBot-V44/tools/audit_report.py --report "$W/seal/reports/V44-$CANDIDATE-CAPITAL-$BALANCE.json" \
+            --log "$W/seal/logs/V44-$CANDIDATE-CAPITAL-$BALANCE.log" --out "$O/$BALANCE.json" \
+            --window "CAPITAL_$BALANCE" --family "$CANDIDATE" --years 1.5 --balance "$BALANCE"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: v44-capital-${{ matrix.balance }}
+          path: control/HarmonyBot-V44/capital-out-${{ matrix.balance }}
+          retention-days: 30
+
+  capital-gate:
+    needs: [analyze,capital]
+    if: needs.analyze.outputs.candidate != ''
+    runs-on: ubuntu-24.04
+    outputs:
+      capok: ${{ steps.cap.outputs.capok }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: v44-capital-*
+          path: capital
+          merge-multiple: true
+      - name: Apply hard $100 positive-net gate
+        id: cap
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json,pathlib
+          p=pathlib.Path("capital")
+          rows={str(b):json.load(open(next(p.rglob(f"{b}.json")))) for b in [100,150,200,300,500,1000]}
+          h=rows["100"]
+          ok=(h["engineering_clean"] and h["baskets"]>0 and h["net"]>0 and h["expectancy"]>0 and h["pf"]>1 and
+              h["max_dd_pct"]<=10 and h["actual_basket_risk_violations"]==0 and h["margin_risk_violations"]==0)
+          pathlib.Path("V44_CAPITAL_COMPATIBILITY.json").write_text(json.dumps({"version":"HarmonyBot V44","rows":rows,
+            "hard_100_compatible":ok,"status":"CAPITAL_COMPATIBLE" if ok else "CAPITAL_HOLD"},indent=2))
+          pathlib.Path("cap.out").write_text("true" if ok else "false")
+          PY
+          echo "capok=$(cat cap.out)" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: v44-capital-gate
+          path: V44_CAPITAL_COMPATIBILITY.json
+          retention-days: 30
+
+  freeze:
+    needs: [analyze,capital-gate]
+    if: needs.capital-gate.outputs.capok == 'true'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: harmonybot/v44-canonical-harmonic-opportunity-engine
+          path: control
+          fetch-depth: 1
+      - uses: actions/download-artifact@v4
+        with:
+          name: v44-build-smoke
+          path: shared
+      - name: Freeze source/algo
+        shell: bash
+        env:
+          CANDIDATE: ${{ needs.analyze.outputs.candidate }}
+        run: |
+          python3 - <<'PY'
+          import hashlib,json,pathlib,os
+          src=pathlib.Path("control/HarmonyBot-V44/src/HarmonyBotV44.cs")
+          algo=next(pathlib.Path("shared").rglob("HarmonyBot_V44_Canonical_Harmonic_Opportunity_Engine_RC.algo"))
+          m={"version":"HarmonyBot V44","candidate":os.environ["CANDIDATE"],"source_commit":os.environ["GITHUB_SHA"],
+             "source_sha256":hashlib.sha256(src.read_bytes()).hexdigest(),"algo_sha256":hashlib.sha256(algo.read_bytes()).hexdigest(),
+             "fresh_tuning":False,"status":"ALPHA_AND_CAPITAL_FROZEN"}
+          pathlib.Path("V44_FREEZE_MANIFEST.json").write_text(json.dumps(m,indent=2))
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: v44-freeze-manifest
+          path: V44_FREEZE_MANIFEST.json
+          retention-days: 30
+
+  fresh:
+    needs: [analyze,freeze]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        include:
+          - {kind: ALPHA, balance: 10000}
+          - {kind: SMALL, balance: 100}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: harmonybot/v44-canonical-harmonic-opportunity-engine
+          path: control
+          fetch-depth: 1
+      - uses: actions/download-artifact@v4
+        with:
+          name: v44-build-smoke
+          path: control/HarmonyBot-V44/shared
+      - name: Untouched Fresh validation
+        shell: bash
+        env:
+          CANDIDATE: ${{ needs.analyze.outputs.candidate }}
+          KIND: ${{ matrix.kind }}
+          BALANCE: ${{ matrix.balance }}
+        run: |
+          set -euo pipefail
+          case "$CANDIDATE" in
+            V41_REPLAY) RS=false; OC=false; FT=false; TX=false; CA=false; MS=false; DD=false; NA=false; LG=false; AU=false;;
+            CANONICAL_GEOMETRY) RS=false; OC=false; FT=false; TX=false; CA=true; MS=true; DD=true; NA=false; LG=true; AU=false;;
+            PATTERN_NATIVE) RS=false; OC=false; FT=true; TX=true; CA=true; MS=true; DD=true; NA=true; LG=true; AU=false;;
+            FULL_V44) RS=true; OC=true; FT=true; TX=true; CA=true; MS=true; DD=true; NA=true; LG=true; AU=true;;
+            *) exit 31;;
+          esac
+          chmod +x control/HarmonyBot-V44/tools/*.sh
+          W="$GITHUB_WORKSPACE/control/HarmonyBot-V44/fresh-$KIND"; O="$GITHUB_WORKSPACE/control/HarmonyBot-V44/fresh-out-$KIND"
+          mkdir -p "$W/seal/algo" "$O"
+          A=$(find control/HarmonyBot-V44/shared -type f -name 'HarmonyBot_V44_Canonical_Harmonic_Opportunity_Engine_RC.algo' | head -1); cp "$A" "$W/seal/algo/"
+          (
+            cd "$W"
+            RUN_NAME="V44-$CANDIDATE-FRESH-$KIND" START_DATE=02/01/2020 EVAL_DATE=2020-01-09T00:00:00Z END_DATE=30/06/2020 BALANCE="$BALANCE" \
+            RESCUE="$RS" OCMODEL="$OC" FOLLOW="$FT" THESISEXIT="$TX" CANONICAL="$CA" MULTISCALE="$MS" DEDUPE="$DD" NATIVE="$NA" LOGICALGRID="$LG" AUCTION="$AU" AUCTION_MINUTES=5 TTL=8 MAXCAND=12 BACKTEST_TIMEOUT_SECONDS=1800 \
+            "$GITHUB_WORKSPACE/control/HarmonyBot-V44/tools/run_backtest.sh"
+          )
+          python3 control/HarmonyBot-V44/tools/audit_report.py --report "$W/seal/reports/V44-$CANDIDATE-FRESH-$KIND.json" \
+            --log "$W/seal/logs/V44-$CANDIDATE-FRESH-$KIND.log" --out "$O/$KIND.json" \
+            --window "FRESH_$KIND" --family "$CANDIDATE" --years .5 --balance "$BALANCE"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: v44-fresh-${{ matrix.kind }}
+          path: control/HarmonyBot-V44/fresh-out-${{ matrix.kind }}
+          retention-days: 30
+
+  final-decision:
+    needs: [analyze,fresh]
+    if: always() && needs.fresh.result == 'success'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: v44-fresh-*
+          path: fresh
+          merge-multiple: true
+      - name: Final commercial gate
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json,pathlib
+          p=pathlib.Path("fresh"); a=json.load(open(next(p.rglob("ALPHA.json")))); m=json.load(open(next(p.rglob("SMALL.json"))))
+          ok=(a["engineering_clean"] and a["baskets"]>0 and a["net"]>0 and a["expectancy"]>0 and a["pf"]>1 and a["max_dd_pct"]<=10 and
+              m["engineering_clean"] and m["baskets"]>0 and m["net"]>0 and m["expectancy"]>0 and m["pf"]>1 and m["max_dd_pct"]<=10)
+          pathlib.Path("V44_FRESH_VALIDATION.json").write_text(json.dumps({"version":"HarmonyBot V44","fresh_alpha":a,"fresh_100":m,
+            "fresh_validation_pass":ok,"commercial_release_decision":"PASS_TO_COMMERCIAL_FREEZE_REVIEW" if ok else "HOLD"},indent=2))
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: v44-final-decision
+          path: V44_FRESH_VALIDATION.json
+          retention-days: 30
+# V44 launch trigger: canonical geometry preregistration locked.
