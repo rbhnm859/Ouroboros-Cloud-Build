@@ -117,6 +117,8 @@ jobs:
     needs: calibration
     runs-on: ubuntu-24.04
     timeout-minutes: 10
+    outputs:
+      calok: ${{ steps.cal.outputs.calok }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -129,11 +131,17 @@ jobs:
           path: control/HarmonyBot-V57/calibration-merged
           merge-multiple: true
       - name: Build hierarchical family/regime calibration manifest
+        id: cal
         shell: bash
         run: |
           mkdir -p control/HarmonyBot-V57/calibration-manifest
           python3 control/HarmonyBot-V57/tools/build_calibration_manifest.py control/HarmonyBot-V57/calibration-merged control/HarmonyBot-V57/calibration-manifest
-          test -s control/HarmonyBot-V57/calibration-manifest/calibration_manifest.txt
+          if test -s control/HarmonyBot-V57/calibration-manifest/calibration_manifest.txt; then
+            echo "calok=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "calok=false" >> "$GITHUB_OUTPUT"
+            printf '%s\n' '{"version":"HarmonyBot V57","decision":"HOLD_WITH_EVIDENCE","reason":"NO_CALIBRATED_POSITIVE_LOWER_BOUND_CELLS","fresh_used":false}' > control/HarmonyBot-V57/calibration-manifest/V57_CALIBRATION_GATE_DECISION.json
+          fi
       - uses: actions/upload-artifact@v4
         with:
           name: v57-calibration-manifest
@@ -197,6 +205,7 @@ jobs:
 
   dev3:
     needs: [build, calibration-manifest, data-seed]
+    if: needs.calibration-manifest.outputs.calok == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     strategy:
