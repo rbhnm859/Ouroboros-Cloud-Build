@@ -9,7 +9,7 @@ REVALIDATE="${REVALIDATE:-false}"; JOINT="${JOINT:-false}"; CORRIDOR="${CORRIDOR
 IDENT="${IDENT:-false}"; BOUNDED="${BOUNDED:-false}"; SKIPS="${SKIPS:-2}"; FQUOTA="${FQUOTA:-4}"; PRJPRZ="${PRJPRZ:-false}"; DTRUTH="${DTRUTH:-true}"
 FAMQUAL="${FAMQUAL:-false}"; FAMROUTE="${FAMROUTE:-false}"; FAMCONFV2="${FAMCONFV2:-false}"; CTXBUS="${CTXBUS:-false}"; GRIDEXEC="${GRIDEXEC:-true}"
 LIBERATE="${LIBERATE:-false}"; COREKEEP="${COREKEEP:-false}"; GRIDV3="${GRIDV3:-false}"; STATEGRID="${STATEGRID:-false}"; EVIDENCE="${EVIDENCE:-false}"; COREPROT="${COREPROT:-false}"; GRIDV4="${GRIDV4:-false}"; EMIN="${EMIN:-0.64}"; ERMIN="${ERMIN:-0.10}"; HAZMAX="${HAZMAX:-0.68}"; ABCDMIN="${ABCDMIN:-0.76}"
-ALGO="${ALGO:-seal/algo/HarmonyBot_V56_Universal_Harmonic_Liberation_Grid_Alpha_Core_RC.algo}"
+ALGO="${ALGO:-seal/algo/HarmonyBot_V56_Universal_Harmonic_Alpha_Purification_Core_Protected_RC.algo}"
 IMAGE="${CTRADER_IMAGE:-ghcr.io/spotware/ctrader-console:5.9.11}"
 BACKTEST_TIMEOUT_SECONDS="${BACKTEST_TIMEOUT_SECONDS:-2700}"
 mkdir -p seal/{reports,logs,data}
