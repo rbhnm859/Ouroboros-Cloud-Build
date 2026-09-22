@@ -3482,7 +3482,8 @@ namespace cAlgo.Robots
         {
             return pattern == "Gartley" || pattern == "Bat" || pattern == "Alt Bat" ||
                    pattern == "Butterfly" || pattern == "Crab" || pattern == "Deep Crab" ||
-                   pattern == "Deep Gartley" || pattern == "Rat" || pattern == "5-0";
+                   pattern == "Deep Gartley" || pattern == "Rat" || pattern == "5-0" ||
+                   pattern == "Shark" || pattern == "Cypher" || pattern == "AB=CD";
         }
 
         private void IncrementCounter(Dictionary<string, int> map, string key)
@@ -3495,52 +3496,87 @@ namespace cAlgo.Robots
         {
             score = 0;
             if (i < 3 || i >= _m1Bars.Count || c == null || c.Signal == null) return false;
-            var sig = c.Signal;
-            double o = _m1Bars.OpenPrices[i], cl = _m1Bars.ClosePrices[i],
-                   h = _m1Bars.HighPrices[i], l = _m1Bars.LowPrices[i];
-            double pc = _m1Bars.ClosePrices[i - 1], ph = _m1Bars.HighPrices[i - 1], pl = _m1Bars.LowPrices[i - 1];
-            double body = Math.Max(Math.Abs(cl - o), _symbol.PipSize);
-            double atr = Atr(_m1Bars, 14, i);
-            bool buy = sig.Direction == TradeDirection.Buy;
-            bool directional = buy ? cl > o : cl < o;
-            bool reclaim = buy ? (cl > sig.PrzLow && cl >= pc) : (cl < sig.PrzHigh && cl <= pc);
-            bool bos = buy ? cl > ph : cl < pl;
-            bool rejection = buy ? Math.Max(0, Math.Min(o, cl) - l) >= body * .5 : Math.Max(0, h - Math.Max(o, cl)) >= body * .5;
-            bool sweep = buy ? l < pl : h > ph;
-            bool failedExtension = buy ? (l < pl && cl > pl) : (h > ph && cl < ph);
-            bool insidePrz = cl >= Math.Min(sig.PrzLow, sig.PrzHigh) && cl <= Math.Max(sig.PrzLow, sig.PrzHigh);
-            bool displacement = atr > 0 && body >= atr * .30;
-            bool retest = insidePrz || Math.Abs(cl - (sig.PrzLow + sig.PrzHigh) * .5) <= Math.Max(atr * .25, _symbol.PipSize);
+            var sig=c.Signal;
+            double o=_m1Bars.OpenPrices[i], cl=_m1Bars.ClosePrices[i], h=_m1Bars.HighPrices[i], l=_m1Bars.LowPrices[i];
+            double pc=_m1Bars.ClosePrices[i-1], ph=_m1Bars.HighPrices[i-1], pl=_m1Bars.LowPrices[i-1];
+            double body=Math.Max(Math.Abs(cl-o),_symbol.PipSize);
+            double prevBody=Math.Max(Math.Abs(_m1Bars.ClosePrices[i-1]-_m1Bars.OpenPrices[i-1]),_symbol.PipSize);
+            double atr=Atr(_m1Bars,14,i);
+            bool buy=sig.Direction==TradeDirection.Buy;
+            bool directional=buy?cl>o:cl<o;
+            bool reclaim=buy?(cl>sig.PrzLow&&cl>=pc):(cl<sig.PrzHigh&&cl<=pc);
+            bool bos=buy?cl>ph:cl<pl;
+            bool rejection=buy?Math.Max(0,Math.Min(o,cl)-l)>=body*.5:Math.Max(0,h-Math.Max(o,cl))>=body*.5;
+            bool sweep=buy?l<pl:h>ph;
+            bool failedExtension=buy?(l<pl&&cl>pl):(h>ph&&cl<ph);
+            bool insidePrz=cl>=Math.Min(sig.PrzLow,sig.PrzHigh)&&cl<=Math.Max(sig.PrzLow,sig.PrzHigh);
+            bool displacement=atr>0&&body>=atr*.30;
+            bool retest=insidePrz||Math.Abs(cl-(sig.PrzLow+sig.PrzHigh)*.5)<=Math.Max(atr*.25,_symbol.PipSize);
+            bool deceleration=body<=prevBody*.85;
 
-            c.FamilyDirectional |= directional; c.FamilyReclaim |= reclaim; c.FamilyBos |= bos;
-            c.FamilyRejection |= rejection; c.FamilySweep |= sweep; c.FamilyFailedExtension |= failedExtension;
-            c.FamilyInsidePrz |= insidePrz; c.FamilyDisplacement |= displacement; c.FamilyRetest |= retest;
+            c.FamilyDirectional|=directional; c.FamilyReclaim|=reclaim; c.FamilyBos|=bos; c.FamilyRejection|=rejection;
+            c.FamilySweep|=sweep; c.FamilyFailedExtension|=failedExtension; c.FamilyInsidePrz|=insidePrz;
+            c.FamilyDisplacement|=displacement; c.FamilyRetest|=retest; c.FamilyDeceleration|=deceleration;
 
-            string p = sig.PatternName ?? "";
-            bool retracement = p == "Gartley" || p == "Bat" || p == "Deep Gartley" || p == "Rat";
-            bool extension = p == "Alt Bat" || p == "Butterfly" || p == "Crab" || p == "Deep Crab";
-            if (retracement)
+            if(directional&&c.FirstDirectionalBar<0)c.FirstDirectionalBar=i;
+            if(reclaim&&c.FirstReclaimBar<0)c.FirstReclaimBar=i;
+            if(bos&&c.FirstBosBar<0)c.FirstBosBar=i;
+            if(rejection&&c.FirstRejectionBar<0)c.FirstRejectionBar=i;
+            if(sweep&&c.FirstSweepBar<0)c.FirstSweepBar=i;
+            if(failedExtension&&c.FirstFailedExtensionBar<0)c.FirstFailedExtensionBar=i;
+            if(insidePrz&&c.FirstInsidePrzBar<0)c.FirstInsidePrzBar=i;
+            if(displacement&&c.FirstDisplacementBar<0)c.FirstDisplacementBar=i;
+            if(retest&&c.FirstRetestBar<0)c.FirstRetestBar=i;
+            if(deceleration&&c.FirstDecelerationBar<0)c.FirstDecelerationBar=i;
+
+            string p=sig.PatternName??"";
+            int pre=V58FirstEvent(c.FirstRejectionBar,c.FirstFailedExtensionBar);
+            int post=V58FirstEvent(c.FirstBosBar,c.FirstDisplacementBar);
+            bool retr=p=="Gartley"||p=="Bat"||p=="Deep Gartley"||p=="Rat";
+            bool ext=p=="Alt Bat"||p=="Butterfly"||p=="Crab"||p=="Deep Crab";
+
+            if(retr)
             {
-                score = (c.FamilyReclaim ? .30 : 0) + ((c.FamilyRejection || c.FamilyFailedExtension) ? .25 : 0) +
-                        (c.FamilyBos ? .25 : 0) + (c.FamilyDisplacement ? .20 : 0);
-                return c.FamilyReclaim && (c.FamilyRejection || c.FamilyFailedExtension) &&
-                       (c.FamilyBos || c.FamilyDisplacement) && score >= .75;
+                score=(c.FamilyReclaim?.30:0)+((c.FamilyRejection||c.FamilyFailedExtension)?.25:0)+(c.FamilyBos?.25:0)+(c.FamilyDisplacement?.20:0);
+                return !EnableV58TemporalEventDag
+                    ? c.FamilyReclaim&&(c.FamilyRejection||c.FamilyFailedExtension)&&(c.FamilyBos||c.FamilyDisplacement)&&score>=.75
+                    : pre>=0&&c.FirstReclaimBar>=pre&&post>=c.FirstReclaimBar&&score>=.75;
             }
-            if (extension)
+            if(ext)
             {
-                score = (c.FamilySweep ? .20 : 0) + (c.FamilyFailedExtension ? .25 : 0) +
-                        ((c.FamilyReclaim || c.FamilyInsidePrz) ? .25 : 0) +
-                        (c.FamilyBos ? .20 : 0) + (c.FamilyDisplacement ? .10 : 0);
-                return c.FamilySweep && c.FamilyFailedExtension && (c.FamilyReclaim || c.FamilyInsidePrz) &&
-                       (c.FamilyBos || c.FamilyDisplacement) && score >= .75;
+                score=(c.FamilySweep?.20:0)+(c.FamilyFailedExtension?.25:0)+((c.FamilyReclaim||c.FamilyInsidePrz)?.25:0)+(c.FamilyBos?.20:0)+(c.FamilyDisplacement?.10:0);
+                int reclaimBar=V58FirstEvent(c.FirstReclaimBar,c.FirstInsidePrzBar);
+                return !EnableV58TemporalEventDag
+                    ? c.FamilySweep&&c.FamilyFailedExtension&&(c.FamilyReclaim||c.FamilyInsidePrz)&&(c.FamilyBos||c.FamilyDisplacement)&&score>=.75
+                    : c.FirstSweepBar>=0&&c.FirstFailedExtensionBar>=c.FirstSweepBar&&reclaimBar>=c.FirstFailedExtensionBar&&post>=c.FirstFailedExtensionBar&&score>=.75;
             }
-            if (p == "5-0")
+            if(p=="5-0")
             {
-                score = (c.FamilyFailedExtension ? .25 : 0) + (c.FamilyBos ? .30 : 0) +
-                        (c.FamilyRetest ? .25 : 0) + (c.FamilyDirectional ? .20 : 0);
-                return c.FamilyFailedExtension && c.FamilyBos && c.FamilyRetest && c.FamilyDirectional && score >= .80;
+                score=(c.FamilyFailedExtension?.25:0)+(c.FamilyBos?.30:0)+(c.FamilyRetest?.25:0)+(c.FamilyDirectional?.20:0);
+                return c.FirstFailedExtensionBar>=0&&c.FirstBosBar>=c.FirstFailedExtensionBar&&c.FirstRetestBar>=c.FirstBosBar&&c.FirstDirectionalBar>=0&&score>=.80;
+            }
+            if(p=="Shark")
+            {
+                score=(c.FamilySweep?.20:0)+(c.FamilyFailedExtension?.25:0)+(c.FamilyReclaim?.25:0)+((c.FamilyBos||c.FamilyDisplacement)?.30:0);
+                return c.FirstSweepBar>=0&&c.FirstFailedExtensionBar>=c.FirstSweepBar&&c.FirstReclaimBar>=c.FirstFailedExtensionBar&&post>=c.FirstFailedExtensionBar&&score>=.75;
+            }
+            if(p=="Cypher")
+            {
+                score=(c.FamilyReclaim?.35:0)+((c.FamilyBos||c.FamilyDisplacement)?.35:0)+(c.FamilyDirectional?.20:0)+(c.FamilyRetest?.10:0);
+                return c.FirstReclaimBar>=0&&post>=c.FirstReclaimBar&&c.FirstDirectionalBar>=0&&score>=.75;
+            }
+            if(p=="AB=CD")
+            {
+                score=(c.FamilyDeceleration?.25:0)+(c.FamilyFailedExtension?.25:0)+(c.FamilyReclaim?.25:0)+((c.FamilyBos||c.FamilyDisplacement)?.25:0);
+                return c.FirstDecelerationBar>=0&&c.FirstFailedExtensionBar>=c.FirstDecelerationBar&&c.FirstReclaimBar>=c.FirstFailedExtensionBar&&post>=c.FirstFailedExtensionBar&&score>=.75;
             }
             return false;
+        }
+
+        private int V58FirstEvent(params int[] bars)
+        {
+            var xs=bars.Where(x=>x>=0).ToList();
+            return xs.Count==0?-1:xs.Min();
         }
 
         private bool UpdatePatternNativeM1State(int i, CandidateRecord c, out double score)
@@ -3957,30 +3993,57 @@ namespace cAlgo.Robots
             double hi=_m1Bars.HighPrices[i],lo=_m1Bars.LowPrices[i],close=_m1Bars.ClosePrices[i];
             foreach(var x in _familyShadowTrades.Values.Where(z=>!z.Closed).ToList())
             {
+                double costR=ModeledCostPips()/Math.Max(1.0,PriceToPips(x.RiskDistance));
+                double prevMfe=x.MfeR;
+                double signedClose=x.Direction==TradeDirection.Buy?close-x.Entry:x.Entry-close;
+                double currentR=signedClose/x.RiskDistance-costR;
+                double hold=Math.Max(0,(utc-x.StartUtc).TotalMinutes);
+
+                if(EnableV58ExcursionCaptureResearch)
+                {
+                    if(!x.Protect75Closed&&prevMfe>=.75&&V58ShadowFloorHit(x,lo,hi,.10))
+                    { x.Protect75Closed=true;x.Protect75R=.10-costR; }
+                    if(!x.Be1Closed&&prevMfe>=1.0&&V58ShadowFloorHit(x,lo,hi,.05))
+                    { x.Be1Closed=true;x.Be1R=.05-costR; }
+                    double trailFloor=Math.Max(.25,prevMfe-.75);
+                    if(!x.Trail125Closed&&prevMfe>=1.25&&V58ShadowFloorHit(x,lo,hi,trailFloor))
+                    { x.Trail125Closed=true;x.Trail125R=trailFloor-costR; }
+                    if(!x.TimeDecayClosed&&hold>=45&&prevMfe<.75&&currentR<.25)
+                    { x.TimeDecayClosed=true;x.TimeDecayR=currentR; }
+                }
+
                 x.MaxPrice=Math.Max(x.MaxPrice,hi); x.MinPrice=Math.Min(x.MinPrice,lo);
                 double fav=x.Direction==TradeDirection.Buy?x.MaxPrice-x.Entry:x.Entry-x.MinPrice;
                 double adv=x.Direction==TradeDirection.Buy?x.Entry-x.MinPrice:x.MaxPrice-x.Entry;
                 x.MfeR=Math.Max(x.MfeR,fav/x.RiskDistance); x.MaeR=Math.Max(x.MaeR,adv/x.RiskDistance);
                 bool stopHit=x.Direction==TradeDirection.Buy?lo<=x.Stop:hi>=x.Stop;
                 bool targetHit=x.Direction==TradeDirection.Buy?hi>=x.Target:lo<=x.Target;
-                if(stopHit){CloseV58Shadow(x,utc,-1.0-ModeledCostPips()/Math.Max(1.0,PriceToPips(x.RiskDistance)),"SL_CONSERVATIVE");continue;}
+                if(stopHit){CloseV58Shadow(x,utc,-1.0-costR,"SL_CONSERVATIVE");continue;}
                 if(targetHit){CloseV58Shadow(x,utc,x.NetTargetR,"TP");continue;}
-                if(utc>=x.ExpiryUtc)
-                {
-                    double signed=x.Direction==TradeDirection.Buy?close-x.Entry:x.Entry-close;
-                    double r=signed/x.RiskDistance-ModeledCostPips()/Math.Max(1.0,PriceToPips(x.RiskDistance));
-                    CloseV58Shadow(x,utc,r,"TTL_MARK_TO_MARKET");
-                }
+                if(utc>=x.ExpiryUtc) CloseV58Shadow(x,utc,currentR,"TTL_MARK_TO_MARKET");
             }
+        }
+
+        private bool V58ShadowFloorHit(FamilyShadowTrade x,double lo,double hi,double floorR)
+        {
+            double p=x.Direction==TradeDirection.Buy?x.Entry+floorR*x.RiskDistance:x.Entry-floorR*x.RiskDistance;
+            return x.Direction==TradeDirection.Buy?lo<=p:hi>=p;
         }
 
         private void CloseV58Shadow(FamilyShadowTrade x,DateTime utc,double realizedR,string reason)
         {
             if(x==null||x.Closed)return;
             x.Closed=true;x.ExitUtc=utc;x.RealizedR=realizedR;x.ExitReason=reason;
+            if(!x.Protect75Closed)x.Protect75R=realizedR;
+            if(!x.Be1Closed)x.Be1R=realizedR;
+            if(!x.Trail125Closed)x.Trail125R=realizedR;
+            if(!x.TimeDecayClosed)x.TimeDecayR=realizedR;
             double hold=Math.Max(0,(utc-x.StartUtc).TotalMinutes);
+            double capture=x.MfeR>1e-9?realizedR/x.MfeR:0;
             Print("[V58-SHADOW-CLOSED] cid={0} setup={1} pattern={2} route={3} regime={4} mfeR={5:F4} maeR={6:F4} realizedR={7:F4} holdMin={8:F2} reason={9}",
                 x.CandidateId,x.SetupKey,x.Pattern,x.Route,x.Regime,x.MfeR,x.MaeR,x.RealizedR,hold,reason);
+            Print("[V58-CAPTURE-CLOSED] cid={0} pattern={1} route={2} regime={3} baselineR={4:F4} protect75R={5:F4} be1R={6:F4} trail125R={7:F4} timeDecayR={8:F4} mfeR={9:F4} captureRatio={10:F4}",
+                x.CandidateId,x.Pattern,x.Route,x.Regime,x.RealizedR,x.Protect75R,x.Be1R,x.Trail125R,x.TimeDecayR,x.MfeR,capture);
         }
 
         private void CloseOpenV58ShadowTradesAtStop()
@@ -4444,7 +4507,9 @@ namespace cAlgo.Robots
         public int NativeM1BarsObserved, NativeStage;
         public int FamilyConfirmationBarsObserved;
         public bool FamilyDirectional, FamilyReclaim, FamilyBos, FamilyRejection, FamilySweep,
-                    FamilyFailedExtension, FamilyInsidePrz, FamilyDisplacement, FamilyRetest;
+                    FamilyFailedExtension, FamilyInsidePrz, FamilyDisplacement, FamilyRetest, FamilyDeceleration;
+        public int FirstDirectionalBar=-1, FirstReclaimBar=-1, FirstBosBar=-1, FirstRejectionBar=-1, FirstSweepBar=-1,
+                   FirstFailedExtensionBar=-1, FirstInsidePrzBar=-1, FirstDisplacementBar=-1, FirstRetestBar=-1, FirstDecelerationBar=-1;
         public double OriginalRank, OriginalGeometry, OriginalPrzConfluence, OriginalM1Evidence, OriginalEntryAnchor, ShadowRiskDistance, ShadowMfeR, ShadowMaeR;
         public double CompletionAnchorPrice, NativeConfirmAnchorPrice, NativeRetestAnchorPrice;
         public double CompletionAnchorMfeR, CompletionAnchorMaeR, NativeConfirmMfeR, NativeConfirmMaeR, NativeRetestMfeR, NativeRetestMaeR;
@@ -4470,8 +4535,9 @@ namespace cAlgo.Robots
         public HarmonicRoute Route;
         public TradeDirection Direction;
         public double Entry,Stop,Target,RiskDistance,NetTargetR,MinPrice,MaxPrice,MfeR,MaeR,RealizedR;
+        public double Protect75R,Be1R,Trail125R,TimeDecayR;
         public DateTime StartUtc,ExpiryUtc,ExitUtc;
-        public bool Closed;
+        public bool Closed,Protect75Closed,Be1Closed,Trail125Closed,TimeDecayClosed;
     }
 
     public sealed class PositionLedger
