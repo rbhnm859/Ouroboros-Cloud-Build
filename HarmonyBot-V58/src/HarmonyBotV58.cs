@@ -11,7 +11,7 @@ namespace cAlgo.Robots
     public class HarmonyBotV58 : Robot
     {
         private const string Version = "HarmonyBot V58 — Canonical Harmonic Manifold & Excursion-Capture Commercial Rebase";
-        private const string BotPrefix = "HB57";
+        private const string BotPrefix = "HB58";
 
         [Parameter("Symbol", DefaultValue = "XAUUSD")]
         public new string SymbolName { get; set; }
