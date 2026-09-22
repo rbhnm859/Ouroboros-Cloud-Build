@@ -1,0 +1,657 @@
+name: HarmonyBot V58 Canonical Harmonic Manifold & Excursion Capture
+
+on:
+  push:
+    branches: [harmonybot/v58-canonical-harmonic-manifold-excursion-capture]
+    paths:
+      - 'HarmonyBot-V58/**'
+      - '.github/workflows/harmonybot-v58-canonical-manifold-excursion-capture.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: harmonybot-v58-canonical-manifold-excursion-capture
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  CTRADER_PASSWORD: ${{ secrets.CTRADER_PASSWORD }}
+  CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+  CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+
+jobs:
+  build-v58:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: harmonybot/v58-canonical-harmonic-manifold-excursion-capture
+          path: control
+          fetch-depth: 1
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+      - name: Mathematical, architecture, detector and build contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd control
+          python3 HarmonyBot-V58/tools/v58_mathematical_contract_test.py
+          python3 HarmonyBot-V58/tools/v58_architecture_contract_test.py
+          python3 HarmonyBot-V58/tools/static_audit.py HarmonyBot-V58/src/HarmonyBotV58.cs
+          python3 HarmonyBot-V58/tools/geometry_contract_test.py HarmonyBot-V58/src/HarmonyBotV58.cs
+          python3 HarmonyBot-V58/tools/detector_contract_test.py HarmonyBot-V58/src/HarmonyBotV58.cs
+          dotnet restore HarmonyBot-V58/HarmonyBotV58.csproj
+          dotnet build HarmonyBot-V58/HarmonyBotV58.csproj -c Release --no-restore --nologo
+          mkdir -p HarmonyBot-V58/dist HarmonyBot-V58/final
+          A=$(find HarmonyBot-V58/bin/Release -type f -name '*.algo' | head -1); test -s "$A"
+          cp "$A" HarmonyBot-V58/dist/HarmonyBot_V58_Canonical_Harmonic_Manifold_Excursion_Capture_RC.algo
+          sha256sum HarmonyBot-V58/src/HarmonyBotV58.cs "$A" HarmonyBot-V58/MAJOR_VERSION_EXECUTION_CHARTER.md > HarmonyBot-V58/final/SHA256SUMS
+          printf '%s\n' "$GITHUB_SHA" > HarmonyBot-V58/final/SOURCE_COMMIT.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: v58-build
+          path: |
+            control/HarmonyBot-V58/dist
+            control/HarmonyBot-V58/final
+          retention-days: 30
+
+  build-v51-control:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: harmonybot/v58-canonical-harmonic-manifold-excursion-capture
+          path: control
+          fetch-depth: 1
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+      - name: Rebuild immutable V51 source
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd control
+          python3 HarmonyBot-V51/tools/static_audit.py HarmonyBot-V51/src/HarmonyBotV51.cs
+          python3 HarmonyBot-V51/tools/geometry_contract_test.py HarmonyBot-V51/src/HarmonyBotV51.cs
+          dotnet restore HarmonyBot-V51/HarmonyBotV51.csproj
+          dotnet build HarmonyBot-V51/HarmonyBotV51.csproj -c Release --no-restore --nologo
+          mkdir -p HarmonyBot-V51/dist
+          A=$(find HarmonyBot-V51/bin/Release -type f -name '*.algo' | head -1); test -s "$A"
+          cp "$A" HarmonyBot-V51/dist/HarmonyBot_V51_Family_Native_Math_Geometry_Economic_Conversion_RC.algo
+      - uses: actions/upload-artifact@v4
+        with:
+          name: v58-v51-control-build
+          path: control/HarmonyBot-V51/dist
+          retention-days: 30
+
+  v51-replay:
+    needs: build-v51-control
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      max-parallel: 3
+      matrix:
+        window: [A, B, C]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: harmonybot/v58-canonical-harmonic-manifold-excursion-capture
+          path: control
+          fetch-depth: 1
+      - uses: actions/download-artifact@v4
+        with:
+          name: v58-v51-control-build
+          path: control/HarmonyBot-V51/shared
+      - name: Prepare V51 algo and dates
+        id: d
+        shell: bash
+        run: |
+          mkdir -p control/HarmonyBot-V51/dist
+          A=$(find control/HarmonyBot-V51/shared -type f -name 'HarmonyBot_V51_Family_Native_Math_Geometry_Economic_Conversion_RC.algo' | head -1)
+          cp "$A" control/HarmonyBot-V51/dist/
+          case "${{ matrix.window }}" in
+            A) echo "start=04/01/2021" >> "$GITHUB_OUTPUT"; echo "eval=2021-01-11T00:00:00Z" >> "$GITHUB_OUTPUT"; echo "end=30/06/2021" >> "$GITHUB_OUTPUT";;
+            B) echo "start=01/07/2021" >> "$GITHUB_OUTPUT"; echo "eval=2021-07-08T00:00:00Z" >> "$GITHUB_OUTPUT"; echo "end=31/12/2021" >> "$GITHUB_OUTPUT";;
+            C) echo "start=03/01/2022" >> "$GITHUB_OUTPUT"; echo "eval=2022-01-10T00:00:00Z" >> "$GITHUB_OUTPUT"; echo "end=30/06/2022" >> "$GITHUB_OUTPUT";;
+          esac
+      - name: Exact V51 historical replay
+        shell: bash
+        run: |
+          chmod +x control/HarmonyBot-V51/tools/*.sh
+          control/HarmonyBot-V51/tools/run_window.sh FAMILY_NATIVE_MATH_GEOMETRY "${{ matrix.window }}" "${{ steps.d.outputs.start }}" "${{ steps.d.outputs.eval }}" "${{ steps.d.outputs.end }}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: v58-v51-replay-${{ matrix.window }}
+          path: control/HarmonyBot-V51/output-FAMILY_NATIVE_MATH_GEOMETRY-${{ matrix.window }}
+          retention-days: 30
+          if-no-files-found: error
+
+  v51-replay-gate:
+    needs: v51-replay
+    runs-on: ubuntu-24.04
+    outputs:
+      replayok: ${{ steps.r.outputs.replayok }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: harmonybot/v58-canonical-harmonic-manifold-excursion-capture
+          path: control
+          fetch-depth: 1
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: 'v58-v51-replay-*'
+          path: replay
+          merge-multiple: true
+      - name: Verify immutable V51 historical evidence
+        id: r
+        shell: bash
+        run: |
+          mkdir -p v51-replay-gate
+          python3 control/HarmonyBot-V58/tools/check_v51_historical_replay.py replay v51-replay-gate
+          echo "replayok=$(cat v51-replay-gate/replay.out)" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: v58-v51-historical-replay
+          path: v51-replay-gate
+          retention-days: 30
+
+  calibration:
+    needs: [build-v58, v51-replay-gate]
+    if: needs.v51-replay-gate.outputs.replayok == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      max-parallel: 3
+      matrix:
+        window: [C1, C2, C3]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: harmonybot/v58-canonical-harmonic-manifold-excursion-capture
+          path: control
+          fetch-depth: 1
+      - uses: actions/download-artifact@v4
+        with:
+          name: v58-build
+          path: control/HarmonyBot-V58/shared
+      - name: Resolve burned calibration dates
+        id: d
+        shell: bash
+        run: |
+          case "${{ matrix.window }}" in
+            C1) echo "start=04/01/2021" >> "$GITHUB_OUTPUT"; echo "eval=2021-01-11T00:00:00Z" >> "$GITHUB_OUTPUT"; echo "end=31/12/2021" >> "$GITHUB_OUTPUT";;
+            C2) echo "start=03/01/2022" >> "$GITHUB_OUTPUT"; echo "eval=2022-01-10T00:00:00Z" >> "$GITHUB_OUTPUT"; echo "end=30/12/2022" >> "$GITHUB_OUTPUT";;
+            C3) echo "start=03/01/2023" >> "$GITHUB_OUTPUT"; echo "eval=2023-01-10T00:00:00Z" >> "$GITHUB_OUTPUT"; echo "end=29/12/2023" >> "$GITHUB_OUTPUT";;
+          esac
+      - name: Universal shadow calibration with capture counterfactuals
+        shell: bash
+        run: |
+          set -euo pipefail
+          chmod +x control/HarmonyBot-V58/tools/*.sh
+          W="$GITHUB_WORKSPACE/control/HarmonyBot-V58/calibration-${{ matrix.window }}"
+          O="$GITHUB_WORKSPACE/control/HarmonyBot-V58/calibration-out-${{ matrix.window }}"
+          mkdir -p "$W/seal/algo" "$O"
+          A=$(find control/HarmonyBot-V58/shared -type f -name 'HarmonyBot_V58_Canonical_Harmonic_Manifold_Excursion_Capture_RC.algo' | head -1); cp "$A" "$W/seal/algo/"
+          (
+            cd "$W"
+            RUN_NAME="V58-CAL-${{ matrix.window }}" START_DATE="${{ steps.d.outputs.start }}" EVAL_DATE="${{ steps.d.outputs.eval }}" END_DATE="${{ steps.d.outputs.end }}" BALANCE=10000 \
+            FAMNATIVE=false FAMOBS=true CANCONTRACT=true FAMCONF=true GRIDV2=true STOPV2=true JOINT=true CORRIDOR=false ANCHORFORENSICS=true \
+            IDENT=true BOUNDED=true SKIPS=2 FQUOTA=4 PRJPRZ=false DTRUTH=true TRADING=false FAMILYBOOKS=true SHADOW=true CALADMIT=false FAMREP=true RESEARCHCONT=true \
+            ABCDLIVE=false V58GRID=false MANIFOLD=true PUREPRZ=true DAG=true CAPRESEARCH=true CAPLIVE=false MATCHED=true PROJERR=.55 MSIG=1.0 CALMAN=NONE \
+            BACKTEST_TIMEOUT_SECONDS=3000 "$GITHUB_WORKSPACE/control/HarmonyBot-V58/tools/run_backtest.sh"
+          )
+          cp "$W/seal/logs/V58-CAL-${{ matrix.window }}.log" "$O/"
+          cp "$W/seal/reports/V58-CAL-${{ matrix.window }}.json" "$O/"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: v58-calibration-${{ matrix.window }}
+          path: control/HarmonyBot-V58/calibration-out-${{ matrix.window }}
+          retention-days: 30
+
+  calibration-manifest:
+    needs: calibration
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    outputs:
+      calok: ${{ steps.c.outputs.calok }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: harmonybot/v58-canonical-harmonic-manifold-excursion-capture
+          path: control
+          fetch-depth: 1
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: 'v58-calibration-*'
+          path: control/HarmonyBot-V58/calibration-merged
+          merge-multiple: true
+      - name: Hierarchical + matched-control calibration
+        id: c
+        shell: bash
+        run: |
+          mkdir -p control/HarmonyBot-V58/calibration-manifest
+          python3 control/HarmonyBot-V58/tools/build_calibration_manifest.py control/HarmonyBot-V58/calibration-merged control/HarmonyBot-V58/calibration-manifest
+          if test -s control/HarmonyBot-V58/calibration-manifest/calibration_manifest.txt; then
+            echo "calok=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "calok=false" >> "$GITHUB_OUTPUT"
+            printf '%s\n' '{"version":"HarmonyBot V58","decision":"HOLD_WITH_EVIDENCE","reason":"NO_MATCHED_CONTROL_POSITIVE_LOWER_BOUND_CELLS","fresh_used":false}' > control/HarmonyBot-V58/calibration-manifest/V58_CALIBRATION_GATE_DECISION.json
+          fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: v58-calibration-manifest
+          path: control/HarmonyBot-V58/calibration-manifest
+          retention-days: 30
+
+  data-seed:
+    needs: build-v58
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      max-parallel: 3
+      matrix:
+        window: [A, B, C]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: harmonybot/v58-canonical-harmonic-manifold-excursion-capture
+          path: control
+          fetch-depth: 1
+      - uses: actions/download-artifact@v4
+        with:
+          name: v58-build
+          path: control/HarmonyBot-V58/shared
+      - name: Resolve DEV4 dates
+        id: d
+        shell: bash
+        run: |
+          case "${{ matrix.window }}" in
+            A) echo "start=01/07/2024" >> "$GITHUB_OUTPUT"; echo "eval=2024-07-08T00:00:00Z" >> "$GITHUB_OUTPUT"; echo "end=31/12/2024" >> "$GITHUB_OUTPUT";;
+            B) echo "start=02/01/2025" >> "$GITHUB_OUTPUT"; echo "eval=2025-01-09T00:00:00Z" >> "$GITHUB_OUTPUT"; echo "end=30/06/2025" >> "$GITHUB_OUTPUT";;
+            C) echo "start=01/07/2025" >> "$GITHUB_OUTPUT"; echo "eval=2025-07-08T00:00:00Z" >> "$GITHUB_OUTPUT"; echo "end=31/12/2025" >> "$GITHUB_OUTPUT";;
+          esac
+      - name: Immutable DEV4 data snapshot
+        shell: bash
+        run: |
+          set -euo pipefail
+          chmod +x control/HarmonyBot-V58/tools/*.sh
+          W="$GITHUB_WORKSPACE/control/HarmonyBot-V58/data-seed-${{ matrix.window }}"; O="$GITHUB_WORKSPACE/control/HarmonyBot-V58/data-seed-out-${{ matrix.window }}"
+          mkdir -p "$W/seal/algo" "$O"
+          A=$(find control/HarmonyBot-V58/shared -type f -name 'HarmonyBot_V58_Canonical_Harmonic_Manifold_Excursion_Capture_RC.algo' | head -1); cp "$A" "$W/seal/algo/"
+          (
+            cd "$W"
+            RUN_NAME="V58-DATA-SEED-${{ matrix.window }}" START_DATE="${{ steps.d.outputs.start }}" EVAL_DATE="${{ steps.d.outputs.eval }}" END_DATE="${{ steps.d.outputs.end }}" BALANCE=10000 \
+            FAMNATIVE=false FAMOBS=true CANCONTRACT=true FAMCONF=true GRIDV2=true STOPV2=true JOINT=true CORRIDOR=false IDENT=false BOUNDED=false DTRUTH=true \
+            TRADING=false FAMILYBOOKS=false SHADOW=false CALADMIT=false FAMREP=false RESEARCHCONT=false ABCDLIVE=false V58GRID=false MANIFOLD=true PUREPRZ=true DAG=true CAPRESEARCH=false CAPLIVE=false MATCHED=false CALMAN=NONE \
+            BACKTEST_TIMEOUT_SECONDS=1800 "$GITHUB_WORKSPACE/control/HarmonyBot-V58/tools/run_backtest.sh"
+          )
+          test -d "$W/seal/data"
+          (cd "$W/seal/data" && find . -type f -print0 | sort -z | xargs -0 sha256sum) | sha256sum | awk '{print $1}' > "$O/data.snapshot.sha"
+          tar -C "$W/seal" -czf "$O/data.tgz" data
+      - uses: actions/upload-artifact@v4
+        with:
+          name: v58-data-${{ matrix.window }}
+          path: control/HarmonyBot-V58/data-seed-out-${{ matrix.window }}
+          retention-days: 30
+
+  dev4:
+    needs: [build-v58, v51-replay-gate, calibration-manifest, data-seed]
+    if: needs.v51-replay-gate.outputs.replayok == 'true' && needs.calibration-manifest.outputs.calok == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      max-parallel: 9
+      matrix:
+        variant: [V58_MANIFOLD_BASELINE_L0, V58_MANIFOLD_CAPTURE_L0, V58_MANIFOLD_CAPTURE_LEGACY_GRID]
+        window: [A, B, C]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: harmonybot/v58-canonical-harmonic-manifold-excursion-capture
+          path: control
+          fetch-depth: 1
+      - uses: actions/download-artifact@v4
+        with:
+          name: v58-build
+          path: control/HarmonyBot-V58/shared
+      - uses: actions/download-artifact@v4
+        with:
+          name: v58-calibration-manifest
+          path: control/HarmonyBot-V58/calibration-manifest
+      - uses: actions/download-artifact@v4
+        with:
+          name: v58-data-${{ matrix.window }}
+          path: control/HarmonyBot-V58/data-seed
+      - name: Prepare algo, data and dates
+        id: d
+        shell: bash
+        run: |
+          mkdir -p control/HarmonyBot-V58/dist
+          A=$(find control/HarmonyBot-V58/shared -type f -name 'HarmonyBot_V58_Canonical_Harmonic_Manifold_Excursion_Capture_RC.algo' | head -1); cp "$A" control/HarmonyBot-V58/dist/
+          W="control/HarmonyBot-V58/window-${{ matrix.variant }}-${{ matrix.window }}/seal"; mkdir -p "$W"
+          tar -xzf control/HarmonyBot-V58/data-seed/data.tgz -C "$W"; cp control/HarmonyBot-V58/data-seed/data.snapshot.sha "$W/data.snapshot.sha"
+          EXPECTED=$(tr -d '[:space:]' < "$W/data.snapshot.sha"); ACTUAL=$((cd "$W/data" && find . -type f -print0 | sort -z | xargs -0 sha256sum) | sha256sum | awk '{print $1}'); test "$EXPECTED" = "$ACTUAL"
+          case "${{ matrix.window }}" in
+            A) echo "start=01/07/2024" >> "$GITHUB_OUTPUT"; echo "eval=2024-07-08T00:00:00Z" >> "$GITHUB_OUTPUT"; echo "end=31/12/2024" >> "$GITHUB_OUTPUT";;
+            B) echo "start=02/01/2025" >> "$GITHUB_OUTPUT"; echo "eval=2025-01-09T00:00:00Z" >> "$GITHUB_OUTPUT"; echo "end=30/06/2025" >> "$GITHUB_OUTPUT";;
+            C) echo "start=01/07/2025" >> "$GITHUB_OUTPUT"; echo "eval=2025-07-08T00:00:00Z" >> "$GITHUB_OUTPUT"; echo "end=31/12/2025" >> "$GITHUB_OUTPUT";;
+          esac
+      - name: Fixed DEV4
+        shell: bash
+        run: |
+          chmod +x control/HarmonyBot-V58/tools/*.sh
+          control/HarmonyBot-V58/tools/run_window.sh "${{ matrix.variant }}" "${{ matrix.window }}" "${{ steps.d.outputs.start }}" "${{ steps.d.outputs.eval }}" "${{ steps.d.outputs.end }}" "$GITHUB_WORKSPACE/control/HarmonyBot-V58/calibration-manifest/calibration_manifest.txt"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: v58-dev4-${{ matrix.variant }}-${{ matrix.window }}
+          path: control/HarmonyBot-V58/output-${{ matrix.variant }}-${{ matrix.window }}
+          retention-days: 30
+          if-no-files-found: error
+
+  analyze:
+    needs: dev4
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    outputs:
+      candidate: ${{ steps.g.outputs.candidate }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: harmonybot/v58-canonical-harmonic-manifold-excursion-capture
+          path: control
+          fetch-depth: 1
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: 'v58-dev4-*'
+          path: control/HarmonyBot-V58/merged
+          merge-multiple: true
+      - uses: actions/download-artifact@v4
+        with:
+          name: v58-calibration-manifest
+          path: control/HarmonyBot-V58/calibration-manifest
+      - name: DEV4 commercial, superiority and causal gates
+        id: g
+        shell: bash
+        run: |
+          mkdir -p control/HarmonyBot-V58/final
+          python3 control/HarmonyBot-V58/tools/analyze_dev4.py control/HarmonyBot-V58/merged control/HarmonyBot-V58/final
+          cp control/HarmonyBot-V58/calibration-manifest/* control/HarmonyBot-V58/final/
+          echo "candidate=$(cat control/HarmonyBot-V58/final/candidate.txt)" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: HARMONYBOT-V58-CANONICAL-MANIFOLD-EXCURSION-CAPTURE-FRONTIER
+          path: control/HarmonyBot-V58/final
+          retention-days: 30
+
+  validation:
+    needs: [build-v58, calibration-manifest, analyze]
+    if: needs.analyze.outputs.candidate != ''
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      max-parallel: 6
+      matrix:
+        window: [VA, VB]
+        spread: [1, 1.25, 1.5]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: harmonybot/v58-canonical-harmonic-manifold-excursion-capture
+          path: control
+          fetch-depth: 1
+      - uses: actions/download-artifact@v4
+        with:
+          name: v58-build
+          path: control/HarmonyBot-V58/shared
+      - uses: actions/download-artifact@v4
+        with:
+          name: v58-calibration-manifest
+          path: control/HarmonyBot-V58/calibration-manifest
+      - name: Resolve untouched 2026 validation
+        id: d
+        shell: bash
+        run: |
+          case "${{ matrix.window }}" in
+            VA) echo "start=02/01/2026" >> "$GITHUB_OUTPUT"; echo "eval=2026-01-09T00:00:00Z" >> "$GITHUB_OUTPUT"; echo "end=31/03/2026" >> "$GITHUB_OUTPUT";;
+            VB) echo "start=01/04/2026" >> "$GITHUB_OUTPUT"; echo "eval=2026-04-08T00:00:00Z" >> "$GITHUB_OUTPUT"; echo "end=30/06/2026" >> "$GITHUB_OUTPUT";;
+          esac
+      - name: Untouched validation + cost stress
+        shell: bash
+        env:
+          CANDIDATE: ${{ needs.analyze.outputs.candidate }}
+          SPREAD: ${{ matrix.spread }}
+        run: |
+          set -euo pipefail; chmod +x control/HarmonyBot-V58/tools/*.sh
+          W="$GITHUB_WORKSPACE/control/HarmonyBot-V58/validation-${{ matrix.window }}-${{ matrix.spread }}"; O="$GITHUB_WORKSPACE/control/HarmonyBot-V58/validation-out-${{ matrix.window }}-${{ matrix.spread }}"
+          mkdir -p "$W/seal/algo" "$O"; A=$(find control/HarmonyBot-V58/shared -type f -name 'HarmonyBot_V58_Canonical_Harmonic_Manifold_Excursion_Capture_RC.algo' | head -1); cp "$A" "$W/seal/algo/"
+          (cd "$W"; RUN_NAME="V58-$CANDIDATE-VAL-${{ matrix.window }}-S${{ matrix.spread }}" START_DATE="${{ steps.d.outputs.start }}" EVAL_DATE="${{ steps.d.outputs.eval }}" END_DATE="${{ steps.d.outputs.end }}" BALANCE=10000 SPREAD="${{ matrix.spread }}" CANDIDATE="$CANDIDATE" CALIBRATION_MANIFEST="$GITHUB_WORKSPACE/control/HarmonyBot-V58/calibration-manifest/calibration_manifest.txt" "$GITHUB_WORKSPACE/control/HarmonyBot-V58/tools/run_candidate.sh")
+          python3 control/HarmonyBot-V58/tools/audit_report.py --report "$W/seal/reports/V58-$CANDIDATE-VAL-${{ matrix.window }}-S${{ matrix.spread }}.json" --log "$W/seal/logs/V58-$CANDIDATE-VAL-${{ matrix.window }}-S${{ matrix.spread }}.log" --out "$O/${{ matrix.window }}-${{ matrix.spread }}.json" --window "${{ matrix.window }}_S${{ matrix.spread }}" --family "$CANDIDATE" --years .25 --balance 10000
+      - uses: actions/upload-artifact@v4
+        with:
+          name: v58-validation-${{ matrix.window }}-${{ matrix.spread }}
+          path: control/HarmonyBot-V58/validation-out-${{ matrix.window }}-${{ matrix.spread }}
+          retention-days: 30
+
+  validation-gate:
+    needs: [analyze, validation]
+    if: needs.analyze.outputs.candidate != ''
+    runs-on: ubuntu-24.04
+    outputs:
+      valok: ${{ steps.v.outputs.valok }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: 'v58-validation-*'
+          path: validation
+          merge-multiple: true
+      - name: Fail-closed validation gate
+        id: v
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json,pathlib
+          rows=[json.load(open(x)) for x in pathlib.Path("validation").rglob("*.json")]
+          def pf(v):
+            gp=sum(x for x in v if x>0); gl=abs(sum(x for x in v if x<0)); return gp/gl if gl else (999 if gp else 0)
+          ok=len(rows)==6 and all(r["engineering_clean"] and r["actual_basket_risk_violations"]==0 and r["margin_risk_violations"]==0 and r["max_dd_pct"]<=10 for r in rows)
+          base=[r for r in rows if r["window"].endswith("_S1")]; vals=[x["net"] for r in base for x in r.get("basket_outcomes",[])]
+          ok=ok and len(base)==2 and all(r["net"]>0 for r in base) and sum(vals)>0 and pf(vals)>=1.5
+          for s in ("1.25","1.5"):
+            rs=[r for r in rows if r["window"].endswith("_S"+s)]; vv=[x["net"] for r in rs for x in r.get("basket_outcomes",[])]
+            ok=ok and len(rs)==2 and sum(vv)>0 and pf(vv)>1.0
+          pathlib.Path("V58_VALIDATION_GATE.json").write_text(json.dumps({"pass":ok,"runs":rows},indent=2)); pathlib.Path("val.out").write_text("true" if ok else "false")
+          PY
+          echo "valok=$(cat val.out)" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: v58-validation-gate
+          path: V58_VALIDATION_GATE.json
+          retention-days: 30
+
+  capital:
+    needs: [build-v58, calibration-manifest, analyze, validation-gate]
+    if: needs.validation-gate.outputs.valok == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      max-parallel: 6
+      matrix:
+        balance: [100,150,200,300,500,1000]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: harmonybot/v58-canonical-harmonic-manifold-excursion-capture
+          path: control
+          fetch-depth: 1
+      - uses: actions/download-artifact@v4
+        with:
+          name: v58-build
+          path: control/HarmonyBot-V58/shared
+      - uses: actions/download-artifact@v4
+        with:
+          name: v58-calibration-manifest
+          path: control/HarmonyBot-V58/calibration-manifest
+      - name: Capital compatibility
+        shell: bash
+        env:
+          CANDIDATE: ${{ needs.analyze.outputs.candidate }}
+          BALANCE: ${{ matrix.balance }}
+        run: |
+          set -euo pipefail; chmod +x control/HarmonyBot-V58/tools/*.sh
+          W="$GITHUB_WORKSPACE/control/HarmonyBot-V58/capital-$BALANCE"; O="$GITHUB_WORKSPACE/control/HarmonyBot-V58/capital-out-$BALANCE"; mkdir -p "$W/seal/algo" "$O"
+          A=$(find control/HarmonyBot-V58/shared -type f -name 'HarmonyBot_V58_Canonical_Harmonic_Manifold_Excursion_Capture_RC.algo' | head -1); cp "$A" "$W/seal/algo/"
+          (cd "$W"; RUN_NAME="V58-$CANDIDATE-CAPITAL-$BALANCE" START_DATE=02/01/2026 EVAL_DATE=2026-01-09T00:00:00Z END_DATE=30/06/2026 BALANCE="$BALANCE" CANDIDATE="$CANDIDATE" CALIBRATION_MANIFEST="$GITHUB_WORKSPACE/control/HarmonyBot-V58/calibration-manifest/calibration_manifest.txt" "$GITHUB_WORKSPACE/control/HarmonyBot-V58/tools/run_candidate.sh")
+          python3 control/HarmonyBot-V58/tools/audit_report.py --report "$W/seal/reports/V58-$CANDIDATE-CAPITAL-$BALANCE.json" --log "$W/seal/logs/V58-$CANDIDATE-CAPITAL-$BALANCE.log" --out "$O/$BALANCE.json" --window "CAPITAL_$BALANCE" --family "$CANDIDATE" --years .5 --balance "$BALANCE"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: v58-capital-${{ matrix.balance }}
+          path: control/HarmonyBot-V58/capital-out-${{ matrix.balance }}
+          retention-days: 30
+
+  capital-gate:
+    needs: [analyze, capital]
+    if: needs.capital.result == 'success'
+    runs-on: ubuntu-24.04
+    outputs:
+      capok: ${{ steps.c.outputs.capok }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: 'v58-capital-*'
+          path: capital
+          merge-multiple: true
+      - name: Hard capital gate
+        id: c
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json,pathlib
+          p=pathlib.Path("capital"); rows={str(b):json.load(open(next(p.rglob(f"{b}.json")))) for b in [100,150,200,300,500,1000]}
+          def good(x): return x["engineering_clean"] and x["baskets"]>0 and x["net"]>0 and x["expectancy"]>0 and x["pf"]>1 and x["max_dd_pct"]<=10 and x["actual_basket_risk_violations"]==0 and x["margin_risk_violations"]==0
+          ok=all(good(x) for x in rows.values())
+          pathlib.Path("V58_CAPITAL_COMPATIBILITY.json").write_text(json.dumps({"rows":rows,"all_capital_compatible":ok,"hard_100_compatible":good(rows["100"]),"actual_100_frequency":rows["100"]["frequency"]},indent=2)); pathlib.Path("cap.out").write_text("true" if ok else "false")
+          PY
+          echo "capok=$(cat cap.out)" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: v58-capital-gate
+          path: V58_CAPITAL_COMPATIBILITY.json
+          retention-days: 30
+
+  freeze:
+    needs: [build-v58, calibration-manifest, analyze, capital-gate]
+    if: needs.capital-gate.outputs.capok == 'true'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: harmonybot/v58-canonical-harmonic-manifold-excursion-capture
+          path: control
+          fetch-depth: 1
+      - uses: actions/download-artifact@v4
+        with:
+          name: v58-build
+          path: shared
+      - uses: actions/download-artifact@v4
+        with:
+          name: v58-calibration-manifest
+          path: calibration
+      - name: Freeze source/algo/math/calibration/data charter hashes
+        shell: bash
+        env:
+          CANDIDATE: ${{ needs.analyze.outputs.candidate }}
+        run: |
+          python3 - <<'PY'
+          import hashlib,json,pathlib,os
+          files={"source":pathlib.Path("control/HarmonyBot-V58/src/HarmonyBotV58.cs"),"algo":next(pathlib.Path("shared").rglob("HarmonyBot_V58_Canonical_Harmonic_Manifold_Excursion_Capture_RC.algo")),"calibration":pathlib.Path("calibration/calibration_manifest.txt"),"charter":pathlib.Path("control/HarmonyBot-V58/MAJOR_VERSION_EXECUTION_CHARTER.md"),"math_contract":pathlib.Path("control/HarmonyBot-V58/tools/v58_mathematical_contract_test.py")}
+          h=lambda p:hashlib.sha256(p.read_bytes()).hexdigest()
+          pathlib.Path("V58_FREEZE_MANIFEST.json").write_text(json.dumps({"version":"HarmonyBot V58","candidate":os.environ["CANDIDATE"],"source_commit":os.environ["GITHUB_SHA"],"hashes":{k:h(v) for k,v in files.items()},"fresh_tuning":False},indent=2))
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: v58-freeze-manifest
+          path: V58_FREEZE_MANIFEST.json
+          retention-days: 30
+
+  fresh:
+    needs: [build-v58, calibration-manifest, analyze, freeze]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        include:
+          - {kind: ALPHA, balance: 10000}
+          - {kind: SMALL, balance: 100}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: harmonybot/v58-canonical-harmonic-manifold-excursion-capture
+          path: control
+          fetch-depth: 1
+      - uses: actions/download-artifact@v4
+        with:
+          name: v58-build
+          path: control/HarmonyBot-V58/shared
+      - uses: actions/download-artifact@v4
+        with:
+          name: v58-calibration-manifest
+          path: control/HarmonyBot-V58/calibration-manifest
+      - name: Exactly one Fresh pair
+        shell: bash
+        env:
+          CANDIDATE: ${{ needs.analyze.outputs.candidate }}
+          KIND: ${{ matrix.kind }}
+          BALANCE: ${{ matrix.balance }}
+        run: |
+          set -euo pipefail; chmod +x control/HarmonyBot-V58/tools/*.sh
+          W="$GITHUB_WORKSPACE/control/HarmonyBot-V58/fresh-$KIND"; O="$GITHUB_WORKSPACE/control/HarmonyBot-V58/fresh-out-$KIND"; mkdir -p "$W/seal/algo" "$O"
+          A=$(find control/HarmonyBot-V58/shared -type f -name 'HarmonyBot_V58_Canonical_Harmonic_Manifold_Excursion_Capture_RC.algo' | head -1); cp "$A" "$W/seal/algo/"
+          (cd "$W"; RUN_NAME="V58-$CANDIDATE-FRESH-$KIND" START_DATE=02/01/2020 EVAL_DATE=2020-01-09T00:00:00Z END_DATE=30/06/2020 BALANCE="$BALANCE" CANDIDATE="$CANDIDATE" CALIBRATION_MANIFEST="$GITHUB_WORKSPACE/control/HarmonyBot-V58/calibration-manifest/calibration_manifest.txt" "$GITHUB_WORKSPACE/control/HarmonyBot-V58/tools/run_candidate.sh")
+          python3 control/HarmonyBot-V58/tools/audit_report.py --report "$W/seal/reports/V58-$CANDIDATE-FRESH-$KIND.json" --log "$W/seal/logs/V58-$CANDIDATE-FRESH-$KIND.log" --out "$O/$KIND.json" --window "FRESH_$KIND" --family "$CANDIDATE" --years .5 --balance "$BALANCE"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: v58-fresh-${{ matrix.kind }}
+          path: control/HarmonyBot-V58/fresh-out-${{ matrix.kind }}
+          retention-days: 30
+
+  final-decision:
+    needs: [analyze, fresh]
+    if: always() && needs.fresh.result == 'success'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: 'v58-fresh-*'
+          path: fresh
+          merge-multiple: true
+      - name: Final commercial decision
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json,pathlib
+          p=pathlib.Path("fresh"); a=json.load(open(next(p.rglob("ALPHA.json")))); m=json.load(open(next(p.rglob("SMALL.json"))))
+          def good(x): return x["engineering_clean"] and x["baskets"]>0 and x["net"]>0 and x["expectancy"]>0 and x["pf"]>1 and x["max_dd_pct"]<=10 and x["actual_basket_risk_violations"]==0 and x["margin_risk_violations"]==0
+          ok=good(a) and good(m)
+          pathlib.Path("V58_FRESH_VALIDATION.json").write_text(json.dumps({"fresh_alpha":a,"fresh_100":m,"pass":ok},indent=2))
+          pathlib.Path("V58_FINAL_COMMERCIAL_DECISION.json").write_text(json.dumps({"version":"HarmonyBot V58","decision":"COMMERCIAL_FREEZE_CANDIDATE_PASS" if ok else "HOLD_WITH_EVIDENCE","fresh_used":True},indent=2))
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: v58-final-decision
+          path: |
+            V58_FRESH_VALIDATION.json
+            V58_FINAL_COMMERCIAL_DECISION.json
+          retention-days: 30
