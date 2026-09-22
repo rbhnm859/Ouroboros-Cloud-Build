@@ -241,6 +241,9 @@ namespace cAlgo.Robots
         [Parameter("V58 Excursion Capture Research", DefaultValue = true)]
         public bool EnableV58ExcursionCaptureResearch { get; set; }
 
+        [Parameter("V58 Excursion Capture Live", DefaultValue = false)]
+        public bool EnableV58ExcursionCaptureLive { get; set; }
+
         [Parameter("V58 Matched Control Attribution", DefaultValue = true)]
         public bool EnableV58MatchedControlAttribution { get; set; }
 
@@ -1804,7 +1807,16 @@ namespace cAlgo.Robots
                     continue;
                 }
 
-                if (basket.PeakR >= BreakEvenTriggerR)
+                if (EnableV58ExcursionCaptureLive && basket.PeakR >= .75)
+                {
+                    double span = Math.Abs(basket.AverageEntry - basket.StructuralStop);
+                    double lockR = basket.PeakR >= 1.25 ? Math.Max(.25, basket.PeakR - .75) : .10;
+                    double lockPrice = basket.Direction == TradeDirection.Buy
+                        ? basket.AverageEntry + span * lockR
+                        : basket.AverageEntry - span * lockR;
+                    AdvanceBasketProtectionFrontier(basket, lockPrice, basket.PeakR >= 1.25 ? "V58_CAPTURE_TRAIL" : "V58_CAPTURE_PROTECT");
+                }
+                else if (basket.PeakR >= BreakEvenTriggerR)
                 {
                     double span = Math.Abs(basket.AverageEntry - basket.StructuralStop);
                     double lockPrice = basket.Direction == TradeDirection.Buy
@@ -4008,6 +4020,9 @@ namespace cAlgo.Robots
                     double trailFloor=Math.Max(.25,prevMfe-.75);
                     if(!x.Trail125Closed&&prevMfe>=1.25&&V58ShadowFloorHit(x,lo,hi,trailFloor))
                     { x.Trail125Closed=true;x.Trail125R=trailFloor-costR; }
+                    double hybridFloor=prevMfe>=1.25?Math.Max(.25,prevMfe-.75):(prevMfe>=.75?.10:double.NaN);
+                    if(!x.HybridClosed&&!double.IsNaN(hybridFloor)&&V58ShadowFloorHit(x,lo,hi,hybridFloor))
+                    { x.HybridClosed=true;x.HybridR=hybridFloor-costR; }
                     if(!x.TimeDecayClosed&&hold>=45&&prevMfe<.75&&currentR<.25)
                     { x.TimeDecayClosed=true;x.TimeDecayR=currentR; }
                 }
@@ -4038,12 +4053,13 @@ namespace cAlgo.Robots
             if(!x.Be1Closed)x.Be1R=realizedR;
             if(!x.Trail125Closed)x.Trail125R=realizedR;
             if(!x.TimeDecayClosed)x.TimeDecayR=realizedR;
+            if(!x.HybridClosed)x.HybridR=realizedR;
             double hold=Math.Max(0,(utc-x.StartUtc).TotalMinutes);
             double capture=x.MfeR>1e-9?realizedR/x.MfeR:0;
             Print("[V58-SHADOW-CLOSED] cid={0} setup={1} pattern={2} route={3} regime={4} mfeR={5:F4} maeR={6:F4} realizedR={7:F4} holdMin={8:F2} reason={9}",
                 x.CandidateId,x.SetupKey,x.Pattern,x.Route,x.Regime,x.MfeR,x.MaeR,x.RealizedR,hold,reason);
-            Print("[V58-CAPTURE-CLOSED] cid={0} pattern={1} route={2} regime={3} baselineR={4:F4} protect75R={5:F4} be1R={6:F4} trail125R={7:F4} timeDecayR={8:F4} mfeR={9:F4} captureRatio={10:F4}",
-                x.CandidateId,x.Pattern,x.Route,x.Regime,x.RealizedR,x.Protect75R,x.Be1R,x.Trail125R,x.TimeDecayR,x.MfeR,capture);
+            Print("[V58-CAPTURE-CLOSED] cid={0} pattern={1} route={2} regime={3} baselineR={4:F4} protect75R={5:F4} be1R={6:F4} trail125R={7:F4} timeDecayR={8:F4} hybridR={9:F4} mfeR={10:F4} captureRatio={11:F4}",
+                x.CandidateId,x.Pattern,x.Route,x.Regime,x.RealizedR,x.Protect75R,x.Be1R,x.Trail125R,x.TimeDecayR,x.HybridR,x.MfeR,capture);
         }
 
         private void CloseOpenV58ShadowTradesAtStop()
@@ -4535,9 +4551,9 @@ namespace cAlgo.Robots
         public HarmonicRoute Route;
         public TradeDirection Direction;
         public double Entry,Stop,Target,RiskDistance,NetTargetR,MinPrice,MaxPrice,MfeR,MaeR,RealizedR;
-        public double Protect75R,Be1R,Trail125R,TimeDecayR;
+        public double Protect75R,Be1R,Trail125R,TimeDecayR,HybridR;
         public DateTime StartUtc,ExpiryUtc,ExitUtc;
-        public bool Closed,Protect75Closed,Be1Closed,Trail125Closed,TimeDecayClosed;
+        public bool Closed,Protect75Closed,Be1Closed,Trail125Closed,TimeDecayClosed,HybridClosed;
     }
 
     public sealed class PositionLedger
