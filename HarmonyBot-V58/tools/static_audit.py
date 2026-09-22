@@ -2,7 +2,7 @@
 import json,pathlib,sys
 s=pathlib.Path(sys.argv[1] if len(sys.argv)>1 else "HarmonyBot-V58/src/HarmonyBotV58.cs").read_text(errors="ignore")
 checks={
-"identity":"HarmonyBot V58" in s and "class HarmonyBotV58" in s and 'BotPrefix = "HB57"' in s,
+"identity":"HarmonyBot V58" in s and "class HarmonyBotV58" in s and 'BotPrefix = "HB58"' in s,
 "family_identity_split":"BuildFamilyHypothesisKey" in s and "IdentityKey" in s and "UNDERLYING_GEOMETRY_EXECUTED_BY_" in s,
 "bounded_pivot_graph":"EnumerateBoundedPivotSequences" in s and "MaxMicroPivotSkips" in s,
 "family_quota":"FamilyDetectionQuota" in s and "FAMILY_QUOTA_SELECTED" in s,
@@ -18,6 +18,6 @@ checks={
 "no_projected_d_primary":"TryProjectProfile" not in s,
 "no_recovery":all(x not in s for x in ["Martingale","Loss Averaging","RecoveryGrid","DCA"]),
 }
-out={"version":"HarmonyBot V58","architecture":"HARMONIC_FAMILY_IDENTITY_DETECTION_GRAPH_RECONSTRUCTION","checks":checks,"pass":all(checks.values())}
+out={"version":"HarmonyBot V58","architecture":"CANONICAL_HARMONIC_MANIFOLD_EXCURSION_CAPTURE","checks":checks,"pass":all(checks.values())}
 pathlib.Path("V58_ARCHITECTURE_AUDIT.json").write_text(json.dumps(out,indent=2))
 print(json.dumps(out,indent=2)); raise SystemExit(0 if out["pass"] else 2)
