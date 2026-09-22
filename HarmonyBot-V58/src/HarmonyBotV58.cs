@@ -3537,14 +3537,14 @@ namespace cAlgo.Robots
 
             if(retr)
             {
-                score=(c.FamilyReclaim?.30:0)+((c.FamilyRejection||c.FamilyFailedExtension)?.25:0)+(c.FamilyBos?.25:0)+(c.FamilyDisplacement?.20:0);
+                score=((c.FamilyReclaim ? .30 : 0))+((c.FamilyRejection||c.FamilyFailedExtension)?.25:0)+((c.FamilyBos ? .25 : 0))+((c.FamilyDisplacement ? .20 : 0));
                 return !EnableV58TemporalEventDag
                     ? c.FamilyReclaim&&(c.FamilyRejection||c.FamilyFailedExtension)&&(c.FamilyBos||c.FamilyDisplacement)&&score>=.75
                     : pre>=0&&c.FirstReclaimBar>=pre&&post>=c.FirstReclaimBar&&score>=.75;
             }
             if(ext)
             {
-                score=(c.FamilySweep?.20:0)+(c.FamilyFailedExtension?.25:0)+((c.FamilyReclaim||c.FamilyInsidePrz)?.25:0)+(c.FamilyBos?.20:0)+(c.FamilyDisplacement?.10:0);
+                score=((c.FamilySweep ? .20 : 0))+((c.FamilyFailedExtension ? .25 : 0))+((c.FamilyReclaim||c.FamilyInsidePrz)?.25:0)+((c.FamilyBos ? .20 : 0))+((c.FamilyDisplacement ? .10 : 0));
                 int reclaimBar=V58FirstEvent(c.FirstReclaimBar,c.FirstInsidePrzBar);
                 return !EnableV58TemporalEventDag
                     ? c.FamilySweep&&c.FamilyFailedExtension&&(c.FamilyReclaim||c.FamilyInsidePrz)&&(c.FamilyBos||c.FamilyDisplacement)&&score>=.75
@@ -3552,22 +3552,22 @@ namespace cAlgo.Robots
             }
             if(p=="5-0")
             {
-                score=(c.FamilyFailedExtension?.25:0)+(c.FamilyBos?.30:0)+(c.FamilyRetest?.25:0)+(c.FamilyDirectional?.20:0);
+                score=((c.FamilyFailedExtension ? .25 : 0))+((c.FamilyBos ? .30 : 0))+((c.FamilyRetest ? .25 : 0))+((c.FamilyDirectional ? .20 : 0));
                 return c.FirstFailedExtensionBar>=0&&c.FirstBosBar>=c.FirstFailedExtensionBar&&c.FirstRetestBar>=c.FirstBosBar&&c.FirstDirectionalBar>=0&&score>=.80;
             }
             if(p=="Shark")
             {
-                score=(c.FamilySweep?.20:0)+(c.FamilyFailedExtension?.25:0)+(c.FamilyReclaim?.25:0)+((c.FamilyBos||c.FamilyDisplacement)?.30:0);
+                score=((c.FamilySweep ? .20 : 0))+((c.FamilyFailedExtension ? .25 : 0))+((c.FamilyReclaim ? .25 : 0))+((c.FamilyBos||c.FamilyDisplacement)?.30:0);
                 return c.FirstSweepBar>=0&&c.FirstFailedExtensionBar>=c.FirstSweepBar&&c.FirstReclaimBar>=c.FirstFailedExtensionBar&&post>=c.FirstFailedExtensionBar&&score>=.75;
             }
             if(p=="Cypher")
             {
-                score=(c.FamilyReclaim?.35:0)+((c.FamilyBos||c.FamilyDisplacement)?.35:0)+(c.FamilyDirectional?.20:0)+(c.FamilyRetest?.10:0);
+                score=((c.FamilyReclaim ? .35 : 0))+((c.FamilyBos||c.FamilyDisplacement)?.35:0)+((c.FamilyDirectional ? .20 : 0))+((c.FamilyRetest ? .10 : 0));
                 return c.FirstReclaimBar>=0&&post>=c.FirstReclaimBar&&c.FirstDirectionalBar>=0&&score>=.75;
             }
             if(p=="AB=CD")
             {
-                score=(c.FamilyDeceleration?.25:0)+(c.FamilyFailedExtension?.25:0)+(c.FamilyReclaim?.25:0)+((c.FamilyBos||c.FamilyDisplacement)?.25:0);
+                score=((c.FamilyDeceleration ? .25 : 0))+((c.FamilyFailedExtension ? .25 : 0))+((c.FamilyReclaim ? .25 : 0))+((c.FamilyBos||c.FamilyDisplacement)?.25:0);
                 return c.FirstDecelerationBar>=0&&c.FirstFailedExtensionBar>=c.FirstDecelerationBar&&c.FirstReclaimBar>=c.FirstFailedExtensionBar&&post>=c.FirstFailedExtensionBar&&score>=.75;
             }
             return false;
