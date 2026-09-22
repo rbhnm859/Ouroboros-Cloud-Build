@@ -229,6 +229,9 @@ namespace cAlgo.Robots
         [Parameter("V57 Family Books", DefaultValue = true)]
         public bool EnableV57FamilyBooks { get; set; }
 
+        [Parameter("V57 Universal Research Continuation", DefaultValue = true)]
+        public bool EnableV57UniversalResearchContinuation { get; set; }
+
         [Parameter("V57 Virtual Parallel Execution", DefaultValue = true)]
         public bool EnableV57VirtualParallelExecution { get; set; }
 
@@ -628,8 +631,16 @@ namespace cAlgo.Robots
                 if (signal.GeometryQuality < Math.Max(MinGeometryQuality, signal.Profile.MinGeometry) ||
                     signal.PrzConfluence < Math.Max(MinPrzConfluence, signal.Profile.MinPrz))
                 {
-                    Reject(record, "PATTERN_QUALITY");
-                    continue;
+                    if (EnableV57UniversalResearchContinuation && EnableV57VirtualParallelExecution)
+                    {
+                        record.ResearchOnlyHypothesis = true;
+                        Event(record, "V57_RESEARCH_CONTINUE_PATTERN_QUALITY");
+                    }
+                    else
+                    {
+                        Reject(record, "PATTERN_QUALITY");
+                        continue;
+                    }
                 }
 
                 record.AlphaQualityScore = HarmonicRobustnessScore(signal);
@@ -650,8 +661,19 @@ namespace cAlgo.Robots
                 if (record.Route == HarmonicRoute.NO_TRADE)
                 {
                     if (EnableRegimeContextGate) _regimeRejected++;
-                    Reject(record, "ROUTER_NO_TRADE");
-                    continue;
+                    if (EnableV57UniversalResearchContinuation && EnableV57VirtualParallelExecution)
+                    {
+                        record.ResearchOnlyHypothesis = true;
+                        record.Route = V57ResearchRoute(signal, record.Conflict, regime);
+                        if (record.Route == HarmonicRoute.NO_TRADE)
+                            record.Route = HarmonicRoute.TRANSITION_REVERSAL;
+                        Event(record, "V57_RESEARCH_CONTINUE_ROUTER_NO_TRADE");
+                    }
+                    else
+                    {
+                        Reject(record, "ROUTER_NO_TRADE");
+                        continue;
+                    }
                 }
 
                 // V47 expands only genuinely independent secondary-scale setups.
@@ -3743,6 +3765,21 @@ namespace cAlgo.Robots
             return "BALANCED";
         }
 
+        private HarmonicRoute V57ResearchRoute(PatternSignal s,MtfConflict conflict,RegimeSnapshot r)
+        {
+            if(s==null||r==null)return HarmonicRoute.NO_TRADE;
+            string p=s.PatternName??"";
+            bool ext=p=="Alt Bat"||p=="Butterfly"||p=="Crab"||p=="Deep Crab";
+            bool ret=p=="Gartley"||p=="Bat"||p=="Deep Gartley"||p=="Rat";
+            if(ext)return HarmonicRoute.EXHAUSTION_REVERSAL;
+            if(p=="5-0"||conflict==MtfConflict.TRANSITION||r.Transition)return HarmonicRoute.TRANSITION_REVERSAL;
+            if(ret&&r.TrendDirection==s.Direction)return HarmonicRoute.TREND_ALIGNED_REVERSAL;
+            if(ret)return HarmonicRoute.EXHAUSTION_REVERSAL;
+            if(p=="Shark"||p=="Cypher")return HarmonicRoute.EXHAUSTION_REVERSAL;
+            if(p=="AB=CD")return r.TrendDirection==s.Direction?HarmonicRoute.TREND_ALIGNED_REVERSAL:HarmonicRoute.EXHAUSTION_REVERSAL;
+            return HarmonicRoute.TRANSITION_REVERSAL;
+        }
+
         private string V57CalibrationKey(CandidateRecord c)
         {
             if(c==null||c.Signal==null)return "UNKNOWN";
@@ -3776,6 +3813,7 @@ namespace cAlgo.Robots
         private bool V57CalibratedCapitalEligible(CandidateRecord c)
         {
             if(c==null||c.Signal==null)return false;
+            if(c.ResearchOnlyHypothesis)return false;
             if(string.Equals(c.Signal.PatternName,"AB=CD",StringComparison.OrdinalIgnoreCase)&&!EnableV57AbcdStandaloneCapital)
                 return false;
             var cell=V57CalibrationCell(c);
@@ -4317,7 +4355,7 @@ namespace cAlgo.Robots
         public double CompletionAnchorPrice, NativeConfirmAnchorPrice, NativeRetestAnchorPrice;
         public double CompletionAnchorMfeR, CompletionAnchorMaeR, NativeConfirmMfeR, NativeConfirmMaeR, NativeRetestMfeR, NativeRetestMaeR;
         public bool TemporalDirectional, TemporalReclaim, TemporalBos1, TemporalBos2, TemporalRejection, TemporalFailedExtension, TemporalDisplacement;
-        public bool CapitalFeasible;
+        public bool CapitalFeasible, ResearchOnlyHypothesis;
         public double CalibratedLowerBoundR, CalibratedMeanHoldMinutes, CalibratedRPerSlotHour;
         public int CalibratedSamples;
         public FibonacciGridPlan GridPlan;
