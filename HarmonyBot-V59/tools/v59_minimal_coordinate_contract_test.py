@@ -33,7 +33,7 @@ assert "z.Add(CanonicalAbcdCoordinate" not in std
 for token in [
     'Basket Risk %',
     'Minimum Net RR',
-    'MaxActiveBasket',
+    'bool slotBusy = OwnPositions().Any() || OwnPendingOrders().Any() || _baskets.Values.Any(b => b.IsActive);',
     'EnableV59AbcdStandaloneCapital',
 ]:
     assert token in SRC
