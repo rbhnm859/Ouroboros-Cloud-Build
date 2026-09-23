@@ -3566,18 +3566,19 @@ namespace cAlgo.Robots
                     return c.FamilyReclaim && (c.FamilyRejection || c.FamilyFailedExtension) &&
                            (c.FamilyBos || c.FamilyDisplacement) && score >= .75;
 
-                // Stage-aware latch: early reclaim/BOS events do not poison a later legal sequence.
+                // Strict predecessor-aware latch: an event can advance the DAG only on a later bar
+                // than its required predecessor. Early/unrelated evidence remains diagnostic only.
                 if (c.FamilyDagStage == 0 && (rejection || failedExtension))
                 {
                     c.FamilyDagStage = 1;
                     c.FamilyDagPreBar = i;
                 }
-                if (c.FamilyDagStage == 1 && reclaim)
+                if (c.FamilyDagStage == 1 && i > c.FamilyDagPreBar && reclaim)
                 {
                     c.FamilyDagStage = 2;
                     c.FamilyDagReclaimBar = i;
                 }
-                if (c.FamilyDagStage >= 2 && (bos || displacement))
+                if (c.FamilyDagStage == 2 && i > c.FamilyDagReclaimBar && (bos || displacement))
                 {
                     c.FamilyDagStage = 3;
                     c.FamilyDagPostBar = i;
@@ -3603,24 +3604,24 @@ namespace cAlgo.Robots
                     c.FamilyDagStage = 1;
                     c.FamilyDagPreBar = i;
                 }
-                if (c.FamilyDagStage == 1 && failedExtension)
+                if (c.FamilyDagStage == 1 && i > c.FamilyDagPreBar && failedExtension)
                 {
                     c.FamilyDagStage = 2;
                     c.FamilyDagConfirmBar = i;
                 }
-                if (c.FamilyDagStage >= 2 && (reclaim || insidePrz))
+                if (c.FamilyDagStage == 2 && i > c.FamilyDagConfirmBar && (reclaim || insidePrz))
                 {
-                    c.FamilyDagAuxA = true;
-                    if (c.FamilyDagReclaimBar < 0) c.FamilyDagReclaimBar = i;
-                }
-                if (c.FamilyDagStage >= 2 && (bos || displacement))
-                {
-                    c.FamilyDagAuxB = true;
-                    if (c.FamilyDagPostBar < 0) c.FamilyDagPostBar = i;
-                }
-                if (c.FamilyDagStage >= 2 && c.FamilyDagAuxA && c.FamilyDagAuxB)
                     c.FamilyDagStage = 3;
-                return c.FamilyDagStage >= 3 && score >= .75;
+                    c.FamilyDagAuxA = true;
+                    c.FamilyDagReclaimBar = i;
+                }
+                if (c.FamilyDagStage == 3 && i > c.FamilyDagReclaimBar && (bos || displacement))
+                {
+                    c.FamilyDagStage = 4;
+                    c.FamilyDagAuxB = true;
+                    c.FamilyDagPostBar = i;
+                }
+                return c.FamilyDagStage >= 4 && score >= .75;
             }
 
             if (p == "5-0")
@@ -3635,12 +3636,12 @@ namespace cAlgo.Robots
                     c.FamilyDagStage = 1;
                     c.FamilyDagPreBar = i;
                 }
-                if (c.FamilyDagStage == 1 && bos)
+                if (c.FamilyDagStage == 1 && i > c.FamilyDagPreBar && bos)
                 {
                     c.FamilyDagStage = 2;
                     c.FamilyDagConfirmBar = i;
                 }
-                if (c.FamilyDagStage >= 2 && retest)
+                if (c.FamilyDagStage == 2 && i > c.FamilyDagConfirmBar && retest)
                 {
                     c.FamilyDagStage = 3;
                     c.FamilyDagPostBar = i;
@@ -3660,24 +3661,24 @@ namespace cAlgo.Robots
                     c.FamilyDagStage = 1;
                     c.FamilyDagPreBar = i;
                 }
-                if (c.FamilyDagStage == 1 && failedExtension)
+                if (c.FamilyDagStage == 1 && i > c.FamilyDagPreBar && failedExtension)
                 {
                     c.FamilyDagStage = 2;
                     c.FamilyDagConfirmBar = i;
                 }
-                if (c.FamilyDagStage >= 2 && reclaim)
+                if (c.FamilyDagStage == 2 && i > c.FamilyDagConfirmBar && reclaim)
                 {
-                    c.FamilyDagAuxA = true;
-                    if (c.FamilyDagReclaimBar < 0) c.FamilyDagReclaimBar = i;
-                }
-                if (c.FamilyDagStage >= 2 && (bos || displacement))
-                {
-                    c.FamilyDagAuxB = true;
-                    if (c.FamilyDagPostBar < 0) c.FamilyDagPostBar = i;
-                }
-                if (c.FamilyDagStage >= 2 && c.FamilyDagAuxA && c.FamilyDagAuxB)
                     c.FamilyDagStage = 3;
-                return c.FamilyDagStage >= 3 && score >= .75;
+                    c.FamilyDagAuxA = true;
+                    c.FamilyDagReclaimBar = i;
+                }
+                if (c.FamilyDagStage == 3 && i > c.FamilyDagReclaimBar && (bos || displacement))
+                {
+                    c.FamilyDagStage = 4;
+                    c.FamilyDagAuxB = true;
+                    c.FamilyDagPostBar = i;
+                }
+                return c.FamilyDagStage >= 4 && score >= .75;
             }
 
             if (p == "Cypher")
@@ -3692,7 +3693,7 @@ namespace cAlgo.Robots
                     c.FamilyDagStage = 1;
                     c.FamilyDagReclaimBar = i;
                 }
-                if (c.FamilyDagStage >= 1 && (bos || displacement))
+                if (c.FamilyDagStage == 1 && i > c.FamilyDagReclaimBar && (bos || displacement))
                 {
                     c.FamilyDagStage = 2;
                     c.FamilyDagPostBar = i;
@@ -3712,24 +3713,24 @@ namespace cAlgo.Robots
                     c.FamilyDagStage = 1;
                     c.FamilyDagPreBar = i;
                 }
-                if (c.FamilyDagStage == 1 && failedExtension)
+                if (c.FamilyDagStage == 1 && i > c.FamilyDagPreBar && failedExtension)
                 {
                     c.FamilyDagStage = 2;
                     c.FamilyDagConfirmBar = i;
                 }
-                if (c.FamilyDagStage >= 2 && reclaim)
+                if (c.FamilyDagStage == 2 && i > c.FamilyDagConfirmBar && reclaim)
                 {
-                    c.FamilyDagAuxA = true;
-                    if (c.FamilyDagReclaimBar < 0) c.FamilyDagReclaimBar = i;
-                }
-                if (c.FamilyDagStage >= 2 && (bos || displacement))
-                {
-                    c.FamilyDagAuxB = true;
-                    if (c.FamilyDagPostBar < 0) c.FamilyDagPostBar = i;
-                }
-                if (c.FamilyDagStage >= 2 && c.FamilyDagAuxA && c.FamilyDagAuxB)
                     c.FamilyDagStage = 3;
-                return c.FamilyDagStage >= 3 && score >= .75;
+                    c.FamilyDagAuxA = true;
+                    c.FamilyDagReclaimBar = i;
+                }
+                if (c.FamilyDagStage == 3 && i > c.FamilyDagReclaimBar && (bos || displacement))
+                {
+                    c.FamilyDagStage = 4;
+                    c.FamilyDagAuxB = true;
+                    c.FamilyDagPostBar = i;
+                }
+                return c.FamilyDagStage >= 4 && score >= .75;
             }
 
             return false;
