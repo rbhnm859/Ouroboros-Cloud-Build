@@ -5,6 +5,7 @@ Z=1.645; FAMILY_GEOM_MIN=24; CELL_GEOM_MIN=8
 start_rx=re.compile(r"\[V60-SHADOW-START\]\s+cid=(\S+)\s+setup=(\S+)\s+pattern=(.*?)\s+route=(\S+)\s+regime=(\S+).*?geometry=([-0-9.]+)\s+projectionErrorAtr=([-0-9.]+)\s+prz=([-0-9.]+)\s+regimeScore=([-0-9.]+)\s+confirmation=([-0-9.]+)\s+alphaScore=([-0-9.]+)")
 close_rx=re.compile(r"\[V60-SHADOW-CLOSED\]\s+cid=(\S+)\s+setup=(\S+)\s+pattern=(.*?)\s+route=(\S+)\s+regime=(\S+)\s+mfeR=([-0-9.]+)\s+maeR=([-0-9.]+)\s+realizedR=([-0-9.]+)\s+holdMin=([-0-9.]+)")
 cap_rx=re.compile(r"\[V60-CAPTURE-CLOSED\]\s+cid=(\S+)\s+pattern=(.*?)\s+route=(\S+)\s+regime=(\S+).*?hybridR=([-0-9.]+)\s+convexR=([-0-9.]+)\s+runnerArmed=(\S+)")
+conv_rx=re.compile(r"\[V60-CONVEX-CLOSED\]\s+cid=(\S+)\s+setup=(\S+)\s+pattern=(.*?)\s+route=(\S+)\s+regime=(\S+)\s+convexR=([-0-9.]+)\s+runnerArmed=(\S+)")
 rows=[]
 research_markers=("V60_RESEARCH_CONTINUE_PATTERN_QUALITY","V60_RESEARCH_CONTINUE_ROUTER_NO_TRADE","V60_ABCD_NESTED_PARENT_CONFLUENCE_ONLY","SECONDARY_SCALE_ABCD_ROUTE_RESEARCH_ONLY")
 for p in sorted(root.rglob("*.log")):
@@ -19,9 +20,12 @@ for p in sorted(root.rglob("*.log")):
         "confirmation":float(m.group(10)),"alpha_score":float(m.group(11)),"source":source,"research_only":m.group(1) in ro} for m in start_rx.finditer(txt)}
     closes={m.group(1):{"baseline":float(m.group(8)),"hold":float(m.group(9)),"mfe":float(m.group(6)),"mae":float(m.group(7))} for m in close_rx.finditer(txt)}
     caps={m.group(1):{"hybrid":float(m.group(5)),"convex":float(m.group(6)),"runner":m.group(7).lower()=="true"} for m in cap_rx.finditer(txt)}
+    convex_final={m.group(1):{"convex":float(m.group(6)),"runner":m.group(7).lower()=="true"} for m in conv_rx.finditer(txt)}
     for cid,x in starts.items():
         if cid in closes and cid in caps:
-            x.update(closes[cid]); x.update(caps[cid]); rows.append(x)
+            x.update(closes[cid]); x.update(caps[cid])
+            if cid in convex_final: x.update(convex_final[cid])
+            rows.append(x)
 if not rows: raise SystemExit("no V60 enriched shadow rows found")
 
 def mean(xs): return sum(xs)/len(xs) if xs else 0.0
