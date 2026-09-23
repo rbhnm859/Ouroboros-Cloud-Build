@@ -44,8 +44,11 @@ for p in required: assert f'Name = "{p}"' in src or f'AddStd("{p}"' in src
 assert "projectionConvergence" in src and "projectionPurity" in src and "ProjectionErrorAtr" in src
 
 # Temporal DAG uses partial ordering and same-bar-compatible >= relations.
-assert "c.FirstFailedExtensionBar>=c.FirstSweepBar" in src.replace(" ","")
-assert "post>=c.FirstReclaimBar" in src.replace(" ","")
+compact=src.replace(" ","")
+assert "c.DagStage2Bar>=c.DagStage1Bar" in compact
+assert "c.DagStage3Bar>=c.DagStage2Bar" in compact
+assert "c.DagPostBar>=c.DagStage2Bar" in compact
+assert "DagStage1Bar=-1, DagStage2Bar=-1, DagStage3Bar=-1, DagPostBar=-1" in src
 
 # Excursion capture must use prior MFE before current-bar extrema update.
 u=src.index("private void UpdateV58FamilyShadowTrades")
