@@ -3542,45 +3542,62 @@ namespace cAlgo.Robots
             if(deceleration&&c.FirstDecelerationBar<0)c.FirstDecelerationBar=i;
 
             string p=sig.PatternName??"";
-            int pre=V58FirstEvent(c.FirstRejectionBar,c.FirstFailedExtensionBar);
-            int post=V58FirstEvent(c.FirstBosBar,c.FirstDisplacementBar);
             bool retr=p=="Gartley"||p=="Bat"||p=="Deep Gartley"||p=="Rat";
             bool ext=p=="Alt Bat"||p=="Butterfly"||p=="Crab"||p=="Deep Crab";
 
             if(retr)
             {
-                score=((c.FamilyReclaim ? .30 : 0))+((c.FamilyRejection||c.FamilyFailedExtension)?.25:0)+((c.FamilyBos ? .25 : 0))+((c.FamilyDisplacement ? .20 : 0));
+                if(c.DagStage1Bar<0&&(rejection||failedExtension))c.DagStage1Bar=i;
+                if(c.DagStage1Bar>=0&&c.DagStage2Bar<0&&reclaim&&i>=c.DagStage1Bar)c.DagStage2Bar=i;
+                if(c.DagStage2Bar>=0&&c.DagPostBar<0&&(bos||displacement)&&i>=c.DagStage2Bar)c.DagPostBar=i;
+                score=(c.FamilyReclaim?.30:0)+((c.FamilyRejection||c.FamilyFailedExtension)?.25:0)+(c.FamilyBos?.25:0)+(c.FamilyDisplacement?.20:0);
                 return !EnableV58TemporalEventDag
                     ? c.FamilyReclaim&&(c.FamilyRejection||c.FamilyFailedExtension)&&(c.FamilyBos||c.FamilyDisplacement)&&score>=.75
-                    : pre>=0&&c.FirstReclaimBar>=pre&&post>=c.FirstReclaimBar&&score>=.75;
+                    : c.DagStage1Bar>=0&&c.DagStage2Bar>=c.DagStage1Bar&&c.DagPostBar>=c.DagStage2Bar&&score>=.75;
             }
             if(ext)
             {
-                score=((c.FamilySweep ? .20 : 0))+((c.FamilyFailedExtension ? .25 : 0))+((c.FamilyReclaim||c.FamilyInsidePrz)?.25:0)+((c.FamilyBos ? .20 : 0))+((c.FamilyDisplacement ? .10 : 0));
-                int reclaimBar=V58FirstEvent(c.FirstReclaimBar,c.FirstInsidePrzBar);
+                if(c.DagStage1Bar<0&&sweep)c.DagStage1Bar=i;
+                if(c.DagStage1Bar>=0&&c.DagStage2Bar<0&&failedExtension&&i>=c.DagStage1Bar)c.DagStage2Bar=i;
+                if(c.DagStage2Bar>=0&&c.DagStage3Bar<0&&(reclaim||insidePrz)&&i>=c.DagStage2Bar)c.DagStage3Bar=i;
+                if(c.DagStage2Bar>=0&&c.DagPostBar<0&&(bos||displacement)&&i>=c.DagStage2Bar)c.DagPostBar=i;
+                score=(c.FamilySweep?.20:0)+(c.FamilyFailedExtension?.25:0)+((c.FamilyReclaim||c.FamilyInsidePrz)?.25:0)+(c.FamilyBos?.20:0)+(c.FamilyDisplacement?.10:0);
                 return !EnableV58TemporalEventDag
                     ? c.FamilySweep&&c.FamilyFailedExtension&&(c.FamilyReclaim||c.FamilyInsidePrz)&&(c.FamilyBos||c.FamilyDisplacement)&&score>=.75
-                    : c.FirstSweepBar>=0&&c.FirstFailedExtensionBar>=c.FirstSweepBar&&reclaimBar>=c.FirstFailedExtensionBar&&post>=c.FirstFailedExtensionBar&&score>=.75;
+                    : c.DagStage1Bar>=0&&c.DagStage2Bar>=c.DagStage1Bar&&c.DagStage3Bar>=c.DagStage2Bar&&c.DagPostBar>=c.DagStage2Bar&&score>=.75;
             }
             if(p=="5-0")
             {
-                score=((c.FamilyFailedExtension ? .25 : 0))+((c.FamilyBos ? .30 : 0))+((c.FamilyRetest ? .25 : 0))+((c.FamilyDirectional ? .20 : 0));
-                return c.FirstFailedExtensionBar>=0&&c.FirstBosBar>=c.FirstFailedExtensionBar&&c.FirstRetestBar>=c.FirstBosBar&&c.FirstDirectionalBar>=0&&score>=.80;
+                if(c.DagStage1Bar<0&&failedExtension)c.DagStage1Bar=i;
+                if(c.DagStage1Bar>=0&&c.DagStage2Bar<0&&bos&&i>=c.DagStage1Bar)c.DagStage2Bar=i;
+                if(c.DagStage2Bar>=0&&c.DagStage3Bar<0&&retest&&i>=c.DagStage2Bar)c.DagStage3Bar=i;
+                score=(c.FamilyFailedExtension?.25:0)+(c.FamilyBos?.30:0)+(c.FamilyRetest?.25:0)+(c.FamilyDirectional?.20:0);
+                return c.DagStage1Bar>=0&&c.DagStage2Bar>=c.DagStage1Bar&&c.DagStage3Bar>=c.DagStage2Bar&&c.FamilyDirectional&&score>=.80;
             }
             if(p=="Shark")
             {
-                score=((c.FamilySweep ? .20 : 0))+((c.FamilyFailedExtension ? .25 : 0))+((c.FamilyReclaim ? .25 : 0))+((c.FamilyBos||c.FamilyDisplacement)?.30:0);
-                return c.FirstSweepBar>=0&&c.FirstFailedExtensionBar>=c.FirstSweepBar&&c.FirstReclaimBar>=c.FirstFailedExtensionBar&&post>=c.FirstFailedExtensionBar&&score>=.75;
+                if(c.DagStage1Bar<0&&sweep)c.DagStage1Bar=i;
+                if(c.DagStage1Bar>=0&&c.DagStage2Bar<0&&failedExtension&&i>=c.DagStage1Bar)c.DagStage2Bar=i;
+                if(c.DagStage2Bar>=0&&c.DagStage3Bar<0&&reclaim&&i>=c.DagStage2Bar)c.DagStage3Bar=i;
+                if(c.DagStage2Bar>=0&&c.DagPostBar<0&&(bos||displacement)&&i>=c.DagStage2Bar)c.DagPostBar=i;
+                score=(c.FamilySweep?.20:0)+(c.FamilyFailedExtension?.25:0)+(c.FamilyReclaim?.25:0)+((c.FamilyBos||c.FamilyDisplacement)?.30:0);
+                return c.DagStage1Bar>=0&&c.DagStage2Bar>=c.DagStage1Bar&&c.DagStage3Bar>=c.DagStage2Bar&&c.DagPostBar>=c.DagStage2Bar&&score>=.75;
             }
             if(p=="Cypher")
             {
-                score=((c.FamilyReclaim ? .35 : 0))+((c.FamilyBos||c.FamilyDisplacement)?.35:0)+((c.FamilyDirectional ? .20 : 0))+((c.FamilyRetest ? .10 : 0));
-                return c.FirstReclaimBar>=0&&post>=c.FirstReclaimBar&&c.FirstDirectionalBar>=0&&score>=.75;
+                if(c.DagStage1Bar<0&&reclaim)c.DagStage1Bar=i;
+                if(c.DagStage1Bar>=0&&c.DagPostBar<0&&(bos||displacement)&&i>=c.DagStage1Bar)c.DagPostBar=i;
+                score=(c.FamilyReclaim?.35:0)+((c.FamilyBos||c.FamilyDisplacement)?.35:0)+(c.FamilyDirectional?.20:0)+(c.FamilyRetest?.10:0);
+                return c.DagStage1Bar>=0&&c.DagPostBar>=c.DagStage1Bar&&c.FamilyDirectional&&score>=.75;
             }
             if(p=="AB=CD")
             {
-                score=((c.FamilyDeceleration ? .25 : 0))+((c.FamilyFailedExtension ? .25 : 0))+((c.FamilyReclaim ? .25 : 0))+((c.FamilyBos||c.FamilyDisplacement)?.25:0);
-                return c.FirstDecelerationBar>=0&&c.FirstFailedExtensionBar>=c.FirstDecelerationBar&&c.FirstReclaimBar>=c.FirstFailedExtensionBar&&post>=c.FirstFailedExtensionBar&&score>=.75;
+                if(c.DagStage1Bar<0&&deceleration)c.DagStage1Bar=i;
+                if(c.DagStage1Bar>=0&&c.DagStage2Bar<0&&failedExtension&&i>=c.DagStage1Bar)c.DagStage2Bar=i;
+                if(c.DagStage2Bar>=0&&c.DagStage3Bar<0&&reclaim&&i>=c.DagStage2Bar)c.DagStage3Bar=i;
+                if(c.DagStage2Bar>=0&&c.DagPostBar<0&&(bos||displacement)&&i>=c.DagStage2Bar)c.DagPostBar=i;
+                score=(c.FamilyDeceleration?.25:0)+(c.FamilyFailedExtension?.25:0)+(c.FamilyReclaim?.25:0)+((c.FamilyBos||c.FamilyDisplacement)?.25:0);
+                return c.DagStage1Bar>=0&&c.DagStage2Bar>=c.DagStage1Bar&&c.DagStage3Bar>=c.DagStage2Bar&&c.DagPostBar>=c.DagStage2Bar&&score>=.75;
             }
             return false;
         }
@@ -4526,6 +4543,7 @@ namespace cAlgo.Robots
                     FamilyFailedExtension, FamilyInsidePrz, FamilyDisplacement, FamilyRetest, FamilyDeceleration;
         public int FirstDirectionalBar=-1, FirstReclaimBar=-1, FirstBosBar=-1, FirstRejectionBar=-1, FirstSweepBar=-1,
                    FirstFailedExtensionBar=-1, FirstInsidePrzBar=-1, FirstDisplacementBar=-1, FirstRetestBar=-1, FirstDecelerationBar=-1;
+        public int DagStage1Bar=-1, DagStage2Bar=-1, DagStage3Bar=-1, DagPostBar=-1;
         public double OriginalRank, OriginalGeometry, OriginalPrzConfluence, OriginalM1Evidence, OriginalEntryAnchor, ShadowRiskDistance, ShadowMfeR, ShadowMaeR;
         public double CompletionAnchorPrice, NativeConfirmAnchorPrice, NativeRetestAnchorPrice;
         public double CompletionAnchorMfeR, CompletionAnchorMaeR, NativeConfirmMfeR, NativeConfirmMaeR, NativeRetestMfeR, NativeRetestMaeR;
