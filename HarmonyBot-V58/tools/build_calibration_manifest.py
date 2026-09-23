@@ -9,7 +9,7 @@ for p in sorted(root.rglob("*.log")):
     research_only=set()
     for line in txt.splitlines():
         if "V58_RESEARCH_CONTINUE_PATTERN_QUALITY" in line or "V58_RESEARCH_CONTINUE_ROUTER_NO_TRADE" in line:
-            m=re.search(r"cid=(\\S+)",line)
+            m=re.search(r"cid=(\S+)",line)
             if m: research_only.add(m.group(1))
     shadows={q.group(1):{"cid":q.group(1),"pattern":q.group(3),"route":q.group(4),"regime":q.group(5),"baseline":float(q.group(8)),"hold":float(q.group(9)),"mfe":float(q.group(6)),"mae":float(q.group(7)),"source":source,"research_only":q.group(1) in research_only} for q in shadow_rx.finditer(txt)}
     for q in cap_rx.finditer(txt):
