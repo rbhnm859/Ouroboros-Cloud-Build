@@ -4345,7 +4345,7 @@ namespace cAlgo.Robots
                     double protectTrigger,protectFloor,trailTrigger,trailDistance;
                     V60ConvexPolicy(x.Route,out protectTrigger,out protectFloor,out trailTrigger,out trailDistance);
                     if(!x.ConvexCoreClosed && prevMfe>=protectTrigger && V60ShadowFloorHit(x,lo,hi,protectFloor))
-                    { x.ConvexClosed=true; x.ConvexR=protectFloor-costR; }
+                    { x.ConvexClosed=true; x.ConvexR=protectFloor-costR; V60LogConvexClosed(x,utc,"PROTECT_FLOOR"); }
 
                     bool convexTargetHit=x.Direction==TradeDirection.Buy?hi>=x.Target:lo<=x.Target;
                     if(!x.ConvexClosed && !x.ConvexCoreClosed && convexTargetHit)
@@ -4354,14 +4354,14 @@ namespace cAlgo.Robots
                         x.ConvexCoreClosed=true;
                         x.ConvexCoreR=(1.0-runner)*x.NetTargetR;
                         if(runner>0)x.RunnerArmed=true;
-                        else { x.ConvexClosed=true; x.ConvexR=x.NetTargetR; }
+                        else { x.ConvexClosed=true; x.ConvexR=x.NetTargetR; V60LogConvexClosed(x,utc,"CORE_TARGET_FULL_EXIT"); }
                     }
 
                     if(!x.ConvexClosed && x.RunnerArmed && prevMfe>=trailTrigger)
                     {
                         double runnerFloor=Math.Max(protectFloor,prevMfe-trailDistance);
                         if(V60ShadowFloorHit(x,lo,hi,runnerFloor))
-                        { x.ConvexClosed=true; x.ConvexR=x.ConvexCoreR+x.RunnerFraction*(runnerFloor-costR); }
+                        { x.ConvexClosed=true; x.ConvexR=x.ConvexCoreR+x.RunnerFraction*(runnerFloor-costR); V60LogConvexClosed(x,utc,"RUNNER_TRAIL"); }
                     }
                 }
 
@@ -4374,7 +4374,7 @@ namespace cAlgo.Robots
                 if(stopHit)
                 {
                     if(!x.ConvexClosed)
-                    { x.ConvexClosed=true; x.ConvexR=x.ConvexCoreClosed?x.ConvexCoreR+x.RunnerFraction*(-1.0-costR):-1.0-costR; }
+                    { x.ConvexClosed=true; x.ConvexR=x.ConvexCoreClosed?x.ConvexCoreR+x.RunnerFraction*(-1.0-costR):-1.0-costR; V60LogConvexClosed(x,utc,"STRUCTURAL_STOP"); }
                     if(!x.Closed)CloseV60Shadow(x,utc,-1.0-costR,"SL_CONSERVATIVE");
                     continue;
                 }
@@ -4386,10 +4386,17 @@ namespace cAlgo.Robots
                 if(utc>=x.ExpiryUtc)
                 {
                     if(!x.ConvexClosed)
-                    { x.ConvexClosed=true; x.ConvexR=x.ConvexCoreClosed?x.ConvexCoreR+x.RunnerFraction*currentR:currentR; }
+                    { x.ConvexClosed=true; x.ConvexR=x.ConvexCoreClosed?x.ConvexCoreR+x.RunnerFraction*currentR:currentR; V60LogConvexClosed(x,utc,"TTL_MARK_TO_MARKET"); }
                     if(!x.Closed)CloseV60Shadow(x,utc,currentR,"TTL_MARK_TO_MARKET");
                 }
             }
+        }
+
+        private void V60LogConvexClosed(FamilyShadowTrade x,DateTime utc,string reason)
+        {
+            if(x==null)return;
+            Print("[V60-CONVEX-CLOSED] cid={0} setup={1} pattern={2} route={3} regime={4} convexR={5:F4} runnerArmed={6} coreClosed={7} mfeR={8:F4} reason={9}",
+                x.CandidateId,x.SetupKey,x.Pattern,x.Route,x.Regime,x.ConvexR,x.RunnerArmed,x.ConvexCoreClosed,x.MfeR,reason);
         }
 
         private bool V60ShadowFloorHit(FamilyShadowTrade x,double lo,double hi,double floorR)
@@ -4431,7 +4438,7 @@ namespace cAlgo.Robots
                 double signed=x.Direction==TradeDirection.Buy?close-x.Entry:x.Entry-close;
                 double r=signed/x.RiskDistance-costR;
                 if(!x.ConvexClosed)
-                { x.ConvexClosed=true; x.ConvexR=x.ConvexCoreClosed?x.ConvexCoreR+x.RunnerFraction*r:r; }
+                { x.ConvexClosed=true; x.ConvexR=x.ConvexCoreClosed?x.ConvexCoreR+x.RunnerFraction*r:r; V60LogConvexClosed(x,utc,"BOT_STOP_MARK_TO_MARKET"); }
                 if(!x.Closed)CloseV60Shadow(x,utc,r,"BOT_STOP_MARK_TO_MARKET");
                 else Print("[V60-CONVEX-FINAL] cid={0} pattern={1} route={2} convexR={3:F4} runnerArmed={4}",x.CandidateId,x.Pattern,x.Route,x.ConvexR,x.RunnerArmed);
             }
