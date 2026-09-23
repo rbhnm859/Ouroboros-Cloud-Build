@@ -392,6 +392,10 @@ namespace cAlgo.Robots
 
         private DateTime _lastM15Closed = DateTime.MinValue;
         private DateTime _lastM1Closed = DateTime.MinValue;
+        private DateTime _lastH4ContextClosed = DateTime.MinValue;
+        private DateTime _lastH1ContextClosed = DateTime.MinValue;
+        private HarmonicState _cachedH4State = HarmonicState.Neutral;
+        private HarmonicState _cachedH1State = HarmonicState.Neutral;
         private DateTime _currentDay;
         private double _dayStartEquity;
         private double _equityPeak;
@@ -622,13 +626,21 @@ namespace cAlgo.Robots
             double atr = Atr(_m15Bars, 14, i);
             if (atr <= 0) return;
 
-            var h4State = GetActiveHarmonicState(_h4Bars, H4SwingDepth, 220, 3);
-            var h1State = GetActiveHarmonicState(_h1Bars, H1SwingDepth, 260, 4);
+            RefreshHigherTimeframeContext();
+            var h4State = _cachedH4State;
+            var h1State = _cachedH1State;
             var regime = BuildRegimeSnapshot();
             var detected = DetectPatternCandidates(_m15Bars, i, M15SwingDepth, M15SwingLookback, PortfolioMaxCandidates, "M15");
+            var fullHarmonicGeometry = new HashSet<string>(
+                detected.Where(x => !string.Equals(x.PatternName, "AB=CD", StringComparison.OrdinalIgnoreCase))
+                        .Select(BuildSetupGeometryKey));
 
             foreach (var signal in detected)
             {
+                if (EnableV59AbcdTerminalityResearch && string.Equals(signal.PatternName, "AB=CD", StringComparison.OrdinalIgnoreCase))
+                    signal.AbcdTerminality = fullHarmonicGeometry.Contains(BuildSetupGeometryKey(signal))
+                        ? "NESTED_FULL_HARMONIC"
+                        : "AMBIGUOUS";
                 string setupKey = BuildSetupGeometryKey(signal);
                 string identityKey = EnableFamilyIdentityReconstruction ? BuildFamilyHypothesisKey(signal) : setupKey;
                 if (EnableCanonicalSetupIdentity)
@@ -703,6 +715,26 @@ namespace cAlgo.Robots
                 record.RegimeScore = RegimeContextScore(signal, record.Conflict, regime);
                 record.Route = RouteSignal(signal, record.Conflict, regime);
 
+                if (EnableV59AbcdTerminalityResearch && string.Equals(signal.PatternName, "AB=CD", StringComparison.OrdinalIgnoreCase))
+                {
+                    if (signal.AbcdTerminality != "NESTED_FULL_HARMONIC")
+                    {
+                        if (record.Route == HarmonicRoute.EXHAUSTION_REVERSAL || record.Route == HarmonicRoute.TRANSITION_REVERSAL)
+                            signal.AbcdTerminality = "STANDALONE_TERMINAL";
+                        else if (record.Route == HarmonicRoute.TREND_ALIGNED_REVERSAL)
+                            signal.AbcdTerminality = "CONTINUATION_COMPONENT";
+                    }
+
+                    if (signal.AbcdTerminality == "NESTED_FULL_HARMONIC")
+                    {
+                        record.ResearchOnlyHypothesis = true;
+                        Event(record, "V59_ABCD_NESTED_PARENT_CONFLUENCE_ONLY");
+                    }
+
+                    Print("[V59-ABCD-CLASS] cid={0} subtype={1} terminality={2} scale={3} route={4} setup={5}",
+                        record.CandidateId, signal.HarmonicSubtype, signal.AbcdTerminality, signal.PivotScale, record.Route, record.SetupKey);
+                }
+
                 if (record.Route == HarmonicRoute.NO_TRADE)
                 {
                     if (EnableRegimeContextGate) _regimeRejected++;
@@ -728,8 +760,16 @@ namespace cAlgo.Robots
                     signal.PatternName == "AB=CD" && record.Route != HarmonicRoute.EXHAUSTION_REVERSAL)
                 {
                     _scaleRouteRejected++;
-                    Reject(record, "SECONDARY_SCALE_ABCD_ROUTE_REJECT");
-                    continue;
+                    if (EnableV59UniversalResearchContinuation && EnableV59VirtualParallelExecution)
+                    {
+                        record.ResearchOnlyHypothesis = true;
+                        Event(record, "SECONDARY_SCALE_ABCD_ROUTE_RESEARCH_ONLY");
+                    }
+                    else
+                    {
+                        Reject(record, "SECONDARY_SCALE_ABCD_ROUTE_REJECT");
+                        continue;
+                    }
                 }
 
                 if (EnableCapitalFeasibilityGate)
@@ -2695,6 +2735,33 @@ namespace cAlgo.Robots
                 int skips = (ia - ix - 1) + (ib - ia - 1) + (ic - ib - 1) + (id - ic - 1);
                 if (skips > maxTotalSkips) continue;
                 yield return new PivotSequence { X = pivots[ix], A = pivots[ia], B = pivots[ib], C = pivots[ic], D = pivots[id] };
+            }
+        }
+
+        private void RefreshHigherTimeframeContext()
+        {
+            int h4i = LastClosedIndex(_h4Bars);
+            if (h4i >= 40)
+            {
+                DateTime t = _h4Bars.OpenTimes[h4i];
+                if (t > _lastH4ContextClosed)
+                {
+                    _cachedH4State = GetActiveHarmonicState(_h4Bars, H4SwingDepth, 220, 3);
+                    _lastH4ContextClosed = t;
+                    Print("[V59-CONTEXT-CACHE] tf=H4 close={0:O} state={1}", t, _cachedH4State);
+                }
+            }
+
+            int h1i = LastClosedIndex(_h1Bars);
+            if (h1i >= 40)
+            {
+                DateTime t = _h1Bars.OpenTimes[h1i];
+                if (t > _lastH1ContextClosed)
+                {
+                    _cachedH1State = GetActiveHarmonicState(_h1Bars, H1SwingDepth, 260, 4);
+                    _lastH1ContextClosed = t;
+                    Print("[V59-CONTEXT-CACHE] tf=H1 close={0:O} state={1}", t, _cachedH1State);
+                }
             }
         }
 
@@ -4679,6 +4746,7 @@ namespace cAlgo.Robots
         public int PivotScale;
         public double Xab, Abc, Bcd, Xad, AdXa, XdXa, AbCd;
         public string HarmonicSubtype;
+        public string AbcdTerminality = "NA";
         public double PrzLow, PrzHigh, ExpectedD, ProjectionSpreadAtr, ProjectionErrorAtr, ManifoldDistance;
         public double GeometryQuality, PrzConfluence, TimeSymmetry, PivotQuality, Confidence;
         public double StructuralInvalidation, CanonicalTarget1, CanonicalTarget2;
