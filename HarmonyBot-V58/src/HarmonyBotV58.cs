@@ -3508,104 +3508,231 @@ namespace cAlgo.Robots
         {
             score = 0;
             if (i < 3 || i >= _m1Bars.Count || c == null || c.Signal == null) return false;
-            var sig=c.Signal;
-            double o=_m1Bars.OpenPrices[i], cl=_m1Bars.ClosePrices[i], h=_m1Bars.HighPrices[i], l=_m1Bars.LowPrices[i];
-            double pc=_m1Bars.ClosePrices[i-1], ph=_m1Bars.HighPrices[i-1], pl=_m1Bars.LowPrices[i-1];
-            double body=Math.Max(Math.Abs(cl-o),_symbol.PipSize);
-            double prevBody=Math.Max(Math.Abs(_m1Bars.ClosePrices[i-1]-_m1Bars.OpenPrices[i-1]),_symbol.PipSize);
-            double atr=Atr(_m1Bars,14,i);
-            bool buy=sig.Direction==TradeDirection.Buy;
-            bool directional=buy?cl>o:cl<o;
-            bool reclaim=buy?(cl>sig.PrzLow&&cl>=pc):(cl<sig.PrzHigh&&cl<=pc);
-            bool bos=buy?cl>ph:cl<pl;
-            bool rejection=buy?Math.Max(0,Math.Min(o,cl)-l)>=body*.5:Math.Max(0,h-Math.Max(o,cl))>=body*.5;
-            bool sweep=buy?l<pl:h>ph;
-            bool failedExtension=buy?(l<pl&&cl>pl):(h>ph&&cl<ph);
-            bool insidePrz=cl>=Math.Min(sig.PrzLow,sig.PrzHigh)&&cl<=Math.Max(sig.PrzLow,sig.PrzHigh);
-            bool displacement=atr>0&&body>=atr*.30;
-            bool retest=insidePrz||Math.Abs(cl-(sig.PrzLow+sig.PrzHigh)*.5)<=Math.Max(atr*.25,_symbol.PipSize);
-            bool deceleration=body<=prevBody*.85;
 
-            c.FamilyDirectional|=directional; c.FamilyReclaim|=reclaim; c.FamilyBos|=bos; c.FamilyRejection|=rejection;
-            c.FamilySweep|=sweep; c.FamilyFailedExtension|=failedExtension; c.FamilyInsidePrz|=insidePrz;
-            c.FamilyDisplacement|=displacement; c.FamilyRetest|=retest; c.FamilyDeceleration|=deceleration;
+            var sig = c.Signal;
+            double o = _m1Bars.OpenPrices[i], cl = _m1Bars.ClosePrices[i], h = _m1Bars.HighPrices[i], l = _m1Bars.LowPrices[i];
+            double pc = _m1Bars.ClosePrices[i - 1], ph = _m1Bars.HighPrices[i - 1], pl = _m1Bars.LowPrices[i - 1];
+            double body = Math.Max(Math.Abs(cl - o), _symbol.PipSize);
+            double prevBody = Math.Max(Math.Abs(_m1Bars.ClosePrices[i - 1] - _m1Bars.OpenPrices[i - 1]), _symbol.PipSize);
+            double atr = Atr(_m1Bars, 14, i);
+            bool buy = sig.Direction == TradeDirection.Buy;
 
-            if(directional&&c.FirstDirectionalBar<0)c.FirstDirectionalBar=i;
-            if(reclaim&&c.FirstReclaimBar<0)c.FirstReclaimBar=i;
-            if(bos&&c.FirstBosBar<0)c.FirstBosBar=i;
-            if(rejection&&c.FirstRejectionBar<0)c.FirstRejectionBar=i;
-            if(sweep&&c.FirstSweepBar<0)c.FirstSweepBar=i;
-            if(failedExtension&&c.FirstFailedExtensionBar<0)c.FirstFailedExtensionBar=i;
-            if(insidePrz&&c.FirstInsidePrzBar<0)c.FirstInsidePrzBar=i;
-            if(displacement&&c.FirstDisplacementBar<0)c.FirstDisplacementBar=i;
-            if(retest&&c.FirstRetestBar<0)c.FirstRetestBar=i;
-            if(deceleration&&c.FirstDecelerationBar<0)c.FirstDecelerationBar=i;
+            bool directional = buy ? cl > o : cl < o;
+            bool reclaim = buy ? (cl > sig.PrzLow && cl >= pc) : (cl < sig.PrzHigh && cl <= pc);
+            bool bos = buy ? cl > ph : cl < pl;
+            bool rejection = buy ? Math.Max(0, Math.Min(o, cl) - l) >= body * .5 : Math.Max(0, h - Math.Max(o, cl)) >= body * .5;
+            bool sweep = buy ? l < pl : h > ph;
+            bool failedExtension = buy ? (l < pl && cl > pl) : (h > ph && cl < ph);
+            bool insidePrz = cl >= Math.Min(sig.PrzLow, sig.PrzHigh) && cl <= Math.Max(sig.PrzLow, sig.PrzHigh);
+            bool displacement = atr > 0 && body >= atr * .30;
+            bool retest = insidePrz || Math.Abs(cl - (sig.PrzLow + sig.PrzHigh) * .5) <= Math.Max(atr * .25, _symbol.PipSize);
+            bool deceleration = body <= prevBody * .85;
 
-            string p=sig.PatternName??"";
-            bool retr=p=="Gartley"||p=="Bat"||p=="Deep Gartley"||p=="Rat";
-            bool ext=p=="Alt Bat"||p=="Butterfly"||p=="Crab"||p=="Deep Crab";
+            c.FamilyDirectional |= directional;
+            c.FamilyReclaim |= reclaim;
+            c.FamilyBos |= bos;
+            c.FamilyRejection |= rejection;
+            c.FamilySweep |= sweep;
+            c.FamilyFailedExtension |= failedExtension;
+            c.FamilyInsidePrz |= insidePrz;
+            c.FamilyDisplacement |= displacement;
+            c.FamilyRetest |= retest;
+            c.FamilyDeceleration |= deceleration;
 
-            if(retr)
+            // Diagnostic first-occurrence timestamps are retained, but they no longer determine DAG validity.
+            if (directional && c.FirstDirectionalBar < 0) c.FirstDirectionalBar = i;
+            if (reclaim && c.FirstReclaimBar < 0) c.FirstReclaimBar = i;
+            if (bos && c.FirstBosBar < 0) c.FirstBosBar = i;
+            if (rejection && c.FirstRejectionBar < 0) c.FirstRejectionBar = i;
+            if (sweep && c.FirstSweepBar < 0) c.FirstSweepBar = i;
+            if (failedExtension && c.FirstFailedExtensionBar < 0) c.FirstFailedExtensionBar = i;
+            if (insidePrz && c.FirstInsidePrzBar < 0) c.FirstInsidePrzBar = i;
+            if (displacement && c.FirstDisplacementBar < 0) c.FirstDisplacementBar = i;
+            if (retest && c.FirstRetestBar < 0) c.FirstRetestBar = i;
+            if (deceleration && c.FirstDecelerationBar < 0) c.FirstDecelerationBar = i;
+
+            string p = sig.PatternName ?? "";
+            bool retr = p == "Gartley" || p == "Bat" || p == "Deep Gartley" || p == "Rat";
+            bool ext = p == "Alt Bat" || p == "Butterfly" || p == "Crab" || p == "Deep Crab";
+
+            if (retr)
             {
-                if(c.DagStage1Bar<0&&(rejection||failedExtension))c.DagStage1Bar=i;
-                if(c.DagStage1Bar>=0&&c.DagStage2Bar<0&&reclaim&&i>=c.DagStage1Bar)c.DagStage2Bar=i;
-                if(c.DagStage2Bar>=0&&c.DagPostBar<0&&(bos||displacement)&&i>=c.DagStage2Bar)c.DagPostBar=i;
-                score=(c.FamilyReclaim?.30:0)+((c.FamilyRejection||c.FamilyFailedExtension)?.25:0)+(c.FamilyBos?.25:0)+(c.FamilyDisplacement?.20:0);
-                return !EnableV58TemporalEventDag
-                    ? c.FamilyReclaim&&(c.FamilyRejection||c.FamilyFailedExtension)&&(c.FamilyBos||c.FamilyDisplacement)&&score>=.75
-                    : c.DagStage1Bar>=0&&c.DagStage2Bar>=c.DagStage1Bar&&c.DagPostBar>=c.DagStage2Bar&&score>=.75;
+                score = (c.FamilyReclaim ? .30 : 0) +
+                        ((c.FamilyRejection || c.FamilyFailedExtension) ? .25 : 0) +
+                        (c.FamilyBos ? .25 : 0) +
+                        (c.FamilyDisplacement ? .20 : 0);
+
+                if (!EnableV58TemporalEventDag)
+                    return c.FamilyReclaim && (c.FamilyRejection || c.FamilyFailedExtension) &&
+                           (c.FamilyBos || c.FamilyDisplacement) && score >= .75;
+
+                // Stage-aware latch: early reclaim/BOS events do not poison a later legal sequence.
+                if (c.FamilyDagStage == 0 && (rejection || failedExtension))
+                {
+                    c.FamilyDagStage = 1;
+                    c.FamilyDagPreBar = i;
+                }
+                if (c.FamilyDagStage == 1 && reclaim)
+                {
+                    c.FamilyDagStage = 2;
+                    c.FamilyDagReclaimBar = i;
+                }
+                if (c.FamilyDagStage >= 2 && (bos || displacement))
+                {
+                    c.FamilyDagStage = 3;
+                    c.FamilyDagPostBar = i;
+                }
+                return c.FamilyDagStage >= 3 && score >= .75;
             }
-            if(ext)
+
+            if (ext)
             {
-                if(c.DagStage1Bar<0&&sweep)c.DagStage1Bar=i;
-                if(c.DagStage1Bar>=0&&c.DagStage2Bar<0&&failedExtension&&i>=c.DagStage1Bar)c.DagStage2Bar=i;
-                if(c.DagStage2Bar>=0&&c.DagStage3Bar<0&&(reclaim||insidePrz)&&i>=c.DagStage2Bar)c.DagStage3Bar=i;
-                if(c.DagStage2Bar>=0&&c.DagPostBar<0&&(bos||displacement)&&i>=c.DagStage2Bar)c.DagPostBar=i;
-                score=(c.FamilySweep?.20:0)+(c.FamilyFailedExtension?.25:0)+((c.FamilyReclaim||c.FamilyInsidePrz)?.25:0)+(c.FamilyBos?.20:0)+(c.FamilyDisplacement?.10:0);
-                return !EnableV58TemporalEventDag
-                    ? c.FamilySweep&&c.FamilyFailedExtension&&(c.FamilyReclaim||c.FamilyInsidePrz)&&(c.FamilyBos||c.FamilyDisplacement)&&score>=.75
-                    : c.DagStage1Bar>=0&&c.DagStage2Bar>=c.DagStage1Bar&&c.DagStage3Bar>=c.DagStage2Bar&&c.DagPostBar>=c.DagStage2Bar&&score>=.75;
+                score = (c.FamilySweep ? .20 : 0) +
+                        (c.FamilyFailedExtension ? .25 : 0) +
+                        ((c.FamilyReclaim || c.FamilyInsidePrz) ? .25 : 0) +
+                        (c.FamilyBos ? .20 : 0) +
+                        (c.FamilyDisplacement ? .10 : 0);
+
+                if (!EnableV58TemporalEventDag)
+                    return c.FamilySweep && c.FamilyFailedExtension &&
+                           (c.FamilyReclaim || c.FamilyInsidePrz) &&
+                           (c.FamilyBos || c.FamilyDisplacement) && score >= .75;
+
+                if (c.FamilyDagStage == 0 && sweep)
+                {
+                    c.FamilyDagStage = 1;
+                    c.FamilyDagPreBar = i;
+                }
+                if (c.FamilyDagStage == 1 && failedExtension)
+                {
+                    c.FamilyDagStage = 2;
+                    c.FamilyDagConfirmBar = i;
+                }
+                if (c.FamilyDagStage >= 2 && (reclaim || insidePrz))
+                {
+                    c.FamilyDagAuxA = true;
+                    if (c.FamilyDagReclaimBar < 0) c.FamilyDagReclaimBar = i;
+                }
+                if (c.FamilyDagStage >= 2 && (bos || displacement))
+                {
+                    c.FamilyDagAuxB = true;
+                    if (c.FamilyDagPostBar < 0) c.FamilyDagPostBar = i;
+                }
+                if (c.FamilyDagStage >= 2 && c.FamilyDagAuxA && c.FamilyDagAuxB)
+                    c.FamilyDagStage = 3;
+                return c.FamilyDagStage >= 3 && score >= .75;
             }
-            if(p=="5-0")
+
+            if (p == "5-0")
             {
-                if(c.DagStage1Bar<0&&failedExtension)c.DagStage1Bar=i;
-                if(c.DagStage1Bar>=0&&c.DagStage2Bar<0&&bos&&i>=c.DagStage1Bar)c.DagStage2Bar=i;
-                if(c.DagStage2Bar>=0&&c.DagStage3Bar<0&&retest&&i>=c.DagStage2Bar)c.DagStage3Bar=i;
-                score=(c.FamilyFailedExtension?.25:0)+(c.FamilyBos?.30:0)+(c.FamilyRetest?.25:0)+(c.FamilyDirectional?.20:0);
-                return c.DagStage1Bar>=0&&c.DagStage2Bar>=c.DagStage1Bar&&c.DagStage3Bar>=c.DagStage2Bar&&c.FamilyDirectional&&score>=.80;
+                score = (c.FamilyFailedExtension ? .25 : 0) +
+                        (c.FamilyBos ? .30 : 0) +
+                        (c.FamilyRetest ? .25 : 0) +
+                        (c.FamilyDirectional ? .20 : 0);
+
+                if (c.FamilyDagStage == 0 && failedExtension)
+                {
+                    c.FamilyDagStage = 1;
+                    c.FamilyDagPreBar = i;
+                }
+                if (c.FamilyDagStage == 1 && bos)
+                {
+                    c.FamilyDagStage = 2;
+                    c.FamilyDagConfirmBar = i;
+                }
+                if (c.FamilyDagStage >= 2 && retest)
+                {
+                    c.FamilyDagStage = 3;
+                    c.FamilyDagPostBar = i;
+                }
+                return c.FamilyDagStage >= 3 && c.FamilyDirectional && score >= .80;
             }
-            if(p=="Shark")
+
+            if (p == "Shark")
             {
-                if(c.DagStage1Bar<0&&sweep)c.DagStage1Bar=i;
-                if(c.DagStage1Bar>=0&&c.DagStage2Bar<0&&failedExtension&&i>=c.DagStage1Bar)c.DagStage2Bar=i;
-                if(c.DagStage2Bar>=0&&c.DagStage3Bar<0&&reclaim&&i>=c.DagStage2Bar)c.DagStage3Bar=i;
-                if(c.DagStage2Bar>=0&&c.DagPostBar<0&&(bos||displacement)&&i>=c.DagStage2Bar)c.DagPostBar=i;
-                score=(c.FamilySweep?.20:0)+(c.FamilyFailedExtension?.25:0)+(c.FamilyReclaim?.25:0)+((c.FamilyBos||c.FamilyDisplacement)?.30:0);
-                return c.DagStage1Bar>=0&&c.DagStage2Bar>=c.DagStage1Bar&&c.DagStage3Bar>=c.DagStage2Bar&&c.DagPostBar>=c.DagStage2Bar&&score>=.75;
+                score = (c.FamilySweep ? .20 : 0) +
+                        (c.FamilyFailedExtension ? .25 : 0) +
+                        (c.FamilyReclaim ? .25 : 0) +
+                        ((c.FamilyBos || c.FamilyDisplacement) ? .30 : 0);
+
+                if (c.FamilyDagStage == 0 && sweep)
+                {
+                    c.FamilyDagStage = 1;
+                    c.FamilyDagPreBar = i;
+                }
+                if (c.FamilyDagStage == 1 && failedExtension)
+                {
+                    c.FamilyDagStage = 2;
+                    c.FamilyDagConfirmBar = i;
+                }
+                if (c.FamilyDagStage >= 2 && reclaim)
+                {
+                    c.FamilyDagAuxA = true;
+                    if (c.FamilyDagReclaimBar < 0) c.FamilyDagReclaimBar = i;
+                }
+                if (c.FamilyDagStage >= 2 && (bos || displacement))
+                {
+                    c.FamilyDagAuxB = true;
+                    if (c.FamilyDagPostBar < 0) c.FamilyDagPostBar = i;
+                }
+                if (c.FamilyDagStage >= 2 && c.FamilyDagAuxA && c.FamilyDagAuxB)
+                    c.FamilyDagStage = 3;
+                return c.FamilyDagStage >= 3 && score >= .75;
             }
-            if(p=="Cypher")
+
+            if (p == "Cypher")
             {
-                if(c.DagStage1Bar<0&&reclaim)c.DagStage1Bar=i;
-                if(c.DagStage1Bar>=0&&c.DagPostBar<0&&(bos||displacement)&&i>=c.DagStage1Bar)c.DagPostBar=i;
-                score=(c.FamilyReclaim?.35:0)+((c.FamilyBos||c.FamilyDisplacement)?.35:0)+(c.FamilyDirectional?.20:0)+(c.FamilyRetest?.10:0);
-                return c.DagStage1Bar>=0&&c.DagPostBar>=c.DagStage1Bar&&c.FamilyDirectional&&score>=.75;
+                score = (c.FamilyReclaim ? .35 : 0) +
+                        ((c.FamilyBos || c.FamilyDisplacement) ? .35 : 0) +
+                        (c.FamilyDirectional ? .20 : 0) +
+                        (c.FamilyRetest ? .10 : 0);
+
+                if (c.FamilyDagStage == 0 && reclaim)
+                {
+                    c.FamilyDagStage = 1;
+                    c.FamilyDagReclaimBar = i;
+                }
+                if (c.FamilyDagStage >= 1 && (bos || displacement))
+                {
+                    c.FamilyDagStage = 2;
+                    c.FamilyDagPostBar = i;
+                }
+                return c.FamilyDagStage >= 2 && c.FamilyDirectional && score >= .75;
             }
-            if(p=="AB=CD")
+
+            if (p == "AB=CD")
             {
-                if(c.DagStage1Bar<0&&deceleration)c.DagStage1Bar=i;
-                if(c.DagStage1Bar>=0&&c.DagStage2Bar<0&&failedExtension&&i>=c.DagStage1Bar)c.DagStage2Bar=i;
-                if(c.DagStage2Bar>=0&&c.DagStage3Bar<0&&reclaim&&i>=c.DagStage2Bar)c.DagStage3Bar=i;
-                if(c.DagStage2Bar>=0&&c.DagPostBar<0&&(bos||displacement)&&i>=c.DagStage2Bar)c.DagPostBar=i;
-                score=(c.FamilyDeceleration?.25:0)+(c.FamilyFailedExtension?.25:0)+(c.FamilyReclaim?.25:0)+((c.FamilyBos||c.FamilyDisplacement)?.25:0);
-                return c.DagStage1Bar>=0&&c.DagStage2Bar>=c.DagStage1Bar&&c.DagStage3Bar>=c.DagStage2Bar&&c.DagPostBar>=c.DagStage2Bar&&score>=.75;
+                score = (c.FamilyDeceleration ? .25 : 0) +
+                        (c.FamilyFailedExtension ? .25 : 0) +
+                        (c.FamilyReclaim ? .25 : 0) +
+                        ((c.FamilyBos || c.FamilyDisplacement) ? .25 : 0);
+
+                if (c.FamilyDagStage == 0 && deceleration)
+                {
+                    c.FamilyDagStage = 1;
+                    c.FamilyDagPreBar = i;
+                }
+                if (c.FamilyDagStage == 1 && failedExtension)
+                {
+                    c.FamilyDagStage = 2;
+                    c.FamilyDagConfirmBar = i;
+                }
+                if (c.FamilyDagStage >= 2 && reclaim)
+                {
+                    c.FamilyDagAuxA = true;
+                    if (c.FamilyDagReclaimBar < 0) c.FamilyDagReclaimBar = i;
+                }
+                if (c.FamilyDagStage >= 2 && (bos || displacement))
+                {
+                    c.FamilyDagAuxB = true;
+                    if (c.FamilyDagPostBar < 0) c.FamilyDagPostBar = i;
+                }
+                if (c.FamilyDagStage >= 2 && c.FamilyDagAuxA && c.FamilyDagAuxB)
+                    c.FamilyDagStage = 3;
+                return c.FamilyDagStage >= 3 && score >= .75;
             }
+
             return false;
-        }
-
-        private int V58FirstEvent(params int[] bars)
-        {
-            var xs=bars.Where(x=>x>=0).ToList();
-            return xs.Count==0?-1:xs.Min();
         }
 
         private bool UpdatePatternNativeM1State(int i, CandidateRecord c, out double score)
@@ -4543,6 +4670,8 @@ namespace cAlgo.Robots
                     FamilyFailedExtension, FamilyInsidePrz, FamilyDisplacement, FamilyRetest, FamilyDeceleration;
         public int FirstDirectionalBar=-1, FirstReclaimBar=-1, FirstBosBar=-1, FirstRejectionBar=-1, FirstSweepBar=-1,
                    FirstFailedExtensionBar=-1, FirstInsidePrzBar=-1, FirstDisplacementBar=-1, FirstRetestBar=-1, FirstDecelerationBar=-1;
+        public int FamilyDagStage, FamilyDagPreBar=-1, FamilyDagConfirmBar=-1, FamilyDagReclaimBar=-1, FamilyDagPostBar=-1;
+        public bool FamilyDagAuxA, FamilyDagAuxB;
         public int DagStage1Bar=-1, DagStage2Bar=-1, DagStage3Bar=-1, DagPostBar=-1;
         public double OriginalRank, OriginalGeometry, OriginalPrzConfluence, OriginalM1Evidence, OriginalEntryAnchor, ShadowRiskDistance, ShadowMfeR, ShadowMaeR;
         public double CompletionAnchorPrice, NativeConfirmAnchorPrice, NativeRetestAnchorPrice;
