@@ -11,6 +11,12 @@ required = [
     "V59CanonicalManifoldScore",
     "familyConstraint",
     "MAXIMIZE_RESEARCH_SUPPLY_WITHOUT_RELAXING_CAPITAL_RISK",
+    "RefreshHigherTimeframeContext",
+    "_cachedH4State",
+    "_cachedH1State",
+    "AbcdTerminality",
+    "NESTED_FULL_HARMONIC",
+    "SECONDARY_SCALE_ABCD_ROUTE_RESEARCH_ONLY",
 ]
 for token in required:
     assert token in SRC, f"missing V59 architecture token: {token}"
