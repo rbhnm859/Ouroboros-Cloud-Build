@@ -9,6 +9,6 @@ for token in ["V60_RESEARCH_CONTINUE_PATTERN_QUALITY","V60_RESEARCH_CONTINUE_ROU
               "V60_ABCD_NESTED_PARENT_CONFLUENCE_ONLY","SECONDARY_SCALE_ABCD_ROUTE_RESEARCH_ONLY",
               "conv_rx","unique_capital_geometries","C1","C2","C3","AB=CD"]:
     assert token in ALPHA, f"missing cluster-aware Alpha evidence token: {token}"
-assert "[V60-FAMILY-CONTRACT-SUMMARY]" in DENSITY
+assert "V60-FAMILY-CONTRACT-SUMMARY" in DENSITY
 assert '"temporal_pass"' in DENSITY
 print("V60 Evidence Integrity Gate0 contract PASS")
