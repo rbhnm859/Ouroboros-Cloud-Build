@@ -48,6 +48,7 @@ jobs:
           python3 HarmonyBot-V60/tools/v60_minimal_coordinate_contract_test.py
           python3 HarmonyBot-V60/tools/v60_fibonacci_grid_contract_test.py
           python3 HarmonyBot-V60/tools/v60_convex_capture_contract_test.py
+          python3 HarmonyBot-V60/tools/v60_evidence_integrity_contract_test.py
           python3 HarmonyBot-V60/tools/static_audit.py HarmonyBot-V60/src/HarmonyBotV60.cs
           python3 HarmonyBot-V60/tools/geometry_contract_test.py HarmonyBot-V60/src/HarmonyBotV60.cs
           python3 HarmonyBot-V60/tools/detector_contract_test.py HarmonyBot-V60/src/HarmonyBotV60.cs
