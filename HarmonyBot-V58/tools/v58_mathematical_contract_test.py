@@ -43,20 +43,42 @@ for p in required: assert f'Name = "{p}"' in src or f'AddStd("{p}"' in src
 # Projection convergence and projection error are explicit independent terms.
 assert "projectionConvergence" in src and "projectionPurity" in src and "ProjectionErrorAtr" in src
 
-# Temporal DAG is a stage-aware latch: early invalid events cannot permanently poison a later legal sequence.
+# Temporal DAG is a strict predecessor-aware latch: early invalid events cannot poison
+# a later legal sequence, and multiple stages cannot collapse onto the same M1 bar.
 compact=src.replace(" ","").replace("\n","")
 assert "FamilyDagStage" in src and "FamilyDagAuxA" in src and "FamilyDagAuxB" in src
 assert "if(c.FamilyDagStage==0&&(rejection||failedExtension))" in compact
-assert "if(c.FamilyDagStage==1&&reclaim)" in compact
-assert "if(c.FamilyDagStage>=2&&(bos||displacement))" in compact
+assert "if(c.FamilyDagStage==1&&i>c.FamilyDagPreBar&&reclaim)" in compact
+assert "if(c.FamilyDagStage==2&&i>c.FamilyDagReclaimBar&&(bos||displacement))" in compact
 assert "if(c.FamilyDagStage==0&&sweep)" in compact
-assert "if(c.FamilyDagStage==1&&failedExtension)" in compact
-assert "if(c.FamilyDagStage>=2&&c.FamilyDagAuxA&&c.FamilyDagAuxB)" in compact
+assert "if(c.FamilyDagStage==1&&i>c.FamilyDagPreBar&&failedExtension)" in compact
+assert "if(c.FamilyDagStage==2&&i>c.FamilyDagConfirmBar&&(reclaim||insidePrz))" in compact
+assert "if(c.FamilyDagStage==3&&i>c.FamilyDagReclaimBar&&(bos||displacement))" in compact
+assert "if(c.FamilyDagStage>=2&&c.FamilyDagAuxA&&c.FamilyDagAuxB)" not in compact
 dag_start=src.index("private bool UpdateFamilyCompletionEvidence")
 dag_end=src.index("private bool UpdatePatternNativeM1State",dag_start)
 dag=src[dag_start:dag_end]
 assert "V58FirstEvent" not in dag
 assert "Diagnostic first-occurrence timestamps are retained, but they no longer determine DAG validity." in dag
+
+def dag_pass(sequence, stages):
+    stage=0
+    predecessor=-1
+    for bar,events in enumerate(sequence):
+        if stage>=len(stages): break
+        if bar<=predecessor: continue
+        if any(e in events for e in stages[stage]):
+            predecessor=bar
+            stage+=1
+    return stage==len(stages)
+
+retr=[("rejection","failedExtension"),("reclaim",),("bos","displacement")]
+ext=[("sweep",),("failedExtension",),("reclaim","insidePrz"),("bos","displacement")]
+assert dag_pass([{"reclaim"},{"rejection"},{"reclaim"},{"bos"}],retr)
+assert not dag_pass([{"reclaim"},{"rejection"},{"bos"}],retr)
+assert dag_pass([{"sweep"},{"failedExtension"},{"reclaim"},{"bos"}],ext)
+assert not dag_pass([{"sweep"},{"failedExtension"},{"bos"},{"reclaim"}],ext)
+assert not dag_pass([{"sweep","failedExtension","reclaim","bos"}],ext)
 
 # Excursion capture must use prior MFE before current-bar extrema update.
 u=src.index("private void UpdateV58FamilyShadowTrades")
