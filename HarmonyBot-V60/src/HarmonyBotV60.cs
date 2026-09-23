@@ -840,6 +840,7 @@ namespace cAlgo.Robots
             if (t <= _lastM1Closed) return;
             _lastM1Closed = t;
             DateTime utc = DateTime.SpecifyKind(t, DateTimeKind.Utc);
+            foreach(var b in _baskets.Values.Where(x=>x.IsActive)) b.PriorM1PeakR=b.PeakR;
             UpdateV60FamilyShadowTrades(i, utc);
 
             foreach (var c in _candidates.Values.Where(x => x.IsActive).ToList())
@@ -1901,14 +1902,20 @@ namespace cAlgo.Robots
                     continue;
                 }
 
-                if (EnableV60ExcursionCaptureLive && basket.PeakR >= .75)
+                if (EnableV60ExcursionCaptureLive)
                 {
-                    double span = Math.Abs(basket.AverageEntry - basket.StructuralStop);
-                    double lockR = basket.PeakR >= 1.25 ? Math.Max(.25, basket.PeakR - .75) : .10;
-                    double lockPrice = basket.Direction == TradeDirection.Buy
-                        ? basket.AverageEntry + span * lockR
-                        : basket.AverageEntry - span * lockR;
-                    AdvanceBasketProtectionFrontier(basket, lockPrice, basket.PeakR >= 1.25 ? "V60_CAPTURE_TRAIL" : "V60_CAPTURE_PROTECT");
+                    double protectTrigger,protectFloor,trailTrigger,trailDistance;
+                    V60ConvexPolicy(basket.Route,out protectTrigger,out protectFloor,out trailTrigger,out trailDistance);
+                    double priorPeak=Math.Max(0,basket.PriorM1PeakR);
+                    if(priorPeak>=protectTrigger)
+                    {
+                        double span=Math.Abs(basket.AverageEntry-basket.StructuralStop);
+                        double lockR=priorPeak>=trailTrigger?Math.Max(protectFloor,priorPeak-trailDistance):protectFloor;
+                        double lockPrice=basket.Direction==TradeDirection.Buy
+                            ?basket.AverageEntry+span*lockR
+                            :basket.AverageEntry-span*lockR;
+                        AdvanceBasketProtectionFrontier(basket,lockPrice,priorPeak>=trailTrigger?"V60_ROUTE_CONVEX_TRAIL":"V60_ROUTE_CONVEX_PROTECT");
+                    }
                 }
                 else if (basket.PeakR >= BreakEvenTriggerR)
                 {
@@ -5018,7 +5025,7 @@ namespace cAlgo.Robots
         public FibonacciBasketState State;
         public DateTime CreatedUtc, ExpirationUtc;
         public double EntryAnchor, AverageEntry, StructuralStop, CanonicalTarget;
-        public double InitialBasketRisk, PlannedWorstCaseRisk, PeakR, MaxAdverseR, RealizedNet, ProtectionFrontier;
+        public double InitialBasketRisk, PlannedWorstCaseRisk, PeakR, PriorM1PeakR, MaxAdverseR, RealizedNet, ProtectionFrontier;
         public int FilledLegs, ClosedLegs;
         public bool IsActive;
         public FibonacciGridPlan Plan;
