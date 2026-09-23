@@ -33,6 +33,10 @@ jobs:
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: 8.0.x
+          cache: true
+          cache-dependency-path: |
+            control/HarmonyBot-V58/HarmonyBotV58.csproj
+            control/HarmonyBot-V51/HarmonyBotV51.csproj
       - name: Mathematical, architecture, detector and build contracts
         shell: bash
         run: |
@@ -70,6 +74,10 @@ jobs:
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: 8.0.x
+          cache: true
+          cache-dependency-path: |
+            control/HarmonyBot-V58/HarmonyBotV58.csproj
+            control/HarmonyBot-V51/HarmonyBotV51.csproj
       - name: Rebuild immutable V51 source
         shell: bash
         run: |
@@ -161,8 +169,9 @@ jobs:
           retention-days: 30
 
   calibration:
-    needs: [build-v58, v51-replay-gate]
-    if: needs.v51-replay-gate.outputs.replayok == 'true'
+    # Fast-path: calibration is independent of the immutable V51 replay.
+    # Run both branches in parallel and merge only at calibration-manifest.
+    needs: build-v58
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     strategy:
@@ -215,7 +224,8 @@ jobs:
           retention-days: 30
 
   calibration-manifest:
-    needs: calibration
+    needs: [calibration, v51-replay-gate]
+    if: needs.v51-replay-gate.outputs.replayok == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     outputs:
