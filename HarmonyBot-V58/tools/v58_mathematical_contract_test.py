@@ -43,12 +43,20 @@ for p in required: assert f'Name = "{p}"' in src or f'AddStd("{p}"' in src
 # Projection convergence and projection error are explicit independent terms.
 assert "projectionConvergence" in src and "projectionPurity" in src and "ProjectionErrorAtr" in src
 
-# Temporal DAG uses partial ordering and same-bar-compatible >= relations.
-compact=src.replace(" ","")
-assert "c.DagStage2Bar>=c.DagStage1Bar" in compact
-assert "c.DagStage3Bar>=c.DagStage2Bar" in compact
-assert "c.DagPostBar>=c.DagStage2Bar" in compact
-assert "DagStage1Bar=-1, DagStage2Bar=-1, DagStage3Bar=-1, DagPostBar=-1" in src
+# Temporal DAG is a stage-aware latch: early invalid events cannot permanently poison a later legal sequence.
+compact=src.replace(" ","").replace("\n","")
+assert "FamilyDagStage" in src and "FamilyDagAuxA" in src and "FamilyDagAuxB" in src
+assert "if(c.FamilyDagStage==0&&(rejection||failedExtension))" in compact
+assert "if(c.FamilyDagStage==1&&reclaim)" in compact
+assert "if(c.FamilyDagStage>=2&&(bos||displacement))" in compact
+assert "if(c.FamilyDagStage==0&&sweep)" in compact
+assert "if(c.FamilyDagStage==1&&failedExtension)" in compact
+assert "if(c.FamilyDagStage>=2&&c.FamilyDagAuxA&&c.FamilyDagAuxB)" in compact
+dag_start=src.index("private bool UpdateFamilyCompletionEvidence")
+dag_end=src.index("private bool UpdatePatternNativeM1State",dag_start)
+dag=src[dag_start:dag_end]
+assert "V58FirstEvent" not in dag
+assert "Diagnostic first-occurrence timestamps are retained, but they no longer determine DAG validity." in dag
 
 # Excursion capture must use prior MFE before current-bar extrema update.
 u=src.index("private void UpdateV58FamilyShadowTrades")
