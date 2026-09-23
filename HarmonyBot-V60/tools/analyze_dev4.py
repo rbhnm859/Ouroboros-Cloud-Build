@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 import json,pathlib,sys,collections
 root=pathlib.Path(sys.argv[1]); out=pathlib.Path(sys.argv[2]); out.mkdir(parents=True,exist_ok=True)
-F=["V60_MANIFOLD_BASELINE_L0","V60_MANIFOLD_CAPTURE_L0","V60_MANIFOLD_CAPTURE_LEGACY_GRID"]
+F=["V60_CORE_L0_BASELINE","V60_CORE_L0_FAMILY_CAPTURE","V60_LEGACY_FIB_GRID_CAPTURE","V60_ADAPTIVE_FIB_GRID_CAPTURE"]
 COMM={"baskets":90,"frequency":60.0,"net":1800.0,"pf":2.0,"expectancy":20.0,"win_rate":.50,"max_dd_pct":6.0}
 HIST={"frequency":38.6666666667,"net":2101.66,"pf":2.1096878432,"expectancy":36.2355,"win_rate":.534483,"max_dd_pct":4.49784}
 def find(n):
@@ -52,18 +52,21 @@ for f,z in A.items():
  z["commercial_gate"]=gate(z)
  z["historical_superiority_gate"]=superior(z)
 eligible=[]
-if gate(A["V60_MANIFOLD_CAPTURE_L0"]) and superior(A["V60_MANIFOLD_CAPTURE_L0"]) and capture["pass"]:
- eligible.append("V60_MANIFOLD_CAPTURE_L0")
-if gate(A["V60_MANIFOLD_CAPTURE_LEGACY_GRID"]) and superior(A["V60_MANIFOLD_CAPTURE_LEGACY_GRID"]) and capture["pass"] and grid["pass"]:
- eligible.append("V60_MANIFOLD_CAPTURE_LEGACY_GRID")
+if gate(A["V60_CORE_L0_FAMILY_CAPTURE"]) and superior(A["V60_CORE_L0_FAMILY_CAPTURE"]) and capture["pass"]:
+ eligible.append("V60_CORE_L0_FAMILY_CAPTURE")
+if gate(A["V60_LEGACY_FIB_GRID_CAPTURE"]) and superior(A["V60_LEGACY_FIB_GRID_CAPTURE"]) and capture["pass"] and legacy_grid["pass"]:
+ eligible.append("V60_LEGACY_FIB_GRID_CAPTURE")
+if gate(A["V60_ADAPTIVE_FIB_GRID_CAPTURE"]) and superior(A["V60_ADAPTIVE_FIB_GRID_CAPTURE"]) and capture["pass"] and legacy_grid["pass"] and adaptive_grid["pass"]:
+ eligible.append("V60_ADAPTIVE_FIB_GRID_CAPTURE")
 winner=max(eligible,key=lambda f:(A[f]["net"],A[f]["pf"],A[f]["frequency"])) if eligible else None
-front={"version":"HarmonyBot V60","architecture":"CANONICAL_HARMONIC_MANIFOLD_EXCURSION_CAPTURE","commercial_minimum":COMM,"historical_superiority_reference":HIST,
-"data_snapshot_valid":snapok,"data_snapshot_by_window":snap,"variants":A,"capture_causal_attribution":capture,"legacy_grid_causal_attribution":grid,
+front={"version":"HarmonyBot V60","architecture":"HARMONIC_ALPHA_CONVERSION_FIBONACCI_GRID_CONVEX_CAPTURE","commercial_minimum":COMM,"historical_superiority_reference":HIST,
+"data_snapshot_valid":snapok,"data_snapshot_by_window":snap,"variants":A,"capture_causal_attribution":capture,
+"legacy_grid_causal_attribution":legacy_grid,"adaptive_grid_causal_attribution":adaptive_grid,
 "development_candidate":winner,"status":"DEV4_SUPERIORITY_PASS" if winner else "HOLD_WITH_EVIDENCE","fresh_used":False,
 "next_stage":"UNTOUCHED_2026_VALIDATION" if winner else "STOP_DEV4_HOLD"}
 (out/"V60_PERFORMANCE_FRONTIER.json").write_text(json.dumps(front,indent=2))
 (out/"V60_CAPTURE_CAUSAL_ATTRIBUTION.json").write_text(json.dumps(capture,indent=2))
-(out/"V60_GRID_CAUSAL_ATTRIBUTION.json").write_text(json.dumps(grid,indent=2))
+(out/"V60_GRID_CAUSAL_ATTRIBUTION.json").write_text(json.dumps({"legacy":legacy_grid,"adaptive":adaptive_grid},indent=2))
 (out/"candidate.txt").write_text(winner or "")
 (out/"V60_FINAL_DEV4_DECISION.json").write_text(json.dumps({"version":"HarmonyBot V60","decision":"DEV4_SUPERIORITY_PASS" if winner else "HOLD_WITH_EVIDENCE","fresh_used":False},indent=2))
 print(json.dumps(front,indent=2))
