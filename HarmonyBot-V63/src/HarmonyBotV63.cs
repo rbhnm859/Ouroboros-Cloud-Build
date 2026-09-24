@@ -211,6 +211,15 @@ namespace cAlgo.Robots
         [Parameter("V63 Variant", DefaultValue = "V63_CONDITIONAL_EXECUTION")]
         public string V63Variant { get; set; }
 
+        [Parameter("V63 Frozen Policy Map", DefaultValue = "")]
+        public string V63FrozenPolicyMap { get; set; }
+
+        [Parameter("V63 Frozen Recovery Cells", DefaultValue = "")]
+        public string V63FrozenRecoveryCells { get; set; }
+
+        [Parameter("V63 Frozen Occupancy Cells", DefaultValue = "")]
+        public string V63FrozenOccupancyCells { get; set; }
+
         [Parameter("V63 Regime Survival Threshold", DefaultValue = 0.65, MinValue = 0.40, MaxValue = 0.75)]
         public double V63RegimeSurvivalThreshold { get; set; }
 
@@ -330,6 +339,12 @@ namespace cAlgo.Robots
         private int _v63ConditionalLegRejected;
         private int _v63CohortRecovered;
         private int _v63OccupancyReleased;
+        private readonly Dictionary<string, string> _v63FrozenPolicies = new Dictionary<string, string>(StringComparer.Ordinal);
+        private readonly HashSet<string> _v63FrozenRecovery = new HashSet<string>(StringComparer.Ordinal);
+        private readonly HashSet<string> _v63FrozenOccupancy = new HashSet<string>(StringComparer.Ordinal);
+        private bool _v63FrozenPolicyLoaded;
+        private bool _v63FrozenRecoveryLoaded;
+        private bool _v63FrozenOccupancyLoaded;
 
         private DateTime _lastM15Closed = DateTime.MinValue;
         private DateTime _lastM1Closed = DateTime.MinValue;
@@ -353,6 +368,8 @@ namespace cAlgo.Robots
                 Stop();
                 return;
             }
+
+            LoadV63FrozenEvidence();
 
             _h4Bars = MarketData.GetBars(TimeFrame.Hour4, SymbolName);
             _h1Bars = MarketData.GetBars(TimeFrame.Hour, SymbolName);
@@ -820,6 +837,12 @@ namespace cAlgo.Robots
                     {
                         _v63RegimeVetoed++;
                         Reject(c, "V63_REGIME_SURVIVAL_VETO");
+                        continue;
+                    }
+
+                    if (V63PolicyRouterEnabled() && V63PolicyFor(c) == "CAPITAL_OFF")
+                    {
+                        Reject(c, "V63_FROZEN_CELL_CAPITAL_OFF");
                         continue;
                     }
 
@@ -1766,10 +1789,69 @@ namespace cAlgo.Robots
             if (c==null || c.Signal==null) return "R4_TRANSITION";
             return V63ClassifyRegime(c.Regime,c.Conflict,c.Signal.Direction);
         }
+        private string V63Token(string value)
+        {
+            return (value ?? "").Trim().Replace(" ", "_");
+        }
+
+        private string V63CellKey(string pattern, HarmonicRoute route, string regime)
+        {
+            return V63Token(pattern) + "~" + route + "~" + V63Token(regime);
+        }
+
+        private string V63CellKey(CandidateRecord c)
+        {
+            if (c == null || c.Signal == null) return "";
+            return V63CellKey(c.Signal.PatternName, c.Route, V63ClassifyRegime(c));
+        }
+
+        private void LoadV63FrozenEvidence()
+        {
+            _v63FrozenPolicies.Clear();
+            _v63FrozenRecovery.Clear();
+            _v63FrozenOccupancy.Clear();
+
+            if (!string.IsNullOrWhiteSpace(V63FrozenPolicyMap))
+            {
+                foreach (string raw in V63FrozenPolicyMap.Split(new[] { ';' }, StringSplitOptions.RemoveEmptyEntries))
+                {
+                    int cut = raw.IndexOf('#');
+                    if (cut <= 0 || cut >= raw.Length - 1) continue;
+                    string key = raw.Substring(0, cut).Trim();
+                    string policy = raw.Substring(cut + 1).Trim();
+                    if (!string.IsNullOrWhiteSpace(key) && !string.IsNullOrWhiteSpace(policy))
+                        _v63FrozenPolicies[key] = policy;
+                }
+            }
+
+            if (!string.IsNullOrWhiteSpace(V63FrozenRecoveryCells))
+                foreach (string raw in V63FrozenRecoveryCells.Split(new[] { ';' }, StringSplitOptions.RemoveEmptyEntries))
+                    if (!string.IsNullOrWhiteSpace(raw)) _v63FrozenRecovery.Add(raw.Trim());
+
+            if (!string.IsNullOrWhiteSpace(V63FrozenOccupancyCells))
+                foreach (string raw in V63FrozenOccupancyCells.Split(new[] { ';' }, StringSplitOptions.RemoveEmptyEntries))
+                    if (!string.IsNullOrWhiteSpace(raw)) _v63FrozenOccupancy.Add(raw.Trim());
+
+            _v63FrozenPolicyLoaded = _v63FrozenPolicies.Count > 0;
+            _v63FrozenRecoveryLoaded = !string.IsNullOrWhiteSpace(V63FrozenRecoveryCells);
+            _v63FrozenOccupancyLoaded = !string.IsNullOrWhiteSpace(V63FrozenOccupancyCells);
+            Print("[V63-FROZEN-EVIDENCE] policies={0} recoveryCells={1} occupancyCells={2} policyLoaded={3} recoveryLoaded={4} occupancyLoaded={5}",
+                _v63FrozenPolicies.Count, _v63FrozenRecovery.Count, _v63FrozenOccupancy.Count,
+                _v63FrozenPolicyLoaded, _v63FrozenRecoveryLoaded, _v63FrozenOccupancyLoaded);
+        }
+
         private string V63PolicyFor(CandidateRecord c)
         {
-            if (c==null || c.Signal==null) return "SINGLE";
+            if (c==null || c.Signal==null) return "CAPITAL_OFF";
             if (!V63PolicyRouterEnabled()) return "CONDITIONAL";
+            if (_v63FrozenPolicyLoaded)
+            {
+                string frozen;
+                if (!_v63FrozenPolicies.TryGetValue(V63CellKey(c), out frozen)) return "CAPITAL_OFF";
+                if (!V63RunnerEnabled() && frozen=="SINGLE_RUNNER") return "SINGLE";
+                if (!V63RunnerEnabled() && frozen=="CONDITIONAL_RUNNER") return "CONDITIONAL";
+                return frozen;
+            }
             string p=c.Signal.PatternName??"", r=V63ClassifyRegime(c);
             if (r=="R3_COMPRESSION") return "SINGLE";
             if (p=="Rat" && c.Route==HarmonicRoute.TREND_ALIGNED_REVERSAL && r=="R1_TREND_EXPANSION") return V63RunnerEnabled()?"SINGLE_RUNNER":"SINGLE";
@@ -1844,7 +1926,17 @@ namespace cAlgo.Robots
             else if((sig.PatternName=="Rat"||sig.PatternName=="Shark"||sig.PatternName=="5-0")&&regime=="R2_TREND_EXHAUSTION"&&r.ExtensionAtr>=1.25) route=HarmonicRoute.EXHAUSTION_REVERSAL;
             else if((sig.PatternName=="Shark"||sig.PatternName=="Cypher"||sig.PatternName=="5-0")&&regime=="R4_TRANSITION"&&r.AdxH1Slope<=.25) route=HarmonicRoute.TRANSITION_REVERSAL;
             else if(sig.PatternName=="AB=CD"&&regime=="R2_TREND_EXHAUSTION"&&sig.GeometryQuality>=.72&&sig.PrzConfluence>=.72&&r.ExtensionAtr>=1.35) route=HarmonicRoute.EXHAUSTION_REVERSAL;
-            return route!=HarmonicRoute.NO_TRADE;
+            if (route==HarmonicRoute.NO_TRADE) return false;
+            if (_v63FrozenRecoveryLoaded)
+            {
+                string key=V63CellKey(sig.PatternName,route,regime);
+                if (!_v63FrozenRecovery.Contains(key))
+                {
+                    route=HarmonicRoute.NO_TRADE;
+                    return false;
+                }
+            }
+            return true;
         }
 
         private void ConfigureV63SelectiveRunner(CandidateRecord c, FibonacciGridPlan plan)
@@ -2020,7 +2112,9 @@ namespace cAlgo.Robots
                     continue;
                 }
 
-                if (V63OccupancyGovernorEnabled() && age >= 150.0 && basket.PeakR < .20 && currentR <= -.10 && _parkedCandidateIds.Count > 0)
+                bool v63OccupancyCellEligible = !_v63FrozenOccupancyLoaded ||
+                    (basket.Candidate != null && _v63FrozenOccupancy.Contains(V63CellKey(basket.Candidate)));
+                if (V63OccupancyGovernorEnabled() && v63OccupancyCellEligible && age >= 150.0 && basket.PeakR < .20 && currentR <= -.10 && _parkedCandidateIds.Count > 0)
                 {
                     basket.ExitOverride="V63_OCCUPANCY_DECAY"; _v63OccupancyReleased++;
                     Print("[V63-OCCUPANCY-RELEASE] basket={0} ageMin={1:F1} peakR={2:F3} currentR={3:F3} parked={4}",basket.BasketId,age,basket.PeakR,currentR,_parkedCandidateIds.Count);
