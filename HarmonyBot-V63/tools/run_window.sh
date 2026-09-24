@@ -10,3 +10,6 @@ N="V63-$VAR-$WIN-B$BALANCE-S$SPREAD"
 DATA_SHA=$((cd "$W/seal/data" && find . -type f -print0 | sort -z | xargs -0 sha256sum) | sha256sum | awk '{print $1}')
 python3 "$C/HarmonyBot-V63/tools/audit_report.py" --report "$W/seal/reports/$N.json" --log "$W/seal/logs/$N.log" --out "$O/$VAR-$WIN.json" --window "$WIN" --variant "$VAR" --years "$YEARS" --balance "$BALANCE" --spread "$SPREAD" --data-sha "$DATA_SHA"
 cp "$W/seal/logs/$N.log" "$O/raw-logs/$N.log"
+printf '%s\n' "${V63_POLICY_MAP:-}" > "$O/V63_POLICY_MAP_USED.txt"
+printf '%s\n' "${V63_RECOVERY_CELLS:-}" > "$O/V63_RECOVERY_CELLS_USED.txt"
+printf '%s\n' "${V63_OCCUPANCY_CELLS:-}" > "$O/V63_OCCUPANCY_CELLS_USED.txt"
