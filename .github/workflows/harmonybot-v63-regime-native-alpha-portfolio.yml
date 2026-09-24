@@ -1,0 +1,57 @@
+name: HarmonyBot V63 Regime-Native Alpha Portfolio
+on:
+  push:
+    branches: [harmonybot/v63-regime-native-alpha-portfolio-adaptive-execution-governor]
+    paths: ['HarmonyBot-V63/**','.github/workflows/harmonybot-v63-regime-native-alpha-portfolio.yml']
+  workflow_dispatch:
+concurrency: {group: harmonybot-v63-regime-native-alpha-portfolio, cancel-in-progress: true}
+permissions: {contents: read}
+env:
+  CTRADER_PASSWORD: ${{ secrets.CTRADER_PASSWORD }}
+  CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+  CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with: {ref: harmonybot/v63-regime-native-alpha-portfolio-adaptive-execution-governor, path: control, fetch-depth: 1}
+      - uses: actions/setup-dotnet@v4
+        with: {dotnet-version: 8.0.x}
+      - shell: bash
+        run: |
+          set -euo pipefail; cd control
+          python3 HarmonyBot-V63/tools/v63_contract_test.py
+          dotnet restore HarmonyBot-V63/HarmonyBotV63.csproj
+          dotnet build HarmonyBot-V63/HarmonyBotV63.csproj -c Release --no-restore --nologo
+          mkdir -p HarmonyBot-V63/dist HarmonyBot-V63/final
+          A=$(find HarmonyBot-V63/bin/Release -type f -name '*.algo' | head -1); test -s "$A"
+          cp "$A" HarmonyBot-V63/dist/HarmonyBot_V63_Regime_Native_Alpha_Portfolio_Adaptive_Execution_Governor_RC.algo
+          sha256sum HarmonyBot-V63/src/HarmonyBotV63.cs "$A" > HarmonyBot-V63/final/SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        with:
+          name: v63-build
+          path: |
+            control/HarmonyBot-V63/dist
+            control/HarmonyBot-V63/final
+          retention-days: 30
+          if-no-files-found: error
+  smoke:
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    strategy: {fail-fast: false, matrix: {variant: [V63_GOLDEN_V51_CONTROL,V63_V51_CONDITIONAL,V63_CELL_POLICY_ROUTER,V63_CELL_POLICY_RUNNER,V63_POSITIVE_COHORT_RECOVERY,V63_OCCUPANCY_GOVERNOR]}}
+    steps:
+      - uses: actions/checkout@v4
+        with: {ref: harmonybot/v63-regime-native-alpha-portfolio-adaptive-execution-governor, path: control, fetch-depth: 1}
+      - uses: actions/download-artifact@v4
+        with: {name: v63-build, path: control/HarmonyBot-V63/shared}
+      - shell: bash
+        run: |
+          mkdir -p control/HarmonyBot-V63/dist
+          A=$(find control/HarmonyBot-V63/shared -name '*.algo'|head -1); cp "$A" control/HarmonyBot-V63/dist/HarmonyBot_V63_Regime_Native_Alpha_Portfolio_Adaptive_Execution_Governor_RC.algo
+          chmod +x control/HarmonyBot-V63/tools/*.sh
+          control/HarmonyBot-V63/tools/run_window.sh "${{ matrix.variant }}" SMOKE 01/07/2024 2024-07-08T00:00:00Z 31/07/2024 1 10000 .0833333
+      - uses: actions/upload-artifact@v4
+        with: {name: "v63-smoke-${{ matrix.variant }}", path: "control/HarmonyBot-V63/output-${{ matrix.variant }}-SMOKE-B10000-S1", retention-days: 30}
