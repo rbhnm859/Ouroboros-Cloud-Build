@@ -4090,7 +4090,6 @@ namespace cAlgo.Robots
         public bool ArmedGraceApplied, WasParked, OpportunityTerminalLogged;
         public int NativeM1BarsObserved, NativeStage;
         public int FamilyConfirmationBarsObserved;
-        public int V64DagStage, V64DagAnchorBar = -1;
         public bool FamilyDirectional, FamilyReclaim, FamilyBos, FamilyRejection, FamilySweep,
                     FamilyFailedExtension, FamilyInsidePrz, FamilyDisplacement, FamilyRetest;
         public double OriginalRank, OriginalGeometry, OriginalPrzConfluence, OriginalM1Evidence, OriginalEntryAnchor, ShadowRiskDistance, ShadowMfeR, ShadowMaeR;
