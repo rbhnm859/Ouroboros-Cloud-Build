@@ -471,8 +471,8 @@ namespace cAlgo.Robots
                 Print("[V51-GRID-REJECT-SUMMARY] reason={0} count={1}", kv.Key, kv.Value);
             foreach (var kv in _executionErrorReasons.OrderBy(k => k.Key))
                 Print("[V51-EXECUTION-ERROR-SUMMARY] code={0} count={1}", kv.Key, kv.Value);
-            Print("[V64-SUMMARY] variant={0} cohortRecovered={1} occupancyReleased={2} runnerAssigned={3} runnerFilled={4} runnerClosed={5} runnerSurvivedCanonical={6} conditionalArmed={7} conditionalRejected={8}",
-                V64Variant,_v64CohortRecovered,_v64OccupancyReleased,_v64RunnerAssigned,_v64RunnerFilled,_v64RunnerClosed,_v64RunnerSurvivedCanonicalTp,_v64ConditionalLegArmed,_v64ConditionalLegRejected);
+            Print("[V64-PRODUCT-SUMMARY] mode={0} runnerAssigned={1} runnerFilled={2} runnerClosed={3} runnerSurvivedCanonical={4} conditionalArmed={5} conditionalRejected={6}",
+                V64Variant,_v64RunnerAssigned,_v64RunnerFilled,_v64RunnerClosed,_v64RunnerSurvivedCanonicalTp,_v64ConditionalLegArmed,_v64ConditionalLegRejected);
         }
 
         protected override void OnBar()
@@ -1690,24 +1690,12 @@ namespace cAlgo.Robots
             return leg.State == GridLegState.SUBMITTED || leg.State == GridLegState.FILLED_UNVERIFIED || leg.State == GridLegState.PROTECTED;
         }
 
-        private bool V64ExactControlEnabled()
-        {
-            return string.Equals(V64Variant, "V64_V51_CONTROL", StringComparison.Ordinal);
-        }
-
         private bool V64ProductEnabled()
         {
             return string.Equals(V64Variant, "V64_PRODUCT", StringComparison.Ordinal);
         }
 
-        private bool V64PolicyRouterEnabled() { return false; }
-        private bool V64DagSingleEntryEnabled() { return false; }
-        private bool V64CurrentV61GridEnabled() { return false; }
-        private bool V64FrontLoadedGridEnabled() { return false; }
         private bool V64StructuralExitEnabled() { return false; }
-        private bool V64PatternNativeEnabled() { return false; }
-        private bool V64CohortRecoveryEnabled() { return false; }
-        private bool V64OccupancyGovernorEnabled() { return false; }
         private bool V64RegimeSurvivalEnabled() { return false; }
         private bool V64RegimeSurvivalPass(CandidateRecord c) { return true; }
         private bool V64CanonicalGridEnabled() { return V64ProductEnabled(); }
@@ -1774,69 +1762,6 @@ namespace cAlgo.Robots
         {
             if (V64CommercialMaxEnabled() && leg != null && leg.RunnerEligible && leg.RunnerTarget > 0) return leg.RunnerTarget;
             return fallback;
-        }
-
-        private bool UpdateV64StageAwareFamilyCompletionEvidence(int i, CandidateRecord c, out double score)
-        {
-            score = 0;
-            if (i < 3 || i >= _m1Bars.Count || c == null || c.Signal == null) return false;
-            var sig = c.Signal;
-            double o = _m1Bars.OpenPrices[i], cl = _m1Bars.ClosePrices[i], h = _m1Bars.HighPrices[i], l = _m1Bars.LowPrices[i];
-            double pc = _m1Bars.ClosePrices[i - 1], ph = _m1Bars.HighPrices[i - 1], pl = _m1Bars.LowPrices[i - 1];
-            double body = Math.Max(Math.Abs(cl - o), _symbol.PipSize);
-            double prevBody = Math.Max(Math.Abs(_m1Bars.ClosePrices[i - 1] - _m1Bars.OpenPrices[i - 1]), _symbol.PipSize);
-            double atr = Atr(_m1Bars, 14, i);
-            bool buy = sig.Direction == TradeDirection.Buy;
-            bool directional = buy ? cl > o : cl < o;
-            bool reclaim = buy ? (cl > sig.PrzLow && cl >= pc) : (cl < sig.PrzHigh && cl <= pc);
-            bool bos = buy ? cl > ph : cl < pl;
-            bool rejection = buy ? Math.Max(0, Math.Min(o, cl) - l) >= body * .5 : Math.Max(0, h - Math.Max(o, cl)) >= body * .5;
-            bool sweep = buy ? l < pl : h > ph;
-            bool failedExtension = buy ? (l < pl && cl > pl) : (h > ph && cl < ph);
-            bool insidePrz = cl >= Math.Min(sig.PrzLow, sig.PrzHigh) && cl <= Math.Max(sig.PrzLow, sig.PrzHigh);
-            bool displacement = atr > 0 && body >= atr * .30;
-            bool retest = insidePrz || Math.Abs(cl - (sig.PrzLow + sig.PrzHigh) * .5) <= Math.Max(atr * .25, _symbol.PipSize);
-            bool deceleration = body <= prevBody * .85;
-            c.FamilyDirectional |= directional; c.FamilyReclaim |= reclaim; c.FamilyBos |= bos;
-            c.FamilyRejection |= rejection; c.FamilySweep |= sweep; c.FamilyFailedExtension |= failedExtension;
-            c.FamilyInsidePrz |= insidePrz; c.FamilyDisplacement |= displacement; c.FamilyRetest |= retest;
-            string p = sig.PatternName ?? ""; int prior = c.V64DagStage; bool advance = false;
-            if (p == "Gartley" || p == "Bat" || p == "Deep Gartley" || p == "Rat" || p == "Cypher")
-            {
-                if (prior == 0 && (rejection || failedExtension)) advance = true;
-                else if (prior == 1 && reclaim && i > c.V64DagAnchorBar) advance = true;
-                else if (prior == 2 && (bos || displacement) && i > c.V64DagAnchorBar) advance = true;
-                if (advance) { c.V64DagStage++; c.V64DagAnchorBar = i; }
-                score = c.V64DagStage / 3.0; return c.V64DagStage >= 3;
-            }
-            if (p == "Alt Bat" || p == "Butterfly" || p == "Crab" || p == "Deep Crab" || p == "Shark")
-            {
-                if (prior == 0 && sweep) advance = true;
-                else if (prior == 1 && failedExtension && i > c.V64DagAnchorBar) advance = true;
-                else if (prior == 2 && (reclaim || insidePrz) && i > c.V64DagAnchorBar) advance = true;
-                else if (prior == 3 && (bos || displacement) && i > c.V64DagAnchorBar) advance = true;
-                if (advance) { c.V64DagStage++; c.V64DagAnchorBar = i; }
-                score = c.V64DagStage / 4.0; return c.V64DagStage >= 4;
-            }
-            if (p == "5-0")
-            {
-                if (prior == 0 && failedExtension) advance = true;
-                else if (prior == 1 && bos && i > c.V64DagAnchorBar) advance = true;
-                else if (prior == 2 && retest && i > c.V64DagAnchorBar) advance = true;
-                else if (prior == 3 && directional && i > c.V64DagAnchorBar) advance = true;
-                if (advance) { c.V64DagStage++; c.V64DagAnchorBar = i; }
-                score = c.V64DagStage / 4.0; return c.V64DagStage >= 4;
-            }
-            if (p == "AB=CD")
-            {
-                if (prior == 0 && deceleration) advance = true;
-                else if (prior == 1 && failedExtension && i > c.V64DagAnchorBar) advance = true;
-                else if (prior == 2 && reclaim && i > c.V64DagAnchorBar) advance = true;
-                else if (prior == 3 && (bos || displacement) && i > c.V64DagAnchorBar) advance = true;
-                if (advance) { c.V64DagStage++; c.V64DagAnchorBar = i; }
-                score = c.V64DagStage / 4.0; return c.V64DagStage >= 4;
-            }
-            return false;
         }
 
         private bool SelectCanonicalBasketTarget(PatternSignal s, double weightedEntry, double stop, out double target, out double netRr)
@@ -2645,7 +2570,6 @@ namespace cAlgo.Robots
             double timeToMfe = basket.PeakUtc > basket.CreatedUtc ? (basket.PeakUtc - basket.CreatedUtc).TotalMinutes : 0;
             double timeToMae = basket.MaxAdverseUtc > basket.CreatedUtc ? (basket.MaxAdverseUtc - basket.CreatedUtc).TotalMinutes : 0;
             Print("[V64-ECONOMIC-ATTRIBUTION] basket={0} setup={1} pattern={2} route={3} mfeR={4:F3} maeR={5:F3} realizedR={6:F3} capture={7:F3} timeToMfeMin={8:F2} timeToMaeMin={9:F2}", basket.BasketId, setupKey, basket.Pattern, basket.Route, basket.PeakR, basket.MaxAdverseR, realizedR, captureRatio, timeToMfe, timeToMae);
-            Print("[V64-CELL-OUTCOME] setup={0} pattern={1} route={2} regime={3} policy={4} realizedR={5:F3} net={6:F2} mfeR={7:F3} maeR={8:F3}",setupKey,basket.Pattern,basket.Route,basket.Candidate!=null?basket.Candidate.V64RegimeClass:"UNKNOWN",basket.Candidate!=null?basket.Candidate.V64Policy:"UNKNOWN",realizedR,basket.RealizedNet,basket.PeakR,basket.MaxAdverseR);
             double occupancyMin = Math.Max(0, (Server.Time.ToUniversalTime() - basket.CreatedUtc).TotalMinutes);
             _basketOccupancyMinutes.Add(occupancyMin);
             Print("[V51-SLOT-OCCUPANCY] basket={0} cid={1} pattern={2} route={3} occupancyMinutes={4:F2} realizedR={5:F3} net={6:F2}",
@@ -4174,8 +4098,6 @@ namespace cAlgo.Robots
         public double CompletionAnchorMfeR, CompletionAnchorMaeR, NativeConfirmMfeR, NativeConfirmMaeR, NativeRetestMfeR, NativeRetestMaeR;
         public bool TemporalDirectional, TemporalReclaim, TemporalBos1, TemporalBos2, TemporalRejection, TemporalFailedExtension, TemporalDisplacement;
         public bool CapitalFeasible;
-        public string V64RegimeClass = "UNKNOWN";
-        public string V64Policy = "UNKNOWN";
         public FibonacciGridPlan GridPlan;
         public long PositionId;
         public string LastReason;
