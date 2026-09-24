@@ -32,7 +32,13 @@ jobs:
           sha256sum HarmonyBot-V62/src/HarmonyBotV62.cs "$A" HarmonyBot-V62/MAJOR_VERSION_EXECUTION_CHARTER.md > HarmonyBot-V62/final/SHA256SUMS
           printf '%s\n' "$GITHUB_SHA" > HarmonyBot-V62/final/SOURCE_COMMIT.txt
       - uses: actions/upload-artifact@v4
-        with: {name: v62-build, path: "control/HarmonyBot-V62/{dist,final}", retention-days: 30}
+        with:
+          name: v62-build
+          path: |
+            control/HarmonyBot-V62/dist
+            control/HarmonyBot-V62/final
+          retention-days: 30
+          if-no-files-found: error
   build-v51-control:
     needs: build
     runs-on: ubuntu-24.04
