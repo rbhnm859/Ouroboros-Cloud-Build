@@ -156,6 +156,8 @@ jobs:
         with: {ref: harmonybot/v63-golden-rebase-commercial-freeze, path: control, fetch-depth: 1}
       - uses: actions/download-artifact@v4
         with: {name: v63-build, path: control/HarmonyBot-V63/shared}
+      - uses: actions/download-artifact@v4
+        with: {name: v63-calibration-freeze, path: control/HarmonyBot-V63/frozen}
       - id: d
         shell: bash
         run: |
@@ -167,6 +169,9 @@ jobs:
           A=$(find control/HarmonyBot-V63/shared -type f -name '*.algo' | head -1)
           cp "$A" control/HarmonyBot-V63/dist/HarmonyBot_V63_Regime_Native_Alpha_Portfolio_Adaptive_Execution_Governor_RC.algo
           chmod +x control/HarmonyBot-V63/tools/*.sh
+          export V63_POLICY_MAP="$(cat control/HarmonyBot-V63/frozen/V63_POLICY_MAP.txt)"
+          export V63_RECOVERY_CELLS="$(cat control/HarmonyBot-V63/frozen/V63_RECOVERY_CELLS.txt)"
+          export V63_OCCUPANCY_CELLS="$(cat control/HarmonyBot-V63/frozen/V63_OCCUPANCY_CELLS.txt)"
           control/HarmonyBot-V63/tools/run_window.sh "${{ matrix.variant }}" "${{ matrix.window }}" "${{ steps.d.outputs.start }}" "${{ steps.d.outputs.eval }}" "${{ steps.d.outputs.end }}" 1 10000 .5
       - uses: actions/upload-artifact@v4
         if: always()
@@ -203,6 +208,8 @@ jobs:
         with: {ref: harmonybot/v63-golden-rebase-commercial-freeze, path: control, fetch-depth: 1}
       - uses: actions/download-artifact@v4
         with: {name: v63-build, path: control/HarmonyBot-V63/shared}
+      - uses: actions/download-artifact@v4
+        with: {name: v63-calibration-freeze, path: control/HarmonyBot-V63/frozen}
       - id: d
         shell: bash
         run: |
@@ -214,6 +221,9 @@ jobs:
           mkdir -p control/HarmonyBot-V63/dist; A=$(find control/HarmonyBot-V63/shared -type f -name '*.algo' | head -1)
           cp "$A" control/HarmonyBot-V63/dist/HarmonyBot_V63_Regime_Native_Alpha_Portfolio_Adaptive_Execution_Governor_RC.algo
           chmod +x control/HarmonyBot-V63/tools/*.sh
+          export V63_POLICY_MAP="$(cat control/HarmonyBot-V63/frozen/V63_POLICY_MAP.txt)"
+          export V63_RECOVERY_CELLS="$(cat control/HarmonyBot-V63/frozen/V63_RECOVERY_CELLS.txt)"
+          export V63_OCCUPANCY_CELLS="$(cat control/HarmonyBot-V63/frozen/V63_OCCUPANCY_CELLS.txt)"
           control/HarmonyBot-V63/tools/run_window.sh "$CANDIDATE" "VAL_${{ matrix.quarter }}_S${{ matrix.spread }}" "${{ steps.d.outputs.start }}" "${{ steps.d.outputs.eval }}" "${{ steps.d.outputs.end }}" "${{ matrix.spread }}" 10000 .25
       - uses: actions/upload-artifact@v4
         with: {name: "v63-validation-${{ matrix.quarter }}-${{ matrix.spread }}", path: "control/HarmonyBot-V63/output-*VAL_*", retention-days: 30}
@@ -254,12 +264,17 @@ jobs:
         with: {ref: harmonybot/v63-golden-rebase-commercial-freeze, path: control, fetch-depth: 1}
       - uses: actions/download-artifact@v4
         with: {name: v63-build, path: control/HarmonyBot-V63/shared}
+      - uses: actions/download-artifact@v4
+        with: {name: v63-calibration-freeze, path: control/HarmonyBot-V63/frozen}
       - shell: bash
         env: {CANDIDATE: "${{ needs.analyze.outputs.candidate }}"}
         run: |
           mkdir -p control/HarmonyBot-V63/dist; A=$(find control/HarmonyBot-V63/shared -type f -name '*.algo' | head -1)
           cp "$A" control/HarmonyBot-V63/dist/HarmonyBot_V63_Regime_Native_Alpha_Portfolio_Adaptive_Execution_Governor_RC.algo
           chmod +x control/HarmonyBot-V63/tools/*.sh
+          export V63_POLICY_MAP="$(cat control/HarmonyBot-V63/frozen/V63_POLICY_MAP.txt)"
+          export V63_RECOVERY_CELLS="$(cat control/HarmonyBot-V63/frozen/V63_RECOVERY_CELLS.txt)"
+          export V63_OCCUPANCY_CELLS="$(cat control/HarmonyBot-V63/frozen/V63_OCCUPANCY_CELLS.txt)"
           control/HarmonyBot-V63/tools/run_window.sh "$CANDIDATE" "CAPITAL_${{ matrix.balance }}" 01/07/2024 2024-07-08T00:00:00Z 31/12/2025 1 "${{ matrix.balance }}" 1.5
       - uses: actions/upload-artifact@v4
         with: {name: "v63-capital-${{ matrix.balance }}", path: "control/HarmonyBot-V63/output-*CAPITAL_*", retention-days: 30}
@@ -319,12 +334,17 @@ jobs:
         with: {ref: harmonybot/v63-golden-rebase-commercial-freeze, path: control, fetch-depth: 1}
       - uses: actions/download-artifact@v4
         with: {name: v63-build, path: control/HarmonyBot-V63/shared}
+      - uses: actions/download-artifact@v4
+        with: {name: v63-calibration-freeze, path: control/HarmonyBot-V63/frozen}
       - shell: bash
         env: {CANDIDATE: "${{ needs.analyze.outputs.candidate }}"}
         run: |
           mkdir -p control/HarmonyBot-V63/dist; A=$(find control/HarmonyBot-V63/shared -type f -name '*.algo' | head -1)
           cp "$A" control/HarmonyBot-V63/dist/HarmonyBot_V63_Regime_Native_Alpha_Portfolio_Adaptive_Execution_Governor_RC.algo
           chmod +x control/HarmonyBot-V63/tools/*.sh
+          export V63_POLICY_MAP="$(cat control/HarmonyBot-V63/frozen/V63_POLICY_MAP.txt)"
+          export V63_RECOVERY_CELLS="$(cat control/HarmonyBot-V63/frozen/V63_RECOVERY_CELLS.txt)"
+          export V63_OCCUPANCY_CELLS="$(cat control/HarmonyBot-V63/frozen/V63_OCCUPANCY_CELLS.txt)"
           control/HarmonyBot-V63/tools/run_window.sh "$CANDIDATE" "FRESH_${{ matrix.kind }}" 02/01/2020 2020-01-09T00:00:00Z 30/06/2020 1 "${{ matrix.balance }}" .5
       - uses: actions/upload-artifact@v4
         with: {name: "v63-fresh-${{ matrix.kind }}", path: "control/HarmonyBot-V63/output-*FRESH_*", retention-days: 30}
