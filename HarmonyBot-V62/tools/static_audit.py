@@ -1,0 +1,5 @@
+#!/usr/bin/env python3
+import pathlib,sys,json
+s=pathlib.Path(sys.argv[1]).read_text()
+checks={"identity":"class HarmonyBotV62" in s and 'BotPrefix = "HB62"' in s,"default_exact":'DefaultValue = "V62_V51_EXACT_CONTROL"' in s,"risk":"Basket Risk %" in s and "MaxValue = 1.0" in s,"conditional":"ActivateV62ConditionalGridLegs" in s and "V62_CONDITIONAL_REPROOF_REJECT" in s,"l3_shadow":'weights = new[] { .60, .25, .15, 0.0 }' in s,"runner_lifecycle":"V62_RUNNER_DETACHED_AFTER_CANONICAL_TP" in s,"single_basket":"OwnPositions().Any() || OwnPendingOrders().Any() || _baskets.Values.Any(b => b.IsActive)" in s,"no_projected_d":"TryProjectProfile" not in s,"prohibited":all(x not in s for x in ["Martingale","Loss Averaging","RecoveryGrid","DCA"])}
+print(json.dumps({"version":"HarmonyBot V62","checks":checks,"pass":all(checks.values())},indent=2)); raise SystemExit(0 if all(checks.values()) else 2)
