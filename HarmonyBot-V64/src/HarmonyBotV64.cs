@@ -329,6 +329,13 @@ namespace cAlgo.Robots
 
         protected override void OnStart()
         {
+            if (!V64ModeValid())
+            {
+                Print("[V64-FATAL] INVALID_MODE {0}", V64Variant);
+                Stop();
+                return;
+            }
+
             _symbol = Symbols.GetSymbol(SymbolName);
             if (_symbol == null)
             {
@@ -1690,9 +1697,19 @@ namespace cAlgo.Robots
             return leg.State == GridLegState.SUBMITTED || leg.State == GridLegState.FILLED_UNVERIFIED || leg.State == GridLegState.PROTECTED;
         }
 
+        private bool V64ControlEnabled()
+        {
+            return string.Equals(V64Variant, "V64_V51_CONTROL", StringComparison.Ordinal);
+        }
+
         private bool V64ProductEnabled()
         {
             return string.Equals(V64Variant, "V64_PRODUCT", StringComparison.Ordinal);
+        }
+
+        private bool V64ModeValid()
+        {
+            return V64ControlEnabled() || V64ProductEnabled();
         }
 
         private bool V64StructuralExitEnabled() { return false; }
