@@ -1,7 +1,7 @@
 name: HarmonyBot V63 Regime-Native Alpha Portfolio Adaptive Execution Governor
 on:
   push:
-    branches: [harmonybot/v63-regime-native-alpha-portfolio-adaptive-execution-governor]
+    branches: [harmonybot/v63-golden-rebase-commercial-freeze]
     paths: ['HarmonyBot-V63/**','.github/workflows/harmonybot-v63-regime-native-alpha-portfolio-adaptive-execution-governor.yml']
   workflow_dispatch:
 concurrency: {group: harmonybot-v63-regime-native-alpha-portfolio-adaptive-execution-governor, cancel-in-progress: true}
@@ -17,7 +17,7 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
-        with: {ref: harmonybot/v63-regime-native-alpha-portfolio-adaptive-execution-governor, path: control, fetch-depth: 1}
+        with: {ref: harmonybot/v63-golden-rebase-commercial-freeze, path: control, fetch-depth: 1}
       - uses: actions/setup-dotnet@v4
         with: {dotnet-version: 8.0.x}
       - shell: bash
@@ -46,7 +46,7 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
-        with: {ref: harmonybot/v63-regime-native-alpha-portfolio-adaptive-execution-governor, path: control, fetch-depth: 1}
+        with: {ref: harmonybot/v63-golden-rebase-commercial-freeze, path: control, fetch-depth: 1}
       - uses: actions/setup-dotnet@v4
         with: {dotnet-version: 8.0.x}
       - shell: bash
@@ -67,7 +67,7 @@ jobs:
     strategy: {fail-fast: false, matrix: {window: [A,B,C]}}
     steps:
       - uses: actions/checkout@v4
-        with: {ref: harmonybot/v63-regime-native-alpha-portfolio-adaptive-execution-governor, path: control, fetch-depth: 1}
+        with: {ref: harmonybot/v63-golden-rebase-commercial-freeze, path: control, fetch-depth: 1}
       - uses: actions/download-artifact@v4
         with: {name: v63-v51-control-build, path: control/HarmonyBot-V51/shared}
       - id: d
@@ -90,7 +90,7 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
-        with: {ref: harmonybot/v63-regime-native-alpha-portfolio-adaptive-execution-governor, path: control, fetch-depth: 1}
+        with: {ref: harmonybot/v63-golden-rebase-commercial-freeze, path: control, fetch-depth: 1}
       - uses: actions/download-artifact@v4
         with: {pattern: 'v63-golden-v51-*', path: golden, merge-multiple: true}
       - shell: bash
@@ -110,7 +110,7 @@ jobs:
         window: [C1,C2,C3]
     steps:
       - uses: actions/checkout@v4
-        with: {ref: harmonybot/v63-regime-native-alpha-portfolio-adaptive-execution-governor, path: control, fetch-depth: 1}
+        with: {ref: harmonybot/v63-golden-rebase-commercial-freeze, path: control, fetch-depth: 1}
       - uses: actions/download-artifact@v4
         with: {name: v63-build, path: control/HarmonyBot-V63/shared}
       - id: d
@@ -133,7 +133,7 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
-        with: {ref: harmonybot/v63-regime-native-alpha-portfolio-adaptive-execution-governor, path: control, fetch-depth: 1}
+        with: {ref: harmonybot/v63-golden-rebase-commercial-freeze, path: control, fetch-depth: 1}
       - uses: actions/download-artifact@v4
         with: {pattern: 'v63-cal-*', path: cal, merge-multiple: true}
       - shell: bash
@@ -153,7 +153,7 @@ jobs:
         window: [A,B,C]
     steps:
       - uses: actions/checkout@v4
-        with: {ref: harmonybot/v63-regime-native-alpha-portfolio-adaptive-execution-governor, path: control, fetch-depth: 1}
+        with: {ref: harmonybot/v63-golden-rebase-commercial-freeze, path: control, fetch-depth: 1}
       - uses: actions/download-artifact@v4
         with: {name: v63-build, path: control/HarmonyBot-V63/shared}
       - id: d
@@ -178,7 +178,7 @@ jobs:
     outputs: {candidate: "${{ steps.a.outputs.candidate }}"}
     steps:
       - uses: actions/checkout@v4
-        with: {ref: harmonybot/v63-regime-native-alpha-portfolio-adaptive-execution-governor, path: control, fetch-depth: 1}
+        with: {ref: harmonybot/v63-golden-rebase-commercial-freeze, path: control, fetch-depth: 1}
       - uses: actions/download-artifact@v4
         with: {pattern: 'v63-dev-*', path: dev, merge-multiple: true}
       - uses: actions/download-artifact@v4
@@ -200,7 +200,7 @@ jobs:
     strategy: {fail-fast: false, matrix: {quarter: [Q1,Q2], spread: [1.0,1.25,1.5]}}
     steps:
       - uses: actions/checkout@v4
-        with: {ref: harmonybot/v63-regime-native-alpha-portfolio-adaptive-execution-governor, path: control, fetch-depth: 1}
+        with: {ref: harmonybot/v63-golden-rebase-commercial-freeze, path: control, fetch-depth: 1}
       - uses: actions/download-artifact@v4
         with: {name: v63-build, path: control/HarmonyBot-V63/shared}
       - id: d
@@ -251,7 +251,7 @@ jobs:
     strategy: {fail-fast: false, matrix: {balance: [100,150,200,300,500,1000]}}
     steps:
       - uses: actions/checkout@v4
-        with: {ref: harmonybot/v63-regime-native-alpha-portfolio-adaptive-execution-governor, path: control, fetch-depth: 1}
+        with: {ref: harmonybot/v63-golden-rebase-commercial-freeze, path: control, fetch-depth: 1}
       - uses: actions/download-artifact@v4
         with: {name: v63-build, path: control/HarmonyBot-V63/shared}
       - shell: bash
@@ -295,7 +295,7 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
-        with: {ref: harmonybot/v63-regime-native-alpha-portfolio-adaptive-execution-governor, path: control, fetch-depth: 1}
+        with: {ref: harmonybot/v63-golden-rebase-commercial-freeze, path: control, fetch-depth: 1}
       - uses: actions/download-artifact@v4
         with: {name: v63-build, path: shared}
       - shell: bash
@@ -316,7 +316,7 @@ jobs:
     strategy: {fail-fast: false, matrix: {include: [{kind: ALPHA, balance: 10000},{kind: SMALL, balance: 100}]}}
     steps:
       - uses: actions/checkout@v4
-        with: {ref: harmonybot/v63-regime-native-alpha-portfolio-adaptive-execution-governor, path: control, fetch-depth: 1}
+        with: {ref: harmonybot/v63-golden-rebase-commercial-freeze, path: control, fetch-depth: 1}
       - uses: actions/download-artifact@v4
         with: {name: v63-build, path: control/HarmonyBot-V63/shared}
       - shell: bash
