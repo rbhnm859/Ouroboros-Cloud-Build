@@ -1837,7 +1837,7 @@ namespace cAlgo.Robots
             }
         }
 
-        private bool V62RegimeSurvivalPass        private bool V62RegimeSurvivalPass(CandidateRecord c)
+        private bool V62RegimeSurvivalPass(CandidateRecord c)
         {
             if (c == null || c.Signal == null || c.Regime == null) return false;
             var r = c.Regime;
