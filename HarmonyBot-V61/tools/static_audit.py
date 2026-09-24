@@ -1,0 +1,5 @@
+#!/usr/bin/env python3
+import json,pathlib,sys
+s=pathlib.Path(sys.argv[1] if len(sys.argv)>1 else "HarmonyBot-V61/src/HarmonyBotV61.cs").read_text(encoding="utf-8")
+checks={"identity":"class HarmonyBotV61" in s and 'BotPrefix = "HB61"' in s,"default_exact":'[Parameter("V61 Variant", DefaultValue = "V61_V51_EXACT_CONTROL")]' in s,"risk":'[Parameter("Basket Risk %", DefaultValue = 1.0, MinValue = 0.1, MaxValue = 1.0)]' in s,"rr":'[Parameter("Minimum Net RR", DefaultValue = 2.0' in s,"single_basket":"OwnPositions().Any() || OwnPendingOrders().Any() || _baskets.Values.Any(b => b.IsActive)" in s,"server_protection":"EnsureServerProtection" in s and "ProtectionType.Absolute" in s,"completed_bar":"LastClosedIndex(_m15Bars)" in s and "LastClosedIndex(_m1Bars)" in s,"no_projected_d_primary":"TryProjectProfile" not in s,"prohibited":all(x not in s for x in ["Martingale","Loss Averaging","RecoveryGrid","DCA"])}
+o={"version":"HarmonyBot V61","checks":checks,"pass":all(checks.values())}; print(json.dumps(o,indent=2)); raise SystemExit(0 if o["pass"] else 2)
