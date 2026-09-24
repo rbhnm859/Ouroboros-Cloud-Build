@@ -1727,114 +1727,45 @@ namespace cAlgo.Robots
             return string.Equals(V63Variant, "V63_GOLDEN_V51_CONTROL", StringComparison.Ordinal);
         }
 
-        private bool V62DagSingleEntryEnabled()
+        private bool V63GoldenControlEnabled() { return string.Equals(V63Variant, "V63_GOLDEN_V51_CONTROL", StringComparison.Ordinal); }
+        private bool V63ConditionalExecutionEnabled() { return string.Equals(V63Variant, "V63_V51_CONDITIONAL", StringComparison.Ordinal); }
+        private bool V63CellPolicyRouterEnabled() { return string.Equals(V63Variant, "V63_CELL_POLICY_ROUTER", StringComparison.Ordinal) || string.Equals(V63Variant, "V63_CELL_POLICY_RUNNER", StringComparison.Ordinal) || string.Equals(V63Variant, "V63_POSITIVE_COHORT_RECOVERY", StringComparison.Ordinal) || string.Equals(V63Variant, "V63_OCCUPANCY_GOVERNOR", StringComparison.Ordinal); }
+        private bool V63RunnerEnabled() { return string.Equals(V63Variant, "V63_CELL_POLICY_RUNNER", StringComparison.Ordinal) || string.Equals(V63Variant, "V63_POSITIVE_COHORT_RECOVERY", StringComparison.Ordinal) || string.Equals(V63Variant, "V63_OCCUPANCY_GOVERNOR", StringComparison.Ordinal); }
+        private bool V63PositiveCohortRecoveryEnabled() { return string.Equals(V63Variant, "V63_POSITIVE_COHORT_RECOVERY", StringComparison.Ordinal) || string.Equals(V63Variant, "V63_OCCUPANCY_GOVERNOR", StringComparison.Ordinal); }
+        private bool V63OccupancyGovernorEnabled() { return string.Equals(V63Variant, "V63_OCCUPANCY_GOVERNOR", StringComparison.Ordinal); }
+        private bool V62CanonicalGridEnabled() { return !V63GoldenControlEnabled(); }
+        private bool V62ConditionalGridEnabled() { return !V63GoldenControlEnabled(); }
+        private bool V62StructuralExitEnabled() { return false; }
+        private bool V62RunnerEnabled() { return V63RunnerEnabled(); }
+        private bool V62PatternNativeEnabled() { return V63CellPolicyRouterEnabled(); }
+        private bool V62RegimeSurvivalEnabled() { return false; }
+        private bool V62CommercialMaxEnabled() { return V63RunnerEnabled(); }
+
+        private string V63RegimeState(CandidateRecord c)
         {
-            return string.Equals(V63Variant, "V63_V51_CONDITIONAL", StringComparison.Ordinal);
+            if (c==null||c.Regime==null) return "R0_UNKNOWN"; var r=c.Regime;
+            if (r.Transition||c.Conflict==MtfConflict.TRANSITION) return "R4_TRANSITION";
+            if (r.AtrPercentile<=.35&&r.Efficiency<=.25) return "R3_COMPRESSION";
+            if (r.ExtensionAtr>=1.20&&r.AdxH1Slope<=0) return "R2_EXHAUSTION";
+            if (r.TrendDirection!=TradeDirection.Neutral&&r.AdxH1Slope>0&&r.Efficiency>=.20) return "R1_TREND_EXPANSION";
+            return "R4_TRANSITION";
         }
-
-        private bool V62CurrentV61GridEnabled()
+        private string V63PolicyForCell(CandidateRecord c)
         {
-            return string.Equals(V63Variant, "V63_CELL_POLICY_ROUTER", StringComparison.Ordinal);
+            if(c==null||c.Signal==null)return "SINGLE"; string p=c.Signal.PatternName??"", r=V63RegimeState(c);
+            if(p=="Rat"&&c.Route==HarmonicRoute.TREND_ALIGNED_REVERSAL&&r=="R1_TREND_EXPANSION")return "SINGLE_RUNNER";
+            if(p=="Rat"&&c.Route==HarmonicRoute.EXHAUSTION_REVERSAL)return "CONDITIONAL_GRID";
+            if((p=="Shark"||p=="Cypher")&&c.Route==HarmonicRoute.TREND_ALIGNED_REVERSAL&&r=="R1_TREND_EXPANSION")return "CONDITIONAL_RUNNER";
+            if(p=="5-0"&&c.Route==HarmonicRoute.EXHAUSTION_REVERSAL)return "CONDITIONAL_GRID";
+            return "SINGLE";
         }
-
-        private bool V62FrontLoadedGridEnabled()
+        private void V62RouteGridContract(CandidateRecord c,out double[] fractions,out double[] weights)
         {
-            return string.Equals(V63Variant, "V63_CELL_POLICY_RUNNER", StringComparison.Ordinal);
-        }
-
-        private bool V62ConditionalGridEnabled()
-        {
-            return string.Equals(V63Variant, "V63_POSITIVE_COHORT_RECOVERY", StringComparison.Ordinal) ||
-                   string.Equals(V63Variant, "V63_OCCUPANCY_GOVERNOR", StringComparison.Ordinal) ||
-                   string.Equals(V63Variant, "V63_CELL_POLICY_RUNNER", StringComparison.Ordinal) ||
-                   string.Equals(V63Variant, "V63_POSITIVE_COHORT_RECOVERY", StringComparison.Ordinal);
-        }
-
-        private bool V62StructuralExitEnabled()
-        {
-            return string.Equals(V63Variant, "V63_OCCUPANCY_GOVERNOR", StringComparison.Ordinal);
-        }
-
-        private bool V62RunnerEnabled()
-        {
-            return string.Equals(V63Variant, "V63_CELL_POLICY_RUNNER", StringComparison.Ordinal) ||
-                   string.Equals(V63Variant, "V63_POSITIVE_COHORT_RECOVERY", StringComparison.Ordinal);
-        }
-
-        private bool V62PatternNativeEnabled()
-        {
-            return string.Equals(V63Variant, "V63_POSITIVE_COHORT_RECOVERY", StringComparison.Ordinal);
-        }
-
-        private bool V62CanonicalGridEnabled()
-        {
-            return !V63GoldenControlEnabled();
-        }
-
-        private bool V62RegimeSurvivalEnabled()
-        {
-            return false;
-        }
-
-        private bool V62CommercialMaxEnabled()
-        {
-            return V62RunnerEnabled();
-        }
-
-        private void V62RouteGridContract(CandidateRecord c, out double[] fractions, out double[] weights)
-        {
-            HarmonicRoute route = c.Route;
-            string pattern = c.Signal == null ? "" : c.Signal.PatternName ?? "";
-
-            if (V62DagSingleEntryEnabled())
-            {
-                fractions = new[] { 0.0 }; weights = new[] { 1.0 }; return;
-            }
-
-            if (V62CurrentV61GridEnabled())
-            {
-                if (route == HarmonicRoute.TREND_ALIGNED_REVERSAL) { fractions = new[] { 0.0, .236, .382, .618 }; weights = new[] { .40, .30, .20, .10 }; return; }
-                if (route == HarmonicRoute.EXHAUSTION_REVERSAL) { fractions = new[] { 0.0, .236 }; weights = new[] { .65, .35 }; return; }
-                if (route == HarmonicRoute.TRANSITION_REVERSAL) { fractions = new[] { 0.0, .236, .382 }; weights = new[] { .50, .30, .20 }; return; }
-            }
-
-            if (V62FrontLoadedGridEnabled())
-            {
-                if (route == HarmonicRoute.EXHAUSTION_REVERSAL) { fractions = new[] { 0.0, .236 }; weights = new[] { .75, .25 }; }
-                else { fractions = new[] { 0.0, .236, .382 }; weights = new[] { .70, .20, .10 }; }
-                return;
-            }
-
-            if (V62PatternNativeEnabled())
-            {
-                if (pattern == "Rat")
-                {
-                    if (route == HarmonicRoute.EXHAUSTION_REVERSAL) { fractions = new[] { 0.0, .236 }; weights = new[] { .75, .25 }; }
-                    else { fractions = new[] { 0.0, 0.0, .236, .382 }; weights = new[] { .45, .15, .25, .15 }; }
-                    return;
-                }
-                if (pattern == "Shark" || pattern == "Cypher" || pattern == "5-0")
-                {
-                    fractions = new[] { 0.0, .236, .382 }; weights = new[] { .65, .25, .10 }; return;
-                }
-                fractions = new[] { 0.0 }; weights = new[] { 1.0 }; return;
-            }
-
-            if (V62RunnerEnabled() && route != HarmonicRoute.EXHAUSTION_REVERSAL)
-            {
-                fractions = new[] { 0.0, 0.0, .236, .382 };
-                weights = new[] { .45, .15, .25, .15 };
-                return;
-            }
-
-            if (route == HarmonicRoute.EXHAUSTION_REVERSAL)
-            {
-                fractions = new[] { 0.0, .236 }; weights = new[] { .70, .30 };
-            }
-            else
-            {
-                fractions = new[] { 0.0, .236, .382 }; weights = new[] { .60, .25, .15 };
-            }
+            string policy=V63CellPolicyRouterEnabled()?V63PolicyForCell(c):"CONDITIONAL_GRID";
+            if(V63ConditionalExecutionEnabled())policy="CONDITIONAL_GRID";
+            if(policy=="SINGLE"||policy=="SINGLE_RUNNER"){fractions=new[]{0.0};weights=new[]{1.0};return;}
+            if(c.Route==HarmonicRoute.EXHAUSTION_REVERSAL){fractions=new[]{0.0,.236};weights=new[]{.70,.30};return;}
+            fractions=new[]{0.0,.236,.382};weights=new[]{.60,.25,.15};
         }
 
         private bool V62RegimeSurvivalPass(CandidateRecord c)
@@ -1892,6 +1823,7 @@ namespace cAlgo.Robots
         private void ConfigureV62SelectiveRunner(CandidateRecord c, FibonacciGridPlan plan)
         {
             if (!V62RunnerEnabled() || c == null || c.Signal == null || plan == null || c.Route == HarmonicRoute.EXHAUSTION_REVERSAL) return;
+            if (V63CellPolicyRouterEnabled()) { string policy=V63PolicyForCell(c); if (policy!="SINGLE_RUNNER" && policy!="CONDITIONAL_RUNNER") return; }
             FibonacciGridLeg leg = plan.Legs.Where(x => x.Physical && x.Volume > 0 && x.Index > 0 && Math.Abs(x.Fraction) <= 1e-9).OrderBy(x => x.Index).FirstOrDefault();
             if (leg == null || leg.RiskWeight < .15 || leg.RiskWeight > .30) return;
             double riskDistance = Math.Abs(leg.PlannedPrice - plan.StructuralStop);
