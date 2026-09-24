@@ -1,0 +1,351 @@
+name: HarmonyBot V63 Regime-Native Alpha Portfolio Adaptive Execution Governor
+on:
+  push:
+    branches: [harmonybot/v63-regime-native-alpha-portfolio-adaptive-execution-governor]
+    paths: ['HarmonyBot-V63/**','.github/workflows/harmonybot-v63-regime-native-alpha-portfolio-adaptive-execution-governor.yml']
+  workflow_dispatch:
+concurrency: {group: harmonybot-v63-regime-native-alpha-portfolio-adaptive-execution-governor, cancel-in-progress: true}
+permissions: {contents: read}
+env:
+  CTRADER_PASSWORD: ${{ secrets.CTRADER_PASSWORD }}
+  CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+  CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with: {ref: harmonybot/v63-regime-native-alpha-portfolio-adaptive-execution-governor, path: control, fetch-depth: 1}
+      - uses: actions/setup-dotnet@v4
+        with: {dotnet-version: 8.0.x}
+      - shell: bash
+        run: |
+          set -euo pipefail; cd control
+          python3 HarmonyBot-V63/tools/static_audit.py HarmonyBot-V63/src/HarmonyBotV63.cs
+          python3 HarmonyBot-V63/tools/v63_architecture_contract_test.py
+          dotnet restore HarmonyBot-V63/HarmonyBotV63.csproj
+          dotnet build HarmonyBot-V63/HarmonyBotV63.csproj -c Release --no-restore --nologo
+          mkdir -p HarmonyBot-V63/dist HarmonyBot-V63/final
+          A=$(find HarmonyBot-V63/bin/Release -type f -name '*.algo' | head -1); test -s "$A"
+          cp "$A" HarmonyBot-V63/dist/HarmonyBot_V63_Regime_Native_Alpha_Portfolio_Adaptive_Execution_Governor_RC.algo
+          sha256sum HarmonyBot-V63/src/HarmonyBotV63.cs "$A" HarmonyBot-V63/MAJOR_VERSION_EXECUTION_CHARTER.md > HarmonyBot-V63/final/SHA256SUMS
+          printf '%s\n' "$GITHUB_SHA" > HarmonyBot-V63/final/SOURCE_COMMIT.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: v63-build
+          path: |
+            control/HarmonyBot-V63/dist
+            control/HarmonyBot-V63/final
+          retention-days: 30
+          if-no-files-found: error
+
+  build-v51-control:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with: {ref: harmonybot/v63-regime-native-alpha-portfolio-adaptive-execution-governor, path: control, fetch-depth: 1}
+      - uses: actions/setup-dotnet@v4
+        with: {dotnet-version: 8.0.x}
+      - shell: bash
+        run: |
+          set -euo pipefail; cd control
+          test "$(git hash-object HarmonyBot-V51/src/HarmonyBotV51.cs)" = "be800fc0ff2a1ca83282af818abdfb6e945a512f"
+          dotnet restore HarmonyBot-V51/HarmonyBotV51.csproj
+          dotnet build HarmonyBot-V51/HarmonyBotV51.csproj -c Release --no-restore --nologo
+          mkdir -p HarmonyBot-V51/dist
+          A=$(find HarmonyBot-V51/bin/Release -type f -name '*.algo' | head -1); test -s "$A"; cp "$A" HarmonyBot-V51/dist/
+      - uses: actions/upload-artifact@v4
+        with: {name: v63-v51-control-build, path: control/HarmonyBot-V51/dist, retention-days: 30, if-no-files-found: error}
+
+  golden-dev:
+    needs: build-v51-control
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    strategy: {fail-fast: false, matrix: {window: [A,B,C]}}
+    steps:
+      - uses: actions/checkout@v4
+        with: {ref: harmonybot/v63-regime-native-alpha-portfolio-adaptive-execution-governor, path: control, fetch-depth: 1}
+      - uses: actions/download-artifact@v4
+        with: {name: v63-v51-control-build, path: control/HarmonyBot-V51/shared}
+      - id: d
+        shell: bash
+        run: |
+          case "${{ matrix.window }}" in A) S=01/07/2024; E=2024-07-08T00:00:00Z; X=31/12/2024;; B) S=02/01/2025; E=2025-01-09T00:00:00Z; X=30/06/2025;; C) S=01/07/2025; E=2025-07-08T00:00:00Z; X=31/12/2025;; esac
+          echo "start=$S" >> "$GITHUB_OUTPUT"; echo "eval=$E" >> "$GITHUB_OUTPUT"; echo "end=$X" >> "$GITHUB_OUTPUT"
+      - shell: bash
+        run: |
+          mkdir -p control/HarmonyBot-V51/dist
+          A=$(find control/HarmonyBot-V51/shared -type f -name '*.algo' | head -1)
+          cp "$A" control/HarmonyBot-V51/dist/HarmonyBot_V51_Family_Native_Math_Geometry_Economic_Conversion_RC.algo
+          chmod +x control/HarmonyBot-V51/tools/*.sh
+          control/HarmonyBot-V51/tools/run_window.sh FAMILY_NATIVE_MATH_GEOMETRY "${{ matrix.window }}" "${{ steps.d.outputs.start }}" "${{ steps.d.outputs.eval }}" "${{ steps.d.outputs.end }}"
+      - uses: actions/upload-artifact@v4
+        with: {name: "v63-golden-v51-${{ matrix.window }}", path: "control/HarmonyBot-V51/output-FAMILY_NATIVE_MATH_GEOMETRY-${{ matrix.window }}", retention-days: 30}
+
+  golden-freeze:
+    needs: golden-dev
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with: {ref: harmonybot/v63-regime-native-alpha-portfolio-adaptive-execution-governor, path: control, fetch-depth: 1}
+      - uses: actions/download-artifact@v4
+        with: {pattern: 'v63-golden-v51-*', path: golden, merge-multiple: true}
+      - shell: bash
+        run: mkdir -p golden-ref && python3 control/HarmonyBot-V63/tools/build_golden_reference.py golden golden-ref
+      - uses: actions/upload-artifact@v4
+        with: {name: v63-golden-dev-reference, path: golden-ref, retention-days: 30}
+
+  calibration:
+    needs: [build,golden-freeze]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 55
+    strategy:
+      fail-fast: false
+      max-parallel: 12
+      matrix:
+        variant: [V63_CONDITIONAL_EXECUTION,V63_CELL_POLICY_ROUTER,V63_CELL_POLICY_RUNNER,V63_POSITIVE_COHORT_RECOVERY,V63_OCCUPANCY_GOVERNOR]
+        window: [C1,C2,C3]
+    steps:
+      - uses: actions/checkout@v4
+        with: {ref: harmonybot/v63-regime-native-alpha-portfolio-adaptive-execution-governor, path: control, fetch-depth: 1}
+      - uses: actions/download-artifact@v4
+        with: {name: v63-build, path: control/HarmonyBot-V63/shared}
+      - id: d
+        shell: bash
+        run: |
+          case "${{ matrix.window }}" in C1) S=04/01/2021; E=2021-01-11T00:00:00Z; X=31/12/2021;; C2) S=03/01/2022; E=2022-01-10T00:00:00Z; X=30/12/2022;; C3) S=03/01/2023; E=2023-01-10T00:00:00Z; X=29/12/2023;; esac
+          echo "start=$S" >> "$GITHUB_OUTPUT"; echo "eval=$E" >> "$GITHUB_OUTPUT"; echo "end=$X" >> "$GITHUB_OUTPUT"
+      - shell: bash
+        run: |
+          mkdir -p control/HarmonyBot-V63/dist
+          A=$(find control/HarmonyBot-V63/shared -type f -name '*.algo' | head -1)
+          cp "$A" control/HarmonyBot-V63/dist/HarmonyBot_V63_Regime_Native_Alpha_Portfolio_Adaptive_Execution_Governor_RC.algo
+          chmod +x control/HarmonyBot-V63/tools/*.sh
+          control/HarmonyBot-V63/tools/run_window.sh "${{ matrix.variant }}" "${{ matrix.window }}" "${{ steps.d.outputs.start }}" "${{ steps.d.outputs.eval }}" "${{ steps.d.outputs.end }}" 1 10000 1
+      - uses: actions/upload-artifact@v4
+        with: {name: "v63-cal-${{ matrix.variant }}-${{ matrix.window }}", path: "control/HarmonyBot-V63/output-${{ matrix.variant }}-${{ matrix.window }}-B10000-S1", retention-days: 30}
+
+  calibration-freeze:
+    needs: calibration
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with: {ref: harmonybot/v63-regime-native-alpha-portfolio-adaptive-execution-governor, path: control, fetch-depth: 1}
+      - uses: actions/download-artifact@v4
+        with: {pattern: 'v63-cal-*', path: cal, merge-multiple: true}
+      - shell: bash
+        run: mkdir -p manifest && python3 control/HarmonyBot-V63/tools/build_calibration_manifest.py cal manifest
+      - uses: actions/upload-artifact@v4
+        with: {name: v63-calibration-freeze, path: manifest, retention-days: 30}
+
+  dev:
+    needs: [build,calibration-freeze]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 50
+    strategy:
+      fail-fast: false
+      max-parallel: 12
+      matrix:
+        variant: [V63_CONDITIONAL_EXECUTION,V63_CELL_POLICY_ROUTER,V63_CELL_POLICY_RUNNER,V63_POSITIVE_COHORT_RECOVERY,V63_OCCUPANCY_GOVERNOR]
+        window: [A,B,C]
+    steps:
+      - uses: actions/checkout@v4
+        with: {ref: harmonybot/v63-regime-native-alpha-portfolio-adaptive-execution-governor, path: control, fetch-depth: 1}
+      - uses: actions/download-artifact@v4
+        with: {name: v63-build, path: control/HarmonyBot-V63/shared}
+      - id: d
+        shell: bash
+        run: |
+          case "${{ matrix.window }}" in A) S=01/07/2024; E=2024-07-08T00:00:00Z; X=31/12/2024;; B) S=02/01/2025; E=2025-01-09T00:00:00Z; X=30/06/2025;; C) S=01/07/2025; E=2025-07-08T00:00:00Z; X=31/12/2025;; esac
+          echo "start=$S" >> "$GITHUB_OUTPUT"; echo "eval=$E" >> "$GITHUB_OUTPUT"; echo "end=$X" >> "$GITHUB_OUTPUT"
+      - shell: bash
+        run: |
+          mkdir -p control/HarmonyBot-V63/dist
+          A=$(find control/HarmonyBot-V63/shared -type f -name '*.algo' | head -1)
+          cp "$A" control/HarmonyBot-V63/dist/HarmonyBot_V63_Regime_Native_Alpha_Portfolio_Adaptive_Execution_Governor_RC.algo
+          chmod +x control/HarmonyBot-V63/tools/*.sh
+          control/HarmonyBot-V63/tools/run_window.sh "${{ matrix.variant }}" "${{ matrix.window }}" "${{ steps.d.outputs.start }}" "${{ steps.d.outputs.eval }}" "${{ steps.d.outputs.end }}" 1 10000 .5
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with: {name: "v63-dev-${{ matrix.variant }}-${{ matrix.window }}", path: "control/HarmonyBot-V63/output-${{ matrix.variant }}-${{ matrix.window }}-B10000-S1", retention-days: 30, if-no-files-found: error}
+
+  analyze:
+    needs: [dev,golden-freeze]
+    runs-on: ubuntu-24.04
+    outputs: {candidate: "${{ steps.a.outputs.candidate }}"}
+    steps:
+      - uses: actions/checkout@v4
+        with: {ref: harmonybot/v63-regime-native-alpha-portfolio-adaptive-execution-governor, path: control, fetch-depth: 1}
+      - uses: actions/download-artifact@v4
+        with: {pattern: 'v63-dev-*', path: dev, merge-multiple: true}
+      - uses: actions/download-artifact@v4
+        with: {name: v63-golden-dev-reference, path: golden}
+      - id: a
+        shell: bash
+        run: |
+          mkdir -p final
+          python3 control/HarmonyBot-V63/tools/analyze_dev4.py dev golden/V63_GOLDEN_DEV_REFERENCE.json final
+          echo "candidate=$(cat final/candidate.txt)" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@v4
+        with: {name: v63-dev-frontier, path: final, retention-days: 30}
+
+  validation:
+    needs: [build,analyze]
+    if: needs.analyze.outputs.candidate != ''
+    runs-on: ubuntu-24.04
+    timeout-minutes: 50
+    strategy: {fail-fast: false, matrix: {quarter: [Q1,Q2], spread: [1.0,1.25,1.5]}}
+    steps:
+      - uses: actions/checkout@v4
+        with: {ref: harmonybot/v63-regime-native-alpha-portfolio-adaptive-execution-governor, path: control, fetch-depth: 1}
+      - uses: actions/download-artifact@v4
+        with: {name: v63-build, path: control/HarmonyBot-V63/shared}
+      - id: d
+        shell: bash
+        run: |
+          case "${{ matrix.quarter }}" in Q1) S=02/01/2026; E=2026-01-09T00:00:00Z; X=31/03/2026;; Q2) S=01/04/2026; E=2026-04-08T00:00:00Z; X=30/06/2026;; esac
+          echo "start=$S" >> "$GITHUB_OUTPUT"; echo "eval=$E" >> "$GITHUB_OUTPUT"; echo "end=$X" >> "$GITHUB_OUTPUT"
+      - shell: bash
+        env: {CANDIDATE: "${{ needs.analyze.outputs.candidate }}"}
+        run: |
+          mkdir -p control/HarmonyBot-V63/dist; A=$(find control/HarmonyBot-V63/shared -type f -name '*.algo' | head -1)
+          cp "$A" control/HarmonyBot-V63/dist/HarmonyBot_V63_Regime_Native_Alpha_Portfolio_Adaptive_Execution_Governor_RC.algo
+          chmod +x control/HarmonyBot-V63/tools/*.sh
+          control/HarmonyBot-V63/tools/run_window.sh "$CANDIDATE" "VAL_${{ matrix.quarter }}_S${{ matrix.spread }}" "${{ steps.d.outputs.start }}" "${{ steps.d.outputs.eval }}" "${{ steps.d.outputs.end }}" "${{ matrix.spread }}" 10000 .25
+      - uses: actions/upload-artifact@v4
+        with: {name: "v63-validation-${{ matrix.quarter }}-${{ matrix.spread }}", path: "control/HarmonyBot-V63/output-*VAL_*", retention-days: 30}
+
+  validation-gate:
+    needs: [analyze,validation]
+    if: needs.analyze.outputs.candidate != ''
+    runs-on: ubuntu-24.04
+    outputs: {ok: "${{ steps.g.outputs.ok }}"}
+    steps:
+      - uses: actions/download-artifact@v4
+        with: {pattern: 'v63-validation-*', path: val, merge-multiple: true}
+      - id: g
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json,pathlib
+          rows=[]
+          for p in pathlib.Path("val").rglob("*.json"):
+           try:d=json.load(open(p))
+           except:continue
+           if "basket_outcomes" in d: rows.append(d)
+          ok=len(rows)==6 and all(x["baskets"]>0 and x["net"]>0 and x["pf"]>1 and x["expectancy"]>0 and x["engineering_clean"] and x["actual_basket_risk_violations"]==0 and x["margin_risk_violations"]==0 for x in rows)
+          pathlib.Path("validation.out").write_text("true" if ok else "false"); pathlib.Path("V63_VALIDATION_GATE.json").write_text(json.dumps({"pass":ok,"rows":rows},indent=2))
+          PY
+          echo "ok=$(cat validation.out)" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@v4
+        with: {name: v63-validation-gate, path: V63_VALIDATION_GATE.json, retention-days: 30}
+
+  capital:
+    needs: [build,analyze,validation-gate]
+    if: needs.validation-gate.outputs.ok == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 55
+    strategy: {fail-fast: false, matrix: {balance: [100,150,200,300,500,1000]}}
+    steps:
+      - uses: actions/checkout@v4
+        with: {ref: harmonybot/v63-regime-native-alpha-portfolio-adaptive-execution-governor, path: control, fetch-depth: 1}
+      - uses: actions/download-artifact@v4
+        with: {name: v63-build, path: control/HarmonyBot-V63/shared}
+      - shell: bash
+        env: {CANDIDATE: "${{ needs.analyze.outputs.candidate }}"}
+        run: |
+          mkdir -p control/HarmonyBot-V63/dist; A=$(find control/HarmonyBot-V63/shared -type f -name '*.algo' | head -1)
+          cp "$A" control/HarmonyBot-V63/dist/HarmonyBot_V63_Regime_Native_Alpha_Portfolio_Adaptive_Execution_Governor_RC.algo
+          chmod +x control/HarmonyBot-V63/tools/*.sh
+          control/HarmonyBot-V63/tools/run_window.sh "$CANDIDATE" "CAPITAL_${{ matrix.balance }}" 01/07/2024 2024-07-08T00:00:00Z 31/12/2025 1 "${{ matrix.balance }}" 1.5
+      - uses: actions/upload-artifact@v4
+        with: {name: "v63-capital-${{ matrix.balance }}", path: "control/HarmonyBot-V63/output-*CAPITAL_*", retention-days: 30}
+
+  capital-gate:
+    needs: [analyze,capital]
+    if: needs.analyze.outputs.candidate != ''
+    runs-on: ubuntu-24.04
+    outputs: {ok: "${{ steps.g.outputs.ok }}"}
+    steps:
+      - uses: actions/download-artifact@v4
+        with: {pattern: 'v63-capital-*', path: capital, merge-multiple: true}
+      - id: g
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json,pathlib
+          rows=[]
+          for p in pathlib.Path("capital").rglob("*.json"):
+           try:d=json.load(open(p))
+           except:continue
+           if "basket_outcomes" in d: rows.append(d)
+          ok=len(rows)==6 and all(x["baskets"]>0 and x["net"]>0 and x["pf"]>1 and x["expectancy"]>0 and x["max_dd_pct"]<=10 and x["engineering_clean"] and x["actual_basket_risk_violations"]==0 and x["margin_risk_violations"]==0 for x in rows)
+          pathlib.Path("capital.out").write_text("true" if ok else "false"); pathlib.Path("V63_CAPITAL_GATE.json").write_text(json.dumps({"pass":ok,"rows":rows},indent=2))
+          PY
+          echo "ok=$(cat capital.out)" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@v4
+        with: {name: v63-capital-gate, path: V63_CAPITAL_GATE.json, retention-days: 30}
+
+  freeze:
+    needs: [build,analyze,validation-gate,capital-gate]
+    if: needs.validation-gate.outputs.ok == 'true' && needs.capital-gate.outputs.ok == 'true'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with: {ref: harmonybot/v63-regime-native-alpha-portfolio-adaptive-execution-governor, path: control, fetch-depth: 1}
+      - uses: actions/download-artifact@v4
+        with: {name: v63-build, path: shared}
+      - shell: bash
+        env: {CANDIDATE: "${{ needs.analyze.outputs.candidate }}"}
+        run: |
+          python3 - <<'PY'
+          import hashlib,json,pathlib,os
+          src=pathlib.Path("control/HarmonyBot-V63/src/HarmonyBotV63.cs"); algo=next(pathlib.Path("shared").rglob("*.algo"))
+          pathlib.Path("V63_FREEZE_MANIFEST.json").write_text(json.dumps({"version":"HarmonyBot V63","candidate":os.environ["CANDIDATE"],"source_commit":os.environ["GITHUB_SHA"],"source_sha256":hashlib.sha256(src.read_bytes()).hexdigest(),"algo_sha256":hashlib.sha256(algo.read_bytes()).hexdigest(),"fresh_used":False},indent=2))
+          PY
+      - uses: actions/upload-artifact@v4
+        with: {name: v63-freeze-manifest, path: V63_FREEZE_MANIFEST.json, retention-days: 30}
+
+  fresh:
+    needs: [build,analyze,freeze]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    strategy: {fail-fast: false, matrix: {include: [{kind: ALPHA, balance: 10000},{kind: SMALL, balance: 100}]}}
+    steps:
+      - uses: actions/checkout@v4
+        with: {ref: harmonybot/v63-regime-native-alpha-portfolio-adaptive-execution-governor, path: control, fetch-depth: 1}
+      - uses: actions/download-artifact@v4
+        with: {name: v63-build, path: control/HarmonyBot-V63/shared}
+      - shell: bash
+        env: {CANDIDATE: "${{ needs.analyze.outputs.candidate }}"}
+        run: |
+          mkdir -p control/HarmonyBot-V63/dist; A=$(find control/HarmonyBot-V63/shared -type f -name '*.algo' | head -1)
+          cp "$A" control/HarmonyBot-V63/dist/HarmonyBot_V63_Regime_Native_Alpha_Portfolio_Adaptive_Execution_Governor_RC.algo
+          chmod +x control/HarmonyBot-V63/tools/*.sh
+          control/HarmonyBot-V63/tools/run_window.sh "$CANDIDATE" "FRESH_${{ matrix.kind }}" 02/01/2020 2020-01-09T00:00:00Z 30/06/2020 1 "${{ matrix.balance }}" .5
+      - uses: actions/upload-artifact@v4
+        with: {name: "v63-fresh-${{ matrix.kind }}", path: "control/HarmonyBot-V63/output-*FRESH_*", retention-days: 30}
+
+  fresh-gate:
+    needs: fresh
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/download-artifact@v4
+        with: {pattern: 'v63-fresh-*', path: fresh, merge-multiple: true}
+      - shell: bash
+        run: |
+          python3 - <<'PY'
+          import json,pathlib
+          rows=[]
+          for p in pathlib.Path("fresh").rglob("*.json"):
+           try:d=json.load(open(p))
+           except:continue
+           if "basket_outcomes" in d: rows.append(d)
+          ok=len(rows)==2 and all(x["baskets"]>0 and x["net"]>0 and x["pf"]>1 and x["expectancy"]>0 and x["engineering_clean"] for x in rows)
+          pathlib.Path("V63_FRESH_GATE.json").write_text(json.dumps({"pass":ok,"rows":rows,"status":"COMMERCIAL_FREEZE" if ok else "HOLD_NEW_MAJOR_REQUIRED"},indent=2))
+          PY
+      - uses: actions/upload-artifact@v4
+        with: {name: v63-fresh-gate, path: V63_FRESH_GATE.json, retention-days: 30}
