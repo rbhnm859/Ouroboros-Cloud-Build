@@ -5,3 +5,5 @@ for t in ["AtrPercentile","Efficiency","TrendStrength","ExtensionAtr","Confirmat
 for bad in ["ShadowMfe","ShadowMae","[i + 1]","[i+1]"]: assert bad not in b,bad
 assert 'Reject(c, "V61_REGIME_SURVIVAL_VETO")' in s
 print("V61 veto-only regime survival contract PASS")
+
+assert 'DefaultValue = 0.65' in s

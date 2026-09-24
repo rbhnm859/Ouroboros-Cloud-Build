@@ -132,7 +132,7 @@ jobs:
     if: needs.replay-gate.outputs.replayok == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 55
-    strategy: {fail-fast: false, max-parallel: 12, matrix: {variant: [V61_V51_EXACT_CONTROL,V61_CHAMPION_FIB_GRID,V61_GRID_REGIME_SURVIVAL,V61_COMMERCIAL_MAX], window: [C1,C2,C3]}}
+    strategy: {fail-fast: false, max-parallel: 12, matrix: {variant: [V61_V51_EXACT_CONTROL,V61_DAG_CAPITAL_CONTROL,V61_CHAMPION_FIB_GRID,V61_GRID_REGIME_SURVIVAL,V61_COMMERCIAL_MAX], window: [C1,C2,C3]}}
     steps:
       - uses: actions/checkout@v4
         with: {ref: harmonybot/v61-champion-core-fibonacci-grid-commercial-rebase, path: control, fetch-depth: 1}
@@ -167,7 +167,7 @@ jobs:
     needs: [build,calibration-freeze]
     runs-on: ubuntu-24.04
     timeout-minutes: 50
-    strategy: {fail-fast: false, max-parallel: 12, matrix: {variant: [V61_V51_EXACT_CONTROL,V61_CHAMPION_FIB_GRID,V61_GRID_REGIME_SURVIVAL,V61_COMMERCIAL_MAX], window: [A,B,C]}}
+    strategy: {fail-fast: false, max-parallel: 12, matrix: {variant: [V61_V51_EXACT_CONTROL,V61_DAG_CAPITAL_CONTROL,V61_CHAMPION_FIB_GRID,V61_GRID_REGIME_SURVIVAL,V61_COMMERCIAL_MAX], window: [A,B,C]}}
     steps:
       - uses: actions/checkout@v4
         with: {ref: harmonybot/v61-champion-core-fibonacci-grid-commercial-rebase, path: control, fetch-depth: 1}

@@ -211,7 +211,7 @@ namespace cAlgo.Robots
         [Parameter("V61 Variant", DefaultValue = "V61_V51_EXACT_CONTROL")]
         public string V61Variant { get; set; }
 
-        [Parameter("V61 Regime Survival Threshold", DefaultValue = 0.52, MinValue = 0.40, MaxValue = 0.75)]
+        [Parameter("V61 Regime Survival Threshold", DefaultValue = 0.65, MinValue = 0.40, MaxValue = 0.75)]
         public double V61RegimeSurvivalThreshold { get; set; }
 
         [Parameter("V61 Rat Min Geometry", DefaultValue = 0.72, MinValue = 0.72, MaxValue = 0.72)]
@@ -1650,6 +1650,11 @@ namespace cAlgo.Robots
             return string.Equals(V61Variant, "V61_V51_EXACT_CONTROL", StringComparison.Ordinal);
         }
 
+        private bool V61DagCapitalControlEnabled()
+        {
+            return string.Equals(V61Variant, "V61_DAG_CAPITAL_CONTROL", StringComparison.Ordinal);
+        }
+
         private bool V61CanonicalGridEnabled()
         {
             return string.Equals(V61Variant, "V61_CHAMPION_FIB_GRID", StringComparison.Ordinal) ||
@@ -1750,11 +1755,11 @@ namespace cAlgo.Robots
             if (c.Route == HarmonicRoute.EXHAUSTION_REVERSAL) return;
             var physical = plan.Legs.Where(x => x.Physical && x.Volume > 0 && x.Index > 0).ToList();
             if (physical.Count == 0) return;
-            FibonacciGridLeg leg;
-            if (c.Route == HarmonicRoute.TRANSITION_REVERSAL) leg = physical.OrderByDescending(x => x.Index).First();
-            else leg = physical.OrderBy(x => Math.Abs(x.RiskWeight - .225)).ThenByDescending(x => x.Index).First();
-            if (c.Route == HarmonicRoute.TREND_ALIGNED_REVERSAL && (leg.RiskWeight < .15 || leg.RiskWeight > .30)) return;
-            if (c.Route == HarmonicRoute.TRANSITION_REVERSAL && leg.RiskWeight > .25) return;
+            FibonacciGridLeg leg = physical
+                .OrderBy(x => Math.Abs(x.RiskWeight - .30))
+                .ThenBy(x => x.Index)
+                .First();
+            if (leg.RiskWeight < .15 || leg.RiskWeight > .30) return;
             double riskDistance = Math.Abs(leg.PlannedPrice - plan.StructuralStop);
             if (riskDistance <= _symbol.TickSize) return;
             double minimumRunner = c.Signal.Direction == TradeDirection.Buy
@@ -3784,7 +3789,9 @@ namespace cAlgo.Robots
 
                 TradeType tt = p.TradeType;
                 TradeDirection direction = tt == TradeType.Buy ? TradeDirection.Buy : TradeDirection.Sell;
-                if (!BrokerStopDistanceValid(tt, basket.StructuralStop) || !BrokerTargetDistanceValid(tt, basket.CanonicalTarget))
+                var protectionLeg = basket.Plan == null ? null : basket.Plan.Legs.FirstOrDefault(x => x.Index == LabelLegIndex(p.Label));
+                double protectionTarget = V61LegTarget(protectionLeg, basket.CanonicalTarget);
+                if (!BrokerStopDistanceValid(tt, basket.StructuralStop) || !BrokerTargetDistanceValid(tt, protectionTarget))
                 {
                     basket.ExitOverride = "SERVER_PROTECTION_DISTANCE_FAIL_CLOSED";
                     FailClosePosition(p, basket, basket.ExitOverride);
@@ -3802,7 +3809,7 @@ namespace cAlgo.Robots
                     continue;
                 }
                 var live = Positions.FirstOrDefault(x => x.Id == p.Id);
-                TradeResult rt = live != null && !live.TakeProfit.HasValue ? live.ModifyTakeProfitPrice(basket.CanonicalTarget) : null;
+                TradeResult rt = live != null && !live.TakeProfit.HasValue ? live.ModifyTakeProfitPrice(protectionTarget) : null;
                 if (rt != null && !rt.IsSuccessful)
                 {
                     RecordExecutionError("SERVER_TP_FAILED_" + rt.Error, "basket=" + basket.BasketId + ";position=" + p.Id);
