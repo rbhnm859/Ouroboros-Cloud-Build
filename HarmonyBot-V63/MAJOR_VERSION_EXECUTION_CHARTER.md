@@ -1,0 +1,2 @@
+# HarmonyBot V63 — Regime-Native Alpha Portfolio & Adaptive Execution Governor
+Major-version clean rebase from immutable V51 champion with V62 causal evidence. Preserve harmonic geometry, no-lookahead, one active basket and <=1% stressed basket risk. Golden control must reproduce V51 before research. Execution policy becomes Family × Route × transparent Regime. Frequency expansion requires positive marginal Net. .618 remains shadow-only; AB=CD standalone capital stays off outside control. DEV A/B/C all positive required. Fresh 2020H1 only after freeze.
