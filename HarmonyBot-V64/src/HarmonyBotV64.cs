@@ -794,13 +794,6 @@ namespace cAlgo.Robots
                         continue;
                     }
 
-                    if (V64RegimeSurvivalEnabled() && !V64RegimeSurvivalPass(c))
-                    {
-                        _v64RegimeVetoed++;
-                        Reject(c, "V64_REGIME_SURVIVAL_VETO");
-                        continue;
-                    }
-
                     if (!TryBuildFibonacciGridPlan(c))
                     {
                         Reject(c, "FIB_GRID_PLAN_REJECTED");
@@ -1000,12 +993,6 @@ namespace cAlgo.Robots
                 return false;
             }
             c.GridPlan = null;
-            if (V64RegimeSurvivalEnabled() && !V64RegimeSurvivalPass(c))
-            {
-                _v64RegimeVetoed++;
-                Event(c, "V64_REGIME_SURVIVAL_REVALIDATION_VETO");
-                return false;
-            }
             if (!TryBuildFibonacciGridPlan(c)) return false;
             if (c.NetRR < MinimumNetRR) return false;
             if (c.GridPlan == null || c.GridPlan.WorstCaseRisk > c.GridPlan.BasketRiskAmount + 1e-8) return false;
@@ -1713,8 +1700,6 @@ namespace cAlgo.Robots
         }
 
         private bool V64StructuralExitEnabled() { return false; }
-        private bool V64RegimeSurvivalEnabled() { return false; }
-        private bool V64RegimeSurvivalPass(CandidateRecord c) { return true; }
         private bool V64CanonicalGridEnabled() { return V64ProductEnabled(); }
         private bool V64ConditionalGridEnabled() { return V64ProductEnabled(); }
         private bool V64RunnerEnabled() { return V64ProductEnabled(); }
