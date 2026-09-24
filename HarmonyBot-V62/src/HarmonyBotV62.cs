@@ -1656,7 +1656,7 @@ namespace cAlgo.Robots
             return string.Equals(V62Variant, "V62_DAG_SINGLE_ENTRY", StringComparison.Ordinal);
         }
 
-        private bool V62CurrentGridEnabled() { return string.Equals(V62Variant, "V62_CURRENT_V62_GRID", StringComparison.Ordinal); }
+        private bool V62CurrentGridEnabled() { return string.Equals(V62Variant, "V62_CURRENT_V61_GRID", StringComparison.Ordinal); }
         private bool V62FrontLoadedGridEnabled() { return string.Equals(V62Variant, "V62_FRONT_LOADED_GRID", StringComparison.Ordinal); }
         private bool V62ConditionalGridEnabled()
         {
