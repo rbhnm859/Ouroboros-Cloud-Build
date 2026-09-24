@@ -319,15 +319,17 @@ namespace cAlgo.Robots
         private readonly Dictionary<string, int> _familyContractPass = new Dictionary<string, int>();
         private readonly Dictionary<string, int> _familyContractWindowReject = new Dictionary<string, int>();
         private readonly Dictionary<string, int> _gridPlanRejectReasons = new Dictionary<string, int>();
-        private int _v62RegimeVetoed;
-        private int _v62RatExpansionAdmitted;
-        private int _v62AbcdCapitalRejected;
-        private int _v62RunnerAssigned;
-        private int _v62RunnerFilled;
-        private int _v62RunnerClosed;
-        private int _v62RunnerSurvivedCanonicalTp;
-        private int _v62ConditionalLegArmed;
-        private int _v62ConditionalLegRejected;
+        private int _v63RegimeVetoed;
+        private int _v63RatExpansionAdmitted;
+        private int _v63AbcdCapitalRejected;
+        private int _v63RunnerAssigned;
+        private int _v63RunnerFilled;
+        private int _v63RunnerClosed;
+        private int _v63RunnerSurvivedCanonicalTp;
+        private int _v63ConditionalLegArmed;
+        private int _v63ConditionalLegRejected;
+        private int _v63CohortRecovered;
+        private int _v63OccupancyReleased;
 
         private DateTime _lastM15Closed = DateTime.MinValue;
         private DateTime _lastM1Closed = DateTime.MinValue;
@@ -487,7 +489,7 @@ namespace cAlgo.Robots
             foreach (var kv in _executionErrorReasons.OrderBy(k => k.Key))
                 Print("[V51-EXECUTION-ERROR-SUMMARY] code={0} count={1}", kv.Key, kv.Value);
             Print("[V62-SUMMARY] variant={0} regimeVetoed={1} ratExpansionAdmitted={2} abcdCapitalRejected={3} runnerAssigned={4} runnerFilled={5} runnerClosed={6} runnerSurvivedCanonical={7} conditionalArmed={8} conditionalRejected={9}",
-                V63Variant, _v62RegimeVetoed, _v62RatExpansionAdmitted, _v62AbcdCapitalRejected, _v62RunnerAssigned, _v62RunnerFilled, _v62RunnerClosed, _v62RunnerSurvivedCanonicalTp, _v62ConditionalLegArmed, _v62ConditionalLegRejected);
+                V63Variant, _v63RegimeVetoed, _v63RatExpansionAdmitted, _v63AbcdCapitalRejected, _v63RunnerAssigned, _v63RunnerFilled, _v63RunnerClosed, _v63RunnerSurvivedCanonicalTp, _v63ConditionalLegArmed, _v63ConditionalLegRejected);
         }
 
         protected override void OnBar()
@@ -607,7 +609,7 @@ namespace cAlgo.Robots
                     if (V62TryRatControlledExpansion(signal, record.Conflict, regime, out ratRoute))
                     {
                         record.Route = ratRoute;
-                        _v62RatExpansionAdmitted++;
+                        _v63RatExpansionAdmitted++;
                         Print("[V62-RAT-EXPANSION] cid={0} setup={1} route={2} geometry={3:F3} prz={4:F3} confidence={5:F3}",
                             record.CandidateId, record.SetupKey, record.Route, signal.GeometryQuality, signal.PrzConfluence, signal.Confidence);
                     }
@@ -615,7 +617,7 @@ namespace cAlgo.Robots
 
                 if (!V63GoldenControlEnabled() && signal.PatternName == "AB=CD")
                 {
-                    _v62AbcdCapitalRejected++;
+                    _v63AbcdCapitalRejected++;
                     Reject(record, "V62_ABCD_STANDALONE_CAPITAL_OFF");
                     continue;
                 }
@@ -821,7 +823,7 @@ namespace cAlgo.Robots
 
                     if (V62RegimeSurvivalEnabled() && !V62RegimeSurvivalPass(c))
                     {
-                        _v62RegimeVetoed++;
+                        _v63RegimeVetoed++;
                         Reject(c, "V62_REGIME_SURVIVAL_VETO");
                         continue;
                     }
@@ -1027,7 +1029,7 @@ namespace cAlgo.Robots
             c.GridPlan = null;
             if (V62RegimeSurvivalEnabled() && !V62RegimeSurvivalPass(c))
             {
-                _v62RegimeVetoed++;
+                _v63RegimeVetoed++;
                 Event(c, "V62_REGIME_SURVIVAL_REVALIDATION_VETO");
                 return false;
             }
@@ -1597,9 +1599,9 @@ namespace cAlgo.Robots
                 {
                     if (DeeperLegThesisEligible(basket, firstDeep))
                     {
-                        if (PlaceGridLimit(basket, firstDeep)) { basket.State = FibonacciBasketState.GRID_PENDING; _v62ConditionalLegArmed++; }
+                        if (PlaceGridLimit(basket, firstDeep)) { basket.State = FibonacciBasketState.GRID_PENDING; _v63ConditionalLegArmed++; }
                     }
-                    else { TransitionLegState(basket, firstDeep, GridLegState.CANCELLED, "CONDITIONAL_GRID_INITIAL_REJECT"); _v62ConditionalLegRejected++; }
+                    else { TransitionLegState(basket, firstDeep, GridLegState.CANCELLED, "CONDITIONAL_GRID_INITIAL_REJECT"); _v63ConditionalLegRejected++; }
                 }
             }
             else
@@ -1832,7 +1834,7 @@ namespace cAlgo.Robots
             double target = minimumRunner;
             if (c.Signal.CanonicalTarget2 > 0) target = c.Signal.Direction == TradeDirection.Buy ? Math.Max(minimumRunner, c.Signal.CanonicalTarget2) : Math.Min(minimumRunner, c.Signal.CanonicalTarget2);
             if (!GeometryValid(c.Signal.Direction, leg.PlannedPrice, plan.StructuralStop, target)) return;
-            leg.RunnerEligible = true; leg.RunnerTarget = target; plan.SelectiveRunnerEnabled = true; plan.RunnerRiskWeight = leg.RiskWeight; _v62RunnerAssigned++;
+            leg.RunnerEligible = true; leg.RunnerTarget = target; plan.SelectiveRunnerEnabled = true; plan.RunnerRiskWeight = leg.RiskWeight; _v63RunnerAssigned++;
             Print("[V62-RUNNER-ASSIGN] cid={0} setup={1} route={2} leg=L{3} weight={4:F3} target={5}", c.CandidateId, c.SetupKey, c.Route, leg.Index, leg.RiskWeight, target);
         }
 
@@ -2558,7 +2560,7 @@ namespace cAlgo.Robots
             if (leg.Index == 1) CountPipeline(basket.Pattern).Leg1Filled++;
             if (leg.Index == 2) CountPipeline(basket.Pattern).Leg2Filled++;
             if (leg.Index == 3) CountPipeline(basket.Pattern).Leg3Filled++;
-            if (leg.RunnerEligible) _v62RunnerFilled++;
+            if (leg.RunnerEligible) _v63RunnerFilled++;
             BasketEvent(basket, "GRID_LEG_FILLED_L" + leg.Index);
             if (V62ConditionalGridEnabled() && leg.Fraction > 1e-9) TryArmNextConditionalLeg(basket, leg.Index);
         }
@@ -2569,9 +2571,9 @@ namespace cAlgo.Robots
             var next = basket.Plan.Legs.Where(x => x.Physical && x.Index > filledIndex && x.Fraction > 1e-9 && x.State == GridLegState.PLANNED).OrderBy(x => x.Index).FirstOrDefault();
             if (next == null) return;
             if (!DeeperLegThesisEligible(basket, next))
-            { TransitionLegState(basket, next, GridLegState.CANCELLED, "CONDITIONAL_GRID_REVALIDATION_REJECT"); _v62ConditionalLegRejected++; return; }
+            { TransitionLegState(basket, next, GridLegState.CANCELLED, "CONDITIONAL_GRID_REVALIDATION_REJECT"); _v63ConditionalLegRejected++; return; }
             if (PlaceGridLimit(basket, next))
-            { basket.State = FibonacciBasketState.GRID_PENDING; _v62ConditionalLegArmed++; Print("[V62-CONDITIONAL-LEG-ARMED] basket={0} prior=L{1} next=L{2}", basket.BasketId, filledIndex, next.Index); }
+            { basket.State = FibonacciBasketState.GRID_PENDING; _v63ConditionalLegArmed++; Print("[V62-CONDITIONAL-LEG-ARMED] basket={0} prior=L{1} next=L{2}", basket.BasketId, filledIndex, next.Index); }
         }
 
         private void UpdateVirtualGridState(FibonacciBasket basket)
@@ -2673,11 +2675,11 @@ namespace cAlgo.Robots
                 bool runner = spec != null && spec.RunnerEligible;
                 Print("[V51-LEG-CLOSED] basket={0} cid={1} leg=L{2} pos={3} pattern={4} route={5} dir={6} mfeR={7:F3} maeR={8:F3} realizedR={9:F3} net={10:F2} reason={11}", basket.BasketId, basket.CandidateId, l.LegIndex, p.Id, basket.Pattern, basket.Route, basket.Direction, l.PeakR, l.MaxAdverseR, legRealizedR, p.NetProfit, args.Reason);
                 Print("[V62-LEG-ECON] basket={0} setup={1} leg=L{2} fraction={3:F3} weight={4:F3} runner={5} mfeR={6:F3} maeR={7:F3} realizedR={8:F3} net={9:F2} reason={10}", basket.BasketId, basket.Candidate != null ? basket.Candidate.SetupKey : "", l.LegIndex, spec != null ? spec.Fraction : -1, spec != null ? spec.RiskWeight : 0, runner, l.PeakR, l.MaxAdverseR, legRealizedR, p.NetProfit, args.Reason);
-                if (runner) { _v62RunnerClosed++; Print("[V62-RUNNER-CLOSED] basket={0} leg=L{1} realizedR={2:F3} net={3:F2} reason={4}", basket.BasketId, l.LegIndex, legRealizedR, p.NetProfit, args.Reason); }
+                if (runner) { _v63RunnerClosed++; Print("[V62-RUNNER-CLOSED] basket={0} leg=L{1} realizedR={2:F3} net={3:F2} reason={4}", basket.BasketId, l.LegIndex, legRealizedR, p.NetProfit, args.Reason); }
                 if (args.Reason.ToString().IndexOf("TakeProfit", StringComparison.OrdinalIgnoreCase) >= 0 && !runner)
                 {
                     bool openRunner = OwnPositions().Any(x => { if (LabelBasketId(x.Label) != basket.BasketId) return false; int ix=LabelLegIndex(x.Label); var q=basket.Plan.Legs.FirstOrDefault(z=>z.Index==ix); return q!=null && q.RunnerEligible; });
-                    if (openRunner) { _v62RunnerSurvivedCanonicalTp++; Print("[V62-RUNNER-SURVIVED-CANONICAL] basket={0}", basket.BasketId); }
+                    if (openRunner) { _v63RunnerSurvivedCanonicalTp++; Print("[V62-RUNNER-SURVIVED-CANONICAL] basket={0}", basket.BasketId); }
                     CancelBasketPending(basket, "CANONICAL_TARGET_REACHED");
                 }
             }
