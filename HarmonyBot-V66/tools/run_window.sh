@@ -5,6 +5,12 @@ MODE="$1"; WIN="$2"; START="$3"; EVAL="$4"; END="$5"; SPREAD="${6:-1}"; BALANCE=
 case "$MODE" in V66_PRODUCT|V66_V64_CONTROL) ;; *) echo "unsupported V66 mode $MODE" >&2; exit 66;; esac
 C="$PWD/control"; W="$C/HarmonyBot-V66/window-$MODE-$WIN-B$BALANCE-S$SPREAD"; O="$C/HarmonyBot-V66/output-$MODE-$WIN-B$BALANCE-S$SPREAD"
 rm -rf "$O"; mkdir -p "$W/seal/algo" "$W/seal/data" "$O/raw-logs"
+if [ -n "${DATA_SEED_DIR:-}" ]; then
+  test -d "$DATA_SEED_DIR"
+  rm -rf "$W/seal/data"
+  mkdir -p "$W/seal/data"
+  cp -a "$DATA_SEED_DIR"/. "$W/seal/data"/
+fi
 cp "$C/HarmonyBot-V66/dist/HarmonyBot_V66_Harmonic_Evidence_Accumulator_RC.algo" "$W/seal/algo/"
 N="V66-$MODE-$WIN-B$BALANCE-S$SPREAD"
 ( cd "$W"; RUN_NAME="$N" START_DATE="$START" EVAL_DATE="$EVAL" END_DATE="$END" BALANCE="$BALANCE" SPREAD="$SPREAD" V66MODE="$MODE" BACKTEST_TIMEOUT_SECONDS=1800 "$C/HarmonyBot-V66/tools/run_backtest.sh" )
