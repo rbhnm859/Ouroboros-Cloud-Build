@@ -5,11 +5,11 @@ on:
     branches: [harmonybot/v68-v52-family-owned-routing-grid-commercial-breakthrough]
     paths:
       - 'HarmonyBot-V68/**'
-      - '.github/workflows/harmonybot-v68-v52-family-native-grid-commercial-breakthrough.yml'
+      - '.github/workflows/harmonybot-v68-v52-family-owned-routing-grid-commercial-breakthrough.yml'
   workflow_dispatch:
 
 concurrency:
-  group: harmonybot-v68-v52-family-native-grid-commercial-breakthrough
+  group: harmonybot-v68-v52-family-owned-routing-grid-commercial-breakthrough
   cancel-in-progress: true
 
 permissions:
