@@ -1,0 +1,125 @@
+name: HarmonyBot V65 Harmonic Alpha Regime Truth
+on:
+  push:
+    branches: [harmonybot/v65-harmonic-alpha-regime-truth]
+    paths: ['HarmonyBot-V65/**','.github/workflows/harmonybot-v65-harmonic-alpha-regime-truth.yml']
+  workflow_dispatch:
+concurrency: {group: harmonybot-v65-harmonic-alpha-regime-truth, cancel-in-progress: true}
+permissions: {contents: read}
+env:
+  CTRADER_PASSWORD: ${{ secrets.CTRADER_PASSWORD }}
+  CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+  CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with: {ref: harmonybot/v65-harmonic-alpha-regime-truth, path: control, fetch-depth: 1}
+      - uses: actions/setup-dotnet@v4
+        with: {dotnet-version: 8.0.x}
+      - shell: bash
+        run: |
+          set -euo pipefail
+          cd control
+          python3 HarmonyBot-V65/tools/static_audit.py HarmonyBot-V65/src/HarmonyBotV65.cs
+          dotnet restore HarmonyBot-V65/HarmonyBotV65.csproj
+          dotnet build HarmonyBot-V65/HarmonyBotV65.csproj -c Release --no-restore --nologo
+          mkdir -p HarmonyBot-V65/dist
+          A=$(find HarmonyBot-V65/bin/Release -type f -name '*.algo' | head -1); test -s "$A"
+          cp "$A" HarmonyBot-V65/dist/HarmonyBot_V65_Harmonic_Alpha_Regime_Truth_RC.algo
+      - uses: actions/upload-artifact@v4
+        with: {name: v65-build, path: control/HarmonyBot-V65/dist, retention-days: 30, if-no-files-found: error}
+
+  backtest:
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 55
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {window: H21, start: '04/01/2021', eval: '2021-01-11T00:00:00Z', end: '31/12/2021', years: '1'}
+          - {window: H22, start: '03/01/2022', eval: '2022-01-10T00:00:00Z', end: '30/12/2022', years: '1'}
+          - {window: H23, start: '03/01/2023', eval: '2023-01-10T00:00:00Z', end: '29/12/2023', years: '1'}
+          - {window: A, start: '01/07/2024', eval: '2024-07-08T00:00:00Z', end: '31/12/2024', years: '0.5'}
+          - {window: B, start: '02/01/2025', eval: '2025-01-09T00:00:00Z', end: '30/06/2025', years: '0.5'}
+          - {window: C, start: '01/07/2025', eval: '2025-07-08T00:00:00Z', end: '31/12/2025', years: '0.5'}
+    steps:
+      - uses: actions/checkout@v4
+        with: {ref: harmonybot/v65-harmonic-alpha-regime-truth, path: control, fetch-depth: 1}
+      - uses: actions/download-artifact@v4
+        with: {name: v65-build, path: control/HarmonyBot-V65/shared}
+      - shell: bash
+        run: |
+          mkdir -p control/HarmonyBot-V65/dist
+          A=$(find control/HarmonyBot-V65/shared -type f -name '*.algo' | head -1)
+          cp "$A" control/HarmonyBot-V65/dist/HarmonyBot_V65_Harmonic_Alpha_Regime_Truth_RC.algo
+          chmod +x control/HarmonyBot-V65/tools/*.sh
+          control/HarmonyBot-V65/tools/run_window.sh V65_PRODUCT "${{ matrix.window }}" "${{ matrix.start }}" "${{ matrix.eval }}" "${{ matrix.end }}" 1 10000 "${{ matrix.years }}"
+      - uses: actions/upload-artifact@v4
+        with: {name: "v65-${{ matrix.window }}", path: "control/HarmonyBot-V65/output-V65_PRODUCT-${{ matrix.window }}-B10000-S1", retention-days: 30}
+
+  gate:
+    needs: backtest
+    runs-on: ubuntu-24.04
+    outputs: {candidate: "${{ steps.g.outputs.candidate }}"}
+    steps:
+      - uses: actions/download-artifact@v4
+        with: {pattern: 'v65-*', path: evidence, merge-multiple: true}
+      - id: g
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json,pathlib,collections
+          rows={}
+          for p in pathlib.Path("evidence").rglob("*.json"):
+              try:d=json.load(open(p))
+              except:continue
+              if "basket_outcomes" in d: rows[d["window"]]=d
+          req=["H21","H22","H23","A","B","C"]
+          if any(x not in rows for x in req): raise SystemExit("missing evidence")
+          dev=[rows[x] for x in ["A","B","C"]]; hist=[rows[x] for x in ["H21","H22","H23"]]
+          def agg(xs,years):
+              b=[z for x in xs for z in x["basket_outcomes"]]; v=[z["net"] for z in b]; gp=sum(x for x in v if x>0); gl=abs(sum(x for x in v if x<0))
+              return {"baskets":len(b),"frequency":len(b)/years,"net":sum(v),"pf":gp/gl if gl else 999,"expectancy":sum(v)/len(v) if v else 0,
+                      "win_rate":sum(x>0 for x in v)/len(v) if v else 0,"max_dd_pct":max(x["max_dd_pct"] for x in xs),
+                      "all_positive":all(x["net"]>0 and x["pf"]>1 and x["expectancy"]>0 for x in xs),
+                      "clean":all(x["engineering_clean"] and x["actual_basket_risk_violations"]==0 and x["margin_risk_violations"]==0 for x in xs)}
+          D=agg(dev,1.5); H=agg(hist,3)
+          commercial=D["baskets"]<=90 and D["frequency"]>=60 and D["net"]>=1800 and D["pf"]>=2 and D["expectancy"]>=20 and D["win_rate"]>=.50 and D["max_dd_pct"]<=6 and D["all_positive"] and D["clean"]
+          breakthrough=(rows["C"]["net"]>0 and rows["H23"]["net"]>0 and D["net"]>2101.66 and D["pf"]>2.1096878432 and D["expectancy"]>36.2355 and D["max_dd_pct"]<=4.49784)
+          candidate=commercial and breakthrough and H["all_positive"] and H["clean"]
+          o={"version":"V65","dev":D,"legacy":H,"windows":rows,"commercial_gate":commercial,"breakthrough_gate":breakthrough,"candidate":candidate,
+             "status":"VALIDATION_CANDIDATE" if candidate else "HOLD_ALPHA_EVIDENCE"}
+          pathlib.Path("V65_ALPHA_TRUTH_GATE.json").write_text(json.dumps(o,indent=2)); pathlib.Path("candidate.txt").write_text("true" if candidate else "false")
+          PY
+          echo "candidate=$(cat candidate.txt)" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@v4
+        with: {name: v65-alpha-truth-gate, path: V65_ALPHA_TRUTH_GATE.json, retention-days: 30}
+
+  validation:
+    needs: [build,gate]
+    if: needs.gate.outputs.candidate == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 55
+    strategy: {fail-fast: false, matrix: {quarter: [Q1,Q2], spread: [1.0,1.25,1.5]}}
+    steps:
+      - uses: actions/checkout@v4
+        with: {ref: harmonybot/v65-harmonic-alpha-regime-truth, path: control, fetch-depth: 1}
+      - uses: actions/download-artifact@v4
+        with: {name: v65-build, path: control/HarmonyBot-V65/shared}
+      - id: d
+        shell: bash
+        run: |
+          case "${{ matrix.quarter }}" in Q1) S=02/01/2026;E=2026-01-09T00:00:00Z;X=31/03/2026;; Q2) S=01/04/2026;E=2026-04-08T00:00:00Z;X=30/06/2026;; esac
+          echo "s=$S" >> "$GITHUB_OUTPUT";echo "e=$E" >> "$GITHUB_OUTPUT";echo "x=$X" >> "$GITHUB_OUTPUT"
+      - shell: bash
+        run: |
+          mkdir -p control/HarmonyBot-V65/dist
+          A=$(find control/HarmonyBot-V65/shared -type f -name '*.algo' | head -1); cp "$A" control/HarmonyBot-V65/dist/HarmonyBot_V65_Harmonic_Alpha_Regime_Truth_RC.algo
+          chmod +x control/HarmonyBot-V65/tools/*.sh
+          control/HarmonyBot-V65/tools/run_window.sh V65_PRODUCT "VAL_${{ matrix.quarter }}_S${{ matrix.spread }}" "${{ steps.d.outputs.s }}" "${{ steps.d.outputs.e }}" "${{ steps.d.outputs.x }}" "${{ matrix.spread }}" 10000 .25
+      - uses: actions/upload-artifact@v4
+        with: {name: "v65-validation-${{ matrix.quarter }}-${{ matrix.spread }}", path: "control/HarmonyBot-V65/output-V65_PRODUCT-VAL_*", retention-days: 30}
