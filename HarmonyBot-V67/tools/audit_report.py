@@ -74,7 +74,7 @@ top_family_share=max([len(q) for q in fam.values()] or [0]) / max(1,len(b))
 abcd=[x for x in b if x["pattern"]=="AB=CD"]
 non_abcd=[x for x in b if x["pattern"]!="AB=CD"]
 
-out={"family":a.family,"window":a.window,"starting_balance":a.balance,"spread":a.spread,"data_snapshot_sha":a.data_sha,"baskets":len(b),"unique_setups":unique,"duplicate_reentries":len(b)-unique,
+out={"family":a.family,"window":a.window,"starting_balance":a.balance,"spread":a.spread,"data_snapshot_sha":a.data_sha,"data_snapshot_sha":a.data_sha,"baskets":len(b),"unique_setups":unique,"duplicate_reentries":len(b)-unique,
 "wins":sum(x>0 for x in v),"losses":sum(x<0 for x in v),"gross_profit":gp,"gross_loss":gl,"pf":gp/gl if gl else (999 if gp else 0),
 "net":sum(v),"expectancy":sum(v)/len(v) if v else 0,"win_rate":sum(x>0 for x in v)/len(v) if v else 0,"frequency":len(b)/a.years,
 "max_dd_pct":float(eq.get("maxEquityDrawdownPercent",0) or 0),"engineering_clean":clean,"summary_present":summary_present,
