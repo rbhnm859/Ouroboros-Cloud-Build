@@ -8,7 +8,7 @@ checks={
  "underlying_execution_dedupe":"_executedSetupKeys.Add(c.SetupKey)" in s,
  "bounded_skip_cap":"skips > maxTotalSkips" in s and "MaxMicroPivotSkips" in s,
  "family_quota_before_execution":"FAMILY_QUOTA_SELECTED" in s,
- "family_arbitration":"V67FamilyPriorityBonus" in s,
+ "family_arbitration":"V67FamilyEvidenceScore" in s and "V67FamilyArbitrationEnabled" in s and "[V67-FAMILY-ARBITRATION]" in s,
  "abcd_completion_primitive":"V67AbcdCompletionConfluence" in s and "COMPLETION_PRIMITIVE" in s,
  "all_family_completion":"IsFamilyCompletionLane" in s and "UpdateFamilyCompletionEvidence" in s,
  "truth_stages":all(x in s for x in ["TOPOLOGY_ATTEMPT","TOPOLOGY_MATCH","RATIO_IDENTITY_PASS","FAMILY_HYPOTHESIS_CREATED"]),
