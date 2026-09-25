@@ -3619,8 +3619,7 @@ namespace cAlgo.Robots
             if (V67ControlEnabled())
                 return UpdateV52FamilyCompletionEvidenceLegacy(i, c, out score);
 
-            {
-                score = 0;
+            score = 0;
                 if (i < 3 || i >= _m1Bars.Count || c == null || c.Signal == null) return false;
                 var sig = c.Signal;
                 double o = _m1Bars.OpenPrices[i], cl = _m1Bars.ClosePrices[i],
