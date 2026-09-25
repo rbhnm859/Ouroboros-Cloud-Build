@@ -41,6 +41,9 @@ jobs:
           python3 HarmonyBot-V67/tools/static_audit.py HarmonyBot-V67/src/HarmonyBotV67.cs
           python3 HarmonyBot-V67/tools/geometry_contract_test.py HarmonyBot-V67/src/HarmonyBotV67.cs
           python3 HarmonyBot-V67/tools/detector_contract_test.py HarmonyBot-V67/src/HarmonyBotV67.cs
+          grep -F 'SPREAD="${SPREAD:-1}"' HarmonyBot-V67/tools/run_backtest.sh
+          grep -F -- '--spread="$SPREAD"' HarmonyBot-V67/tools/run_backtest.sh
+          grep -F 'HarmonyBot_V67_V52_Throughput_Family_Native_Commercial_Rebase_RC.algo' HarmonyBot-V67/tools/run_backtest.sh
           dotnet restore HarmonyBot-V67/HarmonyBotV67.csproj
           dotnet build HarmonyBot-V67/HarmonyBotV67.csproj -c Release --no-restore --nologo
           mkdir -p HarmonyBot-V67/dist HarmonyBot-V67/final
