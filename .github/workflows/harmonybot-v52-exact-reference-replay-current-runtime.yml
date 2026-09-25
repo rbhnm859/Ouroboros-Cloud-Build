@@ -1,0 +1,145 @@
+name: HarmonyBot V52 Exact Reference Replay Current Runtime
+
+on:
+  push:
+    branches: [harmonybot/v67-v52-family-native-grid-commercial-breakthrough]
+    paths:
+      - '.github/workflows/harmonybot-v52-exact-reference-replay-current-runtime.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: harmonybot-v52-exact-reference-replay-current-runtime
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  CTRADER_PASSWORD: ${{ secrets.CTRADER_PASSWORD }}
+  CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+  CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+
+jobs:
+  build-v52-reference:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: harmonybot/v67-v52-family-native-grid-commercial-breakthrough
+          path: control
+          fetch-depth: 1
+      - uses: actions/setup-dotnet@v4
+        with: {dotnet-version: 8.0.x}
+      - shell: bash
+        run: |
+          set -euo pipefail
+          cd control
+          python3 HarmonyBot-V52/tools/static_audit.py HarmonyBot-V52/src/HarmonyBotV52.cs
+          python3 HarmonyBot-V52/tools/geometry_contract_test.py HarmonyBot-V52/src/HarmonyBotV52.cs
+          python3 HarmonyBot-V52/tools/detector_contract_test.py HarmonyBot-V52/src/HarmonyBotV52.cs
+          dotnet restore HarmonyBot-V52/HarmonyBotV52.csproj
+          dotnet build HarmonyBot-V52/HarmonyBotV52.csproj -c Release --no-restore --nologo
+          mkdir -p HarmonyBot-V52/dist
+          A=$(find HarmonyBot-V52/bin/Release -type f -name '*.algo' | head -1)
+          test -s "$A"
+          cp "$A" HarmonyBot-V52/dist/HarmonyBot_V52_Family_Identity_Detection_Graph_Reconstruction_RC.algo
+          sha256sum HarmonyBot-V52/src/HarmonyBotV52.cs "$A" > HarmonyBot-V52/V52_REFERENCE_SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        with:
+          name: v52-reference-build
+          path: |
+            control/HarmonyBot-V52/dist
+            control/HarmonyBot-V52/V52_REFERENCE_SHA256SUMS
+          retention-days: 30
+          if-no-files-found: error
+
+  replay:
+    needs: build-v52-reference
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {window: A, start: '04/01/2021', eval: '2021-01-11T00:00:00Z', end: '30/06/2021'}
+          - {window: B, start: '01/07/2021', eval: '2021-07-08T00:00:00Z', end: '31/12/2021'}
+          - {window: C, start: '03/01/2022', eval: '2022-01-10T00:00:00Z', end: '30/06/2022'}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: harmonybot/v67-v52-family-native-grid-commercial-breakthrough
+          path: control
+          fetch-depth: 1
+      - uses: actions/download-artifact@v4
+        with:
+          name: v52-reference-build
+          path: control/HarmonyBot-V52/shared
+      - shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p control/HarmonyBot-V52/dist
+          A=$(find control/HarmonyBot-V52/shared -type f -name 'HarmonyBot_V52_Family_Identity_Detection_Graph_Reconstruction_RC.algo' | head -1)
+          test -s "$A"
+          cp "$A" control/HarmonyBot-V52/dist/
+          chmod +x control/HarmonyBot-V52/tools/*.sh
+          control/HarmonyBot-V52/tools/run_window.sh FAMILY_IDENTITY_RECONSTRUCTION "${{ matrix.window }}" "${{ matrix.start }}" "${{ matrix.eval }}" "${{ matrix.end }}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: "v52-reference-${{ matrix.window }}"
+          path: "control/HarmonyBot-V52/output-FAMILY_IDENTITY_RECONSTRUCTION-${{ matrix.window }}"
+          retention-days: 30
+          if-no-files-found: error
+
+  summarize:
+    needs: replay
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: v52-reference-?
+          path: evidence
+          merge-multiple: true
+      - shell: bash
+        run: |
+          python3 - <<'PY'
+          import json,pathlib,collections,statistics
+          rows=[]
+          for p in pathlib.Path("evidence").rglob("*.json"):
+              try:d=json.load(open(p))
+              except:continue
+              if "basket_outcomes" in d: rows.append(d)
+          by={x["window"]:x for x in rows}
+          req=["A","B","C"]
+          if any(w not in by for w in req): raise SystemExit("missing V52 reference evidence")
+          bs=[z for w in req for z in by[w]["basket_outcomes"]]
+          vals=[z["net"] for z in bs]
+          gp=sum(v for v in vals if v>0); gl=abs(sum(v for v in vals if v<0))
+          fam=collections.defaultdict(lambda:{"baskets":0,"net":0.0})
+          for z in bs:
+              fam[z["pattern"]]["baskets"]+=1
+              fam[z["pattern"]]["net"]+=z["net"]
+          out={
+            "reference":"EXACT_V52_SOURCE_CURRENT_RUNTIME",
+            "windows":{w:{k:by[w].get(k) for k in ["baskets","net","pf","expectancy","win_rate","max_dd_pct","engineering_clean"]} for w in req},
+            "aggregate":{
+              "baskets":len(bs),"frequency":len(bs)/1.5,"net":sum(vals),
+              "pf":gp/gl if gl else 999,
+              "expectancy":sum(vals)/len(vals) if vals else 0,
+              "win_rate":sum(v>0 for v in vals)/len(vals) if vals else 0,
+              "max_dd_pct":max(by[w]["max_dd_pct"] for w in req),
+              "family_performance":dict(fam)
+            },
+            "historical_formal_reference":{
+              "baskets":200,"frequency":133.3333333333,"net":2902.27,
+              "pf":1.3754845136750589,"expectancy":14.51135,"win_rate":0.435,"max_dd_pct":9.814998648
+            }
+          }
+          pathlib.Path("V52_EXACT_CURRENT_RUNTIME_REFERENCE.json").write_text(json.dumps(out,indent=2))
+          print(json.dumps(out,indent=2))
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: v52-exact-current-runtime-reference
+          path: V52_EXACT_CURRENT_RUNTIME_REFERENCE.json
+          retention-days: 90
