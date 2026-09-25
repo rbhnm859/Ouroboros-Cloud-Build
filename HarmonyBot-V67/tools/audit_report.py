@@ -22,6 +22,8 @@ if sum_rx:
 
 fn_rx=re.findall(r"\[V67-FAMILY-NATIVE-SUMMARY\].*?parentAbcdSuppressed=(\d+)\s+familyRouteRejected=(\d+)\s+nativeConfirmed=(\d+)\s+nativeExpired=(\d+)\s+gridWeightNormalized=(\d+)",t)
 fn={"parent_abcd_suppressed":0,"family_route_rejected":0,"native_confirmed":0,"native_expired":0,"grid_weight_normalized":0}
+prevent_rx=re.findall(r"\[V67-RISK-PREVENTION-SUMMARY\].*?preventedRiskRejections=(\d+)",t)
+prevented_risk_rejections=int(prevent_rx[-1]) if prevent_rx else 0
 if fn_rx:
     z=fn_rx[-1]
     for k,v in zip(fn.keys(),z): fn[k]=int(v)
@@ -62,7 +64,7 @@ out={
  "family_performance":family,"route_performance":route,"basket_outcomes":b,
  "avg_grid_risk_utilization":statistics.mean(util) if util else 0,
  "min_grid_net_rr":min([x["net_rr"] for x in grid] or [0]),
- "grid_plans":len(grid),"v67_family_native":fn,**c
+ "grid_plans":len(grid),"v67_family_native":fn,"prevented_risk_rejections":prevented_risk_rejections,**c
 }
 pathlib.Path(a.out).write_text(json.dumps(out,indent=2))
 print(json.dumps(out,indent=2))
