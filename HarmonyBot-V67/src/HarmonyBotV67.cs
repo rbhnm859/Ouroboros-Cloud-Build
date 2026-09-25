@@ -656,7 +656,7 @@ namespace cAlgo.Robots
                 // V47 expands only genuinely independent secondary-scale setups.
                 // V45 DEV showed secondary-scale AB=CD exhaustion positive in A/B/C,
                 // while secondary-scale trend-aligned AB=CD was negative overall.
-                if (EnableScaleRouteAdmission && signal.PivotScale != M15SwingDepth &&
+                if (V67ControlEnabled() && EnableScaleRouteAdmission && signal.PivotScale != M15SwingDepth &&
                     signal.PatternName == "AB=CD" && record.Route != HarmonicRoute.EXHAUSTION_REVERSAL)
                 {
                     _scaleRouteRejected++;
@@ -3553,7 +3553,7 @@ namespace cAlgo.Robots
             int n; map.TryGetValue(key, out n); map[key] = n + 1;
         }
 
-        private bool UpdateFamilyCompletionEvidence(int i, CandidateRecord c, out double score)
+        private bool UpdateV52FamilyCompletionEvidenceLegacy(int i, CandidateRecord c, out double score)
         {
             score = 0;
             if (i < 3 || i >= _m1Bars.Count || c == null || c.Signal == null) return false;
@@ -3562,7 +3562,6 @@ namespace cAlgo.Robots
                    h = _m1Bars.HighPrices[i], l = _m1Bars.LowPrices[i];
             double pc = _m1Bars.ClosePrices[i - 1], ph = _m1Bars.HighPrices[i - 1], pl = _m1Bars.LowPrices[i - 1];
             double body = Math.Max(Math.Abs(cl - o), _symbol.PipSize);
-            double prevBody = Math.Max(Math.Abs(_m1Bars.ClosePrices[i - 1] - _m1Bars.OpenPrices[i - 1]), _symbol.PipSize);
             double atr = Atr(_m1Bars, 14, i);
             bool buy = sig.Direction == TradeDirection.Buy;
             bool directional = buy ? cl > o : cl < o;
@@ -3574,122 +3573,28 @@ namespace cAlgo.Robots
             bool insidePrz = cl >= Math.Min(sig.PrzLow, sig.PrzHigh) && cl <= Math.Max(sig.PrzLow, sig.PrzHigh);
             bool displacement = atr > 0 && body >= atr * .30;
             bool retest = insidePrz || Math.Abs(cl - (sig.PrzLow + sig.PrzHigh) * .5) <= Math.Max(atr * .25, _symbol.PipSize);
-            bool deceleration = body <= prevBody * .85;
 
             c.FamilyDirectional |= directional; c.FamilyReclaim |= reclaim; c.FamilyBos |= bos;
             c.FamilyRejection |= rejection; c.FamilySweep |= sweep; c.FamilyFailedExtension |= failedExtension;
             c.FamilyInsidePrz |= insidePrz; c.FamilyDisplacement |= displacement; c.FamilyRetest |= retest;
-            c.V67FamilyDeceleration |= deceleration;
 
             string p = sig.PatternName ?? "";
-
-            // CONTROL must remain decision-equivalent to the verified V52 FAMILY_IDENTITY_RECONSTRUCTION parent.
-            if (!V67ProductEnabled())
+            bool retracement = p == "Gartley" || p == "Bat" || p == "Deep Gartley" || p == "Rat";
+            bool extension = p == "Alt Bat" || p == "Butterfly" || p == "Crab" || p == "Deep Crab";
+            if (retracement)
             {
-                bool retracementControl = p == "Gartley" || p == "Bat" || p == "Deep Gartley" || p == "Rat";
-                bool extensionControl = p == "Alt Bat" || p == "Butterfly" || p == "Crab" || p == "Deep Crab";
-
-                if (retracementControl)
-                {
-                    score = (c.FamilyReclaim ? .30 : 0) + ((c.FamilyRejection || c.FamilyFailedExtension) ? .25 : 0) +
-                            ((c.FamilyBos || c.FamilyDisplacement) ? .25 : 0) + (c.FamilyDirectional ? .20 : 0);
-                    return c.FamilyReclaim && (c.FamilyRejection || c.FamilyFailedExtension) &&
-                           (c.FamilyBos || c.FamilyDisplacement) && c.FamilyDirectional && score >= .75;
-                }
-                if (extensionControl)
-                {
-                    score = (c.FamilySweep ? .20 : 0) + (c.FamilyFailedExtension ? .25 : 0) +
-                            ((c.FamilyReclaim || c.FamilyInsidePrz) ? .20 : 0) +
-                            ((c.FamilyBos || c.FamilyDisplacement) ? .20 : 0) + (c.FamilyDirectional ? .15 : 0);
-                    return c.FamilySweep && c.FamilyFailedExtension && (c.FamilyReclaim || c.FamilyInsidePrz) &&
-                           (c.FamilyBos || c.FamilyDisplacement) && c.FamilyDirectional && score >= .75;
-                }
-                if (p == "5-0")
-                {
-                    score = (c.FamilyFailedExtension ? .25 : 0) + (c.FamilyBos ? .30 : 0) +
-                            (c.FamilyRetest ? .25 : 0) + (c.FamilyDirectional ? .20 : 0);
-                    return c.FamilyFailedExtension && c.FamilyBos && c.FamilyRetest && c.FamilyDirectional && score >= .80;
-                }
-                return false;
-            }
-
-            if (p == "Gartley")
-            {
-                score = (c.FamilyReclaim ? .30 : 0) + ((c.FamilyRejection || c.FamilyFailedExtension) ? .20 : 0) +
-                        ((c.FamilyBos || c.FamilyDisplacement) ? .25 : 0) + (c.FamilyDirectional ? .15 : 0) +
-                        (c.FamilyRetest ? .10 : 0);
+                score = (c.FamilyReclaim ? .30 : 0) + ((c.FamilyRejection || c.FamilyFailedExtension) ? .25 : 0) +
+                        (c.FamilyBos ? .25 : 0) + (c.FamilyDisplacement ? .20 : 0);
                 return c.FamilyReclaim && (c.FamilyRejection || c.FamilyFailedExtension) &&
-                       (c.FamilyBos || c.FamilyDisplacement) && c.FamilyDirectional && score >= .70;
-            }
-            if (p == "Bat")
-            {
-                score = (c.FamilyReclaim ? .25 : 0) + (c.FamilyFailedExtension ? .25 : 0) +
-                        ((c.FamilyBos || c.FamilyDisplacement) ? .25 : 0) + (c.FamilyDirectional ? .15 : 0) +
-                        (c.FamilyRetest ? .10 : 0);
-                return c.FamilyReclaim && (c.FamilyFailedExtension || c.FamilyRejection) &&
-                       (c.FamilyBos || c.FamilyDisplacement) && c.FamilyDirectional && score >= .70;
-            }
-            if (p == "Deep Gartley")
-            {
-                score = (c.FamilyReclaim ? .25 : 0) + (c.FamilyRetest ? .20 : 0) +
-                        ((c.FamilyRejection || c.FamilyFailedExtension) ? .20 : 0) +
-                        ((c.FamilyBos || c.FamilyDisplacement) ? .20 : 0) + (c.FamilyDirectional ? .15 : 0);
-                return c.FamilyReclaim && c.FamilyRetest &&
-                       (c.FamilyBos || c.FamilyDisplacement) && c.FamilyDirectional && score >= .70;
-            }
-            if (p == "Rat")
-            {
-                score = (c.FamilyReclaim ? .25 : 0) + ((c.FamilyBos || c.FamilyDisplacement) ? .30 : 0) +
-                        (c.FamilyDirectional ? .20 : 0) + ((c.FamilyRejection || c.FamilyFailedExtension) ? .15 : 0) +
-                        (c.FamilyRetest ? .10 : 0);
-                return c.FamilyReclaim && (c.FamilyBos || c.FamilyDisplacement) &&
-                       c.FamilyDirectional && score >= .65;
-            }
-            if (p == "Alt Bat")
-            {
-                score = (c.FamilySweep ? .20 : 0) + (c.FamilyFailedExtension ? .25 : 0) +
-                        ((c.FamilyReclaim || c.FamilyInsidePrz) ? .20 : 0) +
-                        ((c.FamilyBos || c.FamilyDisplacement) ? .20 : 0) + (c.FamilyDirectional ? .15 : 0);
-                return c.FamilySweep && c.FamilyFailedExtension &&
-                       (c.FamilyReclaim || c.FamilyInsidePrz) && (c.FamilyBos || c.FamilyDisplacement) && score >= .70;
-            }
-            if (p == "Butterfly")
-            {
-                score = (c.FamilySweep ? .25 : 0) + (c.FamilyFailedExtension ? .20 : 0) +
-                        (c.FamilyRejection ? .20 : 0) + (c.FamilyReclaim ? .15 : 0) +
-                        ((c.FamilyBos || c.FamilyDisplacement) ? .20 : 0);
-                return c.FamilySweep && (c.FamilyFailedExtension || c.FamilyRejection) &&
-                       c.FamilyReclaim && (c.FamilyBos || c.FamilyDisplacement) && score >= .70;
-            }
-            if (p == "Crab")
-            {
-                score = (c.FamilySweep ? .20 : 0) + (c.FamilyFailedExtension ? .25 : 0) +
-                        ((c.FamilyReclaim || c.FamilyInsidePrz) ? .20 : 0) +
-                        (c.FamilyDisplacement ? .20 : 0) + (c.FamilyDirectional ? .15 : 0);
-                return c.FamilySweep && c.FamilyFailedExtension &&
-                       (c.FamilyReclaim || c.FamilyInsidePrz) && (c.FamilyDisplacement || c.FamilyBos) && score >= .70;
-            }
-            if (p == "Deep Crab")
-            {
-                score = (c.FamilySweep ? .25 : 0) + (c.FamilyFailedExtension ? .25 : 0) +
-                        (c.FamilyReclaim ? .20 : 0) + (c.FamilyBos ? .15 : 0) +
-                        (c.FamilyDirectional ? .15 : 0);
-                return c.FamilySweep && c.FamilyFailedExtension && c.FamilyReclaim &&
                        (c.FamilyBos || c.FamilyDisplacement) && score >= .75;
             }
-            if (p == "Shark")
+            if (extension)
             {
-                score = (c.FamilyFailedExtension ? .25 : 0) + ((c.FamilyBos || c.FamilyDisplacement) ? .25 : 0) +
-                        ((c.FamilyRetest || c.FamilyReclaim) ? .25 : 0) + (c.FamilyDirectional ? .25 : 0);
-                return c.FamilyFailedExtension && (c.FamilyBos || c.FamilyDisplacement) &&
-                       (c.FamilyRetest || c.FamilyReclaim) && c.FamilyDirectional && score >= .75;
-            }
-            if (p == "Cypher")
-            {
-                score = (c.FamilyRejection ? .25 : 0) + (c.FamilyReclaim ? .30 : 0) +
-                        (c.FamilyBos ? .25 : 0) + (c.FamilyDisplacement ? .20 : 0);
-                return c.FamilyRejection && c.FamilyReclaim &&
-                       (c.FamilyBos || c.FamilyDisplacement) && score >= .70;
+                score = (c.FamilySweep ? .20 : 0) + (c.FamilyFailedExtension ? .25 : 0) +
+                        ((c.FamilyReclaim || c.FamilyInsidePrz) ? .25 : 0) +
+                        (c.FamilyBos ? .20 : 0) + (c.FamilyDisplacement ? .10 : 0);
+                return c.FamilySweep && c.FamilyFailedExtension && (c.FamilyReclaim || c.FamilyInsidePrz) &&
+                       (c.FamilyBos || c.FamilyDisplacement) && score >= .75;
             }
             if (p == "5-0")
             {
@@ -3697,16 +3602,167 @@ namespace cAlgo.Robots
                         (c.FamilyRetest ? .25 : 0) + (c.FamilyDirectional ? .20 : 0);
                 return c.FamilyFailedExtension && c.FamilyBos && c.FamilyRetest && c.FamilyDirectional && score >= .80;
             }
-            if (p == "AB=CD")
-            {
-                score = (c.V67FamilyDeceleration ? .15 : 0) + (c.FamilyReclaim ? .25 : 0) +
-                        ((c.FamilyFailedExtension || c.FamilyRejection) ? .20 : 0) +
-                        ((c.FamilyBos || c.FamilyDisplacement) ? .25 : 0) + (c.FamilyDirectional ? .15 : 0);
-                return c.FamilyReclaim && c.FamilyDirectional &&
-                       (c.FamilyFailedExtension || c.FamilyRejection) &&
-                       (c.FamilyBos || c.FamilyDisplacement) && score >= .75;
-            }
             return false;
+        }
+
+        private bool UpdateFamilyCompletionEvidence(int i, CandidateRecord c, out double score)
+        {
+            if (V67ControlEnabled())
+                return UpdateV52FamilyCompletionEvidenceLegacy(i, c, out score);
+
+            {
+                score = 0;
+                if (i < 3 || i >= _m1Bars.Count || c == null || c.Signal == null) return false;
+                var sig = c.Signal;
+                double o = _m1Bars.OpenPrices[i], cl = _m1Bars.ClosePrices[i],
+                       h = _m1Bars.HighPrices[i], l = _m1Bars.LowPrices[i];
+                double pc = _m1Bars.ClosePrices[i - 1], ph = _m1Bars.HighPrices[i - 1], pl = _m1Bars.LowPrices[i - 1];
+                double body = Math.Max(Math.Abs(cl - o), _symbol.PipSize);
+                double prevBody = Math.Max(Math.Abs(_m1Bars.ClosePrices[i - 1] - _m1Bars.OpenPrices[i - 1]), _symbol.PipSize);
+                double atr = Atr(_m1Bars, 14, i);
+                bool buy = sig.Direction == TradeDirection.Buy;
+                bool directional = buy ? cl > o : cl < o;
+                bool reclaim = buy ? (cl > sig.PrzLow && cl >= pc) : (cl < sig.PrzHigh && cl <= pc);
+                bool bos = buy ? cl > ph : cl < pl;
+                bool rejection = buy ? Math.Max(0, Math.Min(o, cl) - l) >= body * .5 : Math.Max(0, h - Math.Max(o, cl)) >= body * .5;
+                bool sweep = buy ? l < pl : h > ph;
+                bool failedExtension = buy ? (l < pl && cl > pl) : (h > ph && cl < ph);
+                bool insidePrz = cl >= Math.Min(sig.PrzLow, sig.PrzHigh) && cl <= Math.Max(sig.PrzLow, sig.PrzHigh);
+                bool displacement = atr > 0 && body >= atr * .30;
+                bool retest = insidePrz || Math.Abs(cl - (sig.PrzLow + sig.PrzHigh) * .5) <= Math.Max(atr * .25, _symbol.PipSize);
+                bool deceleration = body <= prevBody * .85;
+    
+                c.FamilyDirectional |= directional; c.FamilyReclaim |= reclaim; c.FamilyBos |= bos;
+                c.FamilyRejection |= rejection; c.FamilySweep |= sweep; c.FamilyFailedExtension |= failedExtension;
+                c.FamilyInsidePrz |= insidePrz; c.FamilyDisplacement |= displacement; c.FamilyRetest |= retest;
+                c.V67FamilyDeceleration |= deceleration;
+    
+                string p = sig.PatternName ?? "";
+    
+                // CONTROL must remain decision-equivalent to the verified V52 FAMILY_IDENTITY_RECONSTRUCTION parent.
+                if (!V67ProductEnabled())
+                {
+                    bool retracementControl = p == "Gartley" || p == "Bat" || p == "Deep Gartley" || p == "Rat";
+                    bool extensionControl = p == "Alt Bat" || p == "Butterfly" || p == "Crab" || p == "Deep Crab";
+    
+                    if (retracementControl)
+                    {
+                        score = (c.FamilyReclaim ? .30 : 0) + ((c.FamilyRejection || c.FamilyFailedExtension) ? .25 : 0) +
+                                ((c.FamilyBos || c.FamilyDisplacement) ? .25 : 0) + (c.FamilyDirectional ? .20 : 0);
+                        return c.FamilyReclaim && (c.FamilyRejection || c.FamilyFailedExtension) &&
+                               (c.FamilyBos || c.FamilyDisplacement) && c.FamilyDirectional && score >= .75;
+                    }
+                    if (extensionControl)
+                    {
+                        score = (c.FamilySweep ? .20 : 0) + (c.FamilyFailedExtension ? .25 : 0) +
+                                ((c.FamilyReclaim || c.FamilyInsidePrz) ? .20 : 0) +
+                                ((c.FamilyBos || c.FamilyDisplacement) ? .20 : 0) + (c.FamilyDirectional ? .15 : 0);
+                        return c.FamilySweep && c.FamilyFailedExtension && (c.FamilyReclaim || c.FamilyInsidePrz) &&
+                               (c.FamilyBos || c.FamilyDisplacement) && c.FamilyDirectional && score >= .75;
+                    }
+                    if (p == "5-0")
+                    {
+                        score = (c.FamilyFailedExtension ? .25 : 0) + (c.FamilyBos ? .30 : 0) +
+                                (c.FamilyRetest ? .25 : 0) + (c.FamilyDirectional ? .20 : 0);
+                        return c.FamilyFailedExtension && c.FamilyBos && c.FamilyRetest && c.FamilyDirectional && score >= .80;
+                    }
+                    return false;
+                }
+    
+                if (p == "Gartley")
+                {
+                    score = (c.FamilyReclaim ? .30 : 0) + ((c.FamilyRejection || c.FamilyFailedExtension) ? .20 : 0) +
+                            ((c.FamilyBos || c.FamilyDisplacement) ? .25 : 0) + (c.FamilyDirectional ? .15 : 0) +
+                            (c.FamilyRetest ? .10 : 0);
+                    return c.FamilyReclaim && (c.FamilyRejection || c.FamilyFailedExtension) &&
+                           (c.FamilyBos || c.FamilyDisplacement) && c.FamilyDirectional && score >= .70;
+                }
+                if (p == "Bat")
+                {
+                    score = (c.FamilyReclaim ? .25 : 0) + (c.FamilyFailedExtension ? .25 : 0) +
+                            ((c.FamilyBos || c.FamilyDisplacement) ? .25 : 0) + (c.FamilyDirectional ? .15 : 0) +
+                            (c.FamilyRetest ? .10 : 0);
+                    return c.FamilyReclaim && (c.FamilyFailedExtension || c.FamilyRejection) &&
+                           (c.FamilyBos || c.FamilyDisplacement) && c.FamilyDirectional && score >= .70;
+                }
+                if (p == "Deep Gartley")
+                {
+                    score = (c.FamilyReclaim ? .25 : 0) + (c.FamilyRetest ? .20 : 0) +
+                            ((c.FamilyRejection || c.FamilyFailedExtension) ? .20 : 0) +
+                            ((c.FamilyBos || c.FamilyDisplacement) ? .20 : 0) + (c.FamilyDirectional ? .15 : 0);
+                    return c.FamilyReclaim && c.FamilyRetest &&
+                           (c.FamilyBos || c.FamilyDisplacement) && c.FamilyDirectional && score >= .70;
+                }
+                if (p == "Rat")
+                {
+                    score = (c.FamilyReclaim ? .25 : 0) + ((c.FamilyBos || c.FamilyDisplacement) ? .30 : 0) +
+                            (c.FamilyDirectional ? .20 : 0) + ((c.FamilyRejection || c.FamilyFailedExtension) ? .15 : 0) +
+                            (c.FamilyRetest ? .10 : 0);
+                    return c.FamilyReclaim && (c.FamilyBos || c.FamilyDisplacement) &&
+                           c.FamilyDirectional && score >= .65;
+                }
+                if (p == "Alt Bat")
+                {
+                    score = (c.FamilySweep ? .20 : 0) + (c.FamilyFailedExtension ? .25 : 0) +
+                            ((c.FamilyReclaim || c.FamilyInsidePrz) ? .20 : 0) +
+                            ((c.FamilyBos || c.FamilyDisplacement) ? .20 : 0) + (c.FamilyDirectional ? .15 : 0);
+                    return c.FamilySweep && c.FamilyFailedExtension &&
+                           (c.FamilyReclaim || c.FamilyInsidePrz) && (c.FamilyBos || c.FamilyDisplacement) && score >= .70;
+                }
+                if (p == "Butterfly")
+                {
+                    score = (c.FamilySweep ? .25 : 0) + (c.FamilyFailedExtension ? .20 : 0) +
+                            (c.FamilyRejection ? .20 : 0) + (c.FamilyReclaim ? .15 : 0) +
+                            ((c.FamilyBos || c.FamilyDisplacement) ? .20 : 0);
+                    return c.FamilySweep && (c.FamilyFailedExtension || c.FamilyRejection) &&
+                           c.FamilyReclaim && (c.FamilyBos || c.FamilyDisplacement) && score >= .70;
+                }
+                if (p == "Crab")
+                {
+                    score = (c.FamilySweep ? .20 : 0) + (c.FamilyFailedExtension ? .25 : 0) +
+                            ((c.FamilyReclaim || c.FamilyInsidePrz) ? .20 : 0) +
+                            (c.FamilyDisplacement ? .20 : 0) + (c.FamilyDirectional ? .15 : 0);
+                    return c.FamilySweep && c.FamilyFailedExtension &&
+                           (c.FamilyReclaim || c.FamilyInsidePrz) && (c.FamilyDisplacement || c.FamilyBos) && score >= .70;
+                }
+                if (p == "Deep Crab")
+                {
+                    score = (c.FamilySweep ? .25 : 0) + (c.FamilyFailedExtension ? .25 : 0) +
+                            (c.FamilyReclaim ? .20 : 0) + (c.FamilyBos ? .15 : 0) +
+                            (c.FamilyDirectional ? .15 : 0);
+                    return c.FamilySweep && c.FamilyFailedExtension && c.FamilyReclaim &&
+                           (c.FamilyBos || c.FamilyDisplacement) && score >= .75;
+                }
+                if (p == "Shark")
+                {
+                    score = (c.FamilyFailedExtension ? .25 : 0) + ((c.FamilyBos || c.FamilyDisplacement) ? .25 : 0) +
+                            ((c.FamilyRetest || c.FamilyReclaim) ? .25 : 0) + (c.FamilyDirectional ? .25 : 0);
+                    return c.FamilyFailedExtension && (c.FamilyBos || c.FamilyDisplacement) &&
+                           (c.FamilyRetest || c.FamilyReclaim) && c.FamilyDirectional && score >= .75;
+                }
+                if (p == "Cypher")
+                {
+                    score = (c.FamilyRejection ? .25 : 0) + (c.FamilyReclaim ? .30 : 0) +
+                            (c.FamilyBos ? .25 : 0) + (c.FamilyDisplacement ? .20 : 0);
+                    return c.FamilyRejection && c.FamilyReclaim &&
+                           (c.FamilyBos || c.FamilyDisplacement) && score >= .70;
+                }
+                if (p == "5-0")
+                {
+                    score = (c.FamilyFailedExtension ? .25 : 0) + (c.FamilyBos ? .30 : 0) +
+                            (c.FamilyRetest ? .25 : 0) + (c.FamilyDirectional ? .20 : 0);
+                    return c.FamilyFailedExtension && c.FamilyBos && c.FamilyRetest && c.FamilyDirectional && score >= .80;
+                }
+                if (p == "AB=CD")
+                {
+                    score = (c.V67FamilyDeceleration ? .15 : 0) + (c.FamilyReclaim ? .25 : 0) +
+                            ((c.FamilyFailedExtension || c.FamilyRejection) ? .20 : 0) +
+                            ((c.FamilyBos || c.FamilyDisplacement) ? .25 : 0) + (c.FamilyDirectional ? .15 : 0);
+                    return c.FamilyReclaim && c.FamilyDirectional &&
+                           (c.FamilyFailedExtension || c.FamilyRejection) &&
+                           (c.FamilyBos || c.FamilyDisplacement) && score >= .75;
+                }
+                return false;
         }
 
 
