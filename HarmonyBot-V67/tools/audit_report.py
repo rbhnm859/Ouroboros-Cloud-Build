@@ -2,7 +2,7 @@
 import argparse,json,pathlib,re,statistics,collections
 ap=argparse.ArgumentParser()
 for x in ("report","log","out","window","family"): ap.add_argument("--"+x,required=True)
-ap.add_argument("--years",type=float,required=True); ap.add_argument("--balance",type=float,required=True); ap.add_argument("--spread",type=float,default=1.0)
+ap.add_argument("--years",type=float,required=True); ap.add_argument("--balance",type=float,required=True); ap.add_argument("--spread",type=float,default=1.0); ap.add_argument("--data-sha",default="")
 a=ap.parse_args(); d=json.load(open(a.report,encoding="utf-8-sig")); t=pathlib.Path(a.log).read_text(errors="ignore")
 
 rx=re.compile(r"\[V67-BASKET-CLOSED\].*?cid=(\S+)\s+setup=(\S+)\s+pattern=(.*?)\s+subtype=(\S+)\s+route=(\S+)\s+dir=(\S+).*?mfeR=([-0-9.]+)\s+maeR=([-0-9.]+)\s+realizedR=([-0-9.]+)\s+net=([-0-9.]+)\s+reason=(\S+)")
@@ -74,7 +74,7 @@ top_family_share=max([len(q) for q in fam.values()] or [0]) / max(1,len(b))
 abcd=[x for x in b if x["pattern"]=="AB=CD"]
 non_abcd=[x for x in b if x["pattern"]!="AB=CD"]
 
-out={"family":a.family,"window":a.window,"starting_balance":a.balance,"spread":a.spread,"baskets":len(b),"unique_setups":unique,"duplicate_reentries":len(b)-unique,
+out={"family":a.family,"window":a.window,"starting_balance":a.balance,"spread":a.spread,"data_snapshot_sha":a.data_sha,"baskets":len(b),"unique_setups":unique,"duplicate_reentries":len(b)-unique,
 "wins":sum(x>0 for x in v),"losses":sum(x<0 for x in v),"gross_profit":gp,"gross_loss":gl,"pf":gp/gl if gl else (999 if gp else 0),
 "net":sum(v),"expectancy":sum(v)/len(v) if v else 0,"win_rate":sum(x>0 for x in v)/len(v) if v else 0,"frequency":len(b)/a.years,
 "max_dd_pct":float(eq.get("maxEquityDrawdownPercent",0) or 0),"engineering_clean":clean,"summary_present":summary_present,
