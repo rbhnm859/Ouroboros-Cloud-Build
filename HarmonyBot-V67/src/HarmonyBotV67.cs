@@ -627,7 +627,9 @@ namespace cAlgo.Robots
                 record.Conflict = ClassifyMtfConflict(signal.Direction, h4State, h1State);
                 record.Regime = regime;
                 record.RegimeScore = RegimeContextScore(signal, record.Conflict, regime);
-                record.Route = RouteSignal(signal, record.Conflict, regime);
+                record.Route = V67ProductEnabled()
+                    ? V67FamilyRouteSignal(signal, record.Conflict, regime)
+                    : RouteSignal(signal, record.Conflict, regime);
                 record.V67FamilyTier = V67FamilyTier(signal);
                 record.V67DmiBiasH1 = V67SignedDmiBias(signal.Direction, regime.DiPlusH1, regime.DiMinusH1);
                 record.V67DmiBiasH4 = V67SignedDmiBias(signal.Direction, regime.DiPlusH4, regime.DiMinusH4);
@@ -3188,6 +3190,76 @@ namespace cAlgo.Robots
             return "OTHER";
         }
 
+        private HarmonicRoute V67FamilyRouteSignal(PatternSignal s, MtfConflict conflict, RegimeSnapshot r)
+        {
+            if (s == null || r == null) return HarmonicRoute.NO_TRADE;
+
+            string p = s.PatternName ?? "";
+            bool aligned = r.TrendDirection == s.Direction;
+            bool opposed = r.TrendDirection != TradeDirection.Neutral && r.TrendDirection != s.Direction;
+            bool supported = conflict == MtfConflict.ALIGNED || conflict == MtfConflict.SUPPORTED || conflict == MtfConflict.NEUTRAL;
+            bool transition = r.Transition || conflict == MtfConflict.TRANSITION || r.TrendDirection == TradeDirection.Neutral;
+            bool volOk = r.AtrRatio >= .50 && r.AtrRatio <= 1.85;
+            bool strongIdentity = s.GeometryQuality >= Math.Max(.55, s.Profile.MinGeometry) &&
+                                  s.PrzConfluence >= Math.Max(.55, s.Profile.MinPrz);
+            if (!volOk || !strongIdentity || conflict == MtfConflict.CONFLICT) return HarmonicRoute.NO_TRADE;
+
+            // Retracement families: trade the completion of a pullback in the prevailing direction.
+            if (p == "Rat")
+                return aligned && supported && r.Efficiency >= .14 ? HarmonicRoute.TREND_ALIGNED_REVERSAL : HarmonicRoute.NO_TRADE;
+            if (p == "Gartley")
+                return aligned && supported && r.Efficiency >= .16 ? HarmonicRoute.TREND_ALIGNED_REVERSAL : HarmonicRoute.NO_TRADE;
+            if (p == "Bat")
+                return aligned && supported && r.Efficiency >= .14 ? HarmonicRoute.TREND_ALIGNED_REVERSAL : HarmonicRoute.NO_TRADE;
+            if (p == "Deep Gartley")
+                return aligned && supported && r.Efficiency >= .14 ? HarmonicRoute.TREND_ALIGNED_REVERSAL : HarmonicRoute.NO_TRADE;
+
+            // Extension families: require an extended/transition state rather than generic trend routing.
+            if (p == "Alt Bat" || p == "Butterfly")
+            {
+                if (opposed && r.ExtensionAtr >= 1.00) return HarmonicRoute.EXHAUSTION_REVERSAL;
+                if (transition && r.ExtensionAtr >= .80) return HarmonicRoute.TRANSITION_REVERSAL;
+                return HarmonicRoute.NO_TRADE;
+            }
+            if (p == "Crab" || p == "Deep Crab")
+            {
+                if (opposed && r.ExtensionAtr >= 1.20) return HarmonicRoute.EXHAUSTION_REVERSAL;
+                if (transition && r.ExtensionAtr >= 1.00) return HarmonicRoute.TRANSITION_REVERSAL;
+                return HarmonicRoute.NO_TRADE;
+            }
+
+            // Hybrid families keep both structural use-cases, but never inherit a generic route blindly.
+            if (p == "Shark")
+            {
+                if (opposed && r.ExtensionAtr >= 1.00) return HarmonicRoute.EXHAUSTION_REVERSAL;
+                if (aligned && supported && r.Efficiency >= .15) return HarmonicRoute.TREND_ALIGNED_REVERSAL;
+                return HarmonicRoute.NO_TRADE;
+            }
+            if (p == "Cypher")
+            {
+                if (aligned && supported && r.Efficiency >= .14) return HarmonicRoute.TREND_ALIGNED_REVERSAL;
+                if (opposed && r.ExtensionAtr >= 1.00) return HarmonicRoute.EXHAUSTION_REVERSAL;
+                return HarmonicRoute.NO_TRADE;
+            }
+            if (p == "5-0")
+            {
+                if (opposed && r.ExtensionAtr >= .80) return HarmonicRoute.EXHAUSTION_REVERSAL;
+                if (transition) return HarmonicRoute.TRANSITION_REVERSAL;
+                return HarmonicRoute.NO_TRADE;
+            }
+
+            // AB=CD standalone capital is selective; all other AB=CD remains completion/confluence information.
+            if (p == "AB=CD")
+            {
+                bool selective = s.HarmonicSubtype == "ABCD_EXACT" || s.HarmonicSubtype == "ABCD_NEAR_127";
+                return selective && aligned && supported && r.Efficiency >= .14
+                    ? HarmonicRoute.TREND_ALIGNED_REVERSAL
+                    : HarmonicRoute.NO_TRADE;
+            }
+
+            return HarmonicRoute.NO_TRADE;
+        }
+
         private bool V67FamilyRouteEligible(CandidateRecord c)
         {
             if (c == null || c.Signal == null) return false;
@@ -3210,23 +3282,31 @@ namespace cAlgo.Robots
             return false;
         }
 
-        private double V67FamilyPriorityBonus(CandidateRecord c)
+        private double V67FamilyEvidenceScore(CandidateRecord c)
         {
-            if (c == null || c.Signal == null) return 0;
-            string p = c.Signal.PatternName ?? "";
-            if (p == "Shark") return .100;
-            if (p == "Rat") return .090;
-            if (p == "Cypher") return .070;
-            if (p == "AB=CD")
-            {
-                if (c.Signal.HarmonicSubtype == "ABCD_EXACT") return .060;
-                if (c.Signal.HarmonicSubtype == "ABCD_NEAR_127") return .035;
-                return -.040;
-            }
-            if (p == "Gartley" || p == "Bat" || p == "Deep Gartley") return .030;
-            if (p == "Alt Bat" || p == "Butterfly" || p == "Crab" || p == "Deep Crab") return .030;
-            if (p == "5-0") return .020;
-            return 0;
+            if (c == null || c.Signal == null || c.Regime == null) return 0;
+
+            double identity = VClamp(.35 * c.Signal.GeometryQuality + .25 * c.Signal.PrzConfluence +
+                                     .20 * c.Signal.TimeSymmetry + .20 * c.Signal.PivotQuality);
+            double confirmation = VClamp(c.ConfirmationScore);
+            double rr = VClamp(c.NetRR / 3.0);
+            double signedDmi = V67SignedDmiBias(c.Signal.Direction, c.Regime.DiPlusH1, c.Regime.DiMinusH1);
+            double dmiSoft = VClamp(.5 + .5 * signedDmi);
+
+            double routeFit;
+            if (c.Route == HarmonicRoute.TREND_ALIGNED_REVERSAL)
+                routeFit = VClamp(.55 * c.Regime.Efficiency + .25 * dmiSoft +
+                                  .20 * (1.0 - Math.Min(1.0, Math.Abs(c.Regime.AtrRatio - 1.0))));
+            else if (c.Route == HarmonicRoute.EXHAUSTION_REVERSAL)
+                routeFit = VClamp(.45 * Math.Min(1.0, c.Regime.ExtensionAtr / 2.0) +
+                                  .30 * (1.0 - Math.Min(1.0, Math.Max(0.0, c.Regime.AdxH1Slope) / 8.0)) +
+                                  .25 * confirmation);
+            else
+                routeFit = VClamp(.45 * (1.0 - Math.Min(1.0, Math.Abs(c.Regime.AdxH1Slope) / 8.0)) +
+                                  .30 * confirmation + .25 * identity);
+
+            double confluence = c.Signal.PatternName != "AB=CD" && V67AbcdCompletionConfluence(c.Signal) ? 1.0 : 0.0;
+            return VClamp(.35 * identity + .25 * confirmation + .18 * routeFit + .17 * rr + .05 * confluence);
         }
 
         private bool V67AbcdCompletionConfluence(PatternSignal s)
@@ -3502,23 +3582,70 @@ namespace cAlgo.Robots
             c.V67FamilyDeceleration |= deceleration;
 
             string p = sig.PatternName ?? "";
-            bool retracement = p == "Gartley" || p == "Bat" || p == "Deep Gartley" || p == "Rat";
-            bool extension = p == "Alt Bat" || p == "Butterfly" || p == "Crab" || p == "Deep Crab";
 
-            if (retracement)
+            if (p == "Gartley")
             {
-                score = (c.FamilyReclaim ? .30 : 0) + ((c.FamilyRejection || c.FamilyFailedExtension) ? .25 : 0) +
-                        ((c.FamilyBos || c.FamilyDisplacement) ? .25 : 0) + (c.FamilyDirectional ? .20 : 0);
+                score = (c.FamilyReclaim ? .30 : 0) + ((c.FamilyRejection || c.FamilyFailedExtension) ? .20 : 0) +
+                        ((c.FamilyBos || c.FamilyDisplacement) ? .25 : 0) + (c.FamilyDirectional ? .15 : 0) +
+                        (c.FamilyRetest ? .10 : 0);
                 return c.FamilyReclaim && (c.FamilyRejection || c.FamilyFailedExtension) &&
-                       (c.FamilyBos || c.FamilyDisplacement) && c.FamilyDirectional && score >= .75;
+                       (c.FamilyBos || c.FamilyDisplacement) && c.FamilyDirectional && score >= .70;
             }
-            if (extension)
+            if (p == "Bat")
+            {
+                score = (c.FamilyReclaim ? .25 : 0) + (c.FamilyFailedExtension ? .25 : 0) +
+                        ((c.FamilyBos || c.FamilyDisplacement) ? .25 : 0) + (c.FamilyDirectional ? .15 : 0) +
+                        (c.FamilyRetest ? .10 : 0);
+                return c.FamilyReclaim && (c.FamilyFailedExtension || c.FamilyRejection) &&
+                       (c.FamilyBos || c.FamilyDisplacement) && c.FamilyDirectional && score >= .70;
+            }
+            if (p == "Deep Gartley")
+            {
+                score = (c.FamilyReclaim ? .25 : 0) + (c.FamilyRetest ? .20 : 0) +
+                        ((c.FamilyRejection || c.FamilyFailedExtension) ? .20 : 0) +
+                        ((c.FamilyBos || c.FamilyDisplacement) ? .20 : 0) + (c.FamilyDirectional ? .15 : 0);
+                return c.FamilyReclaim && c.FamilyRetest &&
+                       (c.FamilyBos || c.FamilyDisplacement) && c.FamilyDirectional && score >= .70;
+            }
+            if (p == "Rat")
+            {
+                score = (c.FamilyReclaim ? .25 : 0) + ((c.FamilyBos || c.FamilyDisplacement) ? .30 : 0) +
+                        (c.FamilyDirectional ? .20 : 0) + ((c.FamilyRejection || c.FamilyFailedExtension) ? .15 : 0) +
+                        (c.FamilyRetest ? .10 : 0);
+                return c.FamilyReclaim && (c.FamilyBos || c.FamilyDisplacement) &&
+                       c.FamilyDirectional && score >= .65;
+            }
+            if (p == "Alt Bat")
             {
                 score = (c.FamilySweep ? .20 : 0) + (c.FamilyFailedExtension ? .25 : 0) +
                         ((c.FamilyReclaim || c.FamilyInsidePrz) ? .20 : 0) +
                         ((c.FamilyBos || c.FamilyDisplacement) ? .20 : 0) + (c.FamilyDirectional ? .15 : 0);
-                return c.FamilySweep && c.FamilyFailedExtension && (c.FamilyReclaim || c.FamilyInsidePrz) &&
-                       (c.FamilyBos || c.FamilyDisplacement) && c.FamilyDirectional && score >= .75;
+                return c.FamilySweep && c.FamilyFailedExtension &&
+                       (c.FamilyReclaim || c.FamilyInsidePrz) && (c.FamilyBos || c.FamilyDisplacement) && score >= .70;
+            }
+            if (p == "Butterfly")
+            {
+                score = (c.FamilySweep ? .25 : 0) + (c.FamilyFailedExtension ? .20 : 0) +
+                        (c.FamilyRejection ? .20 : 0) + (c.FamilyReclaim ? .15 : 0) +
+                        ((c.FamilyBos || c.FamilyDisplacement) ? .20 : 0);
+                return c.FamilySweep && (c.FamilyFailedExtension || c.FamilyRejection) &&
+                       c.FamilyReclaim && (c.FamilyBos || c.FamilyDisplacement) && score >= .70;
+            }
+            if (p == "Crab")
+            {
+                score = (c.FamilySweep ? .20 : 0) + (c.FamilyFailedExtension ? .25 : 0) +
+                        ((c.FamilyReclaim || c.FamilyInsidePrz) ? .20 : 0) +
+                        (c.FamilyDisplacement ? .20 : 0) + (c.FamilyDirectional ? .15 : 0);
+                return c.FamilySweep && c.FamilyFailedExtension &&
+                       (c.FamilyReclaim || c.FamilyInsidePrz) && (c.FamilyDisplacement || c.FamilyBos) && score >= .70;
+            }
+            if (p == "Deep Crab")
+            {
+                score = (c.FamilySweep ? .25 : 0) + (c.FamilyFailedExtension ? .25 : 0) +
+                        (c.FamilyReclaim ? .20 : 0) + (c.FamilyBos ? .15 : 0) +
+                        (c.FamilyDirectional ? .15 : 0);
+                return c.FamilySweep && c.FamilyFailedExtension && c.FamilyReclaim &&
+                       (c.FamilyBos || c.FamilyDisplacement) && score >= .75;
             }
             if (p == "Shark")
             {
@@ -3529,9 +3656,10 @@ namespace cAlgo.Robots
             }
             if (p == "Cypher")
             {
-                score = (c.FamilyRejection ? .20 : 0) + (c.FamilyReclaim ? .30 : 0) +
-                        (c.FamilyBos ? .25 : 0) + (c.FamilyDisplacement ? .25 : 0);
-                return c.FamilyRejection && c.FamilyReclaim && c.FamilyBos && c.FamilyDisplacement && score >= .80;
+                score = (c.FamilyRejection ? .25 : 0) + (c.FamilyReclaim ? .30 : 0) +
+                        (c.FamilyBos ? .25 : 0) + (c.FamilyDisplacement ? .20 : 0);
+                return c.FamilyRejection && c.FamilyReclaim &&
+                       (c.FamilyBos || c.FamilyDisplacement) && score >= .70;
             }
             if (p == "5-0")
             {
@@ -3827,11 +3955,10 @@ namespace cAlgo.Robots
 
             if (V67ProductEnabled() && V67FamilyArbitrationEnabled)
             {
-                rank += V67FamilyPriorityBonus(c);
-                double signedDmi = V67SignedDmiBias(c.Signal.Direction, c.Regime.DiPlusH1, c.Regime.DiMinusH1);
-                rank += Math.Max(0.0, Math.Min(.025, signedDmi * .025));
-                if (c.Signal.PatternName != "AB=CD" && V67AbcdCompletionConfluence(c.Signal))
-                    rank += .020;
+                double familyEvidence = V67FamilyEvidenceScore(c);
+                // No family receives a fixed quota or fixed historical-performance bonus.
+                // Arbitration is driven by current thesis evidence and opportunity quality only.
+                rank = .70 * rank + .30 * familyEvidence;
             }
 
             if (EnableFrequencyAgingPriority && CandidateAgeRankBoost > 0)
