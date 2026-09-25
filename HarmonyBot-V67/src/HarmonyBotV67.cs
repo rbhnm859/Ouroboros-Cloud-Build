@@ -607,11 +607,20 @@ namespace cAlgo.Robots
                 CountPipeline(signal.PatternName).Detected++;
                 Ledger(record, CandidateState.DETECTED, "PATTERN_DETECTED");
 
-                if (signal.GeometryQuality < Math.Max(MinGeometryQuality, signal.Profile.MinGeometry) ||
-                    signal.PrzConfluence < Math.Max(MinPrzConfluence, signal.Profile.MinPrz))
+                bool legacyPatternQualityPass =
+                    signal.GeometryQuality >= Math.Max(MinGeometryQuality, signal.Profile.MinGeometry) &&
+                    signal.PrzConfluence >= Math.Max(MinPrzConfluence, signal.Profile.MinPrz);
+                if (!legacyPatternQualityPass)
                 {
-                    Reject(record, "PATTERN_QUALITY");
-                    continue;
+                    if (!V67ProductEnabled())
+                    {
+                        Reject(record, "PATTERN_QUALITY");
+                        continue;
+                    }
+                    // Product mode is family-identity first. Ratio/topology legality was already
+                    // proven by TryMatchProfile; generic center-distance scores are telemetry only.
+                    // Family-native route + M1 completion + RR + stressed risk remain mandatory.
+                    Event(record, "V67_FAMILY_IDENTITY_QUALITY_OBSERVATION_ONLY");
                 }
 
                 record.AlphaQualityScore = HarmonicRobustnessScore(signal);
