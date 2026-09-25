@@ -8,7 +8,7 @@ checks={
  "all_12_families":all(('Name = "'+p+'"') in s or ('AddStd("'+p+'"') in s for p in families),
  "family_native_routes":"V67FamilyRouteSignal" in s and "V67FamilyRouteEligible" in s and all(x in s for x in ["RETRACEMENT_EXPANSION","EXTENSION_EXPANSION","TRANSITION_EXPANSION"]),
  "family_arbitration":"V67FamilyEvidenceScore" in s and "V67FamilyRouteSignal" in s and "[V67-FAMILY-ARBITRATION]" in s,
- "all_family_completion":"pattern == \"Shark\"" in s and 'pattern == "Cypher"' in s and 'pattern == "AB=CD"' in s and "UpdateFamilyCompletionEvidence" in s,
+ "all_family_completion":"UpdateFamilyCompletionEvidence" in s and all(('p == "'+p+'"') in s for p in families),
  "abcd_not_primary":"COMPLETION_PRIMITIVE" in s and "ABCD_EXACT" in s and "ABCD_NEAR_127" in s and "selective && aligned" in s,
  "dms_soft_context":"V67DirectionalMovement" in s and "V67SignedDmiBias" in s,
  "projected_prz_not_required":"EnableFamilyNativeProjectedPrz" in s,
