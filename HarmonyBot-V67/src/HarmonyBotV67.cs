@@ -229,7 +229,7 @@ namespace cAlgo.Robots
         [Parameter("V67 Mode", DefaultValue = "V67_PRODUCT")]
         public string V67Variant { get; set; }
 
-        [Parameter("V67 Family Native Confirmation Bars", DefaultValue = 6, MinValue = 4, MaxValue = 8)]
+        [Parameter("V67 Family Native Confirmation Bars", DefaultValue = 8, MinValue = 4, MaxValue = 10)]
         public int V67FamilyNativeConfirmationBars { get; set; }
 
         [Parameter("V67 Suppress Parent AB=CD", DefaultValue = true)]
@@ -757,7 +757,7 @@ namespace cAlgo.Robots
                     {
                         c.NativeM1BarsObserved++;
                         double nativeScore;
-                        confirmationPass = UpdatePatternNativeM1State(i, c, out nativeScore);
+                        confirmationPass = V67FamilyNativeConfirmationPass(i, c, out nativeScore);
                         c.ConfirmationScore = Math.Max(c.ConfirmationScore, nativeScore);
                         if (confirmationPass)
                         {
@@ -1242,12 +1242,21 @@ namespace cAlgo.Robots
             double legalLow = c.Signal.PrzLow - przTol;
             double legalHigh = c.Signal.PrzHigh + przTol;
 
+            double dAnchor = c.Signal.D.Price;
+            double dRisk = Math.Max(Math.Abs(dAnchor - stop), _symbol.PipSize);
+            bool favorableConfirmDrift = c.Signal.Direction == TradeDirection.Buy ? anchor >= dAnchor : anchor <= dAnchor;
+            double confirmDriftR = Math.Abs(anchor - dAnchor) / dRisk;
+
             for (int leg = 0; leg < maxLegs; leg++)
             {
                 double fraction = p.GridFractions[leg];
                 if (fraction < -1e-9 || fraction > .6180001) continue;
-                double price = c.Signal.Direction == TradeDirection.Buy ? anchor - fraction * executionUnit : anchor + fraction * executionUnit;
-                if (price < legalLow || price > legalHigh) continue;
+                double price = leg == 0 ? anchor :
+                    (c.Signal.Direction == TradeDirection.Buy ? dAnchor - fraction * executionUnit : dAnchor + fraction * executionUnit);
+
+                bool insideLegalPrz = price >= legalLow && price <= legalHigh;
+                bool legalConfirmedL0 = leg == 0 && favorableConfirmDrift && confirmDriftR <= .2360001;
+                if (!insideLegalPrz && !legalConfirmedL0) continue;
 
                 double riskWeight = leg < p.GridRiskWeights.Length ? p.GridRiskWeights[leg] : 0;
                 double slPips = PriceToPips(Math.Abs(price - stop));
@@ -3080,7 +3089,7 @@ namespace cAlgo.Robots
             ConfigureGrid("Cypher", new[] { 0.0, .236, .382 }, 3, .02, .60, .42, 75, .050, "XC_RETRACE_CONFIRM", "T1_THEN_T2");
             ConfigureGrid("Shark", new[] { 0.0, .236 }, 2, .02, .60, .26, 60, .050, "EXTREME_PRZ_CONFIRM", "T1_THEN_T2");
             ConfigureGrid("5-0", new[] { 0.0, .236 }, 2, .02, .60, .26, 60, .050, "REVERSAL_PRZ_CONFIRM", "T1_THEN_T2");
-            ConfigureGrid("AB=CD", new[] { 0.0, .236, .382, .618 }, 4, .02, .80, .65, 90, .050, "ABCD_COMPLETION_CONFIRM", "T1_THEN_T2");
+            ConfigureGrid("AB=CD", new[] { 0.0, .236 }, 2, .02, .80, .42, 75, .050, "ABCD_COMPLETION_CONFIRM", "T1_THEN_T2");
             ConfigureGrid("Deep Gartley", new[] { 0.0, .236, .382 }, 3, .70, 1.20, .42, 75, .030, "DEEP_PRZ_CONFIRM", "T1_THEN_T2");
             ConfigureGrid("Rat", new[] { 0.0, .236, .382 }, 3, .02, 1.40, .42, 75, .035, "RATIO_PRZ_CONFIRM", "T1_THEN_T2");
         }
@@ -3094,9 +3103,7 @@ namespace cAlgo.Robots
             p.GridFractions = fractions;
             p.MaximumGridLegs = maxLegs;
             p.GridRiskWeights = V67ProductEnabled()
-                ? (maxLegs >= 4 ? new[] { .40, .30, .20, .10 } :
-                   maxLegs == 3 ? new[] { .50, .30, .20 } :
-                   maxLegs == 2 ? new[] { .65, .35 } : new[] { 1.0 })
+                ? V67FamilyGridWeights(name, maxLegs)
                 : new[] { 3.0 / 7.0, 2.0 / 7.0, 1.0 / 7.0, 1.0 / 7.0 };
             p.GridAnchorRule = anchorRule;
             p.MinimumGridSpanXa = minSpanXa;
@@ -3105,6 +3112,19 @@ namespace cAlgo.Robots
             p.PendingTtlMinutes = ttlMinutes;
             p.StructuralStopFibBuffer = stopFibBuffer;
             p.CanonicalTargetPolicy = targetPolicy;
+        }
+
+        private double[] V67FamilyGridWeights(string name, int maxLegs)
+        {
+            if (maxLegs <= 1) return new[] { 1.0 };
+            if (name == "Rat" || name == "Deep Gartley") return new[] { .45, .35, .20 };
+            if (name == "Cypher") return new[] { .50, .30, .20 };
+            if (name == "Shark") return new[] { .65, .35 };
+            if (name == "Crab" || name == "Deep Crab" || name == "5-0" || name == "AB=CD") return new[] { .70, .30 };
+            if (name == "Alt Bat" || name == "Butterfly") return new[] { .55, .30, .15 };
+            if (maxLegs >= 4) return new[] { .40, .30, .20, .10 };
+            if (maxLegs == 3) return new[] { .50, .30, .20 };
+            return new[] { .65, .35 };
         }
 
         private double PatternStructuralInvalidation(PatternProfile p, PivotPoint x, PivotPoint a, PivotPoint b, PivotPoint c, PivotPoint d, bool bullish)
@@ -3181,22 +3201,51 @@ namespace cAlgo.Robots
             return p == "Alt Bat" || p == "Butterfly" || p == "Crab" || p == "Deep Crab";
         }
 
-        private bool V67FamilyRouteEligible(PatternSignal sig, HarmonicRoute route)
+        private bool V67FamilyRouteEligible(PatternSignal sig, HarmonicRoute route, MtfConflict conflict, RegimeSnapshot r)
         {
-            if (!V67ProductEnabled() || sig == null) return true;
+            if (!V67ProductEnabled() || sig == null || r == null) return true;
+            if (route == HarmonicRoute.NO_TRADE) return false;
             string p = sig.PatternName ?? "";
+
+            // Retracement families are continuation-first, but a mature extension may legitimately
+            // complete as exhaustion/transition. Do not destroy V52 Rat supply with a route identity veto.
             if (V67IsRetracementFamily(p))
-                return route == HarmonicRoute.TREND_ALIGNED_REVERSAL;
+            {
+                if (route == HarmonicRoute.TREND_ALIGNED_REVERSAL) return true;
+                if (route == HarmonicRoute.TRANSITION_REVERSAL)
+                    return conflict == MtfConflict.TRANSITION || r.Transition;
+                if (route == HarmonicRoute.EXHAUSTION_REVERSAL)
+                    return r.ExtensionAtr >= 1.20 && r.AdxH1Slope <= 0 &&
+                           sig.GeometryQuality >= .68 && sig.PrzConfluence >= .68;
+                return false;
+            }
+
+            // Extension families are exhaustion-first. A strongly aligned continuation is allowed
+            // only when the completed D/PRZ remains high quality; this frees valid supply without
+            // turning projected-D into an independent alpha source.
             if (V67IsExtensionFamily(p))
-                return route == HarmonicRoute.EXHAUSTION_REVERSAL || route == HarmonicRoute.TRANSITION_REVERSAL;
-            if (p == "Shark")
-                return route == HarmonicRoute.TREND_ALIGNED_REVERSAL || route == HarmonicRoute.EXHAUSTION_REVERSAL || route == HarmonicRoute.TRANSITION_REVERSAL;
+            {
+                if (route == HarmonicRoute.EXHAUSTION_REVERSAL || route == HarmonicRoute.TRANSITION_REVERSAL) return true;
+                if (route == HarmonicRoute.TREND_ALIGNED_REVERSAL)
+                    return conflict != MtfConflict.CONFLICT && r.Efficiency >= .20 &&
+                           sig.GeometryQuality >= .72 && sig.PrzConfluence >= .70;
+                return false;
+            }
+
+            // Shark and Cypher have proven positive V52 economics and may express either continuation
+            // or exhaustion; their M1 contract, not a coarse family blacklist, decides execution.
+            if (p == "Shark" || p == "Cypher")
+                return route == HarmonicRoute.TREND_ALIGNED_REVERSAL ||
+                       route == HarmonicRoute.EXHAUSTION_REVERSAL ||
+                       route == HarmonicRoute.TRANSITION_REVERSAL;
+
             if (p == "5-0")
                 return route == HarmonicRoute.EXHAUSTION_REVERSAL || route == HarmonicRoute.TRANSITION_REVERSAL;
-            if (p == "Cypher")
-                return route == HarmonicRoute.TREND_ALIGNED_REVERSAL || route == HarmonicRoute.EXHAUSTION_REVERSAL;
+
+            // Standalone AB=CD is a fallback/completion primitive, never the dominant supply engine.
             if (p == "AB=CD")
                 return route == HarmonicRoute.TREND_ALIGNED_REVERSAL || route == HarmonicRoute.TRANSITION_REVERSAL;
+
             return false;
         }
 
@@ -3364,7 +3413,7 @@ namespace cAlgo.Robots
                 }
             }
 
-            if (!V67FamilyRouteEligible(s, baseRoute))
+            if (!V67FamilyRouteEligible(s, baseRoute, conflict, r))
             {
                 _v67FamilyRouteRejected++;
                 Print("[V67-FAMILY-ROUTE-REJECT] pattern={0} route={1} conflict={2} trend={3} extensionAtr={4:F3} efficiency={5:F3}",
@@ -3526,6 +3575,91 @@ namespace cAlgo.Robots
                         (c.FamilyRetest ? .25 : 0) + (c.FamilyDirectional ? .20 : 0);
                 return c.FamilyFailedExtension && c.FamilyBos && c.FamilyRetest && c.FamilyDirectional && score >= .80;
             }
+            return false;
+        }
+
+        private bool V67FamilyNativeConfirmationPass(int i, CandidateRecord c, out double score)
+        {
+            score = 0;
+            if (i < 3 || i >= _m1Bars.Count || c == null || c.Signal == null) return false;
+            var sig = c.Signal;
+            double o = _m1Bars.OpenPrices[i], cl = _m1Bars.ClosePrices[i],
+                   h = _m1Bars.HighPrices[i], l = _m1Bars.LowPrices[i];
+            double pc = _m1Bars.ClosePrices[i - 1], ph = _m1Bars.HighPrices[i - 1], pl = _m1Bars.LowPrices[i - 1];
+            double body = Math.Max(Math.Abs(cl - o), _symbol.PipSize);
+            double atr = Atr(_m1Bars, 14, i);
+            bool buy = sig.Direction == TradeDirection.Buy;
+            bool directional = buy ? cl > o : cl < o;
+            bool reclaim = buy ? (cl > sig.PrzLow && cl >= pc) : (cl < sig.PrzHigh && cl <= pc);
+            bool bos = buy ? cl > ph : cl < pl;
+            bool rejection = buy ? Math.Max(0, Math.Min(o, cl) - l) >= body * .5 : Math.Max(0, h - Math.Max(o, cl)) >= body * .5;
+            bool sweep = buy ? l < pl : h > ph;
+            bool failedExtension = buy ? (l < pl && cl > pl) : (h > ph && cl < ph);
+            bool insidePrz = cl >= Math.Min(sig.PrzLow, sig.PrzHigh) && cl <= Math.Max(sig.PrzLow, sig.PrzHigh);
+            bool displacement = atr > 0 && body >= atr * .30;
+            bool retest = insidePrz || Math.Abs(cl - (sig.PrzLow + sig.PrzHigh) * .5) <= Math.Max(atr * .25, _symbol.PipSize);
+
+            c.FamilyDirectional |= directional; c.FamilyReclaim |= reclaim; c.FamilyBos |= bos;
+            c.FamilyRejection |= rejection; c.FamilySweep |= sweep; c.FamilyFailedExtension |= failedExtension;
+            c.FamilyInsidePrz |= insidePrz; c.FamilyDisplacement |= displacement; c.FamilyRetest |= retest;
+
+            string p = sig.PatternName ?? "";
+            bool retracement = V67IsRetracementFamily(p);
+            bool extension = V67IsExtensionFamily(p);
+
+            if (retracement)
+            {
+                score = (c.FamilyReclaim ? .30 : 0) + ((c.FamilyRejection || c.FamilyFailedExtension) ? .25 : 0) +
+                        ((c.FamilyBos || c.FamilyDisplacement) ? .30 : 0) + (c.FamilyDirectional ? .15 : 0);
+                return c.FamilyReclaim && (c.FamilyRejection || c.FamilyFailedExtension) &&
+                       (c.FamilyBos || c.FamilyDisplacement);
+            }
+
+            if (extension)
+            {
+                score = ((c.FamilySweep || c.FamilyFailedExtension) ? .30 : 0) +
+                        ((c.FamilyReclaim || c.FamilyInsidePrz) ? .30 : 0) +
+                        ((c.FamilyBos || c.FamilyDisplacement) ? .25 : 0) + (c.FamilyDirectional ? .15 : 0);
+                return (c.FamilySweep || c.FamilyFailedExtension) &&
+                       (c.FamilyReclaim || c.FamilyInsidePrz) &&
+                       (c.FamilyBos || c.FamilyDisplacement);
+            }
+
+            if (p == "Shark")
+            {
+                score = ((c.FamilySweep || c.FamilyFailedExtension || c.FamilyRejection) ? .30 : 0) +
+                        ((c.FamilyReclaim || c.FamilyInsidePrz) ? .30 : 0) +
+                        ((c.FamilyBos || c.FamilyDisplacement) ? .25 : 0) + (c.FamilyDirectional ? .15 : 0);
+                return (c.FamilySweep || c.FamilyFailedExtension || c.FamilyRejection) &&
+                       (c.FamilyReclaim || c.FamilyInsidePrz) &&
+                       (c.FamilyBos || c.FamilyDisplacement);
+            }
+
+            if (p == "Cypher")
+            {
+                score = (c.FamilyReclaim ? .35 : 0) + ((c.FamilyRejection || c.FamilyFailedExtension) ? .25 : 0) +
+                        ((c.FamilyBos || c.FamilyDisplacement) ? .25 : 0) + (c.FamilyDirectional ? .15 : 0);
+                return c.FamilyReclaim && (c.FamilyRejection || c.FamilyFailedExtension) &&
+                       (c.FamilyBos || c.FamilyDisplacement);
+            }
+
+            if (p == "5-0")
+            {
+                score = (c.FamilyFailedExtension ? .30 : 0) + ((c.FamilyBos || c.FamilyDisplacement) ? .30 : 0) +
+                        ((c.FamilyRetest || c.FamilyReclaim) ? .25 : 0) + (c.FamilyDirectional ? .15 : 0);
+                return c.FamilyFailedExtension && (c.FamilyBos || c.FamilyDisplacement) &&
+                       (c.FamilyRetest || c.FamilyReclaim);
+            }
+
+            if (p == "AB=CD")
+            {
+                // Standalone AB=CD is deliberately stricter because V52 current-runtime evidence
+                // shows high supply but weak aggregate economics.
+                score = (c.FamilyReclaim ? .30 : 0) + (c.FamilyFailedExtension ? .25 : 0) +
+                        (c.FamilyBos ? .25 : 0) + (c.FamilyDisplacement ? .20 : 0);
+                return c.FamilyReclaim && c.FamilyFailedExtension && c.FamilyBos;
+            }
+
             return false;
         }
 
