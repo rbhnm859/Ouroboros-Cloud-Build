@@ -10,14 +10,14 @@ checks={
  "v52_throughput_core":"EnableFamilyIdentityReconstruction" in s and "EnumerateBoundedPivotSequences" in s and "FamilyDetectionQuota" in s,
  "all_12_families":all(('Name = "'+p+'"') in s or ('AddStd("'+p+'"') in s for p in families),
  "hard_pattern_quality_restored":'Reject(record, "PATTERN_QUALITY")' in s and "V67_FAMILY_IDENTITY_QUALITY_OBSERVATION_ONLY" not in s,
- "single_live_router":"record.Route = RouteSignal(signal, record.Conflict, regime);" in s and "private HarmonicRoute V67FamilyRouteSignal" not in s,
+ "family_native_router_live":"V67ProductEnabled() && V67FamilyArbitrationEnabled" in s and "V67FamilyNativeRoute" in s and "RouteSignal(signal, record.Conflict, regime)" in s,
  "family_capital_overlay":"V67FamilyRouteEligible" in s and "V67_FAMILY_SHADOW_ONLY_" in s and "CAPITAL_SHADOW_ONLY" in s,
  "v52_confirmation_live":"return UpdateV52FamilyCompletionEvidenceLegacy(i, c, out score);" in s,
  "legacy_completion_lane":'pattern == "Gartley"' in s and 'pattern == "5-0"' in s and 'pattern == "Shark"' not in s[s.index("private bool IsFamilyCompletionLane"):s.index("private void IncrementCounter")],
- "family_rank_shadow_only":"familyEvidenceShadow" in s and "V67FamilyEvidenceScore(winner)" in s and "rank = .70 * rank" not in s,
+ "family_rank_live":"V67FamilyPriorityBoost" in s and "baseRank += V67FamilyPriorityBoost(c);" in s,
  "abcd_not_primary":"COMPLETION_PRIMITIVE" in s and "ABCD_EXACT" in s and "ABCD_NEAR_127" in s,
  "fivezero_shadow_only":"SHADOW_ONLY_NEGATIVE_CALIBRATION" in s and 'if (p == "5-0")' in s,
- "dms_telemetry_only":"V67DirectionalMovement" in s and "V67SignedDmiBias" in s and "V67DmsContextTelemetryEnabled" in s,
+ "dms_family_context_live":"V67DirectionalMovement" in s and "V67SignedDmiBias" in s and "V67DmiBiasH4 <= -0.20" in s and "V67DmsContextTelemetryEnabled" in s,
  "projected_prz_switch_present":"EnableFamilyNativeProjectedPrz" in s,
  "risk_cap":'[Parameter("Basket Risk %", DefaultValue = 1.0, MinValue = 0.1, MaxValue = 1.0)]' in s,
  "rr_hard_gate":"MinimumNetRR" in s and "SelectCanonicalBasketTarget" in s,
@@ -27,7 +27,7 @@ checks={
  "no_recovery":all(x not in s for x in ["Martingale","Loss Averaging","RecoveryGrid","DCA"]),
  "control_mode":"V67_CONTROL" in s and "V67_PRODUCT" in s,
 }
-out={"version":"HarmonyBot V67","architecture":"V52_THROUGHPUT_CONTROL_PRESERVING_FAMILY_CAPITAL_OVERLAY","families":families,"checks":checks,"pass":all(checks.values())}
+out={"version":"HarmonyBot V67","architecture":"V52_THROUGHPUT_FAMILY_NATIVE_ROUTER_V2","families":families,"checks":checks,"pass":all(checks.values())}
 pathlib.Path("V67_ARCHITECTURE_AUDIT.json").write_text(json.dumps(out,indent=2))
 print(json.dumps(out,indent=2))
 raise SystemExit(0 if out["pass"] else 2)
