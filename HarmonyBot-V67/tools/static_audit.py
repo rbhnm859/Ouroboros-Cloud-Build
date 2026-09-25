@@ -3,6 +3,9 @@ import json,pathlib,sys
 s=pathlib.Path(sys.argv[1] if len(sys.argv)>1 else "HarmonyBot-V67/src/HarmonyBotV67.cs").read_text(errors="ignore")
 families=["Gartley","Bat","Alt Bat","Butterfly","Crab","Deep Crab","Deep Gartley","Rat","Cypher","Shark","5-0","AB=CD"]
 checks={
+"family_native_router_v2":"V67FamilyNativeRoute" in s and "V67FamilyPriorityBoost" in s,
+"abcd_de_dominant":"ABCD_EXACT" in s and "ABCD_NEAR_127" in s and 'return -.02' in s,
+"family_specific_context":"V67DmiBiasH4 <= -0.20" in s and "s.GeometryQuality >= .80" in s and "s.PrzConfluence >= .70" in s,
  "identity":"HarmonyBot V67" in s and "class HarmonyBotV67" in s and 'BotPrefix = "HB67"' in s,
  "v52_throughput_core":"EnableFamilyIdentityReconstruction" in s and "EnumerateBoundedPivotSequences" in s and "FamilyDetectionQuota" in s,
  "all_12_families":all(('Name = "'+p+'"') in s or ('AddStd("'+p+'"') in s for p in families),
