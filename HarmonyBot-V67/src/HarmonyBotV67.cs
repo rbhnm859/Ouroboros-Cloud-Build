@@ -905,11 +905,22 @@ namespace cAlgo.Robots
                             (!EnableCanonicalSetupIdentity || !_executedSetupKeys.Contains(c.SetupKey)));
 
             if (EnableDiversityScheduler)
-                armedQuery = armedQuery.GroupBy(c => string.IsNullOrWhiteSpace(c.SetupKey) ? c.CandidateId : c.SetupKey)
-                    .Select(g => g.OrderByDescending(c => EnableOpportunityDecayRanking ? OpportunityScore(c, now) : c.Rank).First());
+            {
+                armedQuery = armedQuery
+                    .GroupBy(c => string.IsNullOrWhiteSpace(c.SetupKey) ? c.CandidateId : c.SetupKey)
+                    .Select(g =>
+                    {
+                        if (V67ProductEnabled() && V67FamilyArbitrationEnabled)
+                            return g.OrderByDescending(V67FamilyEvidenceScore)
+                                    .ThenByDescending(c => EnableOpportunityDecayRanking ? OpportunityScore(c, now) : c.Rank)
+                                    .First();
+                        return g.OrderByDescending(c => EnableOpportunityDecayRanking ? OpportunityScore(c, now) : c.Rank).First();
+                    });
+            }
 
             var armed = armedQuery
                 .OrderByDescending(c => EnableOpportunityDecayRanking ? OpportunityScore(c, now) : c.Rank)
+                .ThenByDescending(c => V67ProductEnabled() && V67FamilyArbitrationEnabled ? V67FamilyEvidenceScore(c) : 0)
                 .ToList();
             if (armed.Count == 0) return;
 
@@ -3201,64 +3212,34 @@ namespace cAlgo.Robots
             string p = s.PatternName ?? "";
             HarmonicRoute r = c.Route;
 
-            // Rat: proven trend-pullback core. Exhaustion is admitted only in a clear pre-entry
-            // opposing H4 directional state, which was the stable positive calibration subset.
-            if (p == "Rat")
-            {
-                if (r == HarmonicRoute.TREND_ALIGNED_REVERSAL)
-                    return true;
-                if (r == HarmonicRoute.EXHAUSTION_REVERSAL)
-                    return c.V67DmiBiasH4 <= -0.20 && s.PrzConfluence >= .69;
-                return false;
-            }
+            // V67 does not use post-hoc numeric family-profit thresholds. Pattern identity is
+            // established by each family's legal Fibonacci geometry; route eligibility only
+            // expresses the family's market thesis. M1 completion proof decides executability.
+            if (p == "Rat" || p == "Shark" || p == "Cypher")
+                return r == HarmonicRoute.TREND_ALIGNED_REVERSAL ||
+                       r == HarmonicRoute.EXHAUSTION_REVERSAL;
 
-            // Shark is a terminal family. A trend thesis needs a precise PRZ and must not enter
-            // into very strong same-direction H4 pressure. Exhaustion accepts either dense PRZ
-            // confluence or strong H1 terminal pressure evidence.
-            if (p == "Shark")
-            {
-                if (r == HarmonicRoute.TREND_ALIGNED_REVERSAL)
-                    return s.PrzConfluence >= .70 && c.V67DmiBiasH4 <= .39;
-                if (r == HarmonicRoute.EXHAUSTION_REVERSAL)
-                    return s.PrzConfluence >= .75 || c.V67DmiBiasH1 >= .20;
-                return false;
-            }
-
-            // Cypher calibration cleanly separated weak C trades by family geometry / PRZ quality.
-            if (p == "Cypher")
-            {
-                if (r == HarmonicRoute.TREND_ALIGNED_REVERSAL)
-                    return s.GeometryQuality >= .80 && s.PrzConfluence >= .64;
-                if (r == HarmonicRoute.EXHAUSTION_REVERSAL)
-                    return s.GeometryQuality >= .82 && s.PrzConfluence >= .68;
-                return false;
-            }
-
-            // Classic retracement families compete as trend-pullback theses with their own
-            // family-native legal geometry; no global profitability score is imposed.
+            // Classic retracement families are trend-pullback theses.
             if (p == "Gartley" || p == "Bat" || p == "Deep Gartley")
-                return r == HarmonicRoute.TREND_ALIGNED_REVERSAL &&
-                       s.GeometryQuality >= s.Profile.MinGeometry &&
-                       s.PrzConfluence >= s.Profile.MinPrz;
+                return r == HarmonicRoute.TREND_ALIGNED_REVERSAL;
 
-            // Extension families are not forced into the Rat/AB=CD logic. They compete only
-            // in terminal exhaustion/transition states and must show meaningful PRZ confluence.
+            // Extension families are terminal / transition theses.
             if (p == "Alt Bat" || p == "Butterfly" || p == "Crab" || p == "Deep Crab")
-                return (r == HarmonicRoute.EXHAUSTION_REVERSAL || r == HarmonicRoute.TRANSITION_REVERSAL) &&
-                       s.GeometryQuality >= .68 && s.PrzConfluence >= .68;
+                return r == HarmonicRoute.EXHAUSTION_REVERSAL ||
+                       r == HarmonicRoute.TRANSITION_REVERSAL;
 
-            // Historical calibration for 5-0 remained negative. Keep detection and telemetry,
-            // but do not spend the one active basket until a later shadow sample proves edge.
+            // 5-0 was negative in the verified V52 calibration. It remains detected and logged
+            // but cannot spend the one live basket until independent shadow evidence is positive.
             if (p == "5-0")
                 return false;
 
-            // AB=CD is explicitly de-dominant: only exact / near-1.27 completions may spend capital.
+            // AB=CD is a completion primitive / selective standalone lane, never the preferred
+            // family when another valid family expresses the same underlying geometry.
             if (p == "AB=CD")
             {
                 bool selective = s.HarmonicSubtype == "ABCD_EXACT" ||
                                  s.HarmonicSubtype == "ABCD_NEAR_127";
-                if (!selective) return false;
-                return r == HarmonicRoute.TREND_ALIGNED_REVERSAL;
+                return selective && r == HarmonicRoute.TREND_ALIGNED_REVERSAL;
             }
 
             return false;
@@ -3526,7 +3507,8 @@ namespace cAlgo.Robots
         {
             return pattern == "Gartley" || pattern == "Bat" || pattern == "Alt Bat" ||
                    pattern == "Butterfly" || pattern == "Crab" || pattern == "Deep Crab" ||
-                   pattern == "Deep Gartley" || pattern == "Rat" || pattern == "5-0";
+                   pattern == "Deep Gartley" || pattern == "Rat" || pattern == "Shark" ||
+                   pattern == "Cypher" || pattern == "AB=CD" || pattern == "5-0";
         }
 
         private void IncrementCounter(Dictionary<string, int> map, string key)
@@ -3589,7 +3571,50 @@ namespace cAlgo.Robots
 
         private bool UpdateFamilyCompletionEvidence(int i, CandidateRecord c, out double score)
         {
-            return UpdateV52FamilyCompletionEvidenceLegacy(i, c, out score);
+            double legacyScore;
+            bool legacyPass = UpdateV52FamilyCompletionEvidenceLegacy(i, c, out legacyScore);
+            score = legacyScore;
+            if (c == null || c.Signal == null) return false;
+
+            string p = c.Signal.PatternName ?? "";
+            if (p == "Shark")
+            {
+                // Shark is a terminal family: require evidence that the terminal push failed and
+                // the PRZ was reclaimed before spending capital.
+                bool terminal = c.FamilyFailedExtension || c.FamilyRejection;
+                bool restart = c.FamilyBos || c.FamilyDisplacement;
+                score = (c.FamilyReclaim ? .30 : 0) + (terminal ? .30 : 0) +
+                        (restart ? .25 : 0) + (c.FamilyDirectional ? .15 : 0);
+                if (c.Route == HarmonicRoute.EXHAUSTION_REVERSAL)
+                    return c.FamilyReclaim && c.FamilyRejection &&
+                           (c.FamilyFailedExtension || c.FamilyBos);
+                return c.FamilyReclaim && terminal && restart;
+            }
+
+            if (p == "Cypher")
+            {
+                // Cypher trades the completion/reclaim of its XC/CD geometry. Do not require
+                // an arbitrary geometry score once the canonical family identity has passed.
+                bool restart = c.FamilyBos || c.FamilyFailedExtension;
+                score = (c.FamilyReclaim ? .35 : 0) + (restart ? .35 : 0) +
+                        (c.FamilyDirectional ? .15 : 0) + (c.FamilyRejection ? .15 : 0);
+                if (c.Route == HarmonicRoute.EXHAUSTION_REVERSAL)
+                    return c.FamilyReclaim && c.FamilyRejection && restart;
+                return c.FamilyReclaim && restart && c.FamilyDirectional;
+            }
+
+            if (p == "AB=CD")
+            {
+                // AB=CD can execute standalone only after a real PRZ reclaim/re-acceleration.
+                // This prevents the high-supply completion primitive from winning by detection
+                // abundance alone.
+                bool restart = c.FamilyBos || c.FamilyFailedExtension;
+                score = (c.FamilyReclaim ? .40 : 0) + (restart ? .35 : 0) +
+                        (c.FamilyDirectional ? .15 : 0) + (c.FamilyRejection ? .10 : 0);
+                return c.FamilyReclaim && restart && c.FamilyDirectional;
+            }
+
+            return legacyPass;
         }
 
         private bool UpdatePatternNativeM1State(int i, CandidateRecord c, out double score)
