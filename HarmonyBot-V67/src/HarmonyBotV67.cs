@@ -3583,6 +3583,36 @@ namespace cAlgo.Robots
 
             string p = sig.PatternName ?? "";
 
+            // CONTROL must remain decision-equivalent to the verified V52 FAMILY_IDENTITY_RECONSTRUCTION parent.
+            if (!V67ProductEnabled())
+            {
+                bool retracementControl = p == "Gartley" || p == "Bat" || p == "Deep Gartley" || p == "Rat";
+                bool extensionControl = p == "Alt Bat" || p == "Butterfly" || p == "Crab" || p == "Deep Crab";
+
+                if (retracementControl)
+                {
+                    score = (c.FamilyReclaim ? .30 : 0) + ((c.FamilyRejection || c.FamilyFailedExtension) ? .25 : 0) +
+                            ((c.FamilyBos || c.FamilyDisplacement) ? .25 : 0) + (c.FamilyDirectional ? .20 : 0);
+                    return c.FamilyReclaim && (c.FamilyRejection || c.FamilyFailedExtension) &&
+                           (c.FamilyBos || c.FamilyDisplacement) && c.FamilyDirectional && score >= .75;
+                }
+                if (extensionControl)
+                {
+                    score = (c.FamilySweep ? .20 : 0) + (c.FamilyFailedExtension ? .25 : 0) +
+                            ((c.FamilyReclaim || c.FamilyInsidePrz) ? .20 : 0) +
+                            ((c.FamilyBos || c.FamilyDisplacement) ? .20 : 0) + (c.FamilyDirectional ? .15 : 0);
+                    return c.FamilySweep && c.FamilyFailedExtension && (c.FamilyReclaim || c.FamilyInsidePrz) &&
+                           (c.FamilyBos || c.FamilyDisplacement) && c.FamilyDirectional && score >= .75;
+                }
+                if (p == "5-0")
+                {
+                    score = (c.FamilyFailedExtension ? .25 : 0) + (c.FamilyBos ? .30 : 0) +
+                            (c.FamilyRetest ? .25 : 0) + (c.FamilyDirectional ? .20 : 0);
+                    return c.FamilyFailedExtension && c.FamilyBos && c.FamilyRetest && c.FamilyDirectional && score >= .80;
+                }
+                return false;
+            }
+
             if (p == "Gartley")
             {
                 score = (c.FamilyReclaim ? .30 : 0) + ((c.FamilyRejection || c.FamilyFailedExtension) ? .20 : 0) +
