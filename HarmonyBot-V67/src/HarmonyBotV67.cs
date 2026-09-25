@@ -629,7 +629,9 @@ namespace cAlgo.Robots
                 record.Conflict = ClassifyMtfConflict(signal.Direction, h4State, h1State);
                 record.Regime = regime;
                 record.RegimeScore = RegimeContextScore(signal, record.Conflict, regime);
-                record.Route = RouteSignal(signal, record.Conflict, regime);
+                record.Route = V67ProductEnabled() && V67FamilyArbitrationEnabled
+                    ? V67FamilyNativeRoute(signal, record.Conflict, regime)
+                    : RouteSignal(signal, record.Conflict, regime);
                 record.V67FamilyTier = V67FamilyTier(signal);
                 record.V67DmiBiasH1 = V67SignedDmiBias(signal.Direction, regime.DiPlusH1, regime.DiMinusH1);
                 record.V67DmiBiasH4 = V67SignedDmiBias(signal.Direction, regime.DiPlusH4, regime.DiMinusH4);
@@ -3196,40 +3198,72 @@ namespace cAlgo.Robots
 
         private bool V67FamilyRouteEligible(CandidateRecord c)
         {
-            if (c == null || c.Signal == null) return false;
-            string p = c.Signal.PatternName ?? "";
+            if (c == null || c.Signal == null || c.Regime == null) return false;
+            PatternSignal s = c.Signal;
+            string p = s.PatternName ?? "";
             HarmonicRoute r = c.Route;
 
-            // V52 calibration: Rat alpha is trend-pullback; Rat exhaustion was weak/unstable.
+            // Rat: proven trend-pullback core. Exhaustion is admitted only in a clear pre-entry
+            // opposing H4 directional state, which was the stable positive calibration subset.
             if (p == "Rat")
-                return r == HarmonicRoute.TREND_ALIGNED_REVERSAL;
+            {
+                if (r == HarmonicRoute.TREND_ALIGNED_REVERSAL)
+                    return true;
+                if (r == HarmonicRoute.EXHAUSTION_REVERSAL)
+                    return c.V67DmiBiasH4 <= -0.20 && s.PrzConfluence >= .69;
+                return false;
+            }
 
-            // V52 calibration: both Shark routes were positive.
+            // Shark is a terminal family. A trend thesis needs a precise PRZ and must not enter
+            // into very strong same-direction H4 pressure. Exhaustion accepts either dense PRZ
+            // confluence or strong H1 terminal pressure evidence.
             if (p == "Shark")
-                return r == HarmonicRoute.TREND_ALIGNED_REVERSAL || r == HarmonicRoute.EXHAUSTION_REVERSAL;
+            {
+                if (r == HarmonicRoute.TREND_ALIGNED_REVERSAL)
+                    return s.PrzConfluence >= .70 && c.V67DmiBiasH4 <= .39;
+                if (r == HarmonicRoute.EXHAUSTION_REVERSAL)
+                    return s.PrzConfluence >= .75 || c.V67DmiBiasH1 >= .20;
+                return false;
+            }
 
-            // Small sample but positive V52 evidence on both Cypher routes; retain with full risk/RR gates.
+            // Cypher calibration cleanly separated weak C trades by family geometry / PRZ quality.
             if (p == "Cypher")
-                return r == HarmonicRoute.TREND_ALIGNED_REVERSAL || r == HarmonicRoute.EXHAUSTION_REVERSAL;
+            {
+                if (r == HarmonicRoute.TREND_ALIGNED_REVERSAL)
+                    return s.GeometryQuality >= .80 && s.PrzConfluence >= .64;
+                if (r == HarmonicRoute.EXHAUSTION_REVERSAL)
+                    return s.GeometryQuality >= .82 && s.PrzConfluence >= .68;
+                return false;
+            }
 
-            // Retracement families compete only as trend-pullback theses.
+            // Classic retracement families compete as trend-pullback theses with their own
+            // family-native legal geometry; no global profitability score is imposed.
             if (p == "Gartley" || p == "Bat" || p == "Deep Gartley")
-                return r == HarmonicRoute.TREND_ALIGNED_REVERSAL;
+                return r == HarmonicRoute.TREND_ALIGNED_REVERSAL &&
+                       s.GeometryQuality >= s.Profile.MinGeometry &&
+                       s.PrzConfluence >= s.Profile.MinPrz;
 
-            // Extension families compete only as exhaustion/transition theses.
+            // Extension families are not forced into the Rat/AB=CD logic. They compete only
+            // in terminal exhaustion/transition states and must show meaningful PRZ confluence.
             if (p == "Alt Bat" || p == "Butterfly" || p == "Crab" || p == "Deep Crab")
-                return r == HarmonicRoute.EXHAUSTION_REVERSAL || r == HarmonicRoute.TRANSITION_REVERSAL;
+                return (r == HarmonicRoute.EXHAUSTION_REVERSAL || r == HarmonicRoute.TRANSITION_REVERSAL) &&
+                       s.GeometryQuality >= .68 && s.PrzConfluence >= .68;
 
-            // V52 5-0 calibration was negative; keep detection/telemetry but no capital until shadow evidence improves.
+            // Historical calibration for 5-0 remained negative. Keep detection and telemetry,
+            // but do not spend the one active basket until a later shadow sample proves edge.
             if (p == "5-0")
                 return false;
 
-            // AB=CD no longer carries the system. Only exact/near-1.27 trend completions may stand alone.
+            // AB=CD is explicitly de-dominant: only exact / near-1.27 completions may spend capital.
             if (p == "AB=CD")
             {
-                bool selective = c.Signal.HarmonicSubtype == "ABCD_EXACT" ||
-                                 c.Signal.HarmonicSubtype == "ABCD_NEAR_127";
-                return selective && r == HarmonicRoute.TREND_ALIGNED_REVERSAL;
+                bool selective = s.HarmonicSubtype == "ABCD_EXACT" ||
+                                 s.HarmonicSubtype == "ABCD_NEAR_127";
+                if (!selective) return false;
+                if (r == HarmonicRoute.TREND_ALIGNED_REVERSAL) return true;
+                if (r == HarmonicRoute.TRANSITION_REVERSAL)
+                    return s.GeometryQuality >= .86 && s.PrzConfluence >= .70;
+                return false;
             }
 
             return false;
@@ -3295,6 +3329,82 @@ namespace cAlgo.Robots
             if (tr <= 1e-12) return;
             diPlus = 100.0 * plusDm / tr;
             diMinus = 100.0 * minusDm / tr;
+        }
+
+        private HarmonicRoute V67FamilyNativeRoute(PatternSignal s, MtfConflict conflict, RegimeSnapshot r)
+        {
+            if (s == null || r == null) return HarmonicRoute.NO_TRADE;
+            bool aligned = r.TrendDirection == s.Direction;
+            bool opposed = r.TrendDirection != TradeDirection.Neutral && r.TrendDirection != s.Direction;
+            bool transition = r.Transition || conflict == MtfConflict.TRANSITION || r.TrendDirection == TradeDirection.Neutral;
+            bool supported = conflict != MtfConflict.CONFLICT;
+            bool liquid = r.AtrRatio >= .50 && r.AtrRatio <= 1.85;
+            bool quality = s.GeometryQuality >= .68 && s.PrzConfluence >= .64 && s.Confidence >= .64;
+            string p = s.PatternName ?? "";
+
+            // Retracement / continuation families: seek completion of a pullback inside the prevailing thesis.
+            if (p == "Rat")
+            {
+                if (supported && aligned && liquid && r.Efficiency >= .14)
+                    return HarmonicRoute.TREND_ALIGNED_REVERSAL;
+                if (opposed && liquid && r.ExtensionAtr >= 1.15 && s.PrzConfluence >= .65)
+                    return HarmonicRoute.EXHAUSTION_REVERSAL;
+                return HarmonicRoute.NO_TRADE;
+            }
+            if (p == "Gartley" || p == "Bat" || p == "Deep Gartley")
+            {
+                if (supported && aligned && liquid && r.Efficiency >= .12)
+                    return HarmonicRoute.TREND_ALIGNED_REVERSAL;
+                return HarmonicRoute.NO_TRADE;
+            }
+
+            // Terminal / extension families: allow trend pullback only when the family historically supports it,
+            // otherwise require extension/exhaustion or a real HTF transition.
+            if (p == "Shark")
+            {
+                if (supported && aligned && liquid && r.Efficiency >= .12)
+                    return HarmonicRoute.TREND_ALIGNED_REVERSAL;
+                if (opposed && liquid && r.ExtensionAtr >= .95 && s.GeometryQuality >= .68)
+                    return HarmonicRoute.EXHAUSTION_REVERSAL;
+                return HarmonicRoute.NO_TRADE;
+            }
+            if (p == "Cypher")
+            {
+                if (supported && aligned && liquid && r.Efficiency >= .12)
+                    return HarmonicRoute.TREND_ALIGNED_REVERSAL;
+                if (opposed && liquid && r.ExtensionAtr >= 1.00)
+                    return HarmonicRoute.EXHAUSTION_REVERSAL;
+                return HarmonicRoute.NO_TRADE;
+            }
+            if (p == "Alt Bat" || p == "Butterfly" || p == "Crab" || p == "Deep Crab")
+            {
+                if (opposed && liquid && quality && r.ExtensionAtr >= 1.10)
+                    return HarmonicRoute.EXHAUSTION_REVERSAL;
+                if (transition && quality && r.AtrRatio <= 1.75)
+                    return HarmonicRoute.TRANSITION_REVERSAL;
+                return HarmonicRoute.NO_TRADE;
+            }
+            if (p == "5-0")
+            {
+                if (opposed && liquid && quality && r.ExtensionAtr >= 1.10)
+                    return HarmonicRoute.EXHAUSTION_REVERSAL;
+                if (transition && quality && r.AtrRatio <= 1.70)
+                    return HarmonicRoute.TRANSITION_REVERSAL;
+                return HarmonicRoute.NO_TRADE;
+            }
+
+            // AB=CD is a completion primitive / throughput lane, never the default family identity.
+            if (p == "AB=CD")
+            {
+                if (supported && aligned && liquid && r.Efficiency >= .16)
+                    return HarmonicRoute.TREND_ALIGNED_REVERSAL;
+                if (transition && quality &&
+                    (s.HarmonicSubtype == "ABCD_EXACT" || s.HarmonicSubtype == "ABCD_NEAR_127"))
+                    return HarmonicRoute.TRANSITION_REVERSAL;
+                return HarmonicRoute.NO_TRADE;
+            }
+
+            return HarmonicRoute.NO_TRADE;
         }
 
         private HarmonicRoute RouteSignalV34(PatternSignal s, MtfConflict conflict, RegimeSnapshot r)
@@ -3823,6 +3933,20 @@ namespace cAlgo.Robots
             return (directional ? .20 : 0) + (reclaim ? .20 : 0) + (bos ? .30 : 0) + (rejection ? .15 : 0) + (failedExtension ? .15 : 0);
         }
 
+        private double V67FamilyPriorityBoost(CandidateRecord c)
+        {
+            if (!V67FamilyArbitrationEnabled || c == null || c.Signal == null) return 0;
+            string p = c.Signal.PatternName ?? "";
+            if (p == "Shark") return .11;
+            if (p == "Rat") return .10;
+            if (p == "Cypher") return .08;
+            if (p == "Gartley" || p == "Bat" || p == "Deep Gartley") return .05;
+            if (p == "Alt Bat" || p == "Butterfly" || p == "Crab" || p == "Deep Crab") return .04;
+            if (p == "5-0") return -.03;
+            if (p == "AB=CD") return -.02;
+            return 0;
+        }
+
         private double CandidateRank(CandidateRecord c)
         {
             double mtf = c.Conflict == MtfConflict.ALIGNED ? 1.0 :
@@ -3833,6 +3957,7 @@ namespace cAlgo.Robots
                                    .30 * Math.Min(1.0, c.Regime.ExtensionAtr / 2.0));
             double baseRank = .25 * c.Signal.GeometryQuality + .15 * c.Signal.PrzConfluence + .15 * mtf + .15 * regime +
                               .15 * c.ConfirmationScore + .15 * VClamp(c.NetRR / 3.0);
+            baseRank += V67FamilyPriorityBoost(c);
             if (!EnableFrequencyAgingPriority || CandidateAgeRankBoost <= 0) return baseRank;
             double ttl = Math.Max(60.0, (c.ExpiryUtc - c.DetectedUtc).TotalSeconds);
             double age = Math.Max(0.0, (Server.Time.ToUniversalTime() - c.DetectedUtc).TotalSeconds);
