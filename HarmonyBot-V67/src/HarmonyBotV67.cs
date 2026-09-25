@@ -3856,15 +3856,9 @@ namespace cAlgo.Robots
 
         private double V67FamilyPriorityBoost(CandidateRecord c)
         {
+            // No hard-coded family preference is allowed in the commercial scheduler.
+            // Family identity changes its thesis/confirmation contract, not its desired trade share.
             if (!V67FamilyArbitrationEnabled || c == null || c.Signal == null) return 0;
-            string p = c.Signal.PatternName ?? "";
-            if (p == "Shark") return .11;
-            if (p == "Rat") return .10;
-            if (p == "Cypher") return .08;
-            if (p == "Gartley" || p == "Bat" || p == "Deep Gartley") return .05;
-            if (p == "Alt Bat" || p == "Butterfly" || p == "Crab" || p == "Deep Crab") return .04;
-            if (p == "5-0") return -.03;
-            if (p == "AB=CD") return -.02;
             return 0;
         }
 
