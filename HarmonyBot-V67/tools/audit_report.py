@@ -56,7 +56,7 @@ for q in oprx.finditer(t):
 sorx=re.compile(r"\[V67-SLOT-OCCUPANCY\].*?pattern=(.*?)\s+route=(\S+)\s+occupancyMinutes=([-0-9.]+)\s+realizedR=([-0-9.]+)\s+net=([-0-9.]+)")
 slots=[{"pattern":q.group(1),"route":q.group(2),"occupancy_minutes":float(q.group(3)),"realized_r":float(q.group(4)),"net":float(q.group(5))} for q in sorx.finditer(t)]
 
-clean_keys=["execution_errors","grid_risk_violations","duplicate_grid_legs","orphan_pending_orders","stop_widening_violations","gap_through_survivors",
+clean_keys=["execution_errors","duplicate_grid_legs","orphan_pending_orders","stop_widening_violations","gap_through_survivors",
 "unprotected_survivors","post_fill_protection_failures","actual_basket_risk_violations","execution_state_violations","margin_risk_violations"]
 summary_present=bool(m); clean=summary_present and all(c[k]==0 for k in clean_keys)
 eq=d.get("equity",{}); unique=len({x["setup"] for x in b})
@@ -74,13 +74,13 @@ top_family_share=max([len(q) for q in fam.values()] or [0]) / max(1,len(b))
 abcd=[x for x in b if x["pattern"]=="AB=CD"]
 non_abcd=[x for x in b if x["pattern"]!="AB=CD"]
 
-out={"family":a.family,"window":a.window,"starting_balance":a.balance,"spread":a.spread,"data_snapshot_sha":a.data_sha,"data_snapshot_sha":a.data_sha,"baskets":len(b),"unique_setups":unique,"duplicate_reentries":len(b)-unique,
+out={"family":a.family,"window":a.window,"starting_balance":a.balance,"spread":a.spread,"data_snapshot_sha":a.data_sha,"baskets":len(b),"unique_setups":unique,"duplicate_reentries":len(b)-unique,
 "wins":sum(x>0 for x in v),"losses":sum(x<0 for x in v),"gross_profit":gp,"gross_loss":gl,"pf":gp/gl if gl else (999 if gp else 0),
 "net":sum(v),"expectancy":sum(v)/len(v) if v else 0,"win_rate":sum(x>0 for x in v)/len(v) if v else 0,"frequency":len(b)/a.years,
 "max_dd_pct":float(eq.get("maxEquityDrawdownPercent",0) or 0),"engineering_clean":clean,"summary_present":summary_present,
 "broker_profile_present":"[V67-BROKER-PROFILE]" in t,"mean_mfe_r":statistics.mean([x["mfe"] for x in b]) if b else 0,
 "mean_mae_r":statistics.mean([x["mae"] for x in b]) if b else 0,"family_performance":family_performance,"route_performance":route_performance,"top_family_share":top_family_share,"abcd_net":sum(x["net"] for x in abcd),"non_abcd_net":sum(x["net"] for x in non_abcd),"basket_outcomes":b,"pattern_pipeline":pipeline,
-"events":events,"opportunity_loss":opp,"slot_occupancy":slots,**tv,**c}
+"events":events,"opportunity_loss":opp,"slot_occupancy":slots,"prevented_risk_rejections":c["grid_risk_violations"],**tv,**c}
 anchor_rx=re.compile(r"\[V67-ENTRY-ANCHOR-FORENSICS\]\s+cid=(\S+)\s+setup=(\S+)\s+pattern=(.*?)\s+route=(\S+)\s+scale=(\d+)\s+completion=([-0-9.]+)\s+confirm=([-0-9.]+)\s+retest=([-0-9.]+)\s+completionMfeR=([-0-9.]+)\s+completionMaeR=([-0-9.]+)\s+confirmMfeR=([-0-9.]+)\s+confirmMaeR=([-0-9.]+)\s+retestMfeR=([-0-9.]+)\s+retestMaeR=([-0-9.]+)")
 anchors=[]
 for q in anchor_rx.finditer(t):

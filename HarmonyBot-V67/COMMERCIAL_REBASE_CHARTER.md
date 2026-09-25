@@ -49,3 +49,16 @@ This proves the product is not economically dependent on AB=CD.
 
 ## Governance
 Risk / Model Validation / Red Team / Data Governance remain fail-closed vetoes.
+
+
+## 2026-09-26 causal reset
+The first family-native calibration changed detection, routing, confirmation and ranking simultaneously and failed causal attribution.
+V67 is therefore reset to a control-preserving architecture:
+- V52 pattern-quality gate remains hard.
+- V52 RouteSignal is the single live router.
+- V52 M1/family completion semantics remain live.
+- V52 CandidateRank remains the live scheduler rank.
+- V67 family logic is a capital overlay only: Rat trend; Shark trend/exhaustion; Cypher trend/exhaustion; retracement families trend; extension families exhaustion/transition; 5-0 shadow-only; AB=CD standalone only exact/near-1.27 trend.
+- DMI and family-evidence scores are telemetry only.
+- AB=CD remains available as completion/confluence evidence but may not dominate broad standalone capital.
+- Historical V52 200/+2902.27/PF1.375 is retained as a historical reference. Because that old run did not persist market-data hashes, current same-run V67_CONTROL is the causal replay baseline; commercial Product gates are not lowered.

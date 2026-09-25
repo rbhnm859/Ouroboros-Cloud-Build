@@ -3188,79 +3188,11 @@ namespace cAlgo.Robots
             if (s.PatternName == "Alt Bat" || s.PatternName == "Butterfly" ||
                 s.PatternName == "Crab" || s.PatternName == "Deep Crab")
                 return "EXTENSION_EXPANSION";
-            if (s.PatternName == "5-0") return "TRANSITION_EXPANSION";
+            if (s.PatternName == "5-0") return "SHADOW_ONLY_NEGATIVE_CALIBRATION";
             return "OTHER";
         }
 
-        private HarmonicRoute V67FamilyRouteSignal(PatternSignal s, MtfConflict conflict, RegimeSnapshot r)
-        {
-            if (s == null || r == null) return HarmonicRoute.NO_TRADE;
 
-            string p = s.PatternName ?? "";
-            bool aligned = r.TrendDirection == s.Direction;
-            bool opposed = r.TrendDirection != TradeDirection.Neutral && r.TrendDirection != s.Direction;
-            bool supported = conflict == MtfConflict.ALIGNED || conflict == MtfConflict.SUPPORTED || conflict == MtfConflict.NEUTRAL;
-            bool transition = r.Transition || conflict == MtfConflict.TRANSITION || r.TrendDirection == TradeDirection.Neutral;
-            bool volOk = r.AtrRatio >= .50 && r.AtrRatio <= 1.85;
-            bool strongIdentity = s.GeometryQuality >= Math.Max(.55, s.Profile.MinGeometry) &&
-                                  s.PrzConfluence >= Math.Max(.55, s.Profile.MinPrz);
-            if (!volOk || !strongIdentity || conflict == MtfConflict.CONFLICT) return HarmonicRoute.NO_TRADE;
-
-            // Retracement families: trade the completion of a pullback in the prevailing direction.
-            if (p == "Rat")
-                return aligned && supported && r.Efficiency >= .14 ? HarmonicRoute.TREND_ALIGNED_REVERSAL : HarmonicRoute.NO_TRADE;
-            if (p == "Gartley")
-                return aligned && supported && r.Efficiency >= .16 ? HarmonicRoute.TREND_ALIGNED_REVERSAL : HarmonicRoute.NO_TRADE;
-            if (p == "Bat")
-                return aligned && supported && r.Efficiency >= .14 ? HarmonicRoute.TREND_ALIGNED_REVERSAL : HarmonicRoute.NO_TRADE;
-            if (p == "Deep Gartley")
-                return aligned && supported && r.Efficiency >= .14 ? HarmonicRoute.TREND_ALIGNED_REVERSAL : HarmonicRoute.NO_TRADE;
-
-            // Extension families: require an extended/transition state rather than generic trend routing.
-            if (p == "Alt Bat" || p == "Butterfly")
-            {
-                if (opposed && r.ExtensionAtr >= 1.00) return HarmonicRoute.EXHAUSTION_REVERSAL;
-                if (transition && r.ExtensionAtr >= .80) return HarmonicRoute.TRANSITION_REVERSAL;
-                return HarmonicRoute.NO_TRADE;
-            }
-            if (p == "Crab" || p == "Deep Crab")
-            {
-                if (opposed && r.ExtensionAtr >= 1.20) return HarmonicRoute.EXHAUSTION_REVERSAL;
-                if (transition && r.ExtensionAtr >= 1.00) return HarmonicRoute.TRANSITION_REVERSAL;
-                return HarmonicRoute.NO_TRADE;
-            }
-
-            // Hybrid families keep both structural use-cases, but never inherit a generic route blindly.
-            if (p == "Shark")
-            {
-                if (opposed && r.ExtensionAtr >= 1.00) return HarmonicRoute.EXHAUSTION_REVERSAL;
-                if (aligned && supported && r.Efficiency >= .15) return HarmonicRoute.TREND_ALIGNED_REVERSAL;
-                return HarmonicRoute.NO_TRADE;
-            }
-            if (p == "Cypher")
-            {
-                if (aligned && supported && r.Efficiency >= .14) return HarmonicRoute.TREND_ALIGNED_REVERSAL;
-                if (opposed && r.ExtensionAtr >= 1.00) return HarmonicRoute.EXHAUSTION_REVERSAL;
-                return HarmonicRoute.NO_TRADE;
-            }
-            if (p == "5-0")
-            {
-                if (opposed && r.ExtensionAtr >= .80) return HarmonicRoute.EXHAUSTION_REVERSAL;
-                if (transition) return HarmonicRoute.TRANSITION_REVERSAL;
-                return HarmonicRoute.NO_TRADE;
-            }
-
-            // AB=CD standalone capital is selective; all other AB=CD remains completion/confluence information.
-            if (p == "AB=CD")
-            {
-                bool selective = s.HarmonicSubtype == "ABCD_EXACT" || s.HarmonicSubtype == "ABCD_NEAR_127";
-                return selective && aligned && supported && r.Efficiency >= .14
-                    ? HarmonicRoute.TREND_ALIGNED_REVERSAL
-                    : HarmonicRoute.NO_TRADE;
-            }
-
-            return HarmonicRoute.NO_TRADE;
-        }
 
         private bool V67FamilyRouteEligible(CandidateRecord c)
         {
