@@ -4,10 +4,10 @@ s=pathlib.Path(sys.argv[1]).read_text()
 checks={
  "identity":"class HarmonyBotV67" in s and 'BotPrefix = "HB67"' in s,
  "v52_control":"V67_V52_CONTROL" in s and "V67ProductEnabled" in s,
- "family_route_contract":"V67FamilyRouteEligible" in s,
+ "family_route_contract":"V67FamilyRouteEligible" in s and "MtfConflict conflict, RegimeSnapshot r" in s,
  "parent_abcd_suppression":"PARENT_FAMILY_SUPPRESSED" in s and "V67SuppressParentAbcd" in s,
- "family_native_confirmation":"V67_FAMILY_NATIVE_CONFIRM" in s and "UpdatePatternNativeM1State" in s,
- "grid_normalization":"V67NormalizeGridRisk" in s and "INVALID_GRID_WEIGHT_SUM" in s,
+ "family_native_confirmation":"V67_FAMILY_NATIVE_CONFIRM" in s and "V67FamilyNativeConfirmationPass" in s,
+ "grid_normalization":"V67NormalizeGridRisk" in s and "V67FamilyGridWeights" in s and "confirmDriftR <= .2360001" in s and "INVALID_GRID_WEIGHT_SUM" in s,
  "whole_basket_risk":'Basket Risk %' in s and "ActualBasketWorstRisk" in s,
  "minimum_rr":'Minimum Net RR' in s and "MinimumNetRR" in s,
  "no_lookahead":"allCompletedBars=true" in s,
