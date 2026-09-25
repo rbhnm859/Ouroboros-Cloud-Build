@@ -4,7 +4,7 @@ on:
     branches: [harmonybot/v66-harmonic-evidence-accumulator-commercial-freeze]
     paths: ['HarmonyBot-V66/**','.github/workflows/harmonybot-v66-harmonic-evidence-accumulator.yml']
   workflow_dispatch:
-concurrency: {group: harmonybot-v66-harmonic-evidence-accumulator, cancel-in-progress: true}
+concurrency: {group: harmonybot-v66-shared-data-integrity, cancel-in-progress: true}
 permissions: {contents: read}
 env:
   CTRADER_PASSWORD: ${{ secrets.CTRADER_PASSWORD }}
