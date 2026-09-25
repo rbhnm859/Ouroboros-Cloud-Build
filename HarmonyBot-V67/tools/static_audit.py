@@ -3,10 +3,27 @@ import json,pathlib,sys
 s=pathlib.Path(sys.argv[1] if len(sys.argv)>1 else "HarmonyBot-V67/src/HarmonyBotV67.cs").read_text(errors="ignore")
 families=["Gartley","Bat","Alt Bat","Butterfly","Crab","Deep Crab","Deep Gartley","Rat","Cypher","Shark","5-0","AB=CD"]
 
-family_route=s[s.index("private bool V67FamilyRouteEligible"):s.index("private double V67FamilyPriorityBoost")]
-family_priority=s[s.index("private double V67FamilyPriorityBoost"):s.index("private double V67FamilyEvidenceScore")]
-family_completion=s[s.index("private bool UpdateFamilyCompletionEvidence"):s.index("private void IncrementCounter")]
-scheduler=s[s.index("private void TryScheduleAndExecute"):s.index("private void ParkArmedCandidates")]
+def func(sig):
+    i=s.find(sig)
+    if i<0:
+        return ""
+    j=s.find("{",i)
+    if j<0:
+        return ""
+    d=0
+    for k in range(j,len(s)):
+        if s[k]=="{":
+            d+=1
+        elif s[k]=="}":
+            d-=1
+            if d==0:
+                return s[i:k+1]
+    return ""
+
+family_route=func("private bool V67FamilyRouteEligible")
+family_priority=func("private double V67FamilyPriorityBoost")
+family_completion=func("private bool UpdateFamilyCompletionEvidence")
+scheduler=func("private void TryScheduleAndExecute")
 
 posthoc_literals=[
     "V67DmiBiasH4 <= -0.20",
@@ -26,10 +43,10 @@ checks={
  "hard_pattern_quality_restored":'Reject(record, "PATTERN_QUALITY")' in s,
  "v52_live_router_preserved":"record.Route = RouteSignal(signal, record.Conflict, regime);" in s and "V67FamilyNativeRoute" not in s,
  "family_capital_overlay":"V67FamilyRouteEligible" in s and "V67_FAMILY_SHADOW_ONLY_" in s and "CAPITAL_SHADOW_ONLY" in s,
- "no_posthoc_family_profit_thresholds":all(x not in family_route for x in posthoc_literals),
- "family_native_m1_contracts":all(x in family_completion for x in ['p == "Shark"','p == "Cypher"','p == "AB=CD"',"FamilyReclaim","FamilyBos","FamilyFailedExtension"]),
- "same_thesis_evidence_arbitration":"GroupBy" in scheduler and "V67FamilyEvidenceScore" in scheduler and "ThenByDescending" in scheduler,
- "no_fixed_family_share_boost":"return 0;" in family_priority and 'return .11' not in family_priority and 'return -.02' not in family_priority,
+ "no_posthoc_family_profit_thresholds":bool(family_route) and all(x not in family_route for x in posthoc_literals),
+ "family_native_m1_contracts":bool(family_completion) and all(x in family_completion for x in ['p == "Shark"','p == "Cypher"','p == "AB=CD"',"FamilyReclaim","FamilyBos","FamilyFailedExtension"]),
+ "same_thesis_evidence_arbitration":bool(scheduler) and "GroupBy" in scheduler and "V67FamilyEvidenceScore" in scheduler and "ThenByDescending" in scheduler,
+ "no_fixed_family_share_boost":bool(family_priority) and "return 0;" in family_priority and 'return .11' not in family_priority and 'return -.02' not in family_priority,
  "abcd_de_dominant":all(x in s for x in ["COMPLETION_PRIMITIVE","ABCD_EXACT","ABCD_NEAR_127"]) and
                       'p == "AB=CD"' in family_completion and "V67FamilyEvidenceScore" in scheduler,
  "fivezero_shadow_only":"SHADOW_ONLY_NEGATIVE_CALIBRATION" in s and 'if (p == "5-0")' in family_route and "return false;" in family_route,
