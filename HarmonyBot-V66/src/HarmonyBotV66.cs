@@ -1787,16 +1787,17 @@ namespace cAlgo.Robots
         }
 
         private bool V66StructuralExitEnabled() { return false; }
-        private bool V66CanonicalGridEnabled() { return V66ProductEnabled(); }
-        private bool V66ConditionalGridEnabled() { return V66ProductEnabled(); }
-        private bool V66RunnerEnabled() { return V66ProductEnabled(); }
-        private bool V66CommercialMaxEnabled() { return V66ProductEnabled(); }
+        // CONTROL and PRODUCT intentionally share the same V64-derived execution/risk chassis.
+        // Only V66 Alpha admission differs between modes.
+        private bool V66CanonicalGridEnabled() { return V66ModeValid(); }
+        private bool V66ConditionalGridEnabled() { return V66ModeValid(); }
+        private bool V66RunnerEnabled() { return V66ModeValid(); }
+        private bool V66CommercialMaxEnabled() { return V66ModeValid(); }
 
-        // V66 deliberately uses route-native execution only. Harmonic family identity remains in
-        // the Alpha Engine; execution does not create a second pattern-selection system.
+        // Route-native V64 execution is invariant across CONTROL and PRODUCT.
         private string V66PolicyFor(CandidateRecord c)
         {
-            if (!V66ProductEnabled() || c == null) return "LEGACY_V51";
+            if (c == null) return "SINGLE";
             if (c.Route == HarmonicRoute.TREND_ALIGNED_REVERSAL) return "CONDITIONAL_RUNNER";
             if (c.Route == HarmonicRoute.EXHAUSTION_REVERSAL) return "CONDITIONAL";
             return "SINGLE";
@@ -1804,7 +1805,7 @@ namespace cAlgo.Robots
 
         private bool V66PolicyUsesRunner(CandidateRecord c)
         {
-            return V66ProductEnabled() && V66PolicyFor(c) == "CONDITIONAL_RUNNER";
+            return c != null && V66PolicyFor(c) == "CONDITIONAL_RUNNER";
         }
 
         private void V66RouteGridContract(CandidateRecord c, out double[] fractions, out double[] weights)
