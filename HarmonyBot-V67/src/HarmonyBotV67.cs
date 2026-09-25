@@ -629,9 +629,7 @@ namespace cAlgo.Robots
                 record.Conflict = ClassifyMtfConflict(signal.Direction, h4State, h1State);
                 record.Regime = regime;
                 record.RegimeScore = RegimeContextScore(signal, record.Conflict, regime);
-                record.Route = V67ProductEnabled() && V67FamilyArbitrationEnabled
-                    ? V67FamilyNativeRoute(signal, record.Conflict, regime)
-                    : RouteSignal(signal, record.Conflict, regime);
+                record.Route = RouteSignal(signal, record.Conflict, regime);
                 record.V67FamilyTier = V67FamilyTier(signal);
                 record.V67DmiBiasH1 = V67SignedDmiBias(signal.Direction, regime.DiPlusH1, regime.DiMinusH1);
                 record.V67DmiBiasH4 = V67SignedDmiBias(signal.Direction, regime.DiPlusH4, regime.DiMinusH4);
@@ -3260,10 +3258,7 @@ namespace cAlgo.Robots
                 bool selective = s.HarmonicSubtype == "ABCD_EXACT" ||
                                  s.HarmonicSubtype == "ABCD_NEAR_127";
                 if (!selective) return false;
-                if (r == HarmonicRoute.TREND_ALIGNED_REVERSAL) return true;
-                if (r == HarmonicRoute.TRANSITION_REVERSAL)
-                    return s.GeometryQuality >= .86 && s.PrzConfluence >= .70;
-                return false;
+                return r == HarmonicRoute.TREND_ALIGNED_REVERSAL;
             }
 
             return false;
@@ -3331,81 +3326,7 @@ namespace cAlgo.Robots
             diMinus = 100.0 * minusDm / tr;
         }
 
-        private HarmonicRoute V67FamilyNativeRoute(PatternSignal s, MtfConflict conflict, RegimeSnapshot r)
-        {
-            if (s == null || r == null) return HarmonicRoute.NO_TRADE;
-            bool aligned = r.TrendDirection == s.Direction;
-            bool opposed = r.TrendDirection != TradeDirection.Neutral && r.TrendDirection != s.Direction;
-            bool transition = r.Transition || conflict == MtfConflict.TRANSITION || r.TrendDirection == TradeDirection.Neutral;
-            bool supported = conflict != MtfConflict.CONFLICT;
-            bool liquid = r.AtrRatio >= .50 && r.AtrRatio <= 1.85;
-            bool quality = s.GeometryQuality >= .68 && s.PrzConfluence >= .64 && s.Confidence >= .64;
-            string p = s.PatternName ?? "";
 
-            // Retracement / continuation families: seek completion of a pullback inside the prevailing thesis.
-            if (p == "Rat")
-            {
-                if (supported && aligned && liquid && r.Efficiency >= .14)
-                    return HarmonicRoute.TREND_ALIGNED_REVERSAL;
-                if (opposed && liquid && r.ExtensionAtr >= 1.15 && s.PrzConfluence >= .65)
-                    return HarmonicRoute.EXHAUSTION_REVERSAL;
-                return HarmonicRoute.NO_TRADE;
-            }
-            if (p == "Gartley" || p == "Bat" || p == "Deep Gartley")
-            {
-                if (supported && aligned && liquid && r.Efficiency >= .12)
-                    return HarmonicRoute.TREND_ALIGNED_REVERSAL;
-                return HarmonicRoute.NO_TRADE;
-            }
-
-            // Terminal / extension families: allow trend pullback only when the family historically supports it,
-            // otherwise require extension/exhaustion or a real HTF transition.
-            if (p == "Shark")
-            {
-                if (supported && aligned && liquid && r.Efficiency >= .12)
-                    return HarmonicRoute.TREND_ALIGNED_REVERSAL;
-                if (opposed && liquid && r.ExtensionAtr >= .95 && s.GeometryQuality >= .68)
-                    return HarmonicRoute.EXHAUSTION_REVERSAL;
-                return HarmonicRoute.NO_TRADE;
-            }
-            if (p == "Cypher")
-            {
-                if (supported && aligned && liquid && r.Efficiency >= .12)
-                    return HarmonicRoute.TREND_ALIGNED_REVERSAL;
-                if (opposed && liquid && r.ExtensionAtr >= 1.00)
-                    return HarmonicRoute.EXHAUSTION_REVERSAL;
-                return HarmonicRoute.NO_TRADE;
-            }
-            if (p == "Alt Bat" || p == "Butterfly" || p == "Crab" || p == "Deep Crab")
-            {
-                if (opposed && liquid && quality && r.ExtensionAtr >= 1.10)
-                    return HarmonicRoute.EXHAUSTION_REVERSAL;
-                if (transition && quality && r.AtrRatio <= 1.75)
-                    return HarmonicRoute.TRANSITION_REVERSAL;
-                return HarmonicRoute.NO_TRADE;
-            }
-            if (p == "5-0")
-            {
-                if (opposed && liquid && quality && r.ExtensionAtr >= 1.10)
-                    return HarmonicRoute.EXHAUSTION_REVERSAL;
-                if (transition && quality && r.AtrRatio <= 1.70)
-                    return HarmonicRoute.TRANSITION_REVERSAL;
-                return HarmonicRoute.NO_TRADE;
-            }
-
-            // AB=CD is a completion primitive / throughput lane, never the default family identity.
-            if (p == "AB=CD")
-            {
-                if (supported && aligned && liquid && r.Efficiency >= .16)
-                    return HarmonicRoute.TREND_ALIGNED_REVERSAL;
-                if (transition && quality &&
-                    (s.HarmonicSubtype == "ABCD_EXACT" || s.HarmonicSubtype == "ABCD_NEAR_127"))
-                    return HarmonicRoute.TRANSITION_REVERSAL;
-                return HarmonicRoute.NO_TRADE;
-            }
-
-            return HarmonicRoute.NO_TRADE;
-        }
 
         private HarmonicRoute RouteSignalV34(PatternSignal s, MtfConflict conflict, RegimeSnapshot r)
         {
