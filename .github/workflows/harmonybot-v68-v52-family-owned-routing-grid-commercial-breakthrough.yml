@@ -1,0 +1,343 @@
+name: HarmonyBot V68 V52 Family-Owned Routing Grid Commercial Breakthrough
+
+on:
+  push:
+    branches: [harmonybot/v68-v52-family-owned-routing-grid-commercial-breakthrough]
+    paths:
+      - 'HarmonyBot-V68/**'
+      - '.github/workflows/harmonybot-v68-v52-family-native-grid-commercial-breakthrough.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: harmonybot-v68-v52-family-native-grid-commercial-breakthrough
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  CTRADER_PASSWORD: ${{ secrets.CTRADER_PASSWORD }}
+  CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+  CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: harmonybot/v68-v52-family-owned-routing-grid-commercial-breakthrough
+          path: control
+          fetch-depth: 1
+      - uses: actions/setup-dotnet@v4
+        with: {dotnet-version: 8.0.x}
+      - name: Audit and build
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd control
+          python3 HarmonyBot-V68/tools/static_audit.py HarmonyBot-V68/src/HarmonyBotV68.cs
+          python3 HarmonyBot-V68/tools/geometry_contract_test.py HarmonyBot-V68/src/HarmonyBotV68.cs
+          python3 HarmonyBot-V68/tools/detector_contract_test.py HarmonyBot-V68/src/HarmonyBotV68.cs
+          dotnet restore HarmonyBot-V68/HarmonyBotV68.csproj
+          dotnet build HarmonyBot-V68/HarmonyBotV68.csproj -c Release --no-restore --nologo
+          mkdir -p HarmonyBot-V68/dist HarmonyBot-V68/final
+          A=$(find HarmonyBot-V68/bin/Release -type f -name '*.algo' | head -1)
+          test -s "$A"
+          cp "$A" HarmonyBot-V68/dist/HarmonyBot_V68_V52_Family_Owned_Routing_Grid_Commercial_Breakthrough_RC.algo
+          sha256sum HarmonyBot-V68/src/HarmonyBotV68.cs "$A" > HarmonyBot-V68/final/SHA256SUMS
+          printf '%s\n' "$GITHUB_SHA" > HarmonyBot-V68/final/SOURCE_COMMIT.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: v68-build
+          path: |
+            control/HarmonyBot-V68/dist
+            control/HarmonyBot-V68/final
+          retention-days: 30
+          if-no-files-found: error
+
+  backtest:
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      max-parallel: 12
+      matrix:
+        include:
+          - {mode: V68_V52_CONTROL, window: L1, start: '04/01/2021', eval: '2021-01-11T00:00:00Z', end: '30/06/2021', years: '0.5'}
+          - {mode: V68_V52_CONTROL, window: L2, start: '01/07/2021', eval: '2021-07-08T00:00:00Z', end: '31/12/2021', years: '0.5'}
+          - {mode: V68_V52_CONTROL, window: L3, start: '03/01/2022', eval: '2022-01-10T00:00:00Z', end: '30/06/2022', years: '0.5'}
+          - {mode: V68_V52_CONTROL, window: D1, start: '01/07/2024', eval: '2024-07-08T00:00:00Z', end: '31/12/2024', years: '0.5'}
+          - {mode: V68_V52_CONTROL, window: D2, start: '02/01/2025', eval: '2025-01-09T00:00:00Z', end: '30/06/2025', years: '0.5'}
+          - {mode: V68_V52_CONTROL, window: D3, start: '01/07/2025', eval: '2025-07-08T00:00:00Z', end: '31/12/2025', years: '0.5'}
+          - {mode: V68_PRODUCT, window: L1, start: '04/01/2021', eval: '2021-01-11T00:00:00Z', end: '30/06/2021', years: '0.5'}
+          - {mode: V68_PRODUCT, window: L2, start: '01/07/2021', eval: '2021-07-08T00:00:00Z', end: '31/12/2021', years: '0.5'}
+          - {mode: V68_PRODUCT, window: L3, start: '03/01/2022', eval: '2022-01-10T00:00:00Z', end: '30/06/2022', years: '0.5'}
+          - {mode: V68_PRODUCT, window: D1, start: '01/07/2024', eval: '2024-07-08T00:00:00Z', end: '31/12/2024', years: '0.5'}
+          - {mode: V68_PRODUCT, window: D2, start: '02/01/2025', eval: '2025-01-09T00:00:00Z', end: '30/06/2025', years: '0.5'}
+          - {mode: V68_PRODUCT, window: D3, start: '01/07/2025', eval: '2025-07-08T00:00:00Z', end: '31/12/2025', years: '0.5'}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: harmonybot/v68-v52-family-owned-routing-grid-commercial-breakthrough
+          path: control
+          fetch-depth: 1
+      - uses: actions/download-artifact@v4
+        with:
+          name: v68-build
+          path: control/HarmonyBot-V68/shared
+      - shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p control/HarmonyBot-V68/dist
+          A=$(find control/HarmonyBot-V68/shared -type f -name '*.algo' | head -1)
+          cp "$A" control/HarmonyBot-V68/dist/HarmonyBot_V68_V52_Family_Owned_Routing_Grid_Commercial_Breakthrough_RC.algo
+          chmod +x control/HarmonyBot-V68/tools/*.sh
+          control/HarmonyBot-V68/tools/run_window.sh "${{ matrix.mode }}" "${{ matrix.window }}" "${{ matrix.start }}" "${{ matrix.eval }}" "${{ matrix.end }}" 1 10000 "${{ matrix.years }}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: "v68-evidence-${{ matrix.mode }}-${{ matrix.window }}"
+          path: "control/HarmonyBot-V68/output-${{ matrix.mode }}-${{ matrix.window }}-B10000-S1"
+          retention-days: 30
+          if-no-files-found: error
+
+  dev_gate:
+    needs: backtest
+    runs-on: ubuntu-24.04
+    outputs:
+      candidate: ${{ steps.g.outputs.candidate }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: harmonybot/v68-v52-family-owned-routing-grid-commercial-breakthrough
+          path: control
+          fetch-depth: 1
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: v68-evidence-*
+          path: evidence
+          merge-multiple: true
+      - id: g
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 control/HarmonyBot-V68/tools/analyze_commercial.py --root evidence --phase dev --out V68_DEV_GATE.json
+          echo "candidate=$(python3 -c 'import json;print(str(json.load(open("V68_DEV_GATE.json"))["candidate"]).lower())')" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: v68-dev-gate
+          path: V68_DEV_GATE.json
+          retention-days: 30
+
+  validation:
+    needs: [build, dev_gate]
+    if: needs.dev_gate.outputs.candidate == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        quarter: [Q1,Q2]
+        spread: [1.0,1.25,1.5]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: harmonybot/v68-v52-family-owned-routing-grid-commercial-breakthrough
+          path: control
+          fetch-depth: 1
+      - uses: actions/download-artifact@v4
+        with:
+          name: v68-build
+          path: control/HarmonyBot-V68/shared
+      - id: d
+        shell: bash
+        run: |
+          if [ "${{ matrix.quarter }}" = "Q1" ]; then
+            echo "s=02/01/2026" >> "$GITHUB_OUTPUT"; echo "e=2026-01-09T00:00:00Z" >> "$GITHUB_OUTPUT"; echo "x=31/03/2026" >> "$GITHUB_OUTPUT"
+          else
+            echo "s=01/04/2026" >> "$GITHUB_OUTPUT"; echo "e=2026-04-08T00:00:00Z" >> "$GITHUB_OUTPUT"; echo "x=30/06/2026" >> "$GITHUB_OUTPUT"
+          fi
+      - shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p control/HarmonyBot-V68/dist
+          A=$(find control/HarmonyBot-V68/shared -type f -name '*.algo' | head -1)
+          cp "$A" control/HarmonyBot-V68/dist/HarmonyBot_V68_V52_Family_Owned_Routing_Grid_Commercial_Breakthrough_RC.algo
+          chmod +x control/HarmonyBot-V68/tools/*.sh
+          WIN="VAL_${{ matrix.quarter }}_S${{ matrix.spread }}"
+          control/HarmonyBot-V68/tools/run_window.sh V68_PRODUCT "$WIN" "${{ steps.d.outputs.s }}" "${{ steps.d.outputs.e }}" "${{ steps.d.outputs.x }}" "${{ matrix.spread }}" 10000 .25
+      - uses: actions/upload-artifact@v4
+        with:
+          name: "v68-validation-${{ matrix.quarter }}-${{ matrix.spread }}"
+          path: "control/HarmonyBot-V68/output-V68_PRODUCT-VAL_*"
+          retention-days: 30
+          if-no-files-found: error
+
+  validation_gate:
+    needs: validation
+    runs-on: ubuntu-24.04
+    outputs:
+      candidate: ${{ steps.g.outputs.candidate }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: harmonybot/v68-v52-family-owned-routing-grid-commercial-breakthrough
+          path: control
+          fetch-depth: 1
+      - uses: actions/download-artifact@v4
+        with: {pattern: v68-validation-*, path: evidence, merge-multiple: true}
+      - id: g
+        shell: bash
+        run: |
+          python3 control/HarmonyBot-V68/tools/analyze_commercial.py --root evidence --phase validation --out V68_VALIDATION_GATE.json
+          echo "candidate=$(python3 -c 'import json;print(str(json.load(open("V68_VALIDATION_GATE.json"))["candidate"]).lower())')" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@v4
+        with: {name: v68-validation-gate, path: V68_VALIDATION_GATE.json, retention-days: 30}
+
+  capital:
+    needs: [build, validation_gate]
+    if: needs.validation_gate.outputs.candidate == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        balance: [100,150,200,300,500,1000,10000]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: harmonybot/v68-v52-family-owned-routing-grid-commercial-breakthrough
+          path: control
+          fetch-depth: 1
+      - uses: actions/download-artifact@v4
+        with:
+          name: v68-build
+          path: control/HarmonyBot-V68/shared
+      - shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p control/HarmonyBot-V68/dist
+          A=$(find control/HarmonyBot-V68/shared -type f -name '*.algo' | head -1)
+          cp "$A" control/HarmonyBot-V68/dist/HarmonyBot_V68_V52_Family_Owned_Routing_Grid_Commercial_Breakthrough_RC.algo
+          chmod +x control/HarmonyBot-V68/tools/*.sh
+          WIN="CAPITAL_${{ matrix.balance }}"
+          control/HarmonyBot-V68/tools/run_window.sh V68_PRODUCT "$WIN" '01/07/2024' '2024-07-08T00:00:00Z' '31/12/2025' 1 "${{ matrix.balance }}" 1.5
+      - uses: actions/upload-artifact@v4
+        with:
+          name: "v68-capital-${{ matrix.balance }}"
+          path: "control/HarmonyBot-V68/output-V68_PRODUCT-CAPITAL_*"
+          retention-days: 30
+          if-no-files-found: error
+
+  capital_gate:
+    needs: capital
+    runs-on: ubuntu-24.04
+    outputs:
+      candidate: ${{ steps.g.outputs.candidate }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: harmonybot/v68-v52-family-owned-routing-grid-commercial-breakthrough
+          path: control
+          fetch-depth: 1
+      - uses: actions/download-artifact@v4
+        with: {pattern: v68-capital-*, path: evidence, merge-multiple: true}
+      - id: g
+        shell: bash
+        run: |
+          python3 control/HarmonyBot-V68/tools/analyze_commercial.py --root evidence --phase capital --out V68_CAPITAL_GATE.json
+          echo "candidate=$(python3 -c 'import json;print(str(json.load(open("V68_CAPITAL_GATE.json"))["candidate"]).lower())')" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@v4
+        with: {name: v68-capital-gate, path: V68_CAPITAL_GATE.json, retention-days: 30}
+
+  pre_fresh_freeze:
+    needs: [dev_gate,validation_gate,capital_gate]
+    if: needs.dev_gate.outputs.candidate == 'true' && needs.validation_gate.outputs.candidate == 'true' && needs.capital_gate.outputs.candidate == 'true'
+    runs-on: ubuntu-24.04
+    outputs:
+      fresh_unlocked: ${{ steps.f.outputs.fresh_unlocked }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with: {name: v68-dev-gate, path: gates/dev}
+      - uses: actions/download-artifact@v4
+        with: {name: v68-validation-gate, path: gates/validation}
+      - uses: actions/download-artifact@v4
+        with: {name: v68-capital-gate, path: gates/capital}
+      - id: f
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json,pathlib,os
+          d=json.load(open("gates/dev/V68_DEV_GATE.json")); v=json.load(open("gates/validation/V68_VALIDATION_GATE.json")); c=json.load(open("gates/capital/V68_CAPITAL_GATE.json"))
+          ok=bool(d["candidate"] and v["candidate"] and c["candidate"])
+          out={"version":"HarmonyBot V68","sha":os.environ.get("GITHUB_SHA",""),"dev":d["candidate"],"validation":v["candidate"],"capital":c["candidate"],
+               "risk_veto":True,"model_validation_veto":True,"red_team_veto":True,"data_governance_veto":True,
+               "fresh_used":False,"fresh_unlocked":ok,"status":"PRE_FRESH_FREEZE" if ok else "HOLD"}
+          pathlib.Path("V68_PRE_FRESH_FREEZE.json").write_text(json.dumps(out,indent=2))
+          PY
+          echo "fresh_unlocked=$(python3 -c 'import json;print(str(json.load(open("V68_PRE_FRESH_FREEZE.json"))["fresh_unlocked"]).lower())')" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@v4
+        with: {name: v68-pre-fresh-freeze, path: V68_PRE_FRESH_FREEZE.json, retention-days: 90}
+
+  fresh:
+    needs: [build,pre_fresh_freeze]
+    if: needs.pre_fresh_freeze.outputs.fresh_unlocked == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: harmonybot/v68-v52-family-owned-routing-grid-commercial-breakthrough
+          path: control
+          fetch-depth: 1
+      - uses: actions/download-artifact@v4
+        with:
+          name: v68-build
+          path: control/HarmonyBot-V68/shared
+      - shell: bash
+        run: |
+          mkdir -p control/HarmonyBot-V68/dist
+          A=$(find control/HarmonyBot-V68/shared -type f -name '*.algo' | head -1)
+          cp "$A" control/HarmonyBot-V68/dist/HarmonyBot_V68_V52_Family_Owned_Routing_Grid_Commercial_Breakthrough_RC.algo
+          chmod +x control/HarmonyBot-V68/tools/*.sh
+          control/HarmonyBot-V68/tools/run_window.sh V68_PRODUCT FRESH_2020H1 '02/01/2020' '2020-01-09T00:00:00Z' '30/06/2020' 1 10000 .5
+      - uses: actions/upload-artifact@v4
+        with:
+          name: v68-fresh-2020H1
+          path: "control/HarmonyBot-V68/output-V68_PRODUCT-FRESH_2020H1-B10000-S1"
+          retention-days: 90
+          if-no-files-found: error
+
+  final_freeze:
+    needs: [fresh,pre_fresh_freeze]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: harmonybot/v68-v52-family-owned-routing-grid-commercial-breakthrough
+          path: control
+          fetch-depth: 1
+      - uses: actions/download-artifact@v4
+        with: {name: v68-fresh-2020H1, path: evidence}
+      - uses: actions/download-artifact@v4
+        with: {name: v68-pre-fresh-freeze, path: pre}
+      - shell: bash
+        run: |
+          python3 control/HarmonyBot-V68/tools/analyze_commercial.py --root evidence --phase fresh --out V68_FRESH_GATE.json
+          python3 - <<'PY'
+          import json,pathlib,os,hashlib
+          pre=json.load(open("pre/V68_PRE_FRESH_FREEZE.json")); fresh=json.load(open("V68_FRESH_GATE.json"))
+          ok=bool(pre.get("fresh_unlocked") and fresh.get("candidate"))
+          out={"version":"HarmonyBot V68","sha":os.environ.get("GITHUB_SHA",""),"commercial_freeze":ok,
+               "status":"COMMERCIAL_FREEZE_APPROVED" if ok else "HOLD_WITH_EVIDENCE","pre_fresh":pre,"fresh":fresh}
+          pathlib.Path("V68_COMMERCIAL_FREEZE.json").write_text(json.dumps(out,indent=2))
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: v68-commercial-freeze
+          path: |
+            V68_FRESH_GATE.json
+            V68_COMMERCIAL_FREEZE.json
+          retention-days: 180
