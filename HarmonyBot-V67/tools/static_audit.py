@@ -3,14 +3,14 @@ import json,pathlib,sys
 s=pathlib.Path(sys.argv[1] if len(sys.argv)>1 else "HarmonyBot-V67/src/HarmonyBotV67.cs").read_text(errors="ignore")
 families=["Gartley","Bat","Alt Bat","Butterfly","Crab","Deep Crab","Deep Gartley","Rat","Cypher","Shark","5-0","AB=CD"]
 checks={
-"family_native_router_v2":"V67FamilyNativeRoute" in s and "V67FamilyPriorityBoost" in s,
+"family_native_capital_v3":"V67FamilyRouteEligible" in s and "V67FamilyPriorityBoost" in s and "V67FamilyNativeRoute" not in s,
 "abcd_de_dominant":"ABCD_EXACT" in s and "ABCD_NEAR_127" in s and 'return -.02' in s,
 "family_specific_context":"V67DmiBiasH4 <= -0.20" in s and "s.GeometryQuality >= .80" in s and "s.PrzConfluence >= .70" in s,
  "identity":"HarmonyBot V67" in s and "class HarmonyBotV67" in s and 'BotPrefix = "HB67"' in s,
  "v52_throughput_core":"EnableFamilyIdentityReconstruction" in s and "EnumerateBoundedPivotSequences" in s and "FamilyDetectionQuota" in s,
  "all_12_families":all(('Name = "'+p+'"') in s or ('AddStd("'+p+'"') in s for p in families),
  "hard_pattern_quality_restored":'Reject(record, "PATTERN_QUALITY")' in s and "V67_FAMILY_IDENTITY_QUALITY_OBSERVATION_ONLY" not in s,
- "family_native_router_live":"V67ProductEnabled() && V67FamilyArbitrationEnabled" in s and "V67FamilyNativeRoute" in s and "RouteSignal(signal, record.Conflict, regime)" in s,
+ "v52_live_router_preserved":"record.Route = RouteSignal(signal, record.Conflict, regime);" in s and "V67FamilyNativeRoute" not in s,
  "family_capital_overlay":"V67FamilyRouteEligible" in s and "V67_FAMILY_SHADOW_ONLY_" in s and "CAPITAL_SHADOW_ONLY" in s,
  "v52_confirmation_live":"return UpdateV52FamilyCompletionEvidenceLegacy(i, c, out score);" in s,
  "legacy_completion_lane":'pattern == "Gartley"' in s and 'pattern == "5-0"' in s and 'pattern == "Shark"' not in s[s.index("private bool IsFamilyCompletionLane"):s.index("private void IncrementCounter")],
@@ -27,7 +27,7 @@ checks={
  "no_recovery":all(x not in s for x in ["Martingale","Loss Averaging","RecoveryGrid","DCA"]),
  "control_mode":"V67_CONTROL" in s and "V67_PRODUCT" in s,
 }
-out={"version":"HarmonyBot V67","architecture":"V52_THROUGHPUT_FAMILY_NATIVE_ROUTER_V2","families":families,"checks":checks,"pass":all(checks.values())}
+out={"version":"HarmonyBot V67","architecture":"V52_THROUGHPUT_ROUTER_FAMILY_NATIVE_CAPITAL_V3","families":families,"checks":checks,"pass":all(checks.values())}
 pathlib.Path("V67_ARCHITECTURE_AUDIT.json").write_text(json.dumps(out,indent=2))
 print(json.dumps(out,indent=2))
 raise SystemExit(0 if out["pass"] else 2)
