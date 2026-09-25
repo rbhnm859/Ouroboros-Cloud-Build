@@ -2624,15 +2624,21 @@ namespace cAlgo.Robots
             }
 
             int quota = Math.Max(1, FamilyDetectionQuota);
-            var fair = hypotheses
+            var familyFair = hypotheses
                 .GroupBy(x => x.PatternName)
                 .SelectMany(g => g.OrderByDescending(x => x.Confidence).ThenByDescending(x => x.GeometryQuality)
-                    .Take(V67FamilyDetectionQuotaFor(g.Key, quota)))
-                .OrderByDescending(x => x.PatternName == "AB=CD" ? 0 : 1)
-                .ThenByDescending(x => x.Confidence)
-                .ThenByDescending(x => x.GeometryQuality)
-                .Take(V67ProductEnabled() ? Math.Max(maxCandidates, _profiles.Count) : Math.Max(maxCandidates, _profiles.Count * quota))
-                .ToList();
+                    .Take(V67FamilyDetectionQuotaFor(g.Key, quota)));
+
+            var fair = V67ProductEnabled()
+                ? familyFair.OrderByDescending(x => x.PatternName == "AB=CD" ? 0 : 1)
+                    .ThenByDescending(x => x.Confidence)
+                    .ThenByDescending(x => x.GeometryQuality)
+                    .Take(Math.Max(maxCandidates, _profiles.Count))
+                    .ToList()
+                : familyFair.OrderByDescending(x => x.Confidence)
+                    .ThenByDescending(x => x.GeometryQuality)
+                    .Take(Math.Max(maxCandidates, _profiles.Count * quota))
+                    .ToList();
 
             foreach (var x in fair) DetectorTruth(x.PatternName, "FAMILY_QUOTA_SELECTED");
             return fair;
