@@ -90,9 +90,15 @@ jobs:
           control/HarmonyBot-V64/tools/run_window.sh V64_PRODUCT "${{ matrix.window }}" "${{ steps.d.outputs.start }}" "${{ steps.d.outputs.eval }}" "${{ steps.d.outputs.end }}" 1 10000 .5
       - uses: actions/upload-artifact@v4
         with: {name: "v66-reference-v64-${{ matrix.window }}", path: "control/HarmonyBot-V64/output-V64_PRODUCT-${{ matrix.window }}-B10000-S1", retention-days: 30}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: "v66-data-${{ matrix.window }}"
+          path: "control/HarmonyBot-V64/window-V64_PRODUCT-${{ matrix.window }}-B10000-S1/seal/data"
+          retention-days: 30
+          if-no-files-found: error
 
   control-v66:
-    needs: build-v66
+    needs: [build-v66,reference-v64]
     runs-on: ubuntu-24.04
     timeout-minutes: 50
     strategy: {fail-fast: false, matrix: {window: [A,B,C]}}
@@ -101,6 +107,8 @@ jobs:
         with: {ref: harmonybot/v66-harmonic-evidence-accumulator-commercial-freeze, path: control, fetch-depth: 1}
       - uses: actions/download-artifact@v4
         with: {name: v66-build, path: control/HarmonyBot-V66/shared}
+      - uses: actions/download-artifact@v4
+        with: {name: "v66-data-${{ matrix.window }}", path: data-seed}
       - id: d
         shell: bash
         run: |
@@ -116,7 +124,7 @@ jobs:
           A=$(find control/HarmonyBot-V66/shared -type f -name '*.algo' | head -1)
           cp "$A" control/HarmonyBot-V66/dist/HarmonyBot_V66_Harmonic_Evidence_Accumulator_RC.algo
           chmod +x control/HarmonyBot-V66/tools/*.sh
-          control/HarmonyBot-V66/tools/run_window.sh V66_V64_CONTROL "${{ matrix.window }}" "${{ steps.d.outputs.start }}" "${{ steps.d.outputs.eval }}" "${{ steps.d.outputs.end }}" 1 10000 .5
+          DATA_SEED_DIR="$PWD/data-seed" control/HarmonyBot-V66/tools/run_window.sh V66_V64_CONTROL "${{ matrix.window }}" "${{ steps.d.outputs.start }}" "${{ steps.d.outputs.eval }}" "${{ steps.d.outputs.end }}" 1 10000 .5
       - uses: actions/upload-artifact@v4
         with: {name: "v66-control-${{ matrix.window }}", path: "control/HarmonyBot-V66/output-V66_V64_CONTROL-${{ matrix.window }}-B10000-S1", retention-days: 30}
 
@@ -150,7 +158,7 @@ jobs:
         with: {name: "v66-legacy-${{ matrix.window }}", path: "control/HarmonyBot-V66/output-V66_PRODUCT-${{ matrix.window }}-B10000-S1", retention-days: 30}
 
   dev-product:
-    needs: build-v66
+    needs: [build-v66,reference-v64]
     runs-on: ubuntu-24.04
     timeout-minutes: 50
     strategy: {fail-fast: false, matrix: {window: [A,B,C]}}
@@ -159,6 +167,8 @@ jobs:
         with: {ref: harmonybot/v66-harmonic-evidence-accumulator-commercial-freeze, path: control, fetch-depth: 1}
       - uses: actions/download-artifact@v4
         with: {name: v66-build, path: control/HarmonyBot-V66/shared}
+      - uses: actions/download-artifact@v4
+        with: {name: "v66-data-${{ matrix.window }}", path: data-seed}
       - id: d
         shell: bash
         run: |
@@ -174,7 +184,7 @@ jobs:
           A=$(find control/HarmonyBot-V66/shared -type f -name '*.algo' | head -1)
           cp "$A" control/HarmonyBot-V66/dist/HarmonyBot_V66_Harmonic_Evidence_Accumulator_RC.algo
           chmod +x control/HarmonyBot-V66/tools/*.sh
-          control/HarmonyBot-V66/tools/run_window.sh V66_PRODUCT "${{ matrix.window }}" "${{ steps.d.outputs.start }}" "${{ steps.d.outputs.eval }}" "${{ steps.d.outputs.end }}" 1 10000 .5
+          DATA_SEED_DIR="$PWD/data-seed" control/HarmonyBot-V66/tools/run_window.sh V66_PRODUCT "${{ matrix.window }}" "${{ steps.d.outputs.start }}" "${{ steps.d.outputs.eval }}" "${{ steps.d.outputs.end }}" 1 10000 .5
       - uses: actions/upload-artifact@v4
         with: {name: "v66-dev-${{ matrix.window }}", path: "control/HarmonyBot-V66/output-V66_PRODUCT-${{ matrix.window }}-B10000-S1", retention-days: 30}
 
@@ -199,6 +209,24 @@ jobs:
         shell: bash
         run: |
           mkdir -p final
+          python3 - <<'PY'
+          import json,pathlib
+          roots={"v64":pathlib.Path("v64"),"v66c":pathlib.Path("v66c"),"dev":pathlib.Path("dev")}
+          def audit(root,w):
+              for p in root.rglob("*.json"):
+                  if ("-"+w+".json") not in p.name: continue
+                  try:d=json.load(open(p))
+                  except:continue
+                  if "basket_outcomes" in d:return d
+              raise SystemExit("missing audit "+str(root)+" "+w)
+          checks={}
+          for w in "ABC":
+              a,b,c=(audit(roots[k],w) for k in ("v64","v66c","dev"))
+              ok=bool(a.get("data_snapshot_sha")) and a.get("data_snapshot_sha")==b.get("data_snapshot_sha")==c.get("data_snapshot_sha")
+              checks[w]={"pass":ok,"sha":a.get("data_snapshot_sha"),"control_sha":b.get("data_snapshot_sha"),"product_sha":c.get("data_snapshot_sha")}
+          pathlib.Path("final/V66_DATA_SNAPSHOT_GATE.json").write_text(json.dumps({"pass":all(x["pass"] for x in checks.values()),"windows":checks},indent=2))
+          if not all(x["pass"] for x in checks.values()): raise SystemExit("V66 data snapshot integrity gate failed")
+          PY
           python3 control/HarmonyBot-V66/tools/analyze_alpha.py v64 v66c legacy dev final
           echo "candidate=$(cat final/candidate.txt)" >> "$GITHUB_OUTPUT"
           echo "commercial_ready=$(cat final/commercial_ready.txt)" >> "$GITHUB_OUTPUT"
