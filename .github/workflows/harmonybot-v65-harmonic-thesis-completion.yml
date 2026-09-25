@@ -1,0 +1,372 @@
+name: HarmonyBot V65 Harmonic Thesis Completion
+on:
+  push:
+    branches: [harmonybot/v65-harmonic-thesis-completion-commercial-freeze]
+    paths: ['HarmonyBot-V65/**','.github/workflows/harmonybot-v65-harmonic-thesis-completion.yml']
+  workflow_dispatch:
+concurrency: {group: harmonybot-v65-harmonic-thesis-completion, cancel-in-progress: true}
+permissions: {contents: read}
+env:
+  CTRADER_PASSWORD: ${{ secrets.CTRADER_PASSWORD }}
+  CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+  CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+
+jobs:
+  build-v65:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with: {ref: harmonybot/v65-harmonic-thesis-completion-commercial-freeze, path: control, fetch-depth: 1}
+      - uses: actions/setup-dotnet@v4
+        with: {dotnet-version: 8.0.x}
+      - shell: bash
+        run: |
+          set -euo pipefail
+          cd control
+          python3 HarmonyBot-V65/tools/static_audit.py HarmonyBot-V65/src/HarmonyBotV65.cs
+          dotnet restore HarmonyBot-V65/HarmonyBotV65.csproj
+          dotnet build HarmonyBot-V65/HarmonyBotV65.csproj -c Release --no-restore --nologo
+          mkdir -p HarmonyBot-V65/dist HarmonyBot-V65/final
+          A=$(find HarmonyBot-V65/bin/Release -type f -name '*.algo' | head -1)
+          test -s "$A"
+          cp "$A" HarmonyBot-V65/dist/HarmonyBot_V65_Harmonic_Thesis_Completion_RC.algo
+          sha256sum HarmonyBot-V65/src/HarmonyBotV65.cs "$A" HarmonyBot-V65/MAJOR_VERSION_CHARTER.md > HarmonyBot-V65/final/SHA256SUMS
+          printf '%s\n' "$GITHUB_SHA" > HarmonyBot-V65/final/SOURCE_COMMIT.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: v65-build
+          path: |
+            control/HarmonyBot-V65/dist
+            control/HarmonyBot-V65/final
+          retention-days: 30
+          if-no-files-found: error
+
+  build-v64-control:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with: {ref: harmonybot/v65-harmonic-thesis-completion-commercial-freeze, path: control, fetch-depth: 1}
+      - uses: actions/setup-dotnet@v4
+        with: {dotnet-version: 8.0.x}
+      - shell: bash
+        run: |
+          set -euo pipefail
+          cd control
+          dotnet restore HarmonyBot-V64/HarmonyBotV64.csproj
+          dotnet build HarmonyBot-V64/HarmonyBotV64.csproj -c Release --no-restore --nologo
+          mkdir -p HarmonyBot-V64/dist
+          A=$(find HarmonyBot-V64/bin/Release -type f -name '*.algo' | head -1)
+          test -s "$A"
+          cp "$A" HarmonyBot-V64/dist/HarmonyBot_V64_XAUUSD_Harmonic_Product_Convergence_RC.algo
+      - uses: actions/upload-artifact@v4
+        with: {name: v65-v64-control-build, path: control/HarmonyBot-V64/dist, retention-days: 30, if-no-files-found: error}
+
+  reference-v64:
+    needs: build-v64-control
+    runs-on: ubuntu-24.04
+    timeout-minutes: 50
+    strategy: {fail-fast: false, matrix: {window: [A,B,C]}}
+    steps:
+      - uses: actions/checkout@v4
+        with: {ref: harmonybot/v65-harmonic-thesis-completion-commercial-freeze, path: control, fetch-depth: 1}
+      - uses: actions/download-artifact@v4
+        with: {name: v65-v64-control-build, path: control/HarmonyBot-V64/shared}
+      - id: d
+        shell: bash
+        run: |
+          case "${{ matrix.window }}" in
+            A) S=01/07/2024; E=2024-07-08T00:00:00Z; X=31/12/2024;;
+            B) S=02/01/2025; E=2025-01-09T00:00:00Z; X=30/06/2025;;
+            C) S=01/07/2025; E=2025-07-08T00:00:00Z; X=31/12/2025;;
+          esac
+          echo "start=$S" >> "$GITHUB_OUTPUT"; echo "eval=$E" >> "$GITHUB_OUTPUT"; echo "end=$X" >> "$GITHUB_OUTPUT"
+      - shell: bash
+        run: |
+          mkdir -p control/HarmonyBot-V64/dist
+          A=$(find control/HarmonyBot-V64/shared -type f -name '*.algo' | head -1)
+          cp "$A" control/HarmonyBot-V64/dist/HarmonyBot_V64_XAUUSD_Harmonic_Product_Convergence_RC.algo
+          chmod +x control/HarmonyBot-V64/tools/*.sh
+          control/HarmonyBot-V64/tools/run_window.sh V64_PRODUCT "${{ matrix.window }}" "${{ steps.d.outputs.start }}" "${{ steps.d.outputs.eval }}" "${{ steps.d.outputs.end }}" 1 10000 .5
+      - uses: actions/upload-artifact@v4
+        with: {name: "v65-reference-v64-${{ matrix.window }}", path: "control/HarmonyBot-V64/output-V64_PRODUCT-${{ matrix.window }}-B10000-S1", retention-days: 30}
+
+  control-v65:
+    needs: build-v65
+    runs-on: ubuntu-24.04
+    timeout-minutes: 50
+    strategy: {fail-fast: false, matrix: {window: [A,B,C]}}
+    steps:
+      - uses: actions/checkout@v4
+        with: {ref: harmonybot/v65-harmonic-thesis-completion-commercial-freeze, path: control, fetch-depth: 1}
+      - uses: actions/download-artifact@v4
+        with: {name: v65-build, path: control/HarmonyBot-V65/shared}
+      - id: d
+        shell: bash
+        run: |
+          case "${{ matrix.window }}" in
+            A) S=01/07/2024; E=2024-07-08T00:00:00Z; X=31/12/2024;;
+            B) S=02/01/2025; E=2025-01-09T00:00:00Z; X=30/06/2025;;
+            C) S=01/07/2025; E=2025-07-08T00:00:00Z; X=31/12/2025;;
+          esac
+          echo "start=$S" >> "$GITHUB_OUTPUT"; echo "eval=$E" >> "$GITHUB_OUTPUT"; echo "end=$X" >> "$GITHUB_OUTPUT"
+      - shell: bash
+        run: |
+          mkdir -p control/HarmonyBot-V65/dist
+          A=$(find control/HarmonyBot-V65/shared -type f -name '*.algo' | head -1)
+          cp "$A" control/HarmonyBot-V65/dist/HarmonyBot_V65_Harmonic_Thesis_Completion_RC.algo
+          chmod +x control/HarmonyBot-V65/tools/*.sh
+          control/HarmonyBot-V65/tools/run_window.sh V65_V64_CONTROL "${{ matrix.window }}" "${{ steps.d.outputs.start }}" "${{ steps.d.outputs.eval }}" "${{ steps.d.outputs.end }}" 1 10000 .5
+      - uses: actions/upload-artifact@v4
+        with: {name: "v65-control-${{ matrix.window }}", path: "control/HarmonyBot-V65/output-V65_V64_CONTROL-${{ matrix.window }}-B10000-S1", retention-days: 30}
+
+  legacy-product:
+    needs: build-v65
+    runs-on: ubuntu-24.04
+    timeout-minutes: 55
+    strategy: {fail-fast: false, matrix: {window: [H21,H22,H23]}}
+    steps:
+      - uses: actions/checkout@v4
+        with: {ref: harmonybot/v65-harmonic-thesis-completion-commercial-freeze, path: control, fetch-depth: 1}
+      - uses: actions/download-artifact@v4
+        with: {name: v65-build, path: control/HarmonyBot-V65/shared}
+      - id: d
+        shell: bash
+        run: |
+          case "${{ matrix.window }}" in
+            H21) S=04/01/2021; E=2021-01-11T00:00:00Z; X=31/12/2021;;
+            H22) S=03/01/2022; E=2022-01-10T00:00:00Z; X=30/12/2022;;
+            H23) S=03/01/2023; E=2023-01-10T00:00:00Z; X=29/12/2023;;
+          esac
+          echo "start=$S" >> "$GITHUB_OUTPUT"; echo "eval=$E" >> "$GITHUB_OUTPUT"; echo "end=$X" >> "$GITHUB_OUTPUT"
+      - shell: bash
+        run: |
+          mkdir -p control/HarmonyBot-V65/dist
+          A=$(find control/HarmonyBot-V65/shared -type f -name '*.algo' | head -1)
+          cp "$A" control/HarmonyBot-V65/dist/HarmonyBot_V65_Harmonic_Thesis_Completion_RC.algo
+          chmod +x control/HarmonyBot-V65/tools/*.sh
+          control/HarmonyBot-V65/tools/run_window.sh V65_PRODUCT "${{ matrix.window }}" "${{ steps.d.outputs.start }}" "${{ steps.d.outputs.eval }}" "${{ steps.d.outputs.end }}" 1 10000 1
+      - uses: actions/upload-artifact@v4
+        with: {name: "v65-legacy-${{ matrix.window }}", path: "control/HarmonyBot-V65/output-V65_PRODUCT-${{ matrix.window }}-B10000-S1", retention-days: 30}
+
+  dev-product:
+    needs: build-v65
+    runs-on: ubuntu-24.04
+    timeout-minutes: 50
+    strategy: {fail-fast: false, matrix: {window: [A,B,C]}}
+    steps:
+      - uses: actions/checkout@v4
+        with: {ref: harmonybot/v65-harmonic-thesis-completion-commercial-freeze, path: control, fetch-depth: 1}
+      - uses: actions/download-artifact@v4
+        with: {name: v65-build, path: control/HarmonyBot-V65/shared}
+      - id: d
+        shell: bash
+        run: |
+          case "${{ matrix.window }}" in
+            A) S=01/07/2024; E=2024-07-08T00:00:00Z; X=31/12/2024;;
+            B) S=02/01/2025; E=2025-01-09T00:00:00Z; X=30/06/2025;;
+            C) S=01/07/2025; E=2025-07-08T00:00:00Z; X=31/12/2025;;
+          esac
+          echo "start=$S" >> "$GITHUB_OUTPUT"; echo "eval=$E" >> "$GITHUB_OUTPUT"; echo "end=$X" >> "$GITHUB_OUTPUT"
+      - shell: bash
+        run: |
+          mkdir -p control/HarmonyBot-V65/dist
+          A=$(find control/HarmonyBot-V65/shared -type f -name '*.algo' | head -1)
+          cp "$A" control/HarmonyBot-V65/dist/HarmonyBot_V65_Harmonic_Thesis_Completion_RC.algo
+          chmod +x control/HarmonyBot-V65/tools/*.sh
+          control/HarmonyBot-V65/tools/run_window.sh V65_PRODUCT "${{ matrix.window }}" "${{ steps.d.outputs.start }}" "${{ steps.d.outputs.eval }}" "${{ steps.d.outputs.end }}" 1 10000 .5
+      - uses: actions/upload-artifact@v4
+        with: {name: "v65-dev-${{ matrix.window }}", path: "control/HarmonyBot-V65/output-V65_PRODUCT-${{ matrix.window }}-B10000-S1", retention-days: 30}
+
+  analyze:
+    needs: [reference-v64,control-v65,legacy-product,dev-product]
+    runs-on: ubuntu-24.04
+    outputs:
+      candidate: "${{ steps.a.outputs.candidate }}"
+      commercial_ready: "${{ steps.a.outputs.commercial_ready }}"
+    steps:
+      - uses: actions/checkout@v4
+        with: {ref: harmonybot/v65-harmonic-thesis-completion-commercial-freeze, path: control, fetch-depth: 1}
+      - uses: actions/download-artifact@v4
+        with: {pattern: 'v65-reference-v64-*', path: v64, merge-multiple: true}
+      - uses: actions/download-artifact@v4
+        with: {pattern: 'v65-control-*', path: v65c, merge-multiple: true}
+      - uses: actions/download-artifact@v4
+        with: {pattern: 'v65-legacy-*', path: legacy, merge-multiple: true}
+      - uses: actions/download-artifact@v4
+        with: {pattern: 'v65-dev-*', path: dev, merge-multiple: true}
+      - id: a
+        shell: bash
+        run: |
+          mkdir -p final
+          python3 control/HarmonyBot-V65/tools/analyze_alpha.py v64 v65c legacy dev final
+          echo "candidate=$(cat final/candidate.txt)" >> "$GITHUB_OUTPUT"
+          echo "commercial_ready=$(cat final/commercial_ready.txt)" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@v4
+        with: {name: v65-alpha-frontier, path: final, retention-days: 30}
+
+  validation:
+    needs: [build-v65,analyze]
+    if: needs.analyze.outputs.candidate == 'V65_PRODUCT'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 50
+    strategy: {fail-fast: false, matrix: {quarter: [Q1,Q2], spread: [1.0,1.25,1.5]}}
+    steps:
+      - uses: actions/checkout@v4
+        with: {ref: harmonybot/v65-harmonic-thesis-completion-commercial-freeze, path: control, fetch-depth: 1}
+      - uses: actions/download-artifact@v4
+        with: {name: v65-build, path: control/HarmonyBot-V65/shared}
+      - id: d
+        shell: bash
+        run: |
+          case "${{ matrix.quarter }}" in
+            Q1) S=02/01/2026; E=2026-01-09T00:00:00Z; X=31/03/2026;;
+            Q2) S=01/04/2026; E=2026-04-08T00:00:00Z; X=30/06/2026;;
+          esac
+          echo "start=$S" >> "$GITHUB_OUTPUT"; echo "eval=$E" >> "$GITHUB_OUTPUT"; echo "end=$X" >> "$GITHUB_OUTPUT"
+      - shell: bash
+        run: |
+          mkdir -p control/HarmonyBot-V65/dist
+          A=$(find control/HarmonyBot-V65/shared -type f -name '*.algo' | head -1)
+          cp "$A" control/HarmonyBot-V65/dist/HarmonyBot_V65_Harmonic_Thesis_Completion_RC.algo
+          chmod +x control/HarmonyBot-V65/tools/*.sh
+          control/HarmonyBot-V65/tools/run_window.sh V65_PRODUCT "VAL_${{ matrix.quarter }}_S${{ matrix.spread }}" "${{ steps.d.outputs.start }}" "${{ steps.d.outputs.eval }}" "${{ steps.d.outputs.end }}" "${{ matrix.spread }}" 10000 .25
+      - uses: actions/upload-artifact@v4
+        with: {name: "v65-validation-${{ matrix.quarter }}-${{ matrix.spread }}", path: "control/HarmonyBot-V65/output-V65_PRODUCT-VAL_*", retention-days: 30}
+
+  validation-gate:
+    needs: [analyze,validation]
+    if: needs.analyze.outputs.candidate == 'V65_PRODUCT'
+    runs-on: ubuntu-24.04
+    outputs: {ok: "${{ steps.g.outputs.ok }}"}
+    steps:
+      - uses: actions/download-artifact@v4
+        with: {pattern: 'v65-validation-*', path: val, merge-multiple: true}
+      - id: g
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json,pathlib
+          rows=[]
+          for p in pathlib.Path("val").rglob("*.json"):
+              try:d=json.load(open(p))
+              except:continue
+              if "basket_outcomes" in d:rows.append(d)
+          ok=len(rows)==6 and all(x["baskets"]>0 and x["net"]>0 and x["pf"]>1 and x["expectancy"]>0 and x["engineering_clean"] and x["actual_basket_risk_violations"]==0 and x["margin_risk_violations"]==0 for x in rows)
+          pathlib.Path("validation.out").write_text("true" if ok else "false")
+          pathlib.Path("V65_VALIDATION_GATE.json").write_text(json.dumps({"pass":ok,"rows":rows},indent=2))
+          PY
+          echo "ok=$(cat validation.out)" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@v4
+        with: {name: v65-validation-gate, path: V65_VALIDATION_GATE.json, retention-days: 30}
+
+  capital:
+    needs: [build-v65,analyze,validation-gate]
+    if: needs.validation-gate.outputs.ok == 'true' && needs.analyze.outputs.commercial_ready == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 55
+    strategy: {fail-fast: false, matrix: {balance: [100,150,200,300,500,1000]}}
+    steps:
+      - uses: actions/checkout@v4
+        with: {ref: harmonybot/v65-harmonic-thesis-completion-commercial-freeze, path: control, fetch-depth: 1}
+      - uses: actions/download-artifact@v4
+        with: {name: v65-build, path: control/HarmonyBot-V65/shared}
+      - shell: bash
+        run: |
+          mkdir -p control/HarmonyBot-V65/dist
+          A=$(find control/HarmonyBot-V65/shared -type f -name '*.algo' | head -1)
+          cp "$A" control/HarmonyBot-V65/dist/HarmonyBot_V65_Harmonic_Thesis_Completion_RC.algo
+          chmod +x control/HarmonyBot-V65/tools/*.sh
+          control/HarmonyBot-V65/tools/run_window.sh V65_PRODUCT "CAPITAL_${{ matrix.balance }}" 01/07/2024 2024-07-08T00:00:00Z 31/12/2025 1 "${{ matrix.balance }}" 1.5
+      - uses: actions/upload-artifact@v4
+        with: {name: "v65-capital-${{ matrix.balance }}", path: "control/HarmonyBot-V65/output-V65_PRODUCT-CAPITAL_*", retention-days: 30}
+
+  capital-gate:
+    needs: capital
+    if: always() && needs.capital.result == 'success'
+    runs-on: ubuntu-24.04
+    outputs: {ok: "${{ steps.g.outputs.ok }}"}
+    steps:
+      - uses: actions/download-artifact@v4
+        with: {pattern: 'v65-capital-*', path: capital, merge-multiple: true}
+      - id: g
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json,pathlib
+          rows=[]
+          for p in pathlib.Path("capital").rglob("*.json"):
+              try:d=json.load(open(p))
+              except:continue
+              if "basket_outcomes" in d:rows.append(d)
+          ok=len(rows)==6 and all(x["baskets"]>0 and x["net"]>0 and x["pf"]>1 and x["expectancy"]>0 and x["max_dd_pct"]<=10 and x["engineering_clean"] and x["actual_basket_risk_violations"]==0 and x["margin_risk_violations"]==0 for x in rows)
+          pathlib.Path("capital.out").write_text("true" if ok else "false")
+          pathlib.Path("V65_CAPITAL_GATE.json").write_text(json.dumps({"pass":ok,"rows":rows},indent=2))
+          PY
+          echo "ok=$(cat capital.out)" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@v4
+        with: {name: v65-capital-gate, path: V65_CAPITAL_GATE.json, retention-days: 30}
+
+  freeze:
+    needs: [build-v65,analyze,validation-gate,capital-gate]
+    if: needs.validation-gate.outputs.ok == 'true' && needs.capital-gate.outputs.ok == 'true'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with: {ref: harmonybot/v65-harmonic-thesis-completion-commercial-freeze, path: control, fetch-depth: 1}
+      - uses: actions/download-artifact@v4
+        with: {name: v65-build, path: shared}
+      - shell: bash
+        run: |
+          python3 - <<'PY'
+          import hashlib,json,pathlib,os
+          src=pathlib.Path("control/HarmonyBot-V65/src/HarmonyBotV65.cs"); algo=next(pathlib.Path("shared").rglob("*.algo"))
+          o={"version":"HarmonyBot V65","candidate":"V65_PRODUCT","source_commit":os.environ["GITHUB_SHA"],
+             "source_sha256":hashlib.sha256(src.read_bytes()).hexdigest(),"algo_sha256":hashlib.sha256(algo.read_bytes()).hexdigest(),
+             "frozen_execution_risk":"V64 Product kernel","alpha_change":"Pattern-native thesis completion state machine","fresh_used":False}
+          pathlib.Path("V65_FREEZE_MANIFEST.json").write_text(json.dumps(o,indent=2))
+          PY
+      - uses: actions/upload-artifact@v4
+        with: {name: v65-freeze-manifest, path: V65_FREEZE_MANIFEST.json, retention-days: 30}
+
+  fresh:
+    needs: [build-v65,freeze]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    strategy: {fail-fast: false, matrix: {include: [{kind: ALPHA, balance: 10000},{kind: SMALL, balance: 100}]}}
+    steps:
+      - uses: actions/checkout@v4
+        with: {ref: harmonybot/v65-harmonic-thesis-completion-commercial-freeze, path: control, fetch-depth: 1}
+      - uses: actions/download-artifact@v4
+        with: {name: v65-build, path: control/HarmonyBot-V65/shared}
+      - shell: bash
+        run: |
+          mkdir -p control/HarmonyBot-V65/dist
+          A=$(find control/HarmonyBot-V65/shared -type f -name '*.algo' | head -1)
+          cp "$A" control/HarmonyBot-V65/dist/HarmonyBot_V65_Harmonic_Thesis_Completion_RC.algo
+          chmod +x control/HarmonyBot-V65/tools/*.sh
+          control/HarmonyBot-V65/tools/run_window.sh V65_PRODUCT "FRESH_${{ matrix.kind }}" 02/01/2020 2020-01-09T00:00:00Z 30/06/2020 1 "${{ matrix.balance }}" .5
+      - uses: actions/upload-artifact@v4
+        with: {name: "v65-fresh-${{ matrix.kind }}", path: "control/HarmonyBot-V65/output-V65_PRODUCT-FRESH_*", retention-days: 30}
+
+  fresh-gate:
+    needs: fresh
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/download-artifact@v4
+        with: {pattern: 'v65-fresh-*', path: fresh, merge-multiple: true}
+      - shell: bash
+        run: |
+          python3 - <<'PY'
+          import json,pathlib
+          rows=[]
+          for p in pathlib.Path("fresh").rglob("*.json"):
+              try:d=json.load(open(p))
+              except:continue
+              if "basket_outcomes" in d:rows.append(d)
+          ok=len(rows)==2 and all(x["baskets"]>0 and x["net"]>0 and x["pf"]>1 and x["expectancy"]>0 and x["engineering_clean"] and x["actual_basket_risk_violations"]==0 for x in rows)
+          pathlib.Path("V65_FRESH_GATE.json").write_text(json.dumps({"pass":ok,"rows":rows,"status":"COMMERCIAL_FREEZE" if ok else "HOLD_NEW_MAJOR_REQUIRED"},indent=2))
+          PY
+      - uses: actions/upload-artifact@v4
+        with: {name: v65-fresh-gate, path: V65_FRESH_GATE.json, retention-days: 30}
