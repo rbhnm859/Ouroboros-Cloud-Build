@@ -41,19 +41,31 @@ elif a.phase=="dev":
     nogrid=[x for x in rows if x["mode"]=="V67_PRODUCT" and not x["family_grid"] and x["window"] in ["H23","A","B","C"]]
     if len(control)!=4 or len(product)!=4 or len(nogrid)!=4: raise SystemExit("missing dev evidence")
     C=agg(control,2.5); P=agg(product,2.5); N=agg(nogrid,2.5)
+    control_dev=[x for x in control if x["window"] in ["A","B","C"]]; CD=agg(control_dev,1.5)
     dev_prod=[x for x in product if x["window"] in ["A","B","C"]]; D=agg(dev_prod,1.5)
     dev_nogrid=[x for x in nogrid if x["window"] in ["A","B","C"]]; G=agg(dev_nogrid,1.5)
-    grid_delta=P["net"]-N["net"]; grid_multiplier=(P["net"]/N["net"] if N["net"]>0 else None)
+    grid_delta=P["net"]-N["net"]; grid_delta_dev=D["net"]-G["net"]
+    grid_multiplier=(D["net"]/G["net"] if G["net"]>0 else None)
     family_gate=(D["max_family_share"]<=.55 and D["positive_family_count"]>=3 and D["non_abcd_net"]>0 and len(D["family"])>=4)
-    throughput=(D["frequency"]>=60 and D["frequency"]>=.70*max(1,agg([x for x in control if x["window"] in ["A","B","C"]],1.5)["frequency"]))
+    throughput=(D["frequency"]>=60 and D["frequency"]>=.70*max(1,CD["frequency"]))
+    family_alpha_gate=(G["net"]>CD["net"] and G["pf"]>=CD["pf"] and G["expectancy"]>=CD["expectancy"] and
+                       G["frequency"]>=.70*max(1,CD["frequency"]) and G["non_abcd_net"]>0 and
+                       G["positive_family_count"]>=3 and G["max_family_share"]<=.55 and G["clean"])
     commercial=(D["net"]>=1800 and D["pf"]>=2 and D["expectancy"]>=20 and D["win_rate"]>=.50 and D["max_dd_pct"]<=6 and D["all_positive"] and D["clean"] and throughput and family_gate)
-    historical=next(x for x in product if x["window"]=="H23")["net"]>0
-    grid_gate=(grid_delta>0 and (P["pf"]>=N["pf"] or P["expectancy"]>=N["expectancy"]) and P["max_dd_pct"]<=N["max_dd_pct"]+1.5 and P["clean"])
-    candidate=bool(commercial and historical and grid_gate)
-    o.update({"control":C,"product":P,"product_dev_1_5y":D,"product_no_family_grid":N,"no_grid_dev_1_5y":G,
-              "grid_delta_net":grid_delta,"grid_net_multiplier":grid_multiplier,"grid_stretch_double_net":bool(grid_multiplier is not None and grid_multiplier>=2),
-              "family_diversification_gate":family_gate,"throughput_gate":throughput,"commercial_gate":commercial,
-              "historical_2023_gate":historical,"grid_gate":grid_gate,"candidate":candidate,
+    historical_grid=next(x for x in product if x["window"]=="H23")
+    historical_nogrid=next(x for x in nogrid if x["window"]=="H23")
+    historical=historical_grid["net"]>0
+    grid_gate=(grid_delta>0 and grid_delta_dev>0 and P["pf"]>=N["pf"] and P["expectancy"]>=N["expectancy"] and
+               D["pf"]>=G["pf"] and D["expectancy"]>=G["expectancy"] and
+               P["max_dd_pct"]<=N["max_dd_pct"]+1e-9 and D["max_dd_pct"]<=G["max_dd_pct"]+1e-9 and
+               P["frequency"]>=.90*max(1,N["frequency"]) and D["frequency"]>=.90*max(1,G["frequency"]) and
+               historical_grid["net"]>=historical_nogrid["net"] and P["clean"])
+    candidate=bool(commercial and historical and family_alpha_gate and grid_gate)
+    o.update({"control":C,"control_dev_1_5y":CD,"product":P,"product_dev_1_5y":D,"product_no_family_grid":N,"no_grid_dev_1_5y":G,
+              "grid_delta_net":grid_delta,"grid_delta_dev_net":grid_delta_dev,"grid_net_multiplier":grid_multiplier,
+              "grid_stretch_double_net":bool(grid_multiplier is not None and grid_multiplier>=2),
+              "family_alpha_gate":family_alpha_gate,"family_diversification_gate":family_gate,"throughput_gate":throughput,
+              "commercial_gate":commercial,"historical_2023_gate":historical,"grid_gate":grid_gate,"candidate":candidate,
               "status":"VALIDATION_CANDIDATE" if candidate else "HOLD_WITH_EVIDENCE"})
 
 elif a.phase=="validation":
