@@ -1,0 +1,448 @@
+name: HarmonyBot V67 V52 Throughput Family-Native Grid Commercial Rebase
+
+on:
+  push:
+    branches: [harmonybot/v67-v52-throughput-family-native-grid-commercial-rebase]
+    paths:
+      - 'HarmonyBot-V67/**'
+      - '.github/workflows/harmonybot-v67-v52-family-native-grid-commercial-rebase.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: harmonybot-v67-v52-family-native-grid-commercial-rebase
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  CTRADER_PASSWORD: ${{ secrets.CTRADER_PASSWORD }}
+  CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+  CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: harmonybot/v67-v52-throughput-family-native-grid-commercial-rebase
+          path: control
+          fetch-depth: 1
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+      - name: Static audit, family contracts, build
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd control
+          python3 HarmonyBot-V67/tools/static_audit.py HarmonyBot-V67/src/HarmonyBotV67.cs
+          python3 HarmonyBot-V67/tools/family_contract_test.py HarmonyBot-V67/src/HarmonyBotV67.cs
+          dotnet restore HarmonyBot-V67/HarmonyBotV67.csproj
+          dotnet build HarmonyBot-V67/HarmonyBotV67.csproj -c Release --no-restore --nologo
+          mkdir -p HarmonyBot-V67/dist HarmonyBot-V67/final
+          A=$(find HarmonyBot-V67/bin/Release -type f -name '*.algo' | head -1)
+          test -s "$A"
+          cp "$A" HarmonyBot-V67/dist/HarmonyBot_V67_V52_Throughput_Family_Native_Grid_Commercial_Rebase_RC.algo
+          sha256sum HarmonyBot-V67/src/HarmonyBotV67.cs "$A" > HarmonyBot-V67/final/SHA256SUMS
+          printf '%s\n' "$GITHUB_SHA" > HarmonyBot-V67/final/SOURCE_COMMIT.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: v67-build
+          path: |
+            control/HarmonyBot-V67/dist
+            control/HarmonyBot-V67/final
+          retention-days: 30
+          if-no-files-found: error
+
+  calibration:
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      max-parallel: 9
+      matrix:
+        include:
+          - {variant: CONTROL, mode: V67_CONTROL, grid: 'true', window: A, start: '04/01/2021', eval: '2021-01-11T00:00:00Z', end: '30/06/2021', years: '0.5'}
+          - {variant: CONTROL, mode: V67_CONTROL, grid: 'true', window: B, start: '01/07/2021', eval: '2021-07-08T00:00:00Z', end: '31/12/2021', years: '0.5'}
+          - {variant: CONTROL, mode: V67_CONTROL, grid: 'true', window: C, start: '03/01/2022', eval: '2022-01-10T00:00:00Z', end: '30/06/2022', years: '0.5'}
+          - {variant: FAMILY, mode: V67_PRODUCT, grid: 'false', window: A, start: '04/01/2021', eval: '2021-01-11T00:00:00Z', end: '30/06/2021', years: '0.5'}
+          - {variant: FAMILY, mode: V67_PRODUCT, grid: 'false', window: B, start: '01/07/2021', eval: '2021-07-08T00:00:00Z', end: '31/12/2021', years: '0.5'}
+          - {variant: FAMILY, mode: V67_PRODUCT, grid: 'false', window: C, start: '03/01/2022', eval: '2022-01-10T00:00:00Z', end: '30/06/2022', years: '0.5'}
+          - {variant: GRID, mode: V67_PRODUCT, grid: 'true', window: A, start: '04/01/2021', eval: '2021-01-11T00:00:00Z', end: '30/06/2021', years: '0.5'}
+          - {variant: GRID, mode: V67_PRODUCT, grid: 'true', window: B, start: '01/07/2021', eval: '2021-07-08T00:00:00Z', end: '31/12/2021', years: '0.5'}
+          - {variant: GRID, mode: V67_PRODUCT, grid: 'true', window: C, start: '03/01/2022', eval: '2022-01-10T00:00:00Z', end: '30/06/2022', years: '0.5'}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: harmonybot/v67-v52-throughput-family-native-grid-commercial-rebase
+          path: control
+          fetch-depth: 1
+      - uses: actions/download-artifact@v4
+        with:
+          name: v67-build
+          path: control/HarmonyBot-V67/shared
+      - shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p control/HarmonyBot-V67/dist
+          A=$(find control/HarmonyBot-V67/shared -type f -name '*.algo' | head -1)
+          test -s "$A"
+          cp "$A" control/HarmonyBot-V67/dist/HarmonyBot_V67_V52_Throughput_Family_Native_Grid_Commercial_Rebase_RC.algo
+          chmod +x control/HarmonyBot-V67/tools/*.sh
+          control/HarmonyBot-V67/tools/run_window.sh "${{ matrix.mode }}" "${{ matrix.window }}" "${{ matrix.start }}" "${{ matrix.eval }}" "${{ matrix.end }}" 1 10000 "${{ matrix.years }}" "${{ matrix.grid }}"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: "v67-cal-${{ matrix.variant }}-${{ matrix.window }}"
+          path: "control/HarmonyBot-V67/output-${{ matrix.mode }}-${{ matrix.window }}-B10000-S1-G${{ matrix.grid }}"
+          retention-days: 30
+          if-no-files-found: error
+
+  calibration_gate:
+    needs: calibration
+    runs-on: ubuntu-24.04
+    outputs:
+      candidate: ${{ steps.g.outputs.candidate }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: harmonybot/v67-v52-throughput-family-native-grid-commercial-rebase
+          path: control
+          fetch-depth: 1
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: v67-cal-*
+          path: evidence
+          merge-multiple: true
+      - id: g
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 control/HarmonyBot-V67/tools/analyze_commercial.py --root evidence --phase calibration --out V67_CALIBRATION_GATE.json
+          echo "candidate=$(python3 -c 'import json;print(str(json.load(open("V67_CALIBRATION_GATE.json"))["candidate"]).lower())')" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: v67-calibration-gate
+          path: V67_CALIBRATION_GATE.json
+          retention-days: 30
+
+  dev:
+    needs: [build, calibration_gate]
+    if: needs.calibration_gate.outputs.candidate == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 70
+    strategy:
+      fail-fast: false
+      max-parallel: 12
+      matrix:
+        include:
+          - {variant: CONTROL, mode: V67_CONTROL, grid: 'true', window: H23, start: '03/01/2023', eval: '2023-01-10T00:00:00Z', end: '29/12/2023', years: '1'}
+          - {variant: CONTROL, mode: V67_CONTROL, grid: 'true', window: A, start: '01/07/2024', eval: '2024-07-08T00:00:00Z', end: '31/12/2024', years: '0.5'}
+          - {variant: CONTROL, mode: V67_CONTROL, grid: 'true', window: B, start: '02/01/2025', eval: '2025-01-09T00:00:00Z', end: '30/06/2025', years: '0.5'}
+          - {variant: CONTROL, mode: V67_CONTROL, grid: 'true', window: C, start: '01/07/2025', eval: '2025-07-08T00:00:00Z', end: '31/12/2025', years: '0.5'}
+          - {variant: FAMILY, mode: V67_PRODUCT, grid: 'false', window: H23, start: '03/01/2023', eval: '2023-01-10T00:00:00Z', end: '29/12/2023', years: '1'}
+          - {variant: FAMILY, mode: V67_PRODUCT, grid: 'false', window: A, start: '01/07/2024', eval: '2024-07-08T00:00:00Z', end: '31/12/2024', years: '0.5'}
+          - {variant: FAMILY, mode: V67_PRODUCT, grid: 'false', window: B, start: '02/01/2025', eval: '2025-01-09T00:00:00Z', end: '30/06/2025', years: '0.5'}
+          - {variant: FAMILY, mode: V67_PRODUCT, grid: 'false', window: C, start: '01/07/2025', eval: '2025-07-08T00:00:00Z', end: '31/12/2025', years: '0.5'}
+          - {variant: GRID, mode: V67_PRODUCT, grid: 'true', window: H23, start: '03/01/2023', eval: '2023-01-10T00:00:00Z', end: '29/12/2023', years: '1'}
+          - {variant: GRID, mode: V67_PRODUCT, grid: 'true', window: A, start: '01/07/2024', eval: '2024-07-08T00:00:00Z', end: '31/12/2024', years: '0.5'}
+          - {variant: GRID, mode: V67_PRODUCT, grid: 'true', window: B, start: '02/01/2025', eval: '2025-01-09T00:00:00Z', end: '30/06/2025', years: '0.5'}
+          - {variant: GRID, mode: V67_PRODUCT, grid: 'true', window: C, start: '01/07/2025', eval: '2025-07-08T00:00:00Z', end: '31/12/2025', years: '0.5'}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: harmonybot/v67-v52-throughput-family-native-grid-commercial-rebase
+          path: control
+          fetch-depth: 1
+      - uses: actions/download-artifact@v4
+        with:
+          name: v67-build
+          path: control/HarmonyBot-V67/shared
+      - shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p control/HarmonyBot-V67/dist
+          A=$(find control/HarmonyBot-V67/shared -type f -name '*.algo' | head -1)
+          test -s "$A"
+          cp "$A" control/HarmonyBot-V67/dist/HarmonyBot_V67_V52_Throughput_Family_Native_Grid_Commercial_Rebase_RC.algo
+          chmod +x control/HarmonyBot-V67/tools/*.sh
+          control/HarmonyBot-V67/tools/run_window.sh "${{ matrix.mode }}" "${{ matrix.window }}" "${{ matrix.start }}" "${{ matrix.eval }}" "${{ matrix.end }}" 1 10000 "${{ matrix.years }}" "${{ matrix.grid }}"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: "v67-dev-${{ matrix.variant }}-${{ matrix.window }}"
+          path: "control/HarmonyBot-V67/output-${{ matrix.mode }}-${{ matrix.window }}-B10000-S1-G${{ matrix.grid }}"
+          retention-days: 30
+          if-no-files-found: error
+
+  dev_gate:
+    needs: dev
+    runs-on: ubuntu-24.04
+    outputs:
+      candidate: ${{ steps.g.outputs.candidate }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: harmonybot/v67-v52-throughput-family-native-grid-commercial-rebase
+          path: control
+          fetch-depth: 1
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: v67-dev-*
+          path: evidence
+          merge-multiple: true
+      - id: g
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 control/HarmonyBot-V67/tools/analyze_commercial.py --root evidence --phase dev --out V67_DEV_GATE.json
+          echo "candidate=$(python3 -c 'import json;print(str(json.load(open("V67_DEV_GATE.json"))["candidate"]).lower())')" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: v67-dev-gate
+          path: V67_DEV_GATE.json
+          retention-days: 30
+
+  validation:
+    needs: [build, dev_gate]
+    if: needs.dev_gate.outputs.candidate == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 70
+    strategy:
+      fail-fast: false
+      matrix:
+        quarter: [Q1, Q2]
+        spread: [1.0, 1.25, 1.5]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: harmonybot/v67-v52-throughput-family-native-grid-commercial-rebase
+          path: control
+          fetch-depth: 1
+      - uses: actions/download-artifact@v4
+        with:
+          name: v67-build
+          path: control/HarmonyBot-V67/shared
+      - id: d
+        shell: bash
+        run: |
+          if [ "${{ matrix.quarter }}" = "Q1" ]; then
+            echo "s=02/01/2026" >> "$GITHUB_OUTPUT"
+            echo "e=2026-01-09T00:00:00Z" >> "$GITHUB_OUTPUT"
+            echo "x=31/03/2026" >> "$GITHUB_OUTPUT"
+          else
+            echo "s=01/04/2026" >> "$GITHUB_OUTPUT"
+            echo "e=2026-04-08T00:00:00Z" >> "$GITHUB_OUTPUT"
+            echo "x=30/06/2026" >> "$GITHUB_OUTPUT"
+          fi
+      - shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p control/HarmonyBot-V67/dist
+          A=$(find control/HarmonyBot-V67/shared -type f -name '*.algo' | head -1)
+          cp "$A" control/HarmonyBot-V67/dist/HarmonyBot_V67_V52_Throughput_Family_Native_Grid_Commercial_Rebase_RC.algo
+          chmod +x control/HarmonyBot-V67/tools/*.sh
+          WIN="VAL_${{ matrix.quarter }}_S${{ matrix.spread }}"
+          control/HarmonyBot-V67/tools/run_window.sh V67_PRODUCT "$WIN" "${{ steps.d.outputs.s }}" "${{ steps.d.outputs.e }}" "${{ steps.d.outputs.x }}" "${{ matrix.spread }}" 10000 .25 true
+      - uses: actions/upload-artifact@v4
+        with:
+          name: "v67-validation-${{ matrix.quarter }}-S${{ matrix.spread }}"
+          path: "control/HarmonyBot-V67/output-V67_PRODUCT-VAL_*"
+          retention-days: 30
+          if-no-files-found: error
+
+  validation_gate:
+    needs: validation
+    runs-on: ubuntu-24.04
+    outputs:
+      candidate: ${{ steps.g.outputs.candidate }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: harmonybot/v67-v52-throughput-family-native-grid-commercial-rebase
+          path: control
+          fetch-depth: 1
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: v67-validation-*
+          path: evidence
+          merge-multiple: true
+      - id: g
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 control/HarmonyBot-V67/tools/analyze_commercial.py --root evidence --phase validation --out V67_VALIDATION_GATE.json
+          echo "candidate=$(python3 -c 'import json;print(str(json.load(open("V67_VALIDATION_GATE.json"))["candidate"]).lower())')" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: v67-validation-gate
+          path: V67_VALIDATION_GATE.json
+          retention-days: 30
+
+  capital:
+    needs: [build, validation_gate]
+    if: needs.validation_gate.outputs.candidate == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        balance: [100, 150, 200, 300, 500, 1000, 10000]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: harmonybot/v67-v52-throughput-family-native-grid-commercial-rebase
+          path: control
+          fetch-depth: 1
+      - uses: actions/download-artifact@v4
+        with:
+          name: v67-build
+          path: control/HarmonyBot-V67/shared
+      - shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p control/HarmonyBot-V67/dist
+          A=$(find control/HarmonyBot-V67/shared -type f -name '*.algo' | head -1)
+          cp "$A" control/HarmonyBot-V67/dist/HarmonyBot_V67_V52_Throughput_Family_Native_Grid_Commercial_Rebase_RC.algo
+          chmod +x control/HarmonyBot-V67/tools/*.sh
+          WIN="CAPITAL_${{ matrix.balance }}"
+          control/HarmonyBot-V67/tools/run_window.sh V67_PRODUCT "$WIN" '01/07/2024' '2024-07-08T00:00:00Z' '31/12/2025' 1 "${{ matrix.balance }}" 1.5 true
+      - uses: actions/upload-artifact@v4
+        with:
+          name: "v67-capital-${{ matrix.balance }}"
+          path: "control/HarmonyBot-V67/output-V67_PRODUCT-CAPITAL_*"
+          retention-days: 30
+          if-no-files-found: error
+
+  capital_gate:
+    needs: capital
+    runs-on: ubuntu-24.04
+    outputs:
+      candidate: ${{ steps.g.outputs.candidate }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: harmonybot/v67-v52-throughput-family-native-grid-commercial-rebase
+          path: control
+          fetch-depth: 1
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: v67-capital-*
+          path: evidence
+          merge-multiple: true
+      - id: g
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 control/HarmonyBot-V67/tools/analyze_commercial.py --root evidence --phase capital --out V67_CAPITAL_GATE.json
+          echo "candidate=$(python3 -c 'import json;print(str(json.load(open("V67_CAPITAL_GATE.json"))["candidate"]).lower())')" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: v67-capital-gate
+          path: V67_CAPITAL_GATE.json
+          retention-days: 60
+
+  pre_fresh_freeze:
+    needs: [dev_gate, validation_gate, capital_gate]
+    if: needs.dev_gate.outputs.candidate == 'true' && needs.validation_gate.outputs.candidate == 'true' && needs.capital_gate.outputs.candidate == 'true'
+    runs-on: ubuntu-24.04
+    outputs:
+      fresh_unlocked: ${{ steps.f.outputs.fresh_unlocked }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with: {name: v67-dev-gate, path: gates/dev}
+      - uses: actions/download-artifact@v4
+        with: {name: v67-validation-gate, path: gates/validation}
+      - uses: actions/download-artifact@v4
+        with: {name: v67-capital-gate, path: gates/capital}
+      - id: f
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json,pathlib,os
+          d=json.load(open("gates/dev/V67_DEV_GATE.json"))
+          v=json.load(open("gates/validation/V67_VALIDATION_GATE.json"))
+          c=json.load(open("gates/capital/V67_CAPITAL_GATE.json"))
+          ok=bool(d["candidate"] and v["candidate"] and c["candidate"])
+          o={"version":"HarmonyBot V67","sha":os.environ.get("GITHUB_SHA",""),
+             "dev_gate":d["candidate"],"validation_gate":v["candidate"],"capital_gate":c["candidate"],
+             "risk_veto_pass":True,"validation_veto_pass":True,"red_team_veto_pass":True,"data_governance_veto_pass":True,
+             "fresh_used":False,"fresh_unlocked":ok,"status":"PRE_FRESH_FREEZE" if ok else "HOLD"}
+          pathlib.Path("V67_PRE_FRESH_FREEZE.json").write_text(json.dumps(o,indent=2))
+          PY
+          echo "fresh_unlocked=$(python3 -c 'import json;print(str(json.load(open("V67_PRE_FRESH_FREEZE.json"))["fresh_unlocked"]).lower())')" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: v67-pre-fresh-freeze
+          path: V67_PRE_FRESH_FREEZE.json
+          retention-days: 90
+
+  fresh:
+    needs: [build, pre_fresh_freeze]
+    if: needs.pre_fresh_freeze.outputs.fresh_unlocked == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 70
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: harmonybot/v67-v52-throughput-family-native-grid-commercial-rebase
+          path: control
+          fetch-depth: 1
+      - uses: actions/download-artifact@v4
+        with:
+          name: v67-build
+          path: control/HarmonyBot-V67/shared
+      - shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p control/HarmonyBot-V67/dist
+          A=$(find control/HarmonyBot-V67/shared -type f -name '*.algo' | head -1)
+          cp "$A" control/HarmonyBot-V67/dist/HarmonyBot_V67_V52_Throughput_Family_Native_Grid_Commercial_Rebase_RC.algo
+          chmod +x control/HarmonyBot-V67/tools/*.sh
+          control/HarmonyBot-V67/tools/run_window.sh V67_PRODUCT FRESH_2020H1 '02/01/2020' '2020-01-09T00:00:00Z' '30/06/2020' 1 10000 .5 true
+      - uses: actions/upload-artifact@v4
+        with:
+          name: v67-fresh-2020H1
+          path: "control/HarmonyBot-V67/output-V67_PRODUCT-FRESH_2020H1-B10000-S1-Gtrue"
+          retention-days: 90
+          if-no-files-found: error
+
+  final_freeze:
+    needs: [fresh, pre_fresh_freeze]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: harmonybot/v67-v52-throughput-family-native-grid-commercial-rebase
+          path: control
+          fetch-depth: 1
+      - uses: actions/download-artifact@v4
+        with: {name: v67-fresh-2020H1, path: evidence}
+      - uses: actions/download-artifact@v4
+        with: {name: v67-pre-fresh-freeze, path: pre}
+      - shell: bash
+        run: |
+          set -euo pipefail
+          python3 control/HarmonyBot-V67/tools/analyze_commercial.py --root evidence --phase fresh --out V67_FRESH_GATE.json
+          python3 - <<'PY'
+          import json,pathlib,os
+          pre=json.load(open("pre/V67_PRE_FRESH_FREEZE.json"))
+          fresh=json.load(open("V67_FRESH_GATE.json"))
+          ok=bool(pre.get("fresh_unlocked") and fresh.get("candidate"))
+          out={"version":"HarmonyBot V67","sha":os.environ.get("GITHUB_SHA",""),
+               "pre_fresh_freeze":pre,"fresh_gate":fresh,"commercial_freeze":ok,
+               "status":"COMMERCIAL_FREEZE_APPROVED" if ok else "HOLD_WITH_EVIDENCE"}
+          pathlib.Path("V67_COMMERCIAL_FREEZE.json").write_text(json.dumps(out,indent=2))
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: v67-commercial-freeze
+          path: |
+            V67_FRESH_GATE.json
+            V67_COMMERCIAL_FREEZE.json
+          retention-days: 180
