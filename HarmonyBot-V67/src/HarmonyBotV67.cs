@@ -760,7 +760,8 @@ namespace cAlgo.Robots
                     double legacyScore = M1ConfirmationScore(i, c.Signal);
                     c.ConfirmationScore = legacyScore;
                     double legacyRequired = c.Route == HarmonicRoute.EXHAUSTION_REVERSAL ? 0.75 : 0.60;
-                    bool familyContractLane = (V67ProductEnabled() && EnableV67FamilyNativeCompletion && IsFamilyCompletionLane(c.Signal.PatternName)) ||\n                                             (EnableFamilyCompletionContract && IsFamilyCompletionLane(c.Signal.PatternName));
+                    bool familyContractLane = (V67ProductEnabled() && EnableV67FamilyNativeCompletion && IsFamilyCompletionLane(c.Signal.PatternName)) ||
+                                             (EnableFamilyCompletionContract && IsFamilyCompletionLane(c.Signal.PatternName));
                     bool confirmationPass = false;
 
                     if (familyContractLane)
