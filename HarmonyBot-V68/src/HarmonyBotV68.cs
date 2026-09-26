@@ -639,6 +639,9 @@ namespace cAlgo.Robots
                       signal.PrzConfluence >= Math.Max(MinPrzConfluence, signal.Profile.MinPrz);
                 if (!familyQualityPass)
                 {
+                    if (EnableV68FamilyTradeContracts)
+                        Print("[V68-FAMILY-QUALITY-REJECT] cid={0} pattern={1} geom={2:F3} prz={3:F3} conf={4:F3} subtype={5}",
+                            record.CandidateId, signal.PatternName, signal.GeometryQuality, signal.PrzConfluence, signal.Confidence, signal.HarmonicSubtype);
                     Reject(record, EnableV68FamilyTradeContracts ? "V68_FAMILY_QUALITY" : "PATTERN_QUALITY");
                     continue;
                 }
@@ -661,6 +664,10 @@ namespace cAlgo.Robots
                 if (record.Route == HarmonicRoute.NO_TRADE)
                 {
                     if (EnableRegimeContextGate) _regimeRejected++;
+                    if (EnableV68FamilyTradeContracts)
+                        Print("[V68-FAMILY-ROUTE-REJECT] cid={0} pattern={1} conflict={2} regimeScore={3:F3} trend={4} transition={5} extAtr={6:F3} atrRatio={7:F3} adxSlope={8:F3} efficiency={9:F3}",
+                            record.CandidateId, signal.PatternName, record.Conflict, record.RegimeScore, regime.TrendDirection,
+                            regime.Transition, regime.ExtensionAtr, regime.AtrRatio, regime.AdxH1Slope, regime.Efficiency);
                     Reject(record, "ROUTER_NO_TRADE");
                     continue;
                 }
@@ -752,7 +759,7 @@ namespace cAlgo.Robots
 
                 if (c.State == CandidateState.WAIT_PRZ)
                 {
-                    if (BarTouchesPrz(i, c.Signal))
+                    if (EnableV68PositiveThroughputExpansion ? V68FamilyActivationTouch(i, c) : BarTouchesPrz(i, c.Signal))
                     {
                         c.PrzTouchUtc = utc;
                         if (EnableEntryAnchorForensics && c.CompletionAnchorPrice <= 0)
@@ -791,6 +798,11 @@ namespace cAlgo.Robots
                         else if (c.FamilyConfirmationBarsObserved >= (EnableV68FamilyTradeContracts ? V68FamilyConfirmationWindow(c.Signal) : Math.Max(6, FamilyConfirmationWindowBars)))
                         {
                             IncrementCounter(_familyContractWindowReject, c.Signal.PatternName);
+                            if (EnableV68FamilyTradeContracts)
+                                Print("[V68-FAMILY-CONFIRM-REJECT] cid={0} pattern={1} stage={2} bars={3} score={4:F3} dir={5} reclaim={6} bos={7} reject={8} sweep={9} failedExt={10} insidePrz={11} disp={12} retest={13}",
+                                    c.CandidateId,c.Signal.PatternName,c.NativeStage,c.FamilyConfirmationBarsObserved,c.ConfirmationScore,
+                                    c.FamilyDirectional,c.FamilyReclaim,c.FamilyBos,c.FamilyRejection,c.FamilySweep,c.FamilyFailedExtension,
+                                    c.FamilyInsidePrz,c.FamilyDisplacement,c.FamilyRetest);
                             Reject(c, EnableV68FamilyTradeContracts ? "V68_FAMILY_CONFIRMATION_WINDOW_EXHAUSTED" : "FAMILY_COMPLETION_WINDOW_EXHAUSTED");
                             continue;
                         }
@@ -3371,7 +3383,12 @@ namespace cAlgo.Robots
         private int V68FamilyExpiryBars(PatternSignal s)
         {
             var c = s == null ? null : V68Contract(s.PatternName);
-            return Math.Max(2, Math.Min(CandidateTtlM15Bars, c == null ? s.Profile.MaxAgeM15Bars : c.ExpiryM15Bars));
+            int legacy = Math.Max(2, Math.Min(CandidateTtlM15Bars, c == null ? s.Profile.MaxAgeM15Bars : c.ExpiryM15Bars));
+            if (!EnableV68PositiveThroughputExpansion || s == null || !V68IsSupplyRecoveryFamily(s.PatternName)) return legacy;
+            if (s.PatternName=="Alt Bat" || s.PatternName=="Butterfly" || s.PatternName=="Crab" || s.PatternName=="Deep Crab") return 10;
+            if (s.PatternName=="Bat" || s.PatternName=="Deep Gartley") return 10;
+            if (s.PatternName=="Gartley") return 9;
+            return legacy;
         }
 
         private int V68FamilyConfirmationWindow(PatternSignal s)
@@ -3480,6 +3497,7 @@ namespace cAlgo.Robots
                 if (s.PatternName == "Gartley" && exhaustOk) exhaustOk = false;
                 if (s.PatternName == "5-0") { trendOk = false; exhaustOk = false; }
                 if (s.PatternName == "AB=CD") exhaustOk = false;
+                if (EnableV68PositiveThroughputExpansion && s.PatternName == "Shark") exhaustOk = false;
             }
 
             if (EnableV68PositiveThroughputExpansion && V68IsSupplyRecoveryFamily(s.PatternName))
@@ -3547,15 +3565,9 @@ namespace cAlgo.Robots
             c.FamilyInsidePrz |= insidePrz; c.FamilyDisplacement |= displacement; c.FamilyRetest |= retest;
             c.FamilyDeceleration |= deceleration;
 
-            if (EnableV68PositiveThroughputExpansion && V68IsSupplyRecoveryFamily(s.PatternName))
-            {
-                double recoveryScore;
-                if (V68RecoveryConfirmationPass(c, out recoveryScore))
-                {
-                    score = Math.Max(score, recoveryScore);
-                    return true;
-                }
-            }
+            if (EnableV68PositiveThroughputExpansion)
+                return V68StageAwareFamilyConfirmation(c, s, directional, reclaim, bos, rejection, sweep,
+                    failedExtension, insidePrz, displacement, deceleration, retest, out score);
 
             switch (s.PatternName)
             {
@@ -3606,6 +3618,7 @@ namespace cAlgo.Robots
             if (!V68AbcdStandaloneEligible(c.Signal)) return false;
             var fc = V68Contract(c.Signal.PatternName);
             if (fc == null) return RouteSpecificM1EvidencePass(i, c.Signal, c.Route);
+            if (EnableV68PositiveThroughputExpansion) return c.NativeStage >= 4;
             if (c.Route == HarmonicRoute.TREND_ALIGNED_REVERSAL)
                 return c.FamilyReclaim && (c.FamilyBos || c.FamilyDisplacement);
             if (c.Route == HarmonicRoute.EXHAUSTION_REVERSAL)
@@ -3662,14 +3675,14 @@ namespace cAlgo.Robots
             double minG=.44,minP=.44,minC=.48,compositeFloor=.50;
             switch(s.PatternName)
             {
-                case "Gartley": minG=.46; minP=.46; minC=.49; compositeFloor=.51; break;
-                case "Bat": minG=.40; minP=.40; minC=.46; compositeFloor=.48; break;
-                case "Alt Bat": minG=.38; minP=.38; minC=.44; compositeFloor=.46; break;
-                case "Butterfly": minG=.42; minP=.42; minC=.46; compositeFloor=.49; break;
-                case "Crab": minG=.40; minP=.40; minC=.46; compositeFloor=.48; break;
-                case "Deep Crab": minG=.40; minP=.40; minC=.46; compositeFloor=.48; break;
-                case "Deep Gartley": minG=.43; minP=.43; minC=.47; compositeFloor=.49; break;
-                case "5-0": minG=.45; minP=.45; minC=.48; compositeFloor=.50; break;
+                case "Gartley": minG=.43; minP=.43; minC=.46; compositeFloor=.48; break;
+                case "Bat": minG=.35; minP=.35; minC=.42; compositeFloor=.44; break;
+                case "Alt Bat": minG=.30; minP=.30; minC=.38; compositeFloor=.40; break;
+                case "Butterfly": minG=.40; minP=.40; minC=.44; compositeFloor=.46; break;
+                case "Crab": minG=.35; minP=.35; minC=.42; compositeFloor=.44; break;
+                case "Deep Crab": minG=.35; minP=.35; minC=.42; compositeFloor=.44; break;
+                case "Deep Gartley": minG=.40; minP=.40; minC=.44; compositeFloor=.46; break;
+                case "5-0": minG=.70; minP=.60; minC=.70; compositeFloor=.72; break;
             }
             double composite=.40*s.GeometryQuality+.30*s.PrzConfluence+.30*s.Confidence;
             return s.GeometryQuality>=minG && s.PrzConfluence>=minP && s.Confidence>=minC && composite>=compositeFloor;
@@ -3679,26 +3692,108 @@ namespace cAlgo.Robots
             bool trendOk, bool exhaustOk, bool transitionOk)
         {
             if (s==null || r==null || c==null) return HarmonicRoute.NO_TRADE;
-            double atrFloor=.34;
-            if(r.AtrRatio<atrFloor || r.AtrRatio>c.MaxAtrRatio+.15) return HarmonicRoute.NO_TRADE;
-            bool terminalExtension=r.ExtensionAtr>=Math.Max(.80,c.ExhaustionExtensionAtr*.78) && r.AdxH1Slope<=1.00;
-            bool conflictExhaustion = conflict==MtfConflict.CONFLICT && c.AllowExhaustion && c.Role.Contains("EXTENSION") &&
-                                      terminalExtension && r.AdxH1Slope<=.50;
+            if(r.AtrRatio<.34 || r.AtrRatio>c.MaxAtrRatio+.15) return HarmonicRoute.NO_TRADE;
+
+            double familyRegime=V68FamilyRegimeScore(s, conflict, r);
+            bool terminalExtension=r.ExtensionAtr>=Math.Max(.80,c.ExhaustionExtensionAtr*.78) && r.AdxH1Slope<=.85;
+            bool conflictExhaustion=conflict==MtfConflict.CONFLICT && c.AllowExhaustion && c.Role.Contains("EXTENSION") &&
+                                    terminalExtension && r.AdxH1Slope<=.40;
             if(conflict==MtfConflict.CONFLICT && !conflictExhaustion) return HarmonicRoute.NO_TRADE;
+
             bool softTransition=r.Transition || conflict==MtfConflict.TRANSITION || r.TrendDirection==TradeDirection.Neutral ||
-                                (terminalExtension && r.AdxH1Slope<=.60);
+                                (terminalExtension && r.AdxH1Slope<=.50);
+
+            if(s.PatternName=="5-0")
+            {
+                bool selectiveTransition=conflict==MtfConflict.NEUTRAL && s.GeometryQuality>=.70 &&
+                    familyRegime>=.62 && familyRegime<=.80 && r.AdxH1Slope<=-1.0 && r.Efficiency<=.22;
+                return selectiveTransition ? HarmonicRoute.TRANSITION_REVERSAL : HarmonicRoute.NO_TRADE;
+            }
+
+            if(s.PatternName=="Gartley")
+                return trendOk ? HarmonicRoute.TREND_ALIGNED_REVERSAL : HarmonicRoute.NO_TRADE;
+
+            if(s.PatternName=="Bat")
+            {
+                if(trendOk) return HarmonicRoute.TREND_ALIGNED_REVERSAL;
+                if(c.AllowTransition && softTransition && r.Efficiency>=.10) return HarmonicRoute.TRANSITION_REVERSAL;
+                return HarmonicRoute.NO_TRADE;
+            }
+
+            if(s.PatternName=="Deep Gartley")
+            {
+                if(trendOk) return HarmonicRoute.TREND_ALIGNED_REVERSAL;
+                if(c.AllowTransition && softTransition && r.Efficiency>=.15) return HarmonicRoute.TRANSITION_REVERSAL;
+                return HarmonicRoute.NO_TRADE;
+            }
+
             if(c.Role.Contains("EXTENSION"))
             {
-                if(c.AllowExhaustion && terminalExtension) return HarmonicRoute.EXHAUSTION_REVERSAL;
-                if(c.AllowTransition && softTransition) return HarmonicRoute.TRANSITION_REVERSAL;
+                if(c.AllowExhaustion && (terminalExtension || conflictExhaustion)) return HarmonicRoute.EXHAUSTION_REVERSAL;
+                if(c.AllowTransition && softTransition && r.AdxH1Slope<=.50) return HarmonicRoute.TRANSITION_REVERSAL;
+                return HarmonicRoute.NO_TRADE;
             }
-            if(s.PatternName=="5-0" && softTransition) return HarmonicRoute.TRANSITION_REVERSAL;
-            if((s.PatternName=="Bat" || s.PatternName=="Deep Gartley") && c.AllowTransition && softTransition)
-                return HarmonicRoute.TRANSITION_REVERSAL;
+
             if(trendOk) return HarmonicRoute.TREND_ALIGNED_REVERSAL;
             if(transitionOk) return HarmonicRoute.TRANSITION_REVERSAL;
             if(exhaustOk) return HarmonicRoute.EXHAUSTION_REVERSAL;
             return HarmonicRoute.NO_TRADE;
+        }
+
+        private bool V68StageAwareFamilyConfirmation(CandidateRecord c, PatternSignal s,
+            bool directional, bool reclaim, bool bos, bool rejection, bool sweep, bool failedExtension,
+            bool insidePrz, bool displacement, bool deceleration, bool retest, out double score)
+        {
+            score=0;
+            if(c==null || s==null) return false;
+            string p=s.PatternName ?? "";
+            int prior=c.NativeStage;
+
+            if(p=="Gartley" || p=="Bat" || p=="Deep Gartley" || p=="Rat")
+            {
+                if(prior==0 && (rejection || retest)) c.NativeStage=1;
+                else if(prior==1 && reclaim) c.NativeStage=2;
+                else if(prior==2 && bos) c.NativeStage=3;
+                else if(prior==3 && directional && displacement) c.NativeStage=4;
+            }
+            else if(p=="Alt Bat" || p=="Butterfly" || p=="Crab" || p=="Deep Crab")
+            {
+                if(prior==0 && (sweep || insidePrz)) c.NativeStage=1;
+                else if(prior==1 && failedExtension) c.NativeStage=2;
+                else if(prior==2 && (reclaim || bos)) c.NativeStage=3;
+                else if(prior==3 && directional && (bos || displacement)) c.NativeStage=4;
+            }
+            else if(p=="Cypher")
+            {
+                if(prior==0 && rejection) c.NativeStage=1;
+                else if(prior==1 && reclaim) c.NativeStage=2;
+                else if(prior==2 && bos) c.NativeStage=3;
+                else if(prior==3 && displacement) c.NativeStage=4;
+            }
+            else if(p=="Shark")
+            {
+                if(prior==0 && failedExtension) c.NativeStage=1;
+                else if(prior==1 && bos) c.NativeStage=2;
+                else if(prior==2 && retest) c.NativeStage=3;
+                else if(prior==3 && directional) c.NativeStage=4;
+            }
+            else if(p=="5-0")
+            {
+                if(prior==0 && failedExtension) c.NativeStage=1;
+                else if(prior==1 && bos) c.NativeStage=2;
+                else if(prior==2 && retest) c.NativeStage=3;
+                else if(prior==3 && directional && displacement) c.NativeStage=4;
+            }
+            else if(p=="AB=CD")
+            {
+                if(prior==0 && deceleration) c.NativeStage=1;
+                else if(prior==1 && failedExtension) c.NativeStage=2;
+                else if(prior==2 && directional && displacement) c.NativeStage=3;
+                else if(prior==3 && bos) c.NativeStage=4;
+            }
+
+            score=c.NativeStage/4.0;
+            return c.NativeStage>=4;
         }
 
         private bool V68RecoveryConfirmationPass(CandidateRecord c, out double score)
@@ -3760,18 +3855,18 @@ namespace cAlgo.Robots
         private void BuildV68FamilyGridAtlas()
         {
             _familyGridAtlas.Clear();
-            AddV68Grid("Gartley","D_STOP",.82,90,.50,new[]{0.0,.18,.32,.50},new[]{.40,.30,.20,.10},new double[0],new double[0],new[]{0.0,.18,.32},new[]{.50,.30,.20});
-            AddV68Grid("Bat","CD",.42,105,.50,new[]{0.0,.15,.30,.50},new[]{.38,.30,.20,.12},new double[0],new double[0],new[]{0.0,.15,.30},new[]{.50,.30,.20});
+            AddV68Grid("Gartley","RISK",1.00,90,.50,new[]{0.0,.236,.382,.618},new[]{.40,.30,.20,.10},new double[0],new double[0],new[]{0.0,.236,.382},new[]{.50,.30,.20});
+            AddV68Grid("Bat","RISK",.95,105,.50,new[]{0.0,.236,.382,.618},new[]{.40,.30,.20,.10},new double[0],new double[0],new[]{0.0,.236,.382},new[]{.50,.30,.20});
             AddV68Grid("Alt Bat","CD",.38,90,.42,new double[0],new double[0],new[]{0.0,.118,.236},new[]{.55,.30,.15},new[]{0.0,.118,.236},new[]{.55,.30,.15});
             AddV68Grid("Butterfly","CD",.34,90,.42,new double[0],new double[0],new[]{0.0,.118,.236,.382},new[]{.50,.28,.14,.08},new[]{0.0,.118,.236},new[]{.55,.30,.15});
             AddV68Grid("Crab","CD",.28,75,.38,new double[0],new double[0],new[]{0.0,.10,.20},new[]{.60,.28,.12},new[]{0.0,.10,.20},new[]{.60,.28,.12});
             AddV68Grid("Deep Crab","CD",.24,75,.35,new double[0],new double[0],new[]{0.0,.08,.18},new[]{.65,.25,.10},new[]{0.0,.08,.18},new[]{.65,.25,.10});
-            AddV68Grid("Deep Gartley","CD",.40,105,.50,new[]{0.0,.18,.32},new[]{.50,.30,.20},new double[0],new double[0],new[]{0.0,.18,.32},new[]{.50,.30,.20});
+            AddV68Grid("Deep Gartley","RISK",.95,105,.50,new[]{0.0,.236,.382},new[]{.50,.30,.20},new double[0],new double[0],new[]{0.0,.236,.382},new[]{.50,.30,.20});
             AddV68Grid("Rat","D_STOP",.78,90,.50,new[]{0.0,.18,.382},new[]{.45,.35,.20},new double[0],new double[0],new[]{0.0,.18,.30},new[]{.50,.30,.20});
-            AddV68Grid("Cypher","XC",.236,90,.50,new[]{0.0,.236,.382},new[]{.50,.30,.20},new[]{0.0,.236},new[]{.65,.35},new[]{0.0,.236,.382},new[]{.50,.30,.20});
-            AddV68Grid("Shark","XC",.18,75,.42,new[]{0.0,.236},new[]{.65,.35},new[]{0.0,.118,.236},new[]{.60,.25,.15},new[]{0.0,.236},new[]{.65,.35});
-            AddV68Grid("5-0","BC",.236,90,.42,new double[0],new double[0],new[]{0.0,.118,.236},new[]{.60,.25,.15},new[]{0.0,.18,.382},new[]{.50,.30,.20});
-            AddV68Grid("AB=CD","AB",.236,60,.50,new[]{0.0,.118,.236},new[]{.65,.25,.10},new double[0],new double[0],new[]{0.0,.118,.236},new[]{.65,.25,.10});
+            AddV68Grid("Cypher","RISK",.90,90,.50,new[]{0.0,.236,.382},new[]{.50,.33,.17},new[]{0.0,.236},new[]{.65,.35},new[]{0.0,.236,.382},new[]{.50,.33,.17});
+            AddV68Grid("Shark","RISK",.85,75,.42,new[]{0.0,.236},new[]{.65,.35},new[]{0.0,.236},new[]{.65,.35},new[]{0.0,.236},new[]{.65,.35});
+            AddV68Grid("5-0","RISK",.90,75,.42,new double[0],new double[0],new double[0],new double[0],new[]{0.0,.236},new[]{.70,.30});
+            AddV68Grid("AB=CD","RISK",1.00,90,.50,new[]{0.0,.236,.382,.618},new[]{.428571,.285714,.142857,.142858},new double[0],new double[0],new[]{0.0,.236,.382},new[]{.50,.30,.20});
         }
 
         private void AddV68Grid(string name,string geometryBasis,double scale,int ttl,double cancelMfe,
@@ -3806,7 +3901,8 @@ namespace cAlgo.Robots
         {
             if(c==null||c.Signal==null||m==null)return 0;
             var x=c.Signal;double raw=0;
-            if(m.GeometryBasis=="D_STOP")raw=Math.Abs(x.D.Price-x.StructuralInvalidation);
+            if(m.GeometryBasis=="RISK") raw=risk;
+            else if(m.GeometryBasis=="D_STOP")raw=Math.Abs(x.D.Price-x.StructuralInvalidation);
             else if(m.GeometryBasis=="CD")raw=Math.Abs(x.C.Price-x.D.Price);
             else if(m.GeometryBasis=="XC")raw=Math.Abs(x.X.Price-x.C.Price);
             else if(m.GeometryBasis=="BC")raw=Math.Abs(x.B.Price-x.C.Price);
@@ -4298,6 +4394,28 @@ namespace cAlgo.Robots
         {
             if (i < 0 || i >= _m1Bars.Count) return false;
             return _m1Bars.HighPrices[i] >= s.PrzLow && _m1Bars.LowPrices[i] <= s.PrzHigh;
+        }
+
+        private bool V68FamilyActivationTouch(int i, CandidateRecord c)
+        {
+            if (i < 0 || i >= _m1Bars.Count || c == null || c.Signal == null) return false;
+            var s=c.Signal;
+            if (BarTouchesPrz(i,s)) return true;
+            if (!V68IsSupplyRecoveryFamily(s.PatternName)) return false;
+
+            double atr=Atr(_m1Bars,14,i);
+            double structural=Math.Abs(s.D.Price-s.StructuralInvalidation);
+            double factor=(s.PatternName=="Crab" || s.PatternName=="Deep Crab")?.24:
+                          (s.PatternName=="Alt Bat" || s.PatternName=="Butterfly")?.22:
+                          (s.PatternName=="Bat" || s.PatternName=="Deep Gartley")?.16:.12;
+            double tol=Math.Max(atr*.18,structural*factor);
+            double low=Math.Min(s.PrzLow,s.PrzHigh)-tol;
+            double high=Math.Max(s.PrzLow,s.PrzHigh)+tol;
+            bool touch=_m1Bars.HighPrices[i]>=low && _m1Bars.LowPrices[i]<=high;
+            if(touch)
+                Print("[V68-FAMILY-ACTIVATION-CORRIDOR] cid={0} pattern={1} tol={2:F5} przLow={3} przHigh={4}",
+                    c.CandidateId,s.PatternName,tol,s.PrzLow,s.PrzHigh);
+            return touch;
         }
 
         private double M1ConfirmationScore(int i, PatternSignal s)
