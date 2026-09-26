@@ -79,11 +79,14 @@ rows=[]
 for basket,z in groups.items():
     bm=basket_meta.get(basket,{})
     cl=close_meta.get(basket,{})
-    cid=z["cid"] or cl.get("cid","") or bm.get("cid","")
+    # Broker history is authoritative for P/L and basket existence. Attribution telemetry is
+    # authoritative for family/route because cTrader order comments may be length-truncated
+    # (e.g. "Deep Gartley" observed as "Dee"). Never let a truncated comment override telemetry.
+    cid=cl.get("cid","") or bm.get("cid","") or z["cid"]
     cm=cid_meta.get(cid,{})
     z["cid"]=cid
-    z["pattern"]=z["pattern"] or cl.get("pattern","") or bm.get("pattern","") or cm.get("pattern","") or "UNKNOWN"
-    z["route"]=z["route"] or cl.get("route","") or bm.get("route","") or cm.get("route","") or "UNKNOWN"
+    z["pattern"]=cl.get("pattern","") or bm.get("pattern","") or cm.get("pattern","") or z["pattern"] or "UNKNOWN"
+    z["route"]=cl.get("route","") or bm.get("route","") or cm.get("route","") or z["route"] or "UNKNOWN"
     z["setup"]=cl.get("setup","") or cm.get("setup","") or ("BASKET:"+basket)
     z["subtype"]=cl.get("subtype","") or cm.get("subtype","") or z["pattern"]
     z["direction"]=z["direction"] or cl.get("direction","") or cm.get("direction","")
