@@ -1517,10 +1517,21 @@ namespace cAlgo.Robots
             double l0Worst = volume * _symbol.PipValue * (slPips + ModeledCostPips());
             if (otherWorst + l0Worst > plan.BasketRiskAmount + 1e-8)
             {
+                foreach (var trim in plan.Legs.Where(x => x.Index != 0 && x.Physical).OrderByDescending(x => x.Index).ToList())
+                {
+                    trim.Physical=false; trim.Volume=0; trim.PlannedRisk=0; trim.ModeledCost=0; trim.State=GridLegState.VIRTUAL_ONLY;
+                    otherWorst=plan.Legs.Where(x => x.Index != 0 && x.Physical).Sum(x => x.PlannedRisk + x.ModeledCost);
+                    if(otherWorst+l0Worst<=plan.BasketRiskAmount+1e-8) break;
+                }
+                plan.PhysicalDepth=1+plan.Legs.Count(x=>x.Index!=0 && x.Physical);
+                plan.WorstCaseRisk=otherWorst+l0Worst;
+            }
+            if (otherWorst + l0Worst > plan.BasketRiskAmount + 1e-8)
+            {
                 _gridRiskViolations++;
                 basket.State = FibonacciBasketState.RISK_REJECTED;
                 basket.IsActive = false;
-                Reject(c, "L0_SLIPPAGE_RISK_RECHECK");
+                Reject(c, "L0_STRESSED_RISK_RECHECK");
                 return;
             }
 
@@ -3366,7 +3377,10 @@ namespace cAlgo.Robots
         private int V68FamilyConfirmationWindow(PatternSignal s)
         {
             var c = s == null ? null : V68Contract(s.PatternName);
-            return Math.Max(4, c == null ? FamilyConfirmationWindowBars : c.ConfirmationWindowBars);
+            int bars = Math.Max(4, c == null ? FamilyConfirmationWindowBars : c.ConfirmationWindowBars);
+            if (EnableV68PositiveThroughputExpansion && s != null && V68IsSupplyRecoveryFamily(s.PatternName))
+                bars = Math.Max(bars, (s.PatternName=="Alt Bat" || s.PatternName=="Butterfly" || s.PatternName=="Crab" || s.PatternName=="Deep Crab") ? 10 : 9);
+            return bars;
         }
 
         private bool V68FamilyQualityPass(PatternSignal s)
@@ -3443,8 +3457,12 @@ namespace cAlgo.Robots
                 DetectorTruth(s.PatternName, "V68_ABCD_CONFLUENCE_ONLY");
                 return HarmonicRoute.NO_TRADE;
             }
-            if (conflict == MtfConflict.CONFLICT && s.PatternName != "Shark") return HarmonicRoute.NO_TRADE;
-            if (r.AtrRatio < .45 || r.AtrRatio > c.MaxAtrRatio) return HarmonicRoute.NO_TRADE;
+            bool recoveryConflictCandidate = EnableV68PositiveThroughputExpansion && V68IsSupplyRecoveryFamily(s.PatternName) &&
+                c.AllowExhaustion && c.Role.Contains("EXTENSION");
+            if (conflict == MtfConflict.CONFLICT && s.PatternName != "Shark" && !recoveryConflictCandidate)
+                return HarmonicRoute.NO_TRADE;
+            if (r.AtrRatio < (EnableV68PositiveThroughputExpansion ? .34 : .45) || r.AtrRatio > c.MaxAtrRatio + (EnableV68PositiveThroughputExpansion ? .15 : 0))
+                return HarmonicRoute.NO_TRADE;
 
             bool aligned = r.TrendDirection == s.Direction &&
                            (conflict == MtfConflict.ALIGNED || conflict == MtfConflict.SUPPORTED || conflict == MtfConflict.NEUTRAL);
@@ -3641,17 +3659,17 @@ namespace cAlgo.Robots
         private bool V68RecoveryQualityPass(PatternSignal s, FamilyTradeContract c)
         {
             if (s == null || c == null) return false;
-            double minG=.46,minP=.46,minC=.50,compositeFloor=.52;
+            double minG=.44,minP=.44,minC=.48,compositeFloor=.50;
             switch(s.PatternName)
             {
-                case "Gartley": minG=.48; minP=.48; minC=.50; compositeFloor=.53; break;
-                case "Bat": minG=.45; minP=.45; minC=.49; compositeFloor=.51; break;
-                case "Alt Bat": minG=.44; minP=.44; minC=.48; compositeFloor=.50; break;
-                case "Butterfly": minG=.47; minP=.47; minC=.50; compositeFloor=.52; break;
-                case "Crab": minG=.44; minP=.44; minC=.49; compositeFloor=.51; break;
-                case "Deep Crab": minG=.44; minP=.44; minC=.49; compositeFloor=.51; break;
-                case "Deep Gartley": minG=.47; minP=.47; minC=.50; compositeFloor=.52; break;
-                case "5-0": minG=.48; minP=.48; minC=.51; compositeFloor=.53; break;
+                case "Gartley": minG=.46; minP=.46; minC=.49; compositeFloor=.51; break;
+                case "Bat": minG=.40; minP=.40; minC=.46; compositeFloor=.48; break;
+                case "Alt Bat": minG=.38; minP=.38; minC=.44; compositeFloor=.46; break;
+                case "Butterfly": minG=.42; minP=.42; minC=.46; compositeFloor=.49; break;
+                case "Crab": minG=.40; minP=.40; minC=.46; compositeFloor=.48; break;
+                case "Deep Crab": minG=.40; minP=.40; minC=.46; compositeFloor=.48; break;
+                case "Deep Gartley": minG=.43; minP=.43; minC=.47; compositeFloor=.49; break;
+                case "5-0": minG=.45; minP=.45; minC=.48; compositeFloor=.50; break;
             }
             double composite=.40*s.GeometryQuality+.30*s.PrzConfluence+.30*s.Confidence;
             return s.GeometryQuality>=minG && s.PrzConfluence>=minP && s.Confidence>=minC && composite>=compositeFloor;
@@ -3661,12 +3679,14 @@ namespace cAlgo.Robots
             bool trendOk, bool exhaustOk, bool transitionOk)
         {
             if (s==null || r==null || c==null) return HarmonicRoute.NO_TRADE;
-            if (conflict==MtfConflict.CONFLICT) return HarmonicRoute.NO_TRADE;
             double atrFloor=.34;
             if(r.AtrRatio<atrFloor || r.AtrRatio>c.MaxAtrRatio+.15) return HarmonicRoute.NO_TRADE;
-            bool terminalExtension=r.ExtensionAtr>=Math.Max(.85,c.ExhaustionExtensionAtr*.82) && r.AdxH1Slope<=1.00;
+            bool terminalExtension=r.ExtensionAtr>=Math.Max(.80,c.ExhaustionExtensionAtr*.78) && r.AdxH1Slope<=1.00;
+            bool conflictExhaustion = conflict==MtfConflict.CONFLICT && c.AllowExhaustion && c.Role.Contains("EXTENSION") &&
+                                      terminalExtension && r.AdxH1Slope<=.50;
+            if(conflict==MtfConflict.CONFLICT && !conflictExhaustion) return HarmonicRoute.NO_TRADE;
             bool softTransition=r.Transition || conflict==MtfConflict.TRANSITION || r.TrendDirection==TradeDirection.Neutral ||
-                                (terminalExtension && r.AdxH1Slope<=.50);
+                                (terminalExtension && r.AdxH1Slope<=.60);
             if(c.Role.Contains("EXTENSION"))
             {
                 if(c.AllowExhaustion && terminalExtension) return HarmonicRoute.EXHAUSTION_REVERSAL;
@@ -3714,25 +3734,27 @@ namespace cAlgo.Robots
             if(p=="Alt Bat" || p=="Butterfly" || p=="Crab" || p=="Deep Crab")
             {
                 score=terminal/6.0;
-                return terminal>=3 && (c.FamilySweep || c.FamilyFailedExtension) && (c.FamilyBos || c.FamilyDisplacement || c.FamilyReclaim);
+                return terminal>=2 && (c.FamilySweep || c.FamilyFailedExtension || c.FamilyInsidePrz) &&
+                       (c.FamilyBos || c.FamilyDisplacement || c.FamilyReclaim || c.FamilyDirectional);
             }
             if(p=="5-0")
             {
                 score=transition/5.0;
-                return transition>=3 && c.FamilyDirectional && (c.FamilyBos || c.FamilyRetest);
+                return transition>=2 && (c.FamilyDirectional || c.FamilyRetest) && (c.FamilyBos || c.FamilyDisplacement || c.FamilyReclaim);
             }
             return false;
         }
 
         private double V68ActivationDriftRisk(string pattern, HarmonicRoute route)
         {
-            if(pattern=="Crab" || pattern=="Deep Crab") return .18;
-            if(pattern=="Butterfly" || pattern=="Alt Bat") return .22;
-            if(pattern=="Shark") return route==HarmonicRoute.EXHAUSTION_REVERSAL ? .20 : .25;
-            if(pattern=="Cypher") return .28;
-            if(pattern=="AB=CD") return .22;
-            if(pattern=="5-0") return .25;
-            return .30;
+            if(pattern=="Crab" || pattern=="Deep Crab") return .38;
+            if(pattern=="Butterfly" || pattern=="Alt Bat") return .40;
+            if(pattern=="Bat" || pattern=="Deep Gartley") return .40;
+            if(pattern=="Shark") return route==HarmonicRoute.EXHAUSTION_REVERSAL ? .32 : .35;
+            if(pattern=="Cypher") return .35;
+            if(pattern=="AB=CD") return .28;
+            if(pattern=="5-0") return .35;
+            return .40;
         }
 
         private void BuildV68FamilyGridAtlas()
@@ -3828,8 +3850,8 @@ namespace cAlgo.Robots
             double tol=Math.Max(przWidth*.65,unit*.22);
             double legalLow=Math.Min(c.Signal.PrzLow,c.Signal.PrzHigh)-tol;
             double legalHigh=Math.Max(c.Signal.PrzLow,c.Signal.PrzHigh)+tol;
-            double przMid=(c.Signal.PrzLow+c.Signal.PrzHigh)*.5;
-            double activationDrift=Math.Abs(anchor-przMid);
+            double nearestPrz = anchor < legalLow ? legalLow : (anchor > legalHigh ? legalHigh : anchor);
+            double activationDrift=Math.Abs(anchor-nearestPrz);
             double activationLimit=Math.Max(tol,riskDistance*V68ActivationDriftRisk(c.Signal.PatternName,c.Route));
             bool l0ActivationLegal=activationDrift<=activationLimit;
             int maxLegs=Math.Min(4,fractions.Length);
