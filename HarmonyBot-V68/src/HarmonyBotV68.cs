@@ -3900,7 +3900,10 @@ namespace cAlgo.Robots
         private double V68GridExecutionUnit(CandidateRecord c,FamilyGridModule m)
         {
             if(c==null||c.Signal==null||m==null)return 0;
-            var x=c.Signal;double raw=0;
+            var x=c.Signal;
+            double anchor=x.Direction==TradeDirection.Buy?_symbol.Ask:_symbol.Bid;
+            double risk=Math.Abs(anchor-x.StructuralInvalidation);
+            double raw=0;
             if(m.GeometryBasis=="RISK") raw=risk;
             else if(m.GeometryBasis=="D_STOP")raw=Math.Abs(x.D.Price-x.StructuralInvalidation);
             else if(m.GeometryBasis=="CD")raw=Math.Abs(x.C.Price-x.D.Price);
@@ -3909,8 +3912,6 @@ namespace cAlgo.Robots
             else if(m.GeometryBasis=="AB")raw=Math.Abs(x.A.Price-x.B.Price);
             else if(m.GeometryBasis=="XA")raw=Math.Abs(x.X.Price-x.A.Price);
             double prz=Math.Abs(x.PrzHigh-x.PrzLow);
-            double anchor=x.Direction==TradeDirection.Buy?_symbol.Ask:_symbol.Bid;
-            double risk=Math.Abs(anchor-x.StructuralInvalidation);
             double unit=Math.Max(prz*.65,raw*Math.Max(.05,m.GeometryScale));
             if(risk>0)unit=Math.Min(unit,risk*.88);
             return unit;
