@@ -1699,7 +1699,8 @@ namespace cAlgo.Robots
         private double VolumeForRiskBudget(double riskBudget, double slPips)
         {
             if (riskBudget <= 0 || slPips <= 0 || _symbol.PipValue <= 0) return 0;
-            double raw = riskBudget / (slPips * _symbol.PipValue);
+            double stressedPips = slPips + ModeledCostPips();
+            double raw = riskBudget / (stressedPips * _symbol.PipValue);
             if (double.IsNaN(raw) || double.IsInfinity(raw) || raw <= 0) return 0;
             double v = _symbol.NormalizeVolumeInUnits(raw, RoundingMode.Down);
             if (v < _symbol.VolumeInUnitsMin) return 0;
@@ -3376,16 +3377,11 @@ namespace cAlgo.Robots
                 return s.GeometryQuality >= Math.Max(MinGeometryQuality, s.Profile.MinGeometry) &&
                        s.PrzConfluence >= Math.Max(MinPrzConfluence, s.Profile.MinPrz);
             double confFloor = c.MinConfidence;
-            double minGeometry = c.MinGeometry, minPrz = c.MinPrz;
             if (EnableV68PositiveThroughputExpansion && V68IsSupplyRecoveryFamily(s.PatternName))
-            {
-                minGeometry = Math.Max(.48, minGeometry - .03);
-                minPrz = Math.Max(.48, minPrz - .03);
-                confFloor = Math.Max(.52, confFloor - .02);
-            }
+                return V68RecoveryQualityPass(s, c);
             if (EnableV68ControlledExpansion && s.PatternName == "AB=CD" && s.HarmonicSubtype == "ABCD_NEAR_127")
                 return s.GeometryQuality >= .72 && s.PrzConfluence >= .72 && s.Confidence >= .68;
-            return s.GeometryQuality >= minGeometry && s.PrzConfluence >= minPrz && s.Confidence >= confFloor;
+            return s.GeometryQuality >= c.MinGeometry && s.PrzConfluence >= c.MinPrz && s.Confidence >= confFloor;
         }
 
         private bool V68AbcdStandaloneEligible(PatternSignal s)
@@ -3468,6 +3464,12 @@ namespace cAlgo.Robots
                 if (s.PatternName == "AB=CD") exhaustOk = false;
             }
 
+            if (EnableV68PositiveThroughputExpansion && V68IsSupplyRecoveryFamily(s.PatternName))
+            {
+                HarmonicRoute recovered = V68RecoveryRoute(s, conflict, r, c, trendOk, exhaustOk, transitionOk);
+                if (recovered != HarmonicRoute.NO_TRADE) return recovered;
+            }
+
             if (s.PatternName == "Shark" || s.PatternName == "Cypher")
             {
                 if (trendOk) return HarmonicRoute.TREND_ALIGNED_REVERSAL;
@@ -3526,6 +3528,16 @@ namespace cAlgo.Robots
             c.FamilyRejection |= rejection; c.FamilySweep |= sweep; c.FamilyFailedExtension |= failedExtension;
             c.FamilyInsidePrz |= insidePrz; c.FamilyDisplacement |= displacement; c.FamilyRetest |= retest;
             c.FamilyDeceleration |= deceleration;
+
+            if (EnableV68PositiveThroughputExpansion && V68IsSupplyRecoveryFamily(s.PatternName))
+            {
+                double recoveryScore;
+                if (V68RecoveryConfirmationPass(c, out recoveryScore))
+                {
+                    score = Math.Max(score, recoveryScore);
+                    return true;
+                }
+            }
 
             switch (s.PatternName)
             {
@@ -3626,6 +3638,103 @@ namespace cAlgo.Robots
                    pattern == "Crab" || pattern == "Deep Crab" || pattern == "Deep Gartley" || pattern == "5-0";
         }
 
+        private bool V68RecoveryQualityPass(PatternSignal s, FamilyTradeContract c)
+        {
+            if (s == null || c == null) return false;
+            double minG=.46,minP=.46,minC=.50,compositeFloor=.52;
+            switch(s.PatternName)
+            {
+                case "Gartley": minG=.48; minP=.48; minC=.50; compositeFloor=.53; break;
+                case "Bat": minG=.45; minP=.45; minC=.49; compositeFloor=.51; break;
+                case "Alt Bat": minG=.44; minP=.44; minC=.48; compositeFloor=.50; break;
+                case "Butterfly": minG=.47; minP=.47; minC=.50; compositeFloor=.52; break;
+                case "Crab": minG=.44; minP=.44; minC=.49; compositeFloor=.51; break;
+                case "Deep Crab": minG=.44; minP=.44; minC=.49; compositeFloor=.51; break;
+                case "Deep Gartley": minG=.47; minP=.47; minC=.50; compositeFloor=.52; break;
+                case "5-0": minG=.48; minP=.48; minC=.51; compositeFloor=.53; break;
+            }
+            double composite=.40*s.GeometryQuality+.30*s.PrzConfluence+.30*s.Confidence;
+            return s.GeometryQuality>=minG && s.PrzConfluence>=minP && s.Confidence>=minC && composite>=compositeFloor;
+        }
+
+        private HarmonicRoute V68RecoveryRoute(PatternSignal s, MtfConflict conflict, RegimeSnapshot r, FamilyTradeContract c,
+            bool trendOk, bool exhaustOk, bool transitionOk)
+        {
+            if (s==null || r==null || c==null) return HarmonicRoute.NO_TRADE;
+            if (conflict==MtfConflict.CONFLICT) return HarmonicRoute.NO_TRADE;
+            double atrFloor=.34;
+            if(r.AtrRatio<atrFloor || r.AtrRatio>c.MaxAtrRatio+.15) return HarmonicRoute.NO_TRADE;
+            bool terminalExtension=r.ExtensionAtr>=Math.Max(.85,c.ExhaustionExtensionAtr*.82) && r.AdxH1Slope<=1.00;
+            bool softTransition=r.Transition || conflict==MtfConflict.TRANSITION || r.TrendDirection==TradeDirection.Neutral ||
+                                (terminalExtension && r.AdxH1Slope<=.50);
+            if(c.Role.Contains("EXTENSION"))
+            {
+                if(c.AllowExhaustion && terminalExtension) return HarmonicRoute.EXHAUSTION_REVERSAL;
+                if(c.AllowTransition && softTransition) return HarmonicRoute.TRANSITION_REVERSAL;
+            }
+            if(s.PatternName=="5-0" && softTransition) return HarmonicRoute.TRANSITION_REVERSAL;
+            if((s.PatternName=="Bat" || s.PatternName=="Deep Gartley") && c.AllowTransition && softTransition)
+                return HarmonicRoute.TRANSITION_REVERSAL;
+            if(trendOk) return HarmonicRoute.TREND_ALIGNED_REVERSAL;
+            if(transitionOk) return HarmonicRoute.TRANSITION_REVERSAL;
+            if(exhaustOk) return HarmonicRoute.EXHAUSTION_REVERSAL;
+            return HarmonicRoute.NO_TRADE;
+        }
+
+        private bool V68RecoveryConfirmationPass(CandidateRecord c, out double score)
+        {
+            score=0;
+            if(c==null || c.Signal==null) return false;
+            int core=0;
+            if(c.FamilyReclaim) core++;
+            if(c.FamilyRejection) core++;
+            if(c.FamilyBos) core++;
+            if(c.FamilyDisplacement) core++;
+            if(c.FamilyDirectional) core++;
+            int terminal=0;
+            if(c.FamilySweep) terminal++;
+            if(c.FamilyFailedExtension) terminal++;
+            if(c.FamilyRejection) terminal++;
+            if(c.FamilyBos) terminal++;
+            if(c.FamilyDisplacement) terminal++;
+            if(c.FamilyInsidePrz) terminal++;
+            int transition=0;
+            if(c.FamilyFailedExtension) transition++;
+            if(c.FamilyBos) transition++;
+            if(c.FamilyRetest) transition++;
+            if(c.FamilyDirectional) transition++;
+            if(c.FamilyReclaim) transition++;
+
+            string p=c.Signal.PatternName;
+            if(p=="Gartley" || p=="Bat" || p=="Deep Gartley")
+            {
+                score=core/5.0;
+                return core>=3 && (c.FamilyReclaim || c.FamilyRejection) && (c.FamilyBos || c.FamilyDisplacement);
+            }
+            if(p=="Alt Bat" || p=="Butterfly" || p=="Crab" || p=="Deep Crab")
+            {
+                score=terminal/6.0;
+                return terminal>=3 && (c.FamilySweep || c.FamilyFailedExtension) && (c.FamilyBos || c.FamilyDisplacement || c.FamilyReclaim);
+            }
+            if(p=="5-0")
+            {
+                score=transition/5.0;
+                return transition>=3 && c.FamilyDirectional && (c.FamilyBos || c.FamilyRetest);
+            }
+            return false;
+        }
+
+        private double V68ActivationDriftRisk(string pattern, HarmonicRoute route)
+        {
+            if(pattern=="Crab" || pattern=="Deep Crab") return .18;
+            if(pattern=="Butterfly" || pattern=="Alt Bat") return .22;
+            if(pattern=="Shark") return route==HarmonicRoute.EXHAUSTION_REVERSAL ? .20 : .25;
+            if(pattern=="Cypher") return .28;
+            if(pattern=="AB=CD") return .22;
+            if(pattern=="5-0") return .25;
+            return .30;
+        }
+
         private void BuildV68FamilyGridAtlas()
         {
             _familyGridAtlas.Clear();
@@ -3637,8 +3746,8 @@ namespace cAlgo.Robots
             AddV68Grid("Deep Crab","CD",.24,75,.35,new double[0],new double[0],new[]{0.0,.08,.18},new[]{.65,.25,.10},new[]{0.0,.08,.18},new[]{.65,.25,.10});
             AddV68Grid("Deep Gartley","CD",.40,105,.50,new[]{0.0,.18,.32},new[]{.50,.30,.20},new double[0],new double[0],new[]{0.0,.18,.32},new[]{.50,.30,.20});
             AddV68Grid("Rat","D_STOP",.78,90,.50,new[]{0.0,.18,.382},new[]{.45,.35,.20},new double[0],new double[0],new[]{0.0,.18,.30},new[]{.50,.30,.20});
-            AddV68Grid("Cypher","XC",.236,90,.50,new[]{0.0,.146,.30},new[]{.50,.30,.20},new[]{0.0,.118,.236},new[]{.55,.30,.15},new[]{0.0,.146,.30},new[]{.50,.30,.20});
-            AddV68Grid("Shark","XC",.18,75,.38,new[]{0.0,.10,.236},new[]{.55,.30,.15},new[]{0.0,.08,.18},new[]{.65,.25,.10},new[]{0.0,.10,.236},new[]{.55,.30,.15});
+            AddV68Grid("Cypher","XC",.236,90,.50,new[]{0.0,.236,.382},new[]{.50,.30,.20},new[]{0.0,.236},new[]{.65,.35},new[]{0.0,.236,.382},new[]{.50,.30,.20});
+            AddV68Grid("Shark","XC",.18,75,.42,new[]{0.0,.236},new[]{.65,.35},new[]{0.0,.118,.236},new[]{.60,.25,.15},new[]{0.0,.236},new[]{.65,.35});
             AddV68Grid("5-0","BC",.236,90,.42,new double[0],new double[0],new[]{0.0,.118,.236},new[]{.60,.25,.15},new[]{0.0,.18,.382},new[]{.50,.30,.20});
             AddV68Grid("AB=CD","AB",.236,60,.50,new[]{0.0,.118,.236},new[]{.65,.25,.10},new double[0],new double[0],new[]{0.0,.118,.236},new[]{.65,.25,.10});
         }
@@ -3719,6 +3828,10 @@ namespace cAlgo.Robots
             double tol=Math.Max(przWidth*.65,unit*.22);
             double legalLow=Math.Min(c.Signal.PrzLow,c.Signal.PrzHigh)-tol;
             double legalHigh=Math.Max(c.Signal.PrzLow,c.Signal.PrzHigh)+tol;
+            double przMid=(c.Signal.PrzLow+c.Signal.PrzHigh)*.5;
+            double activationDrift=Math.Abs(anchor-przMid);
+            double activationLimit=Math.Max(tol,riskDistance*V68ActivationDriftRisk(c.Signal.PatternName,c.Route));
+            bool l0ActivationLegal=activationDrift<=activationLimit;
             int maxLegs=Math.Min(4,fractions.Length);
 
             for(int leg=0;leg<maxLegs;leg++)
@@ -3726,7 +3839,11 @@ namespace cAlgo.Robots
                 double f=fractions[leg],w=weights[leg];
                 if(f<0||f>.6180001||w<=0)continue;
                 double price=c.Signal.Direction==TradeDirection.Buy?anchor-f*unit:anchor+f*unit;
-                if(price<legalLow||price>legalHigh)continue;
+                if(leg==0)
+                {
+                    if(!l0ActivationLegal)continue;
+                }
+                else if(price<legalLow||price>legalHigh)continue;
                 if(c.Signal.Direction==TradeDirection.Buy&&price<=stop+_symbol.TickSize)continue;
                 if(c.Signal.Direction==TradeDirection.Sell&&price>=stop-_symbol.TickSize)continue;
                 double slPips=PriceToPips(Math.Abs(price-stop));
