@@ -33,3 +33,4 @@ N="V67-$VAR-$WIN-B10000"
 python3 "$C/HarmonyBot-V67/tools/audit_report.py" --report "$W/seal/reports/$N.json" --log "$W/seal/logs/$N.log" \
  --out "$O/$VAR-$WIN.json" --window "$WIN" --family "$VAR" --years "$YEARS" --balance 10000
 cp "$W/seal/logs/$N.log" "$O/raw-logs/$N.log"
+cp "$W/seal/reports/$N.json" "$O/raw-report.json"
