@@ -9,11 +9,14 @@ DST="$C/HarmonyBot-V68/output-A_V52_EXACT_CONTROL-$WIN"
 TMP="$C/HarmonyBot-V68/control-stability-$WIN"
 rm -rf "$DST" "$TMP"; mkdir -p "$DST/raw-logs" "$TMP"
 
-# Two identical immutable-control runs on the same runner are required. If their basket
-# outcomes differ, the broker/history source is not deterministic enough for causal use.
+# Two isolated immutable-control runs on the same runner are required. The V52 runner
+# keeps per-window output state, so each replicate must start from a clean output directory;
+# otherwise replicate #2 can be an empty no-op and falsely trip the dataset-stability veto.
+rm -rf "$SRC"
 "$C/HarmonyBot-V52/tools/run_window.sh" FAMILY_IDENTITY_RECONSTRUCTION "$WIN" "$START" "$EVAL" "$END"
 cp "$SRC/FAMILY_IDENTITY_RECONSTRUCTION-$WIN.json" "$TMP/R1.json"
 
+rm -rf "$SRC"
 "$C/HarmonyBot-V52/tools/run_window.sh" FAMILY_IDENTITY_RECONSTRUCTION "$WIN" "$START" "$EVAL" "$END"
 cp "$SRC/FAMILY_IDENTITY_RECONSTRUCTION-$WIN.json" "$TMP/R2.json"
 
