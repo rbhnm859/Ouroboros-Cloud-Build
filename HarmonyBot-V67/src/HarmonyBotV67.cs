@@ -10,7 +10,7 @@ namespace cAlgo.Robots
     [Robot(TimeZone = TimeZones.UTC, AccessRights = AccessRights.None)]
     public class HarmonyBotV67 : Robot
     {
-        private const string Version = "HarmonyBot V52 — Harmonic Family Identity & Detection Graph Reconstruction Kernel";
+        private const string Version = "HarmonyBot V67 — V52 Throughput Core Family-Native Grid Commercial Rebase";
         private const string BotPrefix = "HB67";
 
         [Parameter("Symbol", DefaultValue = "XAUUSD")]
@@ -760,7 +760,7 @@ namespace cAlgo.Robots
                     double legacyScore = M1ConfirmationScore(i, c.Signal);
                     c.ConfirmationScore = legacyScore;
                     double legacyRequired = c.Route == HarmonicRoute.EXHAUSTION_REVERSAL ? 0.75 : 0.60;
-                    bool familyContractLane = EnableFamilyCompletionContract && IsFamilyCompletionLane(c.Signal.PatternName);
+                    bool familyContractLane = (V67ProductEnabled() && EnableV67FamilyNativeCompletion && IsFamilyCompletionLane(c.Signal.PatternName)) ||\n                                             (EnableFamilyCompletionContract && IsFamilyCompletionLane(c.Signal.PatternName));
                     bool confirmationPass = false;
 
                     if (familyContractLane)
