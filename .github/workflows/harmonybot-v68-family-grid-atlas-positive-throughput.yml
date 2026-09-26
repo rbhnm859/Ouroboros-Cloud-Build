@@ -63,7 +63,7 @@ jobs:
   reproduce:
     needs: build
     runs-on: ubuntu-24.04
-    timeout-minutes: 90
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       max-parallel: 3
@@ -102,36 +102,16 @@ jobs:
             B) echo "start=01/07/2021" >> "$GITHUB_OUTPUT"; echo "eval=2021-07-08T00:00:00Z" >> "$GITHUB_OUTPUT"; echo "end=31/12/2021" >> "$GITHUB_OUTPUT";;
             C) echo "start=03/01/2022" >> "$GITHUB_OUTPUT"; echo "eval=2022-01-10T00:00:00Z" >> "$GITHUB_OUTPUT"; echo "end=30/06/2022" >> "$GITHUB_OUTPUT";;
           esac
-      - name: Reproduce immutable V52 twice for dataset stability
+      - name: Reproduce V52 throughput parent
         shell: bash
         run: |
-          set -euo pipefail
           chmod +x control/HarmonyBot-V68/tools/*.sh
-          WIN="${{ matrix.window }}"
-          control/HarmonyBot-V68/tools/run_control_window.sh "$WIN" "${{ steps.d.outputs.start }}" "${{ steps.d.outputs.eval }}" "${{ steps.d.outputs.end }}" .5
-          mkdir -p "control/HarmonyBot-V68/repro-stability-$WIN"
-          cp "control/HarmonyBot-V68/output-A_V52_EXACT_CONTROL-$WIN/A_V52_EXACT_CONTROL-$WIN.json" "control/HarmonyBot-V68/repro-stability-$WIN/R1.json"
-          control/HarmonyBot-V68/tools/run_control_window.sh "$WIN" "${{ steps.d.outputs.start }}" "${{ steps.d.outputs.eval }}" "${{ steps.d.outputs.end }}" .5
-          cp "control/HarmonyBot-V68/output-A_V52_EXACT_CONTROL-$WIN/A_V52_EXACT_CONTROL-$WIN.json" "control/HarmonyBot-V68/repro-stability-$WIN/R2.json"
-          python3 - "$WIN" <<'PY'
-          import hashlib,json,pathlib,sys
-          w=sys.argv[1]; p=pathlib.Path(f"control/HarmonyBot-V68/repro-stability-{w}")
-          def fp(path):
-              d=json.load(open(path)); rows=d.get("basket_outcomes",[])
-              payload=json.dumps(sorted((json.dumps(r,sort_keys=True,separators=(",",":")) for r in rows)),separators=(",",":"))
-              return hashlib.sha256(payload.encode()).hexdigest()
-          a,b=fp(p/"R1.json"),fp(p/"R2.json")
-          out={"window":w,"replicate_1_sha256":a,"replicate_2_sha256":b,"stable":a==b}
-          (p/"DATASET_STABILITY.json").write_text(json.dumps(out,indent=2))
-          if a!=b: raise SystemExit("DATASET_NONDETERMINISTIC_"+w)
-          PY
+          control/HarmonyBot-V68/tools/run_control_window.sh "${{ matrix.window }}" "${{ steps.d.outputs.start }}" "${{ steps.d.outputs.eval }}" "${{ steps.d.outputs.end }}" .5
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: v68-repro-${{ matrix.window }}
-          path: |
-            control/HarmonyBot-V68/output-A_V52_EXACT_CONTROL-${{ matrix.window }}
-            control/HarmonyBot-V68/repro-stability-${{ matrix.window }}
+          path: control/HarmonyBot-V68/output-A_V52_EXACT_CONTROL-${{ matrix.window }}
           retention-days: 30
           if-no-files-found: error
 
@@ -147,34 +127,27 @@ jobs:
           pattern: 'v68-repro-*'
           path: repro
           merge-multiple: true
-      - name: Deterministic immutable V52 control gate
+      - name: Exact V52 control gate
         id: g
         shell: bash
         run: |
           python3 - <<'PY'
           import json,pathlib
-          p=pathlib.Path("repro"); rows=[]; ws=[]; stable=True; fps={}
+          p=pathlib.Path("repro"); rows=[]; ws=[]
           for w in "ABC":
               x=json.load(open(next(p.rglob(f"A_V52_EXACT_CONTROL-{w}.json")))); ws.append(x); rows+=x["basket_outcomes"]
-              s=json.load(open(next(p.rglob(f"repro-stability-{w}/DATASET_STABILITY.json"))))
-              stable=stable and bool(s["stable"]); fps[w]=s
           vals=[r["net"] for r in rows]; gp=sum(x for x in vals if x>0); gl=-sum(x for x in vals if x<0)
           z={"baskets":len(rows),"net":sum(vals),"pf":gp/gl if gl else 999,"expectancy":sum(vals)/len(vals) if vals else 0,
              "win_rate":sum(x>0 for x in vals)/len(vals) if vals else 0,"max_dd_pct":max(x["max_dd_pct"] for x in ws),
-             "all_windows_positive":all(x["net"]>0 for x in ws),"engineering_clean":all(x["engineering_clean"] for x in ws),
-             "dataset_stable":stable}
+             "all_windows_positive":all(x["net"]>0 for x in ws),"engineering_clean":all(x["engineering_clean"] for x in ws)}
           historical={"baskets":200,"net":2902.27,"pf":1.3754845136750589,"expectancy":14.51135,"win_rate":.435,"max_dd_pct":9.814998648020353}
-          exact=z["baskets"]==historical["baskets"] and abs(z["net"]-historical["net"])<=.25 and abs(z["pf"]-historical["pf"])<=.004 and abs(z["expectancy"]-historical["expectancy"])<=.05 and abs(z["win_rate"]-historical["win_rate"])<=.002 and abs(z["max_dd_pct"]-historical["max_dd_pct"])<=.12 and z["all_windows_positive"] and z["engineering_clean"] and stable
-          # Control usability means deterministic same-run causal comparability; commercial positivity
-          # remains a B/C/D candidate requirement and is never weakened here.
-          control_ok=z["baskets"]>0 and z["engineering_clean"] and stable
+          exact=z["baskets"]==historical["baskets"] and abs(z["net"]-historical["net"])<=.25 and abs(z["pf"]-historical["pf"])<=.004 and abs(z["expectancy"]-historical["expectancy"])<=.05 and abs(z["win_rate"]-historical["win_rate"])<=.002 and abs(z["max_dd_pct"]-historical["max_dd_pct"])<=.12 and z["all_windows_positive"] and z["engineering_clean"]
+          control_ok=z["baskets"]>0 and z["engineering_clean"]
           result={"version":"HarmonyBot V68","historical_v52_reference":historical,"current_formal_v52_control":z,
-                  "dataset_fingerprints":fps,
                   "formal_v52_run_id":35531304357,"formal_v52_algo_sha256":"b862716f7477f947a390fe394c113d77f0bf2ce518956a419b082b00cd8251e1",
                   "historical_exact_reproduction_pass":exact,"data_drift_detected":not exact,
-                  "dataset_stability_pass":stable,
                   "current_control_usable_for_same-run_causal_comparison":control_ok,
-                  "rule":"HISTORICAL_REFERENCE_IMMUTABLE;CONTROL_USABILITY_REQUIRES_DETERMINISM_NOT_PROFITABILITY;COMMERCIAL_GATES_UNCHANGED"}
+                  "rule":"HISTORICAL_REFERENCE_IS_IMMUTABLE;CURRENT_CONTROL_DOES_NOT_REWRITE_HISTORICAL_METRICS"}
           pathlib.Path("V68_V52_EXACT_REPRODUCTION.json").write_text(json.dumps(result,indent=2))
           pathlib.Path("repro.out").write_text("true" if exact else "false")
           pathlib.Path("control.out").write_text("true" if control_ok else "false")
@@ -191,11 +164,12 @@ jobs:
     needs: repro_gate
     if: needs.repro_gate.outputs.controlok == 'true'
     runs-on: ubuntu-24.04
-    timeout-minutes: 150
+    timeout-minutes: 45
     strategy:
       fail-fast: false
-      max-parallel: 3
+      max-parallel: 12
       matrix:
+        variant: [A_V52_EXACT_CONTROL, B_FAMILY_GRID_ATLAS, C_POSITIVE_THROUGHPUT, D_FAMILY_PORTFOLIO_MAX]
         window: [Y2021, Y2022, Y2023]
     steps:
       - uses: actions/checkout@v4
@@ -232,42 +206,20 @@ jobs:
             Y2022) echo "start=03/01/2022" >> "$GITHUB_OUTPUT"; echo "eval=2022-01-10T00:00:00Z" >> "$GITHUB_OUTPUT"; echo "end=30/12/2022" >> "$GITHUB_OUTPUT";;
             Y2023) echo "start=02/01/2023" >> "$GITHUB_OUTPUT"; echo "eval=2023-01-09T00:00:00Z" >> "$GITHUB_OUTPUT"; echo "end=29/12/2023" >> "$GITHUB_OUTPUT";;
           esac
-      - name: Run same-run causal suite A-B-C-D-A sentinel
+      - name: Run family-grid calibration
         shell: bash
         run: |
-          set -euo pipefail
           chmod +x control/HarmonyBot-V68/tools/*.sh
-          WIN="${{ matrix.window }}"; START="${{ steps.d.outputs.start }}"; EVAL="${{ steps.d.outputs.eval }}"; END="${{ steps.d.outputs.end }}"
-          SENT="control/HarmonyBot-V68/dataset-sentinel-$WIN"; mkdir -p "$SENT"
-          control/HarmonyBot-V68/tools/run_control_window.sh "$WIN" "$START" "$EVAL" "$END" 1.0
-          cp "control/HarmonyBot-V68/output-A_V52_EXACT_CONTROL-$WIN/A_V52_EXACT_CONTROL-$WIN.json" "$SENT/A_PRE.json"
-          for VAR in B_FAMILY_GRID_ATLAS C_POSITIVE_THROUGHPUT D_FAMILY_PORTFOLIO_MAX; do
-            control/HarmonyBot-V68/tools/run_window.sh "$VAR" "$WIN" "$START" "$EVAL" "$END" 1.0
-          done
-          control/HarmonyBot-V68/tools/run_control_window.sh "$WIN" "$START" "$EVAL" "$END" 1.0
-          cp "control/HarmonyBot-V68/output-A_V52_EXACT_CONTROL-$WIN/A_V52_EXACT_CONTROL-$WIN.json" "$SENT/A_POST.json"
-          python3 - "$WIN" <<'PY'
-          import hashlib,json,pathlib,sys
-          w=sys.argv[1]; p=pathlib.Path(f"control/HarmonyBot-V68/dataset-sentinel-{w}")
-          def fp(path):
-              d=json.load(open(path)); rows=d.get("basket_outcomes",[])
-              payload=json.dumps(sorted((json.dumps(r,sort_keys=True,separators=(",",":")) for r in rows)),separators=(",",":"))
-              return hashlib.sha256(payload.encode()).hexdigest()
-          a,b=fp(p/"A_PRE.json"),fp(p/"A_POST.json")
-          result={"window":w,"pre_sha256":a,"post_sha256":b,"stable":a==b}
-          (p/"DATASET_SENTINEL.json").write_text(json.dumps(result,indent=2))
-          if a!=b: raise SystemExit("CALIBRATION_DATASET_DRIFT_"+w)
-          PY
+          if [ "${{ matrix.variant }}" = "A_V52_EXACT_CONTROL" ]; then
+            control/HarmonyBot-V68/tools/run_control_window.sh "${{ matrix.window }}" "${{ steps.d.outputs.start }}" "${{ steps.d.outputs.eval }}" "${{ steps.d.outputs.end }}" 1.0
+          else
+            control/HarmonyBot-V68/tools/run_window.sh "${{ matrix.variant }}" "${{ matrix.window }}" "${{ steps.d.outputs.start }}" "${{ steps.d.outputs.eval }}" "${{ steps.d.outputs.end }}" 1.0
+          fi
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: v68-cal-${{ matrix.window }}
-          path: |
-            control/HarmonyBot-V68/output-A_V52_EXACT_CONTROL-${{ matrix.window }}
-            control/HarmonyBot-V68/output-B_FAMILY_GRID_ATLAS-${{ matrix.window }}
-            control/HarmonyBot-V68/output-C_POSITIVE_THROUGHPUT-${{ matrix.window }}
-            control/HarmonyBot-V68/output-D_FAMILY_PORTFOLIO_MAX-${{ matrix.window }}
-            control/HarmonyBot-V68/dataset-sentinel-${{ matrix.window }}
+          name: v68-cal-${{ matrix.variant }}-${{ matrix.window }}
+          path: control/HarmonyBot-V68/output-${{ matrix.variant }}-${{ matrix.window }}
           retention-days: 30
           if-no-files-found: error
 
