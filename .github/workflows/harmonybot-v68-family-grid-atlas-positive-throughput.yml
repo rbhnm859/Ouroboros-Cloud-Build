@@ -1,0 +1,216 @@
+name: HarmonyBot V68 Harmonic Family Grid Atlas Positive Throughput
+
+on:
+  push:
+    branches: [harmonybot/v68-harmonic-family-grid-atlas-positive-throughput-rebase]
+    paths:
+      - 'HarmonyBot-V68/**'
+      - '.github/workflows/harmonybot-v68-family-grid-atlas-positive-throughput.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: harmonybot-v68-family-grid-atlas-positive-throughput
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  CTRADER_PASSWORD: ${{ secrets.CTRADER_PASSWORD }}
+  CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+  CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: harmonybot/v68-harmonic-family-grid-atlas-positive-throughput-rebase
+          path: control
+          fetch-depth: 1
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+      - name: Static contracts and build
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd control
+          python3 HarmonyBot-V68/tools/static_contract_audit.py HarmonyBot-V68/src/HarmonyBotV68.cs
+          dotnet restore HarmonyBot-V68/HarmonyBotV68.csproj
+          dotnet build HarmonyBot-V68/HarmonyBotV68.csproj -c Release --no-restore --nologo
+          mkdir -p HarmonyBot-V68/dist HarmonyBot-V68/final
+          A=$(find HarmonyBot-V68/bin/Release -type f -name '*.algo' | head -1); test -s "$A"
+          cp "$A" HarmonyBot-V68/dist/HarmonyBot_V68_Harmonic_Family_Grid_Atlas_Positive_Throughput_Rebase.algo
+          sha256sum HarmonyBot-V68/src/HarmonyBotV68.cs "$A" > HarmonyBot-V68/final/SHA256SUMS
+          printf '%s\n' "$GITHUB_SHA" > HarmonyBot-V68/final/SOURCE_COMMIT.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: v68-build
+          path: |
+            control/HarmonyBot-V68/dist
+            control/HarmonyBot-V68/final
+          retention-days: 30
+
+  reproduce:
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      max-parallel: 3
+      matrix:
+        window: [A, B, C]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: harmonybot/v68-harmonic-family-grid-atlas-positive-throughput-rebase
+          path: control
+          fetch-depth: 1
+      - uses: actions/download-artifact@v4
+        with:
+          name: v68-build
+          path: control/HarmonyBot-V68/shared
+      - name: Prepare immutable algo
+        shell: bash
+        run: |
+          mkdir -p control/HarmonyBot-V68/dist
+          A=$(find control/HarmonyBot-V68/shared -type f -name 'HarmonyBot_V68_Harmonic_Family_Grid_Atlas_Positive_Throughput_Rebase.algo' | head -1)
+          test -s "$A"; cp "$A" control/HarmonyBot-V68/dist/
+      - name: Resolve V52 parent window
+        id: d
+        shell: bash
+        run: |
+          case "${{ matrix.window }}" in
+            A) echo "start=04/01/2021" >> "$GITHUB_OUTPUT"; echo "eval=2021-01-11T00:00:00Z" >> "$GITHUB_OUTPUT"; echo "end=30/06/2021" >> "$GITHUB_OUTPUT";;
+            B) echo "start=01/07/2021" >> "$GITHUB_OUTPUT"; echo "eval=2021-07-08T00:00:00Z" >> "$GITHUB_OUTPUT"; echo "end=31/12/2021" >> "$GITHUB_OUTPUT";;
+            C) echo "start=03/01/2022" >> "$GITHUB_OUTPUT"; echo "eval=2022-01-10T00:00:00Z" >> "$GITHUB_OUTPUT"; echo "end=30/06/2022" >> "$GITHUB_OUTPUT";;
+          esac
+      - name: Reproduce V52 throughput parent
+        shell: bash
+        run: |
+          chmod +x control/HarmonyBot-V68/tools/*.sh
+          control/HarmonyBot-V68/tools/run_window.sh A_V52_EXACT_CONTROL "${{ matrix.window }}" "${{ steps.d.outputs.start }}" "${{ steps.d.outputs.eval }}" "${{ steps.d.outputs.end }}" .5
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: v68-repro-${{ matrix.window }}
+          path: control/HarmonyBot-V68/output-A_V52_EXACT_CONTROL-${{ matrix.window }}
+          retention-days: 30
+          if-no-files-found: error
+
+  repro_gate:
+    needs: reproduce
+    runs-on: ubuntu-24.04
+    outputs:
+      reprook: ${{ steps.g.outputs.reprook }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: 'v68-repro-*'
+          path: repro
+          merge-multiple: true
+      - name: Exact V52 control gate
+        id: g
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json,pathlib
+          p=pathlib.Path("repro"); rows=[]; ws=[]
+          for w in "ABC":
+              x=json.load(open(next(p.rglob(f"A_V52_EXACT_CONTROL-{w}.json")))); ws.append(x); rows+=x["basket_outcomes"]
+          vals=[r["net"] for r in rows]; gp=sum(x for x in vals if x>0); gl=-sum(x for x in vals if x<0)
+          z={"baskets":len(rows),"net":sum(vals),"pf":gp/gl if gl else 999,"expectancy":sum(vals)/len(vals) if vals else 0,
+             "win_rate":sum(x>0 for x in vals)/len(vals) if vals else 0,"max_dd_pct":max(x["max_dd_pct"] for x in ws),
+             "all_windows_positive":all(x["net"]>0 for x in ws),"engineering_clean":all(x["engineering_clean"] for x in ws)}
+          ok=z["baskets"]==200 and abs(z["net"]-2902.27)<=.25 and abs(z["pf"]-1.3754845136750589)<=.004 and abs(z["expectancy"]-14.51135)<=.05 and abs(z["win_rate"]-.435)<=.002 and abs(z["max_dd_pct"]-9.814998648020353)<=.12 and z["all_windows_positive"] and z["engineering_clean"]
+          pathlib.Path("V68_V52_EXACT_REPRODUCTION.json").write_text(json.dumps({"expected":{"baskets":200,"net":2902.27,"pf":1.3754845136750589,"expectancy":14.51135,"win_rate":.435,"max_dd_pct":9.814998648020353},"actual":z,"pass":ok},indent=2))
+          pathlib.Path("repro.out").write_text("true" if ok else "false")
+          PY
+          echo "reprook=$(cat repro.out)" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: v68-v52-exact-reproduction
+          path: V68_V52_EXACT_REPRODUCTION.json
+          retention-days: 30
+
+  calibration:
+    needs: repro_gate
+    if: needs.repro_gate.outputs.reprook == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      max-parallel: 12
+      matrix:
+        variant: [A_V52_EXACT_CONTROL, B_FAMILY_GRID_ATLAS, C_POSITIVE_THROUGHPUT, D_FAMILY_PORTFOLIO_MAX]
+        window: [Y2021, Y2022, Y2023]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: harmonybot/v68-harmonic-family-grid-atlas-positive-throughput-rebase
+          path: control
+          fetch-depth: 1
+      - uses: actions/download-artifact@v4
+        with:
+          name: v68-build
+          path: control/HarmonyBot-V68/shared
+      - name: Prepare immutable calibration algo
+        shell: bash
+        run: |
+          mkdir -p control/HarmonyBot-V68/dist
+          A=$(find control/HarmonyBot-V68/shared -type f -name 'HarmonyBot_V68_Harmonic_Family_Grid_Atlas_Positive_Throughput_Rebase.algo' | head -1)
+          test -s "$A"; cp "$A" control/HarmonyBot-V68/dist/
+      - name: Resolve burned calibration window
+        id: d
+        shell: bash
+        run: |
+          case "${{ matrix.window }}" in
+            Y2021) echo "start=04/01/2021" >> "$GITHUB_OUTPUT"; echo "eval=2021-01-11T00:00:00Z" >> "$GITHUB_OUTPUT"; echo "end=31/12/2021" >> "$GITHUB_OUTPUT";;
+            Y2022) echo "start=03/01/2022" >> "$GITHUB_OUTPUT"; echo "eval=2022-01-10T00:00:00Z" >> "$GITHUB_OUTPUT"; echo "end=30/12/2022" >> "$GITHUB_OUTPUT";;
+            Y2023) echo "start=02/01/2023" >> "$GITHUB_OUTPUT"; echo "eval=2023-01-09T00:00:00Z" >> "$GITHUB_OUTPUT"; echo "end=29/12/2023" >> "$GITHUB_OUTPUT";;
+          esac
+      - name: Run family-grid calibration
+        shell: bash
+        run: |
+          chmod +x control/HarmonyBot-V68/tools/*.sh
+          control/HarmonyBot-V68/tools/run_window.sh "${{ matrix.variant }}" "${{ matrix.window }}" "${{ steps.d.outputs.start }}" "${{ steps.d.outputs.eval }}" "${{ steps.d.outputs.end }}" 1.0
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: v68-cal-${{ matrix.variant }}-${{ matrix.window }}
+          path: control/HarmonyBot-V68/output-${{ matrix.variant }}-${{ matrix.window }}
+          retention-days: 30
+          if-no-files-found: error
+
+  analyze_calibration:
+    needs: calibration
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    outputs:
+      candidate: ${{ steps.g.outputs.candidate }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: harmonybot/v68-harmonic-family-grid-atlas-positive-throughput-rebase
+          path: control
+          fetch-depth: 1
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: 'v68-cal-*'
+          path: control/HarmonyBot-V68/merged
+          merge-multiple: true
+      - name: Family positive-throughput gate
+        id: g
+        shell: bash
+        run: |
+          mkdir -p control/HarmonyBot-V68/final
+          python3 control/HarmonyBot-V68/tools/analyze_calibration.py control/HarmonyBot-V68/merged control/HarmonyBot-V68/final
+          echo "candidate=$(cat control/HarmonyBot-V68/final/candidate.txt)" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: HARMONYBOT-V68-CALIBRATION-FRONTIER
+          path: control/HarmonyBot-V68/final
+          retention-days: 30
