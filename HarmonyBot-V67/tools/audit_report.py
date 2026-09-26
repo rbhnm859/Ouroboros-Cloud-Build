@@ -112,6 +112,14 @@ slot_rows=[]
 for m in slot_rx.finditer(t):
     slot_rows.append({"basket":m.group(1),"pattern":m.group(2).strip(),"route":m.group(3),"occupancy_minutes":float(m.group(4)),"realized_r":float(m.group(5)),"net":float(m.group(6))})
 
+pipe_rx=re.compile(r"\[V(?:52|67)-PIPELINE\]\s+pattern=(.*?)\s+detected=(\d+)\s+validated=(\d+)\s+routed=(\d+)\s+prz=(\d+)\s+confirming=(\d+)\s+nativeTemporalPass=(\d+)\s+armed=(\d+)\s+slotBlocked=(\d+)\s+parked=(\d+)\s+revalidated=(\d+)\s+revalidationRejected=(\d+)\s+basketPlanned=(\d+)\s+leg0=(\d+)\s+leg1=(\d+)\s+leg2=(\d+)\s+leg3=(\d+)\s+basketClosed=(\d+)\s+executed=(\d+)\s+expired=(\d+)\s+rejected=(\d+)\s+invalidated=(\d+)")
+pipeline={}
+pipe_names=["detected","validated","routed","prz","confirming","native_temporal_pass","armed","slot_blocked","parked","revalidated","revalidation_rejected","basket_planned","leg0","leg1","leg2","leg3","basket_closed","executed","expired","rejected","invalidated"]
+for m in pipe_rx.finditer(t):
+    pipeline[m.group(1)]={k:int(v) for k,v in zip(pipe_names,m.groups()[1:])}
+pipeline_closed=sum(x.get("basket_closed",0) for x in pipeline.values())
+pipeline_executed=sum(x.get("executed",0) for x in pipeline.values())
+
 mfe=[x["mfe"] for x in rows if x["mfe"] is not None]; mae=[x["mae"] for x in rows if x["mae"] is not None]; rr=[x["r"] for x in rows if x["r"] is not None]
 attrib_ok=sum(x["pattern"]!="UNKNOWN" and x["route"]!="UNKNOWN" for x in rows)
 tail_ok=len(rr)
@@ -129,6 +137,7 @@ out={
  "engineering_clean":engineering,"summary_present":bool(summary),"broker_profile_present":("[V67-BROKER-PROFILE]" in t or "[V52-BROKER-PROFILE]" in t),
  "mean_mfe_r":statistics.mean(mfe) if mfe else None,"mean_mae_r":statistics.mean(mae) if mae else None,
  "tail_telemetry_coverage":tail_ok/len(rows) if rows else 0,"attribution_coverage":attrib_ok/len(rows) if rows else 0,
+ "pattern_pipeline":pipeline,"pipeline_basket_closed":pipeline_closed,"pipeline_executed":pipeline_executed,
  "basket_outcomes":rows,"slot_occupancy":slot_rows,**throughput,**clean
 }
 pathlib.Path(a.out).write_text(json.dumps(out,indent=2))
