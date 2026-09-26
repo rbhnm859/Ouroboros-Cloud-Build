@@ -1,5 +1,5 @@
 name: HarmonyBot V52 Exact Reference Replay Current Runtime
-# replay-trigger: v52-parent-identity-lock
+# replay-trigger: v52-parent-identity-lock-20260926-control-isolation
 
 on:
   push:
