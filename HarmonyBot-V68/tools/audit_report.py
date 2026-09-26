@@ -22,7 +22,7 @@ def txt(x,*keys,default=""):
     return default
 def label_basket(label):
     p=str(label or "").split("|")
-    if len(p)>=3 and p[0] in ("HB52","HB67"): return p[1]
+    if len(p)>=3 and p[0] in ("HB52","HB67","HB68"): return p[1]
     return ""
 def kv_comment(c):
     z={}
@@ -32,17 +32,17 @@ def kv_comment(c):
     return z
 
 # Telemetry is attribution-only. Profit/loss and basket existence come from broker report history.
-event_rx=re.compile(r"\[V(?:52|67)-BASKET-EVENT\]\s+basket=(\S+)\s+cid=(\S+)\s+pattern=(.*?)\s+route=(\S+)\s+state=(\S+)\s+reason=(.*)$",re.M)
+event_rx=re.compile(r"\[V(?:52|67|68)-BASKET-EVENT\]\s+basket=(\S+)\s+cid=(\S+)\s+pattern=(.*?)\s+route=(\S+)\s+state=(\S+)\s+reason=(.*)$",re.M)
 basket_meta={}
 for m in event_rx.finditer(t):
     basket_meta[m.group(1)]={"cid":m.group(2),"pattern":m.group(3).strip(),"route":m.group(4)}
 
-cand_rx=re.compile(r"\[V(?:52|67)-EVENT\]\s+cid=(\S+)\s+setup=(\S+)\s+pattern=(.*?)\s+subtype=(\S+)\s+scale=(\d+)\s+tf=(\S+)\s+dir=(\S+)\s+state=(\S+)\s+route=(\S+)\s+conflict=(\S+)\s+waitMin=([-0-9.]+)\s+reason=(.*)$",re.M)
+cand_rx=re.compile(r"\[V(?:52|67|68)-EVENT\]\s+cid=(\S+)\s+setup=(\S+)\s+pattern=(.*?)\s+subtype=(\S+)\s+scale=(\d+)\s+tf=(\S+)\s+dir=(\S+)\s+state=(\S+)\s+route=(\S+)\s+conflict=(\S+)\s+waitMin=([-0-9.]+)\s+reason=(.*)$",re.M)
 cid_meta={}
 for m in cand_rx.finditer(t):
     cid_meta[m.group(1)]={"setup":m.group(2),"pattern":m.group(3).strip(),"subtype":m.group(4),"route":m.group(9),"direction":m.group(7)}
 
-close_rx=re.compile(r"\[V(?:52|67)-BASKET-CLOSED\].*?basket=(\S+)\s+cid=(\S+)\s+setup=(\S+)\s+pattern=(.*?)\s+subtype=(\S+)\s+route=(\S+)\s+dir=(\S+).*?mfeR=([-0-9.]+)\s+maeR=([-0-9.]+)\s+realizedR=([-0-9.]+)\s+net=([-0-9.]+)\s+reason=(\S+)")
+close_rx=re.compile(r"\[V(?:52|67|68)-BASKET-CLOSED\].*?basket=(\S+)\s+cid=(\S+)\s+setup=(\S+)\s+pattern=(.*?)\s+subtype=(\S+)\s+route=(\S+)\s+dir=(\S+).*?mfeR=([-0-9.]+)\s+maeR=([-0-9.]+)\s+realizedR=([-0-9.]+)\s+net=([-0-9.]+)\s+reason=(\S+)")
 close_meta={}
 for m in close_rx.finditer(t):
     close_meta[m.group(1)]={"cid":m.group(2),"setup":m.group(3),"pattern":m.group(4).strip(),"subtype":m.group(5),
@@ -95,24 +95,24 @@ for basket,z in groups.items():
 rows.sort(key=lambda z:((z["entry_time"] or 0),z["basket"]))
 
 v=[x["net"] for x in rows]; gp=sum(x for x in v if x>0); gl=-sum(x for x in v if x<0)
-summary=re.findall(r"\[V(?:52|67)-SUMMARY\].*?executionErrors=(\d+).*?gridRiskViolations=(\d+).*?duplicateGridLegs=(\d+).*?orphanPendingOrders=(\d+).*?stopWideningViolations=(\d+).*?gapThroughSurvivors=(\d+).*?unprotectedSurvivors=(\d+).*?postFillProtectionFailures=(\d+).*?actualBasketRiskViolations=(\d+).*?executionStateViolations=(\d+).*?marginRiskViolations=(\d+)",t)
+summary=re.findall(r"\[V(?:52|67|68)-SUMMARY\].*?executionErrors=(\d+).*?gridRiskViolations=(\d+).*?duplicateGridLegs=(\d+).*?orphanPendingOrders=(\d+).*?stopWideningViolations=(\d+).*?gapThroughSurvivors=(\d+).*?unprotectedSurvivors=(\d+).*?postFillProtectionFailures=(\d+).*?actualBasketRiskViolations=(\d+).*?executionStateViolations=(\d+).*?marginRiskViolations=(\d+)",t)
 names=["execution_errors","grid_risk_violations","duplicate_grid_legs","orphan_pending_orders","stop_widening_violations","gap_through_survivors","unprotected_survivors","post_fill_protection_failures","actual_basket_risk_violations","execution_state_violations","margin_risk_violations"]
 clean={k:0 for k in names}
 if summary:
     for k,z in zip(names,map(int,summary[-1])): clean[k]=z
 engineering=bool(summary) and all(clean[k]==0 for k in names)
 
-thr=re.findall(r"\[V(?:52|67)-THROUGHPUT-SUMMARY\].*?slotBlocked=(\d+).*?parked=(\d+).*?recoveredExecutions=(\d+).*?avgSlotWaitMin=([-0-9.]+).*?avgBasketOccupancyMin=([-0-9.]+).*?missedPositive=(\d+).*?avoidedNegative=(\d+)",t)
+thr=re.findall(r"\[V(?:52|67|68)-THROUGHPUT-SUMMARY\].*?slotBlocked=(\d+).*?parked=(\d+).*?recoveredExecutions=(\d+).*?avgSlotWaitMin=([-0-9.]+).*?avgBasketOccupancyMin=([-0-9.]+).*?missedPositive=(\d+).*?avoidedNegative=(\d+)",t)
 throughput={"slot_blocked":0,"parked":0,"recovered_executions":0,"avg_slot_wait_min":0.0,"avg_basket_occupancy_min":0.0,"missed_positive":0,"avoided_negative":0}
 if thr:
     q=thr[-1]; throughput.update(slot_blocked=int(q[0]),parked=int(q[1]),recovered_executions=int(q[2]),avg_slot_wait_min=float(q[3]),avg_basket_occupancy_min=float(q[4]),missed_positive=int(q[5]),avoided_negative=int(q[6]))
 
-slot_rx=re.compile(r"\[V(?:52|67)-SLOT-OCCUPANCY\].*?basket=(\S+).*?pattern=(.*?)\s+route=(\S+)\s+occupancyMinutes=([-0-9.]+)\s+realizedR=([-0-9.]+)\s+net=([-0-9.]+)")
+slot_rx=re.compile(r"\[V(?:52|67|68)-SLOT-OCCUPANCY\].*?basket=(\S+).*?pattern=(.*?)\s+route=(\S+)\s+occupancyMinutes=([-0-9.]+)\s+realizedR=([-0-9.]+)\s+net=([-0-9.]+)")
 slot_rows=[]
 for m in slot_rx.finditer(t):
     slot_rows.append({"basket":m.group(1),"pattern":m.group(2).strip(),"route":m.group(3),"occupancy_minutes":float(m.group(4)),"realized_r":float(m.group(5)),"net":float(m.group(6))})
 
-pipe_rx=re.compile(r"\[V(?:52|67)-PIPELINE\]\s+pattern=(.*?)\s+detected=(\d+)\s+validated=(\d+)\s+routed=(\d+)\s+prz=(\d+)\s+confirming=(\d+)\s+nativeTemporalPass=(\d+)\s+armed=(\d+)\s+slotBlocked=(\d+)\s+parked=(\d+)\s+revalidated=(\d+)\s+revalidationRejected=(\d+)\s+basketPlanned=(\d+)\s+leg0=(\d+)\s+leg1=(\d+)\s+leg2=(\d+)\s+leg3=(\d+)\s+basketClosed=(\d+)\s+executed=(\d+)\s+expired=(\d+)\s+rejected=(\d+)\s+invalidated=(\d+)")
+pipe_rx=re.compile(r"\[V(?:52|67|68)-PIPELINE\]\s+pattern=(.*?)\s+detected=(\d+)\s+validated=(\d+)\s+routed=(\d+)\s+prz=(\d+)\s+confirming=(\d+)\s+nativeTemporalPass=(\d+)\s+armed=(\d+)\s+slotBlocked=(\d+)\s+parked=(\d+)\s+revalidated=(\d+)\s+revalidationRejected=(\d+)\s+basketPlanned=(\d+)\s+leg0=(\d+)\s+leg1=(\d+)\s+leg2=(\d+)\s+leg3=(\d+)\s+basketClosed=(\d+)\s+executed=(\d+)\s+expired=(\d+)\s+rejected=(\d+)\s+invalidated=(\d+)")
 pipeline={}
 pipe_names=["detected","validated","routed","prz","confirming","native_temporal_pass","armed","slot_blocked","parked","revalidated","revalidation_rejected","basket_planned","leg0","leg1","leg2","leg3","basket_closed","executed","expired","rejected","invalidated"]
 for m in pipe_rx.finditer(t):
@@ -134,7 +134,7 @@ out={
  "expectancy":report_net/len(rows) if rows else 0,"win_rate":sum(x>0 for x in v)/len(v) if v else 0,
  "frequency":len(rows)/a.years if a.years else 0,
  "max_dd_pct":num(eq,"maxEquityDrawdownPercent","maxEquityDrawdownPercentages","maxDrawdownPercent"),
- "engineering_clean":engineering,"summary_present":bool(summary),"broker_profile_present":("[V68-BROKER-PROFILE]" in t or "[V52-BROKER-PROFILE]" in t),
+ "engineering_clean":engineering,"summary_present":bool(summary),"broker_profile_present":("[V68-BROKER-PROFILE]" in t or "[V67-BROKER-PROFILE]" in t or "[V52-BROKER-PROFILE]" in t),
  "mean_mfe_r":statistics.mean(mfe) if mfe else None,"mean_mae_r":statistics.mean(mae) if mae else None,
  "tail_telemetry_coverage":tail_ok/len(rows) if rows else 0,"attribution_coverage":attrib_ok/len(rows) if rows else 0,
  "pattern_pipeline":pipeline,"pipeline_basket_closed":pipeline_closed,"pipeline_executed":pipeline_executed,
