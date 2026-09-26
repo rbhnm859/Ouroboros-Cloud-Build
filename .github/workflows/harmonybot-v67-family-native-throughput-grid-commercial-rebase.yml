@@ -1,0 +1,458 @@
+name: HarmonyBot V67 Family-Native Throughput Grid Commercial Rebase
+
+on:
+  push:
+    branches: [harmonybot/v67-v52-family-native-throughput-grid-commercial-rebase]
+    paths:
+      - 'HarmonyBot-V67/**'
+      - '.github/workflows/harmonybot-v67-family-native-throughput-grid-commercial-rebase.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: harmonybot-v67-family-native-throughput-grid-commercial-rebase
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  CTRADER_PASSWORD: ${{ secrets.CTRADER_PASSWORD }}
+  CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+  CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: harmonybot/v67-v52-family-native-throughput-grid-commercial-rebase
+          path: control
+          fetch-depth: 1
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+      - name: Static contracts and immutable build
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd control
+          python3 HarmonyBot-V67/tools/static_contract_audit.py HarmonyBot-V67/src/HarmonyBotV67.cs
+          dotnet restore HarmonyBot-V67/HarmonyBotV67.csproj
+          dotnet build HarmonyBot-V67/HarmonyBotV67.csproj -c Release --no-restore --nologo
+          mkdir -p HarmonyBot-V67/dist HarmonyBot-V67/final
+          A=$(find HarmonyBot-V67/bin/Release -type f -name '*.algo' | head -1); test -s "$A"
+          cp "$A" HarmonyBot-V67/dist/HarmonyBot_V67_Family_Native_Throughput_Grid_Commercial_Rebase.algo
+          sha256sum HarmonyBot-V67/src/HarmonyBotV67.cs "$A" > HarmonyBot-V67/final/SHA256SUMS
+          printf '%s\n' "$GITHUB_SHA" > HarmonyBot-V67/final/SOURCE_COMMIT.txt
+          python3 - <<'PY'
+          import hashlib,json,pathlib,os
+          s=pathlib.Path("HarmonyBot-V67/src/HarmonyBotV67.cs")
+          a=pathlib.Path("HarmonyBot-V67/dist/HarmonyBot_V67_Family_Native_Throughput_Grid_Commercial_Rebase.algo")
+          pathlib.Path("HarmonyBot-V67/final/V67_PREREGISTERED_FREEZE_MANIFEST.json").write_text(json.dumps({
+            "version":"HarmonyBot V67","source_commit":os.environ["GITHUB_SHA"],
+            "source_sha256":hashlib.sha256(s.read_bytes()).hexdigest(),
+            "algo_sha256":hashlib.sha256(a.read_bytes()).hexdigest(),
+            "variants":["A_V52_EXACT_CONTROL","B_FAMILY_NATIVE","C_FAMILY_NATIVE_GRID","D_COMMERCIAL_MAX"],
+            "fresh_locked":True,"post_dev_alpha_tuning_allowed":False},indent=2))
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: v67-build
+          path: |
+            control/HarmonyBot-V67/dist
+            control/HarmonyBot-V67/final
+          retention-days: 30
+
+  reproduce:
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      max-parallel: 3
+      matrix:
+        window: [A, B, C]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: harmonybot/v67-v52-family-native-throughput-grid-commercial-rebase
+          path: control
+          fetch-depth: 1
+      - uses: actions/download-artifact@v4
+        with:
+          name: v67-build
+          path: control/HarmonyBot-V67/shared
+      - name: Prepare exact immutable algo
+        shell: bash
+        run: |
+          mkdir -p control/HarmonyBot-V67/dist
+          A=$(find control/HarmonyBot-V67/shared -type f -name 'HarmonyBot_V67_Family_Native_Throughput_Grid_Commercial_Rebase.algo' | head -1)
+          test -s "$A"; cp "$A" control/HarmonyBot-V67/dist/
+      - name: Resolve V52 reproduction window
+        id: d
+        shell: bash
+        run: |
+          case "${{ matrix.window }}" in
+            A) echo "start=04/01/2021" >> "$GITHUB_OUTPUT"; echo "eval=2021-01-11T00:00:00Z" >> "$GITHUB_OUTPUT"; echo "end=30/06/2021" >> "$GITHUB_OUTPUT";;
+            B) echo "start=01/07/2021" >> "$GITHUB_OUTPUT"; echo "eval=2021-07-08T00:00:00Z" >> "$GITHUB_OUTPUT"; echo "end=31/12/2021" >> "$GITHUB_OUTPUT";;
+            C) echo "start=03/01/2022" >> "$GITHUB_OUTPUT"; echo "eval=2022-01-10T00:00:00Z" >> "$GITHUB_OUTPUT"; echo "end=30/06/2022" >> "$GITHUB_OUTPUT";;
+          esac
+      - name: Reproduce V52 throughput parent
+        shell: bash
+        run: |
+          chmod +x control/HarmonyBot-V67/tools/*.sh
+          control/HarmonyBot-V67/tools/run_window.sh A_V52_EXACT_CONTROL "${{ matrix.window }}" "${{ steps.d.outputs.start }}" "${{ steps.d.outputs.eval }}" "${{ steps.d.outputs.end }}" .5
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: v67-repro-${{ matrix.window }}
+          path: control/HarmonyBot-V67/output-A_V52_EXACT_CONTROL-${{ matrix.window }}
+          retention-days: 30
+          if-no-files-found: error
+
+  repro_gate:
+    needs: reproduce
+    runs-on: ubuntu-24.04
+    outputs:
+      reprook: ${{ steps.g.outputs.reprook }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: 'v67-repro-*'
+          path: repro
+          merge-multiple: true
+      - name: Exact V52 control gate
+        id: g
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json,pathlib
+          p=pathlib.Path("repro"); rows=[]; ws=[]
+          for w in "ABC":
+            x=json.load(open(next(p.rglob(f"A_V52_EXACT_CONTROL-{w}.json")))); ws.append(x); rows+=x["basket_outcomes"]
+          vals=[r["net"] for r in rows]; gp=sum(x for x in vals if x>0); gl=-sum(x for x in vals if x<0)
+          z={"baskets":len(rows),"net":sum(vals),"pf":gp/gl if gl else 999,"expectancy":sum(vals)/len(vals),
+             "win_rate":sum(x>0 for x in vals)/len(vals),"max_dd_pct":max(x["max_dd_pct"] for x in ws),
+             "all_windows_positive":all(x["net"]>0 for x in ws),"engineering_clean":all(x["engineering_clean"] for x in ws)}
+          ok=z["baskets"]==200 and abs(z["net"]-2902.27)<=.25 and abs(z["pf"]-1.3754845136750589)<=.004 and abs(z["expectancy"]-14.51135)<=.05 and abs(z["win_rate"]-.435)<=.002 and abs(z["max_dd_pct"]-9.814998648020353)<=.12 and z["all_windows_positive"] and z["engineering_clean"]
+          pathlib.Path("V67_V52_EXACT_REPRODUCTION.json").write_text(json.dumps({"expected":{"baskets":200,"net":2902.27,"pf":1.3754845136750589,"expectancy":14.51135,"win_rate":.435,"max_dd_pct":9.814998648020353},"actual":z,"pass":ok},indent=2))
+          pathlib.Path("repro.out").write_text("true" if ok else "false")
+          PY
+          echo "reprook=$(cat repro.out)" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: v67-v52-exact-reproduction
+          path: V67_V52_EXACT_REPRODUCTION.json
+          retention-days: 30
+
+  dev:
+    needs: repro_gate
+    if: needs.repro_gate.outputs.reprook == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      max-parallel: 12
+      matrix:
+        variant: [A_V52_EXACT_CONTROL, B_FAMILY_NATIVE, C_FAMILY_NATIVE_GRID, D_COMMERCIAL_MAX]
+        window: [Y2021, Y2022, Y2023, H2024H2, H2025H1, H2025H2]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: harmonybot/v67-v52-family-native-throughput-grid-commercial-rebase
+          path: control
+          fetch-depth: 1
+      - uses: actions/download-artifact@v4
+        with:
+          name: v67-build
+          path: control/HarmonyBot-V67/shared
+      - name: Prepare immutable algo
+        shell: bash
+        run: |
+          mkdir -p control/HarmonyBot-V67/dist
+          A=$(find control/HarmonyBot-V67/shared -type f -name 'HarmonyBot_V67_Family_Native_Throughput_Grid_Commercial_Rebase.algo' | head -1)
+          test -s "$A"; cp "$A" control/HarmonyBot-V67/dist/
+      - name: Resolve fixed DEV window
+        id: d
+        shell: bash
+        run: |
+          case "${{ matrix.window }}" in
+            Y2021) echo "start=04/01/2021" >> "$GITHUB_OUTPUT"; echo "eval=2021-01-11T00:00:00Z" >> "$GITHUB_OUTPUT"; echo "end=31/12/2021" >> "$GITHUB_OUTPUT"; echo "years=1.0" >> "$GITHUB_OUTPUT";;
+            Y2022) echo "start=03/01/2022" >> "$GITHUB_OUTPUT"; echo "eval=2022-01-10T00:00:00Z" >> "$GITHUB_OUTPUT"; echo "end=30/12/2022" >> "$GITHUB_OUTPUT"; echo "years=1.0" >> "$GITHUB_OUTPUT";;
+            Y2023) echo "start=02/01/2023" >> "$GITHUB_OUTPUT"; echo "eval=2023-01-09T00:00:00Z" >> "$GITHUB_OUTPUT"; echo "end=29/12/2023" >> "$GITHUB_OUTPUT"; echo "years=1.0" >> "$GITHUB_OUTPUT";;
+            H2024H2) echo "start=01/07/2024" >> "$GITHUB_OUTPUT"; echo "eval=2024-07-08T00:00:00Z" >> "$GITHUB_OUTPUT"; echo "end=31/12/2024" >> "$GITHUB_OUTPUT"; echo "years=.5" >> "$GITHUB_OUTPUT";;
+            H2025H1) echo "start=02/01/2025" >> "$GITHUB_OUTPUT"; echo "eval=2025-01-09T00:00:00Z" >> "$GITHUB_OUTPUT"; echo "end=30/06/2025" >> "$GITHUB_OUTPUT"; echo "years=.5" >> "$GITHUB_OUTPUT";;
+            H2025H2) echo "start=01/07/2025" >> "$GITHUB_OUTPUT"; echo "eval=2025-07-08T00:00:00Z" >> "$GITHUB_OUTPUT"; echo "end=31/12/2025" >> "$GITHUB_OUTPUT"; echo "years=.5" >> "$GITHUB_OUTPUT";;
+          esac
+      - name: Run frozen DEV
+        shell: bash
+        run: |
+          chmod +x control/HarmonyBot-V67/tools/*.sh
+          control/HarmonyBot-V67/tools/run_window.sh "${{ matrix.variant }}" "${{ matrix.window }}" "${{ steps.d.outputs.start }}" "${{ steps.d.outputs.eval }}" "${{ steps.d.outputs.end }}" "${{ steps.d.outputs.years }}"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: v67-dev-${{ matrix.variant }}-${{ matrix.window }}
+          path: control/HarmonyBot-V67/output-${{ matrix.variant }}-${{ matrix.window }}
+          retention-days: 30
+          if-no-files-found: error
+
+  analyze:
+    needs: dev
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    outputs:
+      candidate: ${{ steps.g.outputs.candidate }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: harmonybot/v67-v52-family-native-throughput-grid-commercial-rebase
+          path: control
+          fetch-depth: 1
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: 'v67-dev-*'
+          path: control/HarmonyBot-V67/merged
+          merge-multiple: true
+      - name: Causal attribution and commercial DEV gate
+        id: g
+        shell: bash
+        run: |
+          mkdir -p control/HarmonyBot-V67/final
+          python3 control/HarmonyBot-V67/tools/analyze_v67.py control/HarmonyBot-V67/merged control/HarmonyBot-V67/final
+          echo "candidate=$(cat control/HarmonyBot-V67/final/candidate.txt)" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: HARMONYBOT-V67-DEV-FRONTIER
+          path: control/HarmonyBot-V67/final
+          retention-days: 30
+
+  validation:
+    needs: analyze
+    if: needs.analyze.outputs.candidate != ''
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        window: [Q2026Q1, Q2026Q2]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: harmonybot/v67-v52-family-native-throughput-grid-commercial-rebase
+          path: control
+          fetch-depth: 1
+      - uses: actions/download-artifact@v4
+        with:
+          name: v67-build
+          path: control/HarmonyBot-V67/shared
+      - name: Prepare immutable candidate
+        shell: bash
+        run: |
+          mkdir -p control/HarmonyBot-V67/dist
+          A=$(find control/HarmonyBot-V67/shared -type f -name 'HarmonyBot_V67_Family_Native_Throughput_Grid_Commercial_Rebase.algo' | head -1)
+          cp "$A" control/HarmonyBot-V67/dist/
+      - name: Resolve untouched validation window
+        id: d
+        shell: bash
+        run: |
+          case "${{ matrix.window }}" in
+            Q2026Q1) echo "start=02/01/2026" >> "$GITHUB_OUTPUT"; echo "eval=2026-01-09T00:00:00Z" >> "$GITHUB_OUTPUT"; echo "end=31/03/2026" >> "$GITHUB_OUTPUT";;
+            Q2026Q2) echo "start=01/04/2026" >> "$GITHUB_OUTPUT"; echo "eval=2026-04-08T00:00:00Z" >> "$GITHUB_OUTPUT"; echo "end=30/06/2026" >> "$GITHUB_OUTPUT";;
+          esac
+      - name: Run Validation without tuning
+        shell: bash
+        env:
+          CANDIDATE: ${{ needs.analyze.outputs.candidate }}
+        run: |
+          chmod +x control/HarmonyBot-V67/tools/*.sh
+          control/HarmonyBot-V67/tools/run_window.sh "$CANDIDATE" "${{ matrix.window }}" "${{ steps.d.outputs.start }}" "${{ steps.d.outputs.eval }}" "${{ steps.d.outputs.end }}" .25
+      - uses: actions/upload-artifact@v4
+        with:
+          name: v67-validation-${{ matrix.window }}
+          path: control/HarmonyBot-V67/output-${{ needs.analyze.outputs.candidate }}-${{ matrix.window }}
+          retention-days: 30
+
+  validation_gate:
+    needs: [analyze, validation]
+    if: needs.validation.result == 'success'
+    runs-on: ubuntu-24.04
+    outputs:
+      valok: ${{ steps.g.outputs.valok }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: 'v67-validation-*'
+          path: validation
+          merge-multiple: true
+      - name: Hard validation gate
+        id: g
+        shell: bash
+        env:
+          CANDIDATE: ${{ needs.analyze.outputs.candidate }}
+        run: |
+          python3 - <<'PY'
+          import json,pathlib,os
+          p=pathlib.Path("validation"); c=os.environ["CANDIDATE"]; xs=[]
+          for w in ["Q2026Q1","Q2026Q2"]: xs.append(json.load(open(next(p.rglob(f"{c}-{w}.json")))))
+          rows=[r for x in xs for r in x["basket_outcomes"]]; v=[r["net"] for r in rows]
+          gp=sum(x for x in v if x>0); gl=-sum(x for x in v if x<0); pf=gp/gl if gl else (999 if gp else 0)
+          z={"candidate":c,"baskets":len(rows),"net":sum(v),"pf":pf,"expectancy":sum(v)/len(v) if v else 0,
+             "win_rate":sum(x>0 for x in v)/len(v) if v else 0,"max_dd_pct":max(x["max_dd_pct"] for x in xs),
+             "all_windows_positive":all(x["net"]>0 for x in xs),"engineering_clean":all(x["engineering_clean"] for x in xs),
+             "risk_clean":all(x["actual_basket_risk_violations"]==0 and x["margin_risk_violations"]==0 and x["stop_widening_violations"]==0 for x in xs)}
+          ok=z["baskets"]>0 and z["net"]>0 and z["pf"]>=2.0 and z["expectancy"]>=20 and z["win_rate"]>=.50 and z["max_dd_pct"]<=6 and z["all_windows_positive"] and z["engineering_clean"] and z["risk_clean"]
+          pathlib.Path("V67_VALIDATION_2026.json").write_text(json.dumps({"version":"HarmonyBot V67","fresh_used":False,"metrics":z,"pass":ok},indent=2))
+          pathlib.Path("val.out").write_text("true" if ok else "false")
+          PY
+          echo "valok=$(cat val.out)" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: v67-validation-gate
+          path: V67_VALIDATION_2026.json
+          retention-days: 30
+
+  capital:
+    needs: [analyze, validation_gate]
+    if: needs.validation_gate.outputs.valok == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      max-parallel: 7
+      matrix:
+        balance: [100,150,200,300,500,1000,10000]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: harmonybot/v67-v52-family-native-throughput-grid-commercial-rebase
+          path: control
+          fetch-depth: 1
+      - uses: actions/download-artifact@v4
+        with:
+          name: v67-build
+          path: control/HarmonyBot-V67/shared
+      - name: Capital compatibility after Validation
+        shell: bash
+        env:
+          CANDIDATE: ${{ needs.analyze.outputs.candidate }}
+          BALANCE: ${{ matrix.balance }}
+        run: |
+          set -euo pipefail
+          mkdir -p control/HarmonyBot-V67/dist
+          A=$(find control/HarmonyBot-V67/shared -type f -name 'HarmonyBot_V67_Family_Native_Throughput_Grid_Commercial_Rebase.algo' | head -1); cp "$A" control/HarmonyBot-V67/dist/
+          chmod +x control/HarmonyBot-V67/tools/*.sh
+          W="$GITHUB_WORKSPACE/control/HarmonyBot-V67/capital-$BALANCE"; O="$GITHUB_WORKSPACE/control/HarmonyBot-V67/capital-out-$BALANCE"; mkdir -p "$W/seal/algo" "$O"
+          cp control/HarmonyBot-V67/dist/HarmonyBot_V67_Family_Native_Throughput_Grid_Commercial_Rebase.algo "$W/seal/algo/"
+          case "$CANDIDATE" in
+            A_V52_EXACT_CONTROL) FAMNATIVE=false; CONTRACTS=false; FRONTIER=false; FGRID=false; EVIDENCE=false; EXPAND=false; PQUEUE=false; HANDOFF=false; DECAY=false; REVALIDATE=false; MAXDD=10;;
+            B_FAMILY_NATIVE) FAMNATIVE=true; CONTRACTS=true; FRONTIER=true; FGRID=false; EVIDENCE=true; EXPAND=false; PQUEUE=false; HANDOFF=false; DECAY=false; REVALIDATE=false; MAXDD=6;;
+            C_FAMILY_NATIVE_GRID) FAMNATIVE=true; CONTRACTS=true; FRONTIER=true; FGRID=true; EVIDENCE=true; EXPAND=false; PQUEUE=false; HANDOFF=false; DECAY=false; REVALIDATE=false; MAXDD=6;;
+            D_COMMERCIAL_MAX) FAMNATIVE=true; CONTRACTS=true; FRONTIER=true; FGRID=true; EVIDENCE=true; EXPAND=true; PQUEUE=true; HANDOFF=true; DECAY=true; REVALIDATE=true; MAXDD=6;;
+            *) exit 31;;
+          esac
+          (
+            cd "$W"
+            RUN_NAME="V67-$CANDIDATE-CAPITAL-$BALANCE" START_DATE=01/07/2024 EVAL_DATE=2024-07-08T00:00:00Z END_DATE=31/12/2025 BALANCE="$BALANCE" \
+            FAMNATIVE="$FAMNATIVE" FAMOBS=true CANCONTRACT=true FAMCONF=true GRIDV2=true STOPV2=true JOINT=true CORRIDOR=false ANCHORFORENSICS=true IDENT=true BOUNDED=true SKIPS=2 FQUOTA=4 PRJPRZ=false DTRUTH=true \
+            PQUEUE="$PQUEUE" HANDOFF="$HANDOFF" NATIVE=false DECAY="$DECAY" REVALIDATE="$REVALIDATE" V67CONTRACTS="$CONTRACTS" V67FRONTIER="$FRONTIER" V67FGRID="$FGRID" V67EVIDENCE="$EVIDENCE" V67EXPAND="$EXPAND" MAXDD="$MAXDD" \
+            BACKTEST_TIMEOUT_SECONDS=1800 "$GITHUB_WORKSPACE/control/HarmonyBot-V67/tools/run_backtest.sh"
+          )
+          python3 control/HarmonyBot-V67/tools/audit_report.py --report "$W/seal/reports/V67-$CANDIDATE-CAPITAL-$BALANCE.json" --log "$W/seal/logs/V67-$CANDIDATE-CAPITAL-$BALANCE.log" --out "$O/$BALANCE.json" --window "CAPITAL_$BALANCE" --family "$CANDIDATE" --years 1.5 --balance "$BALANCE"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: v67-capital-${{ matrix.balance }}
+          path: control/HarmonyBot-V67/capital-out-${{ matrix.balance }}
+          retention-days: 30
+
+  capital_gate:
+    needs: [analyze, capital]
+    if: needs.capital.result == 'success'
+    runs-on: ubuntu-24.04
+    outputs:
+      capok: ${{ steps.g.outputs.capok }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: 'v67-capital-*'
+          path: capital
+          merge-multiple: true
+      - name: Fail-closed capital gate
+        id: g
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json,pathlib
+          p=pathlib.Path("capital"); balances=[100,150,200,300,500,1000,10000]
+          rows={str(b):json.load(open(next(p.rglob(f"{b}.json")))) for b in balances}
+          def safe(x): return x["baskets"]>0 and x["net"]>0 and x["engineering_clean"] and x["actual_basket_risk_violations"]==0 and x["margin_risk_violations"]==0 and x["stop_widening_violations"]==0 and x["max_dd_pct"]<=6
+          ok=all(safe(x) for x in rows.values())
+          pathlib.Path("V67_CAPITAL_COMPATIBILITY.json").write_text(json.dumps({"version":"HarmonyBot V67","rows":rows,"all_capital_compatible":ok,"hard_100_compatible":safe(rows["100"])},indent=2))
+          pathlib.Path("cap.out").write_text("true" if ok else "false")
+          PY
+          echo "capok=$(cat cap.out)" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: v67-capital-gate
+          path: V67_CAPITAL_COMPATIBILITY.json
+          retention-days: 30
+
+  fresh:
+    needs: [analyze, capital_gate]
+    if: needs.capital_gate.outputs.capok == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: harmonybot/v67-v52-family-native-throughput-grid-commercial-rebase
+          path: control
+          fetch-depth: 1
+      - uses: actions/download-artifact@v4
+        with:
+          name: v67-build
+          path: control/HarmonyBot-V67/shared
+      - name: Untouched Fresh 2020H1
+        shell: bash
+        env:
+          CANDIDATE: ${{ needs.analyze.outputs.candidate }}
+        run: |
+          mkdir -p control/HarmonyBot-V67/dist
+          A=$(find control/HarmonyBot-V67/shared -type f -name 'HarmonyBot_V67_Family_Native_Throughput_Grid_Commercial_Rebase.algo' | head -1); cp "$A" control/HarmonyBot-V67/dist/
+          chmod +x control/HarmonyBot-V67/tools/*.sh
+          control/HarmonyBot-V67/tools/run_window.sh "$CANDIDATE" FRESH2020H1 02/01/2020 2020-01-09T00:00:00Z 30/06/2020 .5
+      - uses: actions/upload-artifact@v4
+        with:
+          name: v67-fresh-2020h1
+          path: control/HarmonyBot-V67/output-${{ needs.analyze.outputs.candidate }}-FRESH2020H1
+          retention-days: 30
+
+  final_decision:
+    needs: [analyze, fresh]
+    if: always() && needs.fresh.result == 'success'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: v67-fresh-2020h1
+          path: fresh
+      - name: Final commercial freeze gate
+        shell: bash
+        env:
+          CANDIDATE: ${{ needs.analyze.outputs.candidate }}
+        run: |
+          python3 - <<'PY'
+          import json,pathlib,os
+          x=json.load(open(next(pathlib.Path("fresh").rglob(f"{os.environ['CANDIDATE']}-FRESH2020H1.json"))))
+          ok=x["baskets"]>0 and x["net"]>0 and x["pf"]>=2.0 and x["expectancy"]>=20 and x["win_rate"]>=.50 and x["max_dd_pct"]<=6 and x["engineering_clean"] and x["actual_basket_risk_violations"]==0 and x["margin_risk_violations"]==0 and x["stop_widening_violations"]==0
+          d={"version":"HarmonyBot V67","candidate":os.environ["CANDIDATE"],"fresh_2020h1":x,"fresh_used":True,"decision":"COMMERCIAL_FREEZE_APPROVED" if ok else "HOLD_WITH_EVIDENCE"}
+          pathlib.Path("V67_FINAL_COMMERCIAL_DECISION.json").write_text(json.dumps(d,indent=2))
+          print(json.dumps(d,indent=2))
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: v67-final-commercial-decision
+          path: V67_FINAL_COMMERCIAL_DECISION.json
+          retention-days: 30
