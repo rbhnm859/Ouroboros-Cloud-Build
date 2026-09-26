@@ -3497,6 +3497,7 @@ namespace cAlgo.Robots
                 if (s.PatternName == "Gartley" && exhaustOk) exhaustOk = false;
                 if (s.PatternName == "5-0") { trendOk = false; exhaustOk = false; }
                 if (s.PatternName == "AB=CD") exhaustOk = false;
+                if (EnableV68PositiveThroughputExpansion && s.PatternName == "Cypher") exhaustOk = false;
                 if (EnableV68PositiveThroughputExpansion && s.PatternName == "Shark") exhaustOk = false;
             }
 
@@ -3669,6 +3670,23 @@ namespace cAlgo.Robots
                    pattern == "Crab" || pattern == "Deep Crab" || pattern == "Deep Gartley" || pattern == "5-0";
         }
 
+        private double V68FamilyIdentityGeometryScore(PatternSignal s)
+        {
+            if (s == null || s.Profile == null) return 0;
+            var p = s.Profile;
+            if (p.Mode != PatternMode.STANDARD) return s.GeometryQuality;
+
+            var z = new List<double>
+            {
+                RangeCoordinate(s.Xab, p.XabMin, p.XabMax),
+                RangeCoordinate(s.Abc, p.AbcMin, p.AbcMax),
+                RangeCoordinate(s.Bcd, p.BcdMin, p.BcdMax),
+                RangeCoordinate(s.Xad, p.XadMin, p.XadMax)
+            };
+            double q = z.Sum(v => v * v) / z.Count;
+            return VClamp(Math.Exp(-.50 * q));
+        }
+
         private bool V68RecoveryQualityPass(PatternSignal s, FamilyTradeContract c)
         {
             if (s == null || c == null) return false;
@@ -3676,16 +3694,20 @@ namespace cAlgo.Robots
             switch(s.PatternName)
             {
                 case "Gartley": minG=.43; minP=.43; minC=.46; compositeFloor=.48; break;
-                case "Bat": minG=.35; minP=.35; minC=.42; compositeFloor=.44; break;
-                case "Alt Bat": minG=.30; minP=.30; minC=.38; compositeFloor=.40; break;
-                case "Butterfly": minG=.40; minP=.40; minC=.44; compositeFloor=.46; break;
-                case "Crab": minG=.35; minP=.35; minC=.42; compositeFloor=.44; break;
-                case "Deep Crab": minG=.35; minP=.35; minC=.42; compositeFloor=.44; break;
-                case "Deep Gartley": minG=.40; minP=.40; minC=.44; compositeFloor=.46; break;
+                case "Bat": minG=.42; minP=.50; minC=.44; compositeFloor=.52; break;
+                case "Alt Bat": minG=.44; minP=.72; minC=.38; compositeFloor=.54; break;
+                case "Butterfly": minG=.46; minP=.58; minC=.44; compositeFloor=.54; break;
+                case "Crab": minG=.44; minP=.72; minC=.40; compositeFloor=.54; break;
+                case "Deep Crab": minG=.44; minP=.68; minC=.42; compositeFloor=.54; break;
+                case "Deep Gartley": minG=.42; minP=.52; minC=.44; compositeFloor=.52; break;
                 case "5-0": minG=.70; minP=.60; minC=.70; compositeFloor=.72; break;
             }
-            double composite=.40*s.GeometryQuality+.30*s.PrzConfluence+.30*s.Confidence;
-            return s.GeometryQuality>=minG && s.PrzConfluence>=minP && s.Confidence>=minC && composite>=compositeFloor;
+
+            // Standard harmonic identity is XAB/ABC/BCD/XAD. AB=CD is completion/confluence and
+            // must not zero the family identity score after the ratio identity has already passed.
+            double nativeGeometry=V68FamilyIdentityGeometryScore(s);
+            double composite=.35*nativeGeometry+.35*s.PrzConfluence+.30*s.Confidence;
+            return nativeGeometry>=minG && s.PrzConfluence>=minP && s.Confidence>=minC && composite>=compositeFloor;
         }
 
         private HarmonicRoute V68RecoveryRoute(PatternSignal s, MtfConflict conflict, RegimeSnapshot r, FamilyTradeContract c,
@@ -3695,42 +3717,50 @@ namespace cAlgo.Robots
             if(r.AtrRatio<.34 || r.AtrRatio>c.MaxAtrRatio+.15) return HarmonicRoute.NO_TRADE;
 
             double familyRegime=V68FamilyRegimeScore(s, conflict, r);
-            bool terminalExtension=r.ExtensionAtr>=Math.Max(.80,c.ExhaustionExtensionAtr*.78) && r.AdxH1Slope<=.85;
+            bool terminalExtension=r.ExtensionAtr>=Math.Max(.70,c.ExhaustionExtensionAtr*.68) && r.AdxH1Slope<=.75;
             bool conflictExhaustion=conflict==MtfConflict.CONFLICT && c.AllowExhaustion && c.Role.Contains("EXTENSION") &&
-                                    terminalExtension && r.AdxH1Slope<=.40;
+                                    terminalExtension && familyRegime>=.60 && r.AdxH1Slope<=.25;
             if(conflict==MtfConflict.CONFLICT && !conflictExhaustion) return HarmonicRoute.NO_TRADE;
 
             bool softTransition=r.Transition || conflict==MtfConflict.TRANSITION || r.TrendDirection==TradeDirection.Neutral ||
-                                (terminalExtension && r.AdxH1Slope<=.50);
+                                (terminalExtension && r.AdxH1Slope<=.40);
 
             if(s.PatternName=="5-0")
             {
+                // 2021-2023 calibration: 5-0 only survives when trend strength is collapsing,
+                // volatility is moderate, and efficiency is low-but-nonzero. This is pre-entry only.
                 bool selectiveTransition=conflict==MtfConflict.NEUTRAL && s.GeometryQuality>=.70 &&
-                    familyRegime>=.62 && familyRegime<=.80 && r.AdxH1Slope<=-1.0 && r.Efficiency<=.22;
+                    familyRegime>=.62 && familyRegime<=.78 && r.AdxH1Slope<=-6.0 &&
+                    r.AtrPercentile>=.30 && r.AtrPercentile<=.70 &&
+                    r.Efficiency>=.06 && r.Efficiency<=.20;
                 return selectiveTransition ? HarmonicRoute.TRANSITION_REVERSAL : HarmonicRoute.NO_TRADE;
             }
 
             if(s.PatternName=="Gartley")
-                return trendOk ? HarmonicRoute.TREND_ALIGNED_REVERSAL : HarmonicRoute.NO_TRADE;
+                return trendOk && familyRegime>=.68 ? HarmonicRoute.TREND_ALIGNED_REVERSAL : HarmonicRoute.NO_TRADE;
 
             if(s.PatternName=="Bat")
             {
-                if(trendOk) return HarmonicRoute.TREND_ALIGNED_REVERSAL;
-                if(c.AllowTransition && softTransition && r.Efficiency>=.10) return HarmonicRoute.TRANSITION_REVERSAL;
+                if(trendOk && familyRegime>=.62) return HarmonicRoute.TREND_ALIGNED_REVERSAL;
+                if(c.AllowTransition && softTransition && familyRegime>=.60 && r.Efficiency>=.08)
+                    return HarmonicRoute.TRANSITION_REVERSAL;
                 return HarmonicRoute.NO_TRADE;
             }
 
             if(s.PatternName=="Deep Gartley")
             {
-                if(trendOk) return HarmonicRoute.TREND_ALIGNED_REVERSAL;
-                if(c.AllowTransition && softTransition && r.Efficiency>=.15) return HarmonicRoute.TRANSITION_REVERSAL;
+                if(trendOk && familyRegime>=.62) return HarmonicRoute.TREND_ALIGNED_REVERSAL;
+                if(c.AllowTransition && softTransition && familyRegime>=.58 && r.Efficiency>=.10)
+                    return HarmonicRoute.TRANSITION_REVERSAL;
                 return HarmonicRoute.NO_TRADE;
             }
 
             if(c.Role.Contains("EXTENSION"))
             {
-                if(c.AllowExhaustion && (terminalExtension || conflictExhaustion)) return HarmonicRoute.EXHAUSTION_REVERSAL;
-                if(c.AllowTransition && softTransition && r.AdxH1Slope<=.50) return HarmonicRoute.TRANSITION_REVERSAL;
+                if(c.AllowExhaustion && terminalExtension && familyRegime>=.58)
+                    return HarmonicRoute.EXHAUSTION_REVERSAL;
+                if(c.AllowTransition && softTransition && familyRegime>=.60 && r.AdxH1Slope<=.40)
+                    return HarmonicRoute.TRANSITION_REVERSAL;
                 return HarmonicRoute.NO_TRADE;
             }
 
@@ -3749,19 +3779,61 @@ namespace cAlgo.Robots
             string p=s.PatternName ?? "";
             int prior=c.NativeStage;
 
-            if(p=="Gartley" || p=="Bat" || p=="Deep Gartley" || p=="Rat")
+            if(p=="Gartley")
+            {
+                if(prior==0 && (rejection || retest)) c.NativeStage=1;
+                else if(prior==1 && reclaim) c.NativeStage=2;
+                else if(prior==2 && bos) c.NativeStage=3;
+                else if(prior==3 && directional) c.NativeStage=4;
+            }
+            else if(p=="Bat")
+            {
+                if(prior==0 && (rejection || retest)) c.NativeStage=1;
+                else if(prior==1 && reclaim) c.NativeStage=2;
+                else if(prior==2 && displacement) c.NativeStage=3;
+                else if(prior==3 && directional) c.NativeStage=4;
+            }
+            else if(p=="Deep Gartley")
+            {
+                if(prior==0 && (failedExtension || retest || rejection)) c.NativeStage=1;
+                else if(prior==1 && reclaim) c.NativeStage=2;
+                else if(prior==2 && (bos || displacement)) c.NativeStage=3;
+                else if(prior==3 && directional) c.NativeStage=4;
+            }
+            else if(p=="Rat")
             {
                 if(prior==0 && (rejection || retest)) c.NativeStage=1;
                 else if(prior==1 && reclaim) c.NativeStage=2;
                 else if(prior==2 && bos) c.NativeStage=3;
                 else if(prior==3 && directional && displacement) c.NativeStage=4;
             }
-            else if(p=="Alt Bat" || p=="Butterfly" || p=="Crab" || p=="Deep Crab")
+            else if(p=="Alt Bat")
             {
                 if(prior==0 && (sweep || insidePrz)) c.NativeStage=1;
-                else if(prior==1 && failedExtension) c.NativeStage=2;
+                else if(prior==1 && (failedExtension || rejection)) c.NativeStage=2;
                 else if(prior==2 && (reclaim || bos)) c.NativeStage=3;
                 else if(prior==3 && directional && (bos || displacement)) c.NativeStage=4;
+            }
+            else if(p=="Butterfly")
+            {
+                if(prior==0 && (sweep || rejection || insidePrz)) c.NativeStage=1;
+                else if(prior==1 && reclaim) c.NativeStage=2;
+                else if(prior==2 && (bos || displacement)) c.NativeStage=3;
+                else if(prior==3 && directional) c.NativeStage=4;
+            }
+            else if(p=="Crab")
+            {
+                if(prior==0 && (sweep || failedExtension || insidePrz)) c.NativeStage=1;
+                else if(prior==1 && (failedExtension || rejection)) c.NativeStage=2;
+                else if(prior==2 && (displacement || reclaim)) c.NativeStage=3;
+                else if(prior==3 && directional) c.NativeStage=4;
+            }
+            else if(p=="Deep Crab")
+            {
+                if(prior==0 && (sweep || insidePrz)) c.NativeStage=1;
+                else if(prior==1 && (reclaim || failedExtension)) c.NativeStage=2;
+                else if(prior==2 && (bos || displacement)) c.NativeStage=3;
+                else if(prior==3 && directional) c.NativeStage=4;
             }
             else if(p=="Cypher")
             {
@@ -4425,10 +4497,10 @@ namespace cAlgo.Robots
 
             double atr=Atr(_m1Bars,14,i);
             double structural=Math.Abs(s.D.Price-s.StructuralInvalidation);
-            double factor=(s.PatternName=="Crab" || s.PatternName=="Deep Crab")?.24:
-                          (s.PatternName=="Alt Bat" || s.PatternName=="Butterfly")?.22:
-                          (s.PatternName=="Bat" || s.PatternName=="Deep Gartley")?.16:.12;
-            double tol=Math.Max(atr*.18,structural*factor);
+            double factor=(s.PatternName=="Crab" || s.PatternName=="Deep Crab")?.34:
+                          (s.PatternName=="Alt Bat" || s.PatternName=="Butterfly")?.30:
+                          (s.PatternName=="Bat" || s.PatternName=="Deep Gartley")?.20:.14;
+            double tol=Math.Max(atr*.20,structural*factor);
             double low=Math.Min(s.PrzLow,s.PrzHigh)-tol;
             double high=Math.Max(s.PrzLow,s.PrzHigh)+tol;
             bool touch=_m1Bars.HighPrices[i]>=low && _m1Bars.LowPrices[i]<=high;
