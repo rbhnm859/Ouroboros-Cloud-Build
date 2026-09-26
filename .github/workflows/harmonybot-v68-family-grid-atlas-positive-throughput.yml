@@ -41,10 +41,14 @@ jobs:
           python3 HarmonyBot-V68/tools/static_contract_audit.py HarmonyBot-V68/src/HarmonyBotV68.cs
           dotnet restore HarmonyBot-V68/HarmonyBotV68.csproj
           dotnet build HarmonyBot-V68/HarmonyBotV68.csproj -c Release --no-restore --nologo
-          mkdir -p HarmonyBot-V68/dist HarmonyBot-V68/final
+          dotnet restore HarmonyBot-V52/HarmonyBotV52.csproj
+          dotnet build HarmonyBot-V52/HarmonyBotV52.csproj -c Release --no-restore --nologo
+          mkdir -p HarmonyBot-V68/dist HarmonyBot-V68/final HarmonyBot-V52/dist
           A=$(find HarmonyBot-V68/bin/Release -type f -name '*.algo' | head -1); test -s "$A"
+          B=$(find HarmonyBot-V52/bin/Release -type f -name '*.algo' | head -1); test -s "$B"
           cp "$A" HarmonyBot-V68/dist/HarmonyBot_V68_Harmonic_Family_Grid_Atlas_Positive_Throughput_Rebase.algo
-          sha256sum HarmonyBot-V68/src/HarmonyBotV68.cs "$A" > HarmonyBot-V68/final/SHA256SUMS
+          cp "$B" HarmonyBot-V52/dist/HarmonyBot_V52_Family_Identity_Detection_Graph_Reconstruction_RC.algo
+          sha256sum HarmonyBot-V68/src/HarmonyBotV68.cs "$A" HarmonyBot-V52/src/HarmonyBotV52.cs "$B" > HarmonyBot-V68/final/SHA256SUMS
           printf '%s\n' "$GITHUB_SHA" > HarmonyBot-V68/final/SOURCE_COMMIT.txt
       - uses: actions/upload-artifact@v4
         with:
@@ -52,6 +56,7 @@ jobs:
           path: |
             control/HarmonyBot-V68/dist
             control/HarmonyBot-V68/final
+            control/HarmonyBot-V52/dist
           retention-days: 30
 
   reproduce:
@@ -73,12 +78,12 @@ jobs:
         with:
           name: v68-build
           path: control/HarmonyBot-V68/shared
-      - name: Prepare immutable algo
+      - name: Prepare immutable control algo
         shell: bash
         run: |
-          mkdir -p control/HarmonyBot-V68/dist
-          A=$(find control/HarmonyBot-V68/shared -type f -name 'HarmonyBot_V68_Harmonic_Family_Grid_Atlas_Positive_Throughput_Rebase.algo' | head -1)
-          test -s "$A"; cp "$A" control/HarmonyBot-V68/dist/
+          mkdir -p control/HarmonyBot-V52/dist
+          A=$(find control/HarmonyBot-V68/shared -type f -name 'HarmonyBot_V52_Family_Identity_Detection_Graph_Reconstruction_RC.algo' | head -1)
+          test -s "$A"; cp "$A" control/HarmonyBot-V52/dist/
       - name: Resolve V52 parent window
         id: d
         shell: bash
@@ -92,7 +97,7 @@ jobs:
         shell: bash
         run: |
           chmod +x control/HarmonyBot-V68/tools/*.sh
-          control/HarmonyBot-V68/tools/run_window.sh A_V52_EXACT_CONTROL "${{ matrix.window }}" "${{ steps.d.outputs.start }}" "${{ steps.d.outputs.eval }}" "${{ steps.d.outputs.end }}" .5
+          control/HarmonyBot-V68/tools/run_control_window.sh "${{ matrix.window }}" "${{ steps.d.outputs.start }}" "${{ steps.d.outputs.eval }}" "${{ steps.d.outputs.end }}" .5
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -157,12 +162,15 @@ jobs:
         with:
           name: v68-build
           path: control/HarmonyBot-V68/shared
-      - name: Prepare immutable calibration algo
+      - name: Prepare immutable calibration algos
         shell: bash
         run: |
-          mkdir -p control/HarmonyBot-V68/dist
+          mkdir -p control/HarmonyBot-V68/dist control/HarmonyBot-V52/dist
           A=$(find control/HarmonyBot-V68/shared -type f -name 'HarmonyBot_V68_Harmonic_Family_Grid_Atlas_Positive_Throughput_Rebase.algo' | head -1)
-          test -s "$A"; cp "$A" control/HarmonyBot-V68/dist/
+          B=$(find control/HarmonyBot-V68/shared -type f -name 'HarmonyBot_V52_Family_Identity_Detection_Graph_Reconstruction_RC.algo' | head -1)
+          test -s "$A"; test -s "$B"
+          cp "$A" control/HarmonyBot-V68/dist/
+          cp "$B" control/HarmonyBot-V52/dist/
       - name: Resolve burned calibration window
         id: d
         shell: bash
@@ -176,7 +184,11 @@ jobs:
         shell: bash
         run: |
           chmod +x control/HarmonyBot-V68/tools/*.sh
-          control/HarmonyBot-V68/tools/run_window.sh "${{ matrix.variant }}" "${{ matrix.window }}" "${{ steps.d.outputs.start }}" "${{ steps.d.outputs.eval }}" "${{ steps.d.outputs.end }}" 1.0
+          if [ "${{ matrix.variant }}" = "A_V52_EXACT_CONTROL" ]; then
+            control/HarmonyBot-V68/tools/run_control_window.sh "${{ matrix.window }}" "${{ steps.d.outputs.start }}" "${{ steps.d.outputs.eval }}" "${{ steps.d.outputs.end }}" 1.0
+          else
+            control/HarmonyBot-V68/tools/run_window.sh "${{ matrix.variant }}" "${{ matrix.window }}" "${{ steps.d.outputs.start }}" "${{ steps.d.outputs.eval }}" "${{ steps.d.outputs.end }}" 1.0
+          fi
       - uses: actions/upload-artifact@v4
         if: always()
         with:
