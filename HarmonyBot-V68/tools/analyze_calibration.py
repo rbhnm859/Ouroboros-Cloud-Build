@@ -33,7 +33,9 @@ def aggregate(v):
         for r in windows[w].get("basket_outcomes",[]):
             q=dict(r); q["window"]=w; rows.append(q)
     n=len(rows); net=sum(r["net"] for r in rows); fam=family_stats(rows)
-    pos=[f for f,z in fam.items() if z["count"]>=3 and z["net"]>0 and z["expectancy"]>0]
+    # A family is commercially meaningful only if it contributes a real positive cohort rather than
+    # a one-off winner.  Calibration is burned data, so this is the legal place to enforce breadth.
+    pos=[f for f,z in fam.items() if z["count"]>=5 and z["net"]>0 and z["expectancy"]>0 and z["active_years"]>=2 and z["positive_years"]>=1]
     shares={f:(fam[f]["count"]/n if n else 0) for f in FAMILIES}
     maxfam=max(shares,key=shares.get) if shares else None
     return {
@@ -67,7 +69,7 @@ eligible=[v for v in V[1:] if A[v]["calibration_gate"]]
 candidate=max(eligible,key=lambda v:(A[v]["family_positive_count"],A[v]["net"],A[v]["pf"],A[v]["frequency"])) if eligible else None
 for v in V: A[v].pop("_rows",None)
 front={"version":"HarmonyBot V68","stage":"CALIBRATION_2021_2023","variants":A,"marginal":M,
-       "family_gate":{"min_trades_per_family":3,"net_positive":True,"expectancy_positive":True,"required_positive_families":12,"max_single_family_share":.35},
+       "family_gate":{"min_trades_per_family":5,"min_active_years":2,"min_positive_years":1,"net_positive":True,"expectancy_positive":True,"required_positive_families":12,"max_single_family_share":.35,"rule":"NO_FIXED_QUOTA;EACH_FAMILY_MUST_PROVE_OWN_POSITIVE_CAPITAL_COHORT"},
        "calibration_candidate":candidate,"decision":"CALIBRATION_CANDIDATE_PASS" if candidate else "HOLD_WITH_EVIDENCE",
        "validation_used":False,"fresh_used":False}
 (out/"V68_CALIBRATION_FRONTIER.json").write_text(json.dumps(front,indent=2))
