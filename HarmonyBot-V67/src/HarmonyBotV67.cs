@@ -2580,16 +2580,20 @@ namespace cAlgo.Robots
                 .ToList();
 
             int quota = Math.Max(1, FamilyDetectionQuota);
-            var fair = hypotheses
+            IEnumerable<PatternSignal> fairQuery = hypotheses
                 .GroupBy(x => x.PatternName)
                 .SelectMany(g =>
                 {
                     int familyQuota = V67ProductEnabled() && g.Key == "AB=CD" ? 1 : quota;
                     return g.OrderByDescending(x => x.Confidence).ThenByDescending(x => x.GeometryQuality).Take(familyQuota);
-                })
-                .OrderByDescending(x => V67FamilyDetectorPriority(x))
-                .ThenByDescending(x => x.Confidence)
-                .ThenByDescending(x => x.GeometryQuality)
+                });
+
+            var fair = (V67ProductEnabled()
+                ? fairQuery.OrderByDescending(x => V67FamilyDetectorPriority(x))
+                           .ThenByDescending(x => x.Confidence)
+                           .ThenByDescending(x => x.GeometryQuality)
+                : fairQuery.OrderByDescending(x => x.Confidence)
+                           .ThenByDescending(x => x.GeometryQuality))
                 .Take(Math.Max(maxCandidates, _profiles.Count * quota))
                 .ToList();
 
