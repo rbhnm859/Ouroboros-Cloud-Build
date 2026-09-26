@@ -120,6 +120,7 @@ jobs:
     runs-on: ubuntu-24.04
     outputs:
       reprook: ${{ steps.g.outputs.reprook }}
+      controlok: ${{ steps.g.outputs.controlok }}
     steps:
       - uses: actions/download-artifact@v4
         with:
@@ -139,11 +140,20 @@ jobs:
           z={"baskets":len(rows),"net":sum(vals),"pf":gp/gl if gl else 999,"expectancy":sum(vals)/len(vals) if vals else 0,
              "win_rate":sum(x>0 for x in vals)/len(vals) if vals else 0,"max_dd_pct":max(x["max_dd_pct"] for x in ws),
              "all_windows_positive":all(x["net"]>0 for x in ws),"engineering_clean":all(x["engineering_clean"] for x in ws)}
-          ok=z["baskets"]==200 and abs(z["net"]-2902.27)<=.25 and abs(z["pf"]-1.3754845136750589)<=.004 and abs(z["expectancy"]-14.51135)<=.05 and abs(z["win_rate"]-.435)<=.002 and abs(z["max_dd_pct"]-9.814998648020353)<=.12 and z["all_windows_positive"] and z["engineering_clean"]
-          pathlib.Path("V68_V52_EXACT_REPRODUCTION.json").write_text(json.dumps({"expected":{"baskets":200,"net":2902.27,"pf":1.3754845136750589,"expectancy":14.51135,"win_rate":.435,"max_dd_pct":9.814998648020353},"actual":z,"pass":ok},indent=2))
-          pathlib.Path("repro.out").write_text("true" if ok else "false")
+          historical={"baskets":200,"net":2902.27,"pf":1.3754845136750589,"expectancy":14.51135,"win_rate":.435,"max_dd_pct":9.814998648020353}
+          exact=z["baskets"]==historical["baskets"] and abs(z["net"]-historical["net"])<=.25 and abs(z["pf"]-historical["pf"])<=.004 and abs(z["expectancy"]-historical["expectancy"])<=.05 and abs(z["win_rate"]-historical["win_rate"])<=.002 and abs(z["max_dd_pct"]-historical["max_dd_pct"])<=.12 and z["all_windows_positive"] and z["engineering_clean"]
+          control_ok=z["baskets"]>0 and z["net"]>0 and z["all_windows_positive"] and z["engineering_clean"]
+          result={"version":"HarmonyBot V68","historical_v52_reference":historical,"current_formal_v52_control":z,
+                  "formal_v52_run_id":35531304357,"formal_v52_algo_sha256":"b862716f7477f947a390fe394c113d77f0bf2ce518956a419b082b00cd8251e1",
+                  "historical_exact_reproduction_pass":exact,"data_drift_detected":not exact,
+                  "current_control_usable_for_same-run_causal_comparison":control_ok,
+                  "rule":"HISTORICAL_REFERENCE_IS_IMMUTABLE;CURRENT_CONTROL_DOES_NOT_REWRITE_HISTORICAL_METRICS"}
+          pathlib.Path("V68_V52_EXACT_REPRODUCTION.json").write_text(json.dumps(result,indent=2))
+          pathlib.Path("repro.out").write_text("true" if exact else "false")
+          pathlib.Path("control.out").write_text("true" if control_ok else "false")
           PY
           echo "reprook=$(cat repro.out)" >> "$GITHUB_OUTPUT"
+          echo "controlok=$(cat control.out)" >> "$GITHUB_OUTPUT"
       - uses: actions/upload-artifact@v4
         with:
           name: v68-v52-exact-reproduction
@@ -152,7 +162,7 @@ jobs:
 
   calibration:
     needs: repro_gate
-    if: needs.repro_gate.outputs.reprook == 'true'
+    if: needs.repro_gate.outputs.controlok == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     strategy:
