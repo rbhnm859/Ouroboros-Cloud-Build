@@ -16,6 +16,11 @@ needle='--EnableFamilyNativeProjectedPrz="$PRJPRZ" --EnableDetectorTruthLedger="
 inject=needle + ' --EnableV67FamilyTradeContracts="${V67CONTRACTS:-false}" --EnableV67FamilyDetectorFrontier="${V67FRONTIER:-false}" --EnableV67FamilyNativeGrid="${V67FGRID:-false}" --EnableV67EvidenceRouteGuard="${V67EVIDENCE:-false}" --EnableV67ControlledExpansion="${V67EXPAND:-false}"'
 if needle not in src: raise SystemExit("V52 runner injection anchor missing")
 src=src.replace(needle,inject)
+# The old V52 runner stopped Docker immediately when report JSON became readable.
+# Keep broker-history as authoritative and allow stdout telemetry to flush for attribution/right-tail evidence.
+flush='then DONE=1; break; fi'
+if flush in src:
+    src=src.replace(flush,'then DONE=1; sleep "${REPORT_FLUSH_GRACE_SECONDS:-8}"; break; fi',1)
 pathlib.Path(sys.argv[2]).write_text(src)
 PY
 chmod +x "$TMP"
