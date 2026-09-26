@@ -13,8 +13,13 @@ def rd(v,w): return json.load(open(find(f"{v}-{w}.json")))
 def pf(rows):
     gp=sum(r["net"] for r in rows if r["net"]>0); gl=-sum(r["net"] for r in rows if r["net"]<0)
     return gp/gl if gl else (999 if gp else 0)
+def finite(x):
+    return isinstance(x,(int,float)) and math.isfinite(x)
+def numeric(rows,key):
+    return [r.get(key) for r in rows if finite(r.get(key))]
 def pctl(xs,p):
-    if not xs:return 0
+    xs=[x for x in xs if finite(x)]
+    if not xs:return None
     z=sorted(xs); return z[max(0,min(len(z)-1,math.ceil(p*len(z))-1))]
 def maxdd_dollars(rows):
     eq=peak=0.0; dd=0.0
@@ -26,13 +31,19 @@ def agg(v):
     for w in W:
         for r in wins[w].get("basket_outcomes",[]):
             q=dict(r);q["window"]=w;rows.append(q)
-    n=len(rows); net=sum(r["net"] for r in rows); rr=[r["r"] for r in rows if r["r"]>0]
+    n=len(rows); net=sum(r["net"] for r in rows)
+    rr=numeric(rows,"r"); winner_rr=[x for x in rr if x>0]
+    mfe=numeric(rows,"mfe"); mae=numeric(rows,"mae")
+    tail_cov=len(rr)/n if n else 0.0
     return {
       "baskets":n,"years":TOTAL_YEARS,"frequency":n/TOTAL_YEARS,"net":net,
       "normalized_net_1p5y":net/TOTAL_YEARS*1.5,"pf":pf(rows),"expectancy":net/n if n else 0,
       "win_rate":sum(r["net"]>0 for r in rows)/n if n else 0,
       "max_dd_pct":max((wins[w]["max_dd_pct"] for w in W),default=0),
-      "p95_winner_r":pctl(rr,.95),"max_winner_r":max(rr) if rr else 0,
+      "p95_winner_r":pctl(winner_rr,.95),"max_winner_r":max(winner_rr) if winner_rr else None,
+      "tail_telemetry_coverage":tail_cov,
+      "mean_mfe_r":statistics.mean(mfe) if mfe else None,
+      "mean_mae_r":statistics.mean(mae) if mae else None,
       "all_windows_positive":all(wins[w]["net"]>0 for w in W),
       "engineering_clean":all(wins[w]["engineering_clean"] for w in W),
       "risk_clean":all(wins[w]["actual_basket_risk_violations"]==0 and wins[w]["margin_risk_violations"]==0 and wins[w]["stop_widening_violations"]==0 for w in W),
@@ -56,7 +67,13 @@ def marginal(frm,to):
       "removed_count":len(removed),"removed_net":sum(r["net"] for r in removed)}
 M={"B-A":marginal(V[0],V[1]),"C-B":marginal(V[1],V[2]),"D-C":marginal(V[2],V[3])}
 def positive_new(m): return m["added_count"]==0 or m["added_net"]>0
-grid_gate=M["C-B"]["delta_net"]>0 and A[V[2]]["pf"]>=A[V[1]]["pf"] and A[V[2]]["expectancy"]>=A[V[1]]["expectancy"] and A[V[2]]["p95_winner_r"]>0 and A[V[2]]["max_winner_r"]>=A[V[1]]["max_winner_r"] and positive_new(M["C-B"]) and A[V[2]]["risk_clean"]
+grid_gate=(M["C-B"]["delta_net"]>0 and A[V[2]]["pf"]>=A[V[1]]["pf"] and
+           A[V[2]]["expectancy"]>=A[V[1]]["expectancy"] and
+           A[V[2]]["tail_telemetry_coverage"]>=.95 and A[V[1]]["tail_telemetry_coverage"]>=.95 and
+           finite(A[V[2]]["p95_winner_r"]) and A[V[2]]["p95_winner_r"]>0 and
+           finite(A[V[2]]["max_winner_r"]) and finite(A[V[1]]["max_winner_r"]) and
+           A[V[2]]["max_winner_r"]>=A[V[1]]["max_winner_r"] and
+           positive_new(M["C-B"]) and A[V[2]]["risk_clean"])
 exp_gate=(M["D-C"]["delta_trades"]<=0 or M["D-C"]["delta_net"]>0) and positive_new(M["D-C"]) and A[V[3]]["pf"]>=A[V[2]]["pf"] and A[V[3]]["expectancy"]>=A[V[2]]["expectancy"] and A[V[3]]["risk_clean"]
 for v in V:
     A[v]["commercial_gate"]=commercial(A[v]); A[v]["v51_superiority_gate"]=superior(A[v])
@@ -68,14 +85,19 @@ for v in V:
     rows=wins[w].get("basket_outcomes",[]); slots=wins[w].get("slot_occupancy",[])
     keys=sorted({(r["pattern"],r["route"]) for r in rows})
     for fam,route in keys:
-      rs=[r for r in rows if r["pattern"]==fam and r["route"]==route]; wins_r=[r["r"] for r in rs if r["r"]>0]
-      ss=[x["occupancy_minutes"] for x in slots if x["pattern"]==fam and x["route"]==route]
+      rs=[r for r in rows if r["pattern"]==fam and r["route"]==route]
+      rr=numeric(rs,"r"); wins_r=[x for x in rr if x>0]
+      mfe=numeric(rs,"mfe"); mae=numeric(rs,"mae")
+      ss=[x["occupancy_minutes"] for x in slots if x["pattern"]==fam and x["route"]==route and finite(x.get("occupancy_minutes"))]
       net=sum(r["net"] for r in rs)
       attrib.append({"variant":v,"window":w,"family":fam,"route":route,"count":len(rs),"net":net,"pf":pf(rs),
         "expectancy":net/len(rs),"win_rate":sum(r["net"]>0 for r in rs)/len(rs),
-        "dd_contribution_dollars":maxdd_dollars(rs),"mean_mfe_r":statistics.mean([r["mfe"] for r in rs]),
-        "mean_mae_r":statistics.mean([r["mae"] for r in rs]),"p95_winner_r":pctl(wins_r,.95),"max_winner_r":max(wins_r) if wins_r else 0,
-        "occupancy_cost_minutes":sum(ss),"avg_occupancy_minutes":statistics.mean(ss) if ss else 0})
+        "dd_contribution_dollars":maxdd_dollars(rs),
+        "tail_telemetry_coverage":len(rr)/len(rs) if rs else 0.0,
+        "mean_mfe_r":statistics.mean(mfe) if mfe else None,
+        "mean_mae_r":statistics.mean(mae) if mae else None,
+        "p95_winner_r":pctl(wins_r,.95),"max_winner_r":max(wins_r) if wins_r else None,
+        "occupancy_cost_minutes":sum(ss),"avg_occupancy_minutes":statistics.mean(ss) if ss else None})
 eligible=[]
 if A[V[1]]["commercial_gate"] and A[V[1]]["v51_superiority_gate"]: eligible.append(V[1])
 if A[V[2]]["commercial_gate"] and A[V[2]]["v51_superiority_gate"] and grid_gate: eligible.append(V[2])
