@@ -422,6 +422,8 @@ namespace cAlgo.Robots
 
             Print("[V67-START] version={0} symbol={1} H4={2} H1={3} M15={4} M1={5} profiles={6}",
                 Version, SymbolName, Count(_h4Bars), Count(_h1Bars), Count(_m15Bars), Count(_m1Bars), _profiles.Count);
+            Print("[V67-CONTROL-ISOLATION] mode={0} exactV52Control={1} productGridLogic={2} parentProjectedPrz={3}",
+                V67Variant, V67ControlEnabled(), V67ProductEnabled(), EnableFamilyNativeProjectedPrz);
             Print("[V67-TIMEFRAME-AUDIT] primaryPattern=M15 execution=M1 macro=H4 intermediate=H1 allCompletedBars=true");
             Print("[V67-SESSION-AUDIT] london={0} newYork={1} dstAware=true", _londonTz.Id, _newYorkTz.Id);
             Print("[V67-ALPHA-CONFIG] qualityObservation={0} legacyRegime={1} legacyEnhancedM1={2} capitalFeasibility={3} transitionVeto={4} exhaustionVeto={5} routeM1Veto={6}",
@@ -1251,12 +1253,24 @@ namespace cAlgo.Robots
             {
                 double fraction = p.GridFractions[leg];
                 if (fraction < -1e-9 || fraction > .6180001) continue;
-                double price = leg == 0 ? anchor :
-                    (c.Signal.Direction == TradeDirection.Buy ? dAnchor - fraction * executionUnit : dAnchor + fraction * executionUnit);
 
-                bool insideLegalPrz = price >= legalLow && price <= legalHigh;
-                bool legalConfirmedL0 = leg == 0 && favorableConfirmDrift && confirmDriftR <= .2360001;
-                if (!insideLegalPrz && !legalConfirmedL0) continue;
+                double price;
+                if (V67ProductEnabled())
+                {
+                    price = leg == 0 ? anchor :
+                        (c.Signal.Direction == TradeDirection.Buy ? dAnchor - fraction * executionUnit : dAnchor + fraction * executionUnit);
+                    bool insideLegalPrz = price >= legalLow && price <= legalHigh;
+                    bool legalConfirmedL0 = leg == 0 && favorableConfirmDrift && confirmDriftR <= .2360001;
+                    if (!insideLegalPrz && !legalConfirmedL0) continue;
+                }
+                else
+                {
+                    // Exact V52 FAMILY_IDENTITY_RECONSTRUCTION control semantics.
+                    price = c.Signal.Direction == TradeDirection.Buy
+                        ? anchor - fraction * executionUnit
+                        : anchor + fraction * executionUnit;
+                    if (price < legalLow || price > legalHigh) continue;
+                }
 
                 double riskWeight = leg < p.GridRiskWeights.Length ? p.GridRiskWeights[leg] : 0;
                 double slPips = PriceToPips(Math.Abs(price - stop));
@@ -3089,7 +3103,10 @@ namespace cAlgo.Robots
             ConfigureGrid("Cypher", new[] { 0.0, .236, .382 }, 3, .02, .60, .42, 75, .050, "XC_RETRACE_CONFIRM", "T1_THEN_T2");
             ConfigureGrid("Shark", new[] { 0.0, .236 }, 2, .02, .60, .26, 60, .050, "EXTREME_PRZ_CONFIRM", "T1_THEN_T2");
             ConfigureGrid("5-0", new[] { 0.0, .236 }, 2, .02, .60, .26, 60, .050, "REVERSAL_PRZ_CONFIRM", "T1_THEN_T2");
-            ConfigureGrid("AB=CD", new[] { 0.0, .236 }, 2, .02, .80, .42, 75, .050, "ABCD_COMPLETION_CONFIRM", "T1_THEN_T2");
+            if (V67ProductEnabled())
+                ConfigureGrid("AB=CD", new[] { 0.0, .236 }, 2, .02, .80, .42, 75, .050, "ABCD_COMPLETION_CONFIRM", "T1_THEN_T2");
+            else
+                ConfigureGrid("AB=CD", new[] { 0.0, .236, .382, .618 }, 4, .02, .80, .65, 90, .050, "ABCD_COMPLETION_CONFIRM", "T1_THEN_T2");
             ConfigureGrid("Deep Gartley", new[] { 0.0, .236, .382 }, 3, .70, 1.20, .42, 75, .030, "DEEP_PRZ_CONFIRM", "T1_THEN_T2");
             ConfigureGrid("Rat", new[] { 0.0, .236, .382 }, 3, .02, 1.40, .42, 75, .035, "RATIO_PRZ_CONFIRM", "T1_THEN_T2");
         }
