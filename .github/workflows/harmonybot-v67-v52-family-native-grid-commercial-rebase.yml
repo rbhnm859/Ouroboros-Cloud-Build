@@ -1,0 +1,176 @@
+name: HarmonyBot V67 V52 Family-Native Grid Commercial Rebase
+on:
+  push:
+    branches: [harmonybot/v67-v52-family-native-grid-commercial-rebase]
+    paths:
+      - 'HarmonyBot-V67/**'
+      - '.github/workflows/harmonybot-v67-v52-family-native-grid-commercial-rebase.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: harmonybot-v67-v52-family-native-grid-commercial-rebase
+  cancel-in-progress: true
+
+permissions: {contents: read}
+
+env:
+  CTRADER_PASSWORD: ${{ secrets.CTRADER_PASSWORD }}
+  CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+  CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: harmonybot/v67-v52-family-native-grid-commercial-rebase
+          path: control
+          fetch-depth: 1
+      - uses: actions/setup-dotnet@v4
+        with: {dotnet-version: 8.0.x}
+      - shell: bash
+        run: |
+          set -euo pipefail
+          cd control
+          python3 HarmonyBot-V67/tools/static_audit.py HarmonyBot-V67/src/HarmonyBotV67.cs
+          python3 HarmonyBot-V67/tools/geometry_contract_test.py HarmonyBot-V67/src/HarmonyBotV67.cs
+          python3 HarmonyBot-V67/tools/detector_contract_test.py HarmonyBot-V67/src/HarmonyBotV67.cs
+          dotnet restore HarmonyBot-V67/HarmonyBotV67.csproj
+          dotnet build HarmonyBot-V67/HarmonyBotV67.csproj -c Release --no-restore --nologo
+          mkdir -p HarmonyBot-V67/dist HarmonyBot-V67/final
+          A=$(find HarmonyBot-V67/bin/Release -type f -name '*.algo' | head -1); test -s "$A"
+          cp "$A" HarmonyBot-V67/dist/HarmonyBot_V67_V52_Throughput_Family_Native_Grid_Commercial_Rebase_RC.algo
+          sha256sum HarmonyBot-V67/src/HarmonyBotV67.cs "$A" > HarmonyBot-V67/final/SHA256SUMS
+          printf '%s\n' "$GITHUB_SHA" > HarmonyBot-V67/final/SOURCE_COMMIT.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: v67-build
+          path: |
+            control/HarmonyBot-V67/dist
+            control/HarmonyBot-V67/final
+          retention-days: 30
+          if-no-files-found: error
+
+  dev:
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      max-parallel: 12
+      matrix:
+        mode: [V67_V52_CONTROL, V67_PRODUCT]
+        window: [CAL_A, CAL_B, CAL_C, DEV_A, DEV_B, DEV_C]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: harmonybot/v67-v52-family-native-grid-commercial-rebase
+          path: control
+          fetch-depth: 1
+      - uses: actions/download-artifact@v4
+        with:
+          name: v67-build
+          path: control/HarmonyBot-V67/shared
+      - shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p control/HarmonyBot-V67/dist
+          A=$(find control/HarmonyBot-V67/shared -type f -name '*.algo' | head -1); test -s "$A"
+          cp "$A" control/HarmonyBot-V67/dist/HarmonyBot_V67_V52_Throughput_Family_Native_Grid_Commercial_Rebase_RC.algo
+          chmod +x control/HarmonyBot-V67/tools/*.sh
+      - id: d
+        shell: bash
+        run: |
+          case "${{ matrix.window }}" in
+            CAL_A) S=04/01/2021; E=2021-01-11T00:00:00Z; X=30/06/2021; Y=.5;;
+            CAL_B) S=01/07/2021; E=2021-07-08T00:00:00Z; X=31/12/2021; Y=.5;;
+            CAL_C) S=03/01/2022; E=2022-01-10T00:00:00Z; X=30/06/2022; Y=.5;;
+            DEV_A) S=01/07/2024; E=2024-07-08T00:00:00Z; X=31/12/2024; Y=.5;;
+            DEV_B) S=02/01/2025; E=2025-01-09T00:00:00Z; X=30/06/2025; Y=.5;;
+            DEV_C) S=01/07/2025; E=2025-07-08T00:00:00Z; X=31/12/2025; Y=.5;;
+          esac
+          echo "s=$S" >> "$GITHUB_OUTPUT"; echo "e=$E" >> "$GITHUB_OUTPUT"; echo "x=$X" >> "$GITHUB_OUTPUT"; echo "y=$Y" >> "$GITHUB_OUTPUT"
+      - shell: bash
+        run: |
+          control/HarmonyBot-V67/tools/run_window.sh "${{ matrix.mode }}" "${{ matrix.window }}" "${{ steps.d.outputs.s }}" "${{ steps.d.outputs.e }}" "${{ steps.d.outputs.x }}" 1 10000 "${{ steps.d.outputs.y }}"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: "v67-dev-${{ matrix.mode }}-${{ matrix.window }}"
+          path: "control/HarmonyBot-V67/output-${{ matrix.mode }}-${{ matrix.window }}-B10000-S1"
+          retention-days: 30
+          if-no-files-found: error
+
+  gate:
+    needs: dev
+    runs-on: ubuntu-24.04
+    outputs:
+      candidate: ${{ steps.g.outputs.candidate }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: harmonybot/v67-v52-family-native-grid-commercial-rebase
+          path: control
+          fetch-depth: 1
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: 'v67-dev-*'
+          path: evidence
+          merge-multiple: true
+      - id: g
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 control/HarmonyBot-V67/tools/analyze_v67.py --root evidence --out V67_DEV_GATE.json
+          echo "candidate=$(python3 -c 'import json;print(str(json.load(open("V67_DEV_GATE.json"))["candidate"]).lower())')" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: V67-FAMILY-NATIVE-DEV-GATE
+          path: V67_DEV_GATE.json
+          retention-days: 90
+
+  validation:
+    needs: [build, gate]
+    if: needs.gate.outputs.candidate == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        quarter: [Q1, Q2]
+        spread: [1.0, 1.25, 1.5]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: harmonybot/v67-v52-family-native-grid-commercial-rebase
+          path: control
+          fetch-depth: 1
+      - uses: actions/download-artifact@v4
+        with:
+          name: v67-build
+          path: control/HarmonyBot-V67/shared
+      - id: d
+        shell: bash
+        run: |
+          if [ "${{ matrix.quarter }}" = Q1 ]; then S=02/01/2026; E=2026-01-09T00:00:00Z; X=31/03/2026; else S=01/04/2026; E=2026-04-08T00:00:00Z; X=30/06/2026; fi
+          echo "s=$S" >> "$GITHUB_OUTPUT"; echo "e=$E" >> "$GITHUB_OUTPUT"; echo "x=$X" >> "$GITHUB_OUTPUT"
+      - shell: bash
+        run: |
+          mkdir -p control/HarmonyBot-V67/dist
+          A=$(find control/HarmonyBot-V67/shared -type f -name '*.algo' | head -1); cp "$A" control/HarmonyBot-V67/dist/HarmonyBot_V67_V52_Throughput_Family_Native_Grid_Commercial_Rebase_RC.algo
+          chmod +x control/HarmonyBot-V67/tools/*.sh
+          control/HarmonyBot-V67/tools/run_window.sh V67_PRODUCT "VAL_${{ matrix.quarter }}_S${{ matrix.spread }}" "${{ steps.d.outputs.s }}" "${{ steps.d.outputs.e }}" "${{ steps.d.outputs.x }}" "${{ matrix.spread }}" 10000 .25
+      - uses: actions/upload-artifact@v4
+        with:
+          name: "v67-validation-${{ matrix.quarter }}-S${{ matrix.spread }}"
+          path: "control/HarmonyBot-V67/output-V67_PRODUCT-VAL_*"
+          retention-days: 90
+
+  hold:
+    needs: gate
+    if: needs.gate.outputs.candidate != 'true'
+    runs-on: ubuntu-24.04
+    steps:
+      - run: echo "V67 HOLD_WITH_EVIDENCE — Validation/Fresh remain locked."
