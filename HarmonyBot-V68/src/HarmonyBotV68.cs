@@ -3855,26 +3855,42 @@ namespace cAlgo.Robots
         private void BuildV68FamilyGridAtlas()
         {
             _familyGridAtlas.Clear();
-            AddV68Grid("Gartley","RISK",1.00,90,.50,new[]{0.0,.236,.382,.618},new[]{.40,.30,.20,.10},new double[0],new double[0],new[]{0.0,.236,.382},new[]{.50,.30,.20});
-            AddV68Grid("Bat","RISK",.95,105,.50,new[]{0.0,.236,.382,.618},new[]{.40,.30,.20,.10},new double[0],new double[0],new[]{0.0,.236,.382},new[]{.50,.30,.20});
-            AddV68Grid("Alt Bat","CD",.38,90,.42,new double[0],new double[0],new[]{0.0,.118,.236},new[]{.55,.30,.15},new[]{0.0,.118,.236},new[]{.55,.30,.15});
-            AddV68Grid("Butterfly","CD",.34,90,.42,new double[0],new double[0],new[]{0.0,.118,.236,.382},new[]{.50,.28,.14,.08},new[]{0.0,.118,.236},new[]{.55,.30,.15});
-            AddV68Grid("Crab","CD",.28,75,.38,new double[0],new double[0],new[]{0.0,.10,.20},new[]{.60,.28,.12},new[]{0.0,.10,.20},new[]{.60,.28,.12});
-            AddV68Grid("Deep Crab","CD",.24,75,.35,new double[0],new double[0],new[]{0.0,.08,.18},new[]{.65,.25,.10},new[]{0.0,.08,.18},new[]{.65,.25,.10});
-            AddV68Grid("Deep Gartley","RISK",.95,105,.50,new[]{0.0,.236,.382},new[]{.50,.30,.20},new double[0],new double[0],new[]{0.0,.236,.382},new[]{.50,.30,.20});
-            AddV68Grid("Rat","D_STOP",.78,90,.50,new[]{0.0,.18,.382},new[]{.45,.35,.20},new double[0],new double[0],new[]{0.0,.18,.30},new[]{.50,.30,.20});
-            AddV68Grid("Cypher","RISK",.90,90,.50,new[]{0.0,.236,.382},new[]{.50,.33,.17},new[]{0.0,.236},new[]{.65,.35},new[]{0.0,.236,.382},new[]{.50,.33,.17});
-            AddV68Grid("Shark","RISK",.85,75,.42,new[]{0.0,.236},new[]{.65,.35},new[]{0.0,.236},new[]{.65,.35},new[]{0.0,.236},new[]{.65,.35});
-            AddV68Grid("5-0","RISK",.90,75,.42,new double[0],new double[0],new double[0],new double[0],new[]{0.0,.236},new[]{.70,.30});
-            AddV68Grid("AB=CD","RISK",1.00,90,.50,new[]{0.0,.236,.382,.618},new[]{.428571,.285714,.142857,.142858},new double[0],new double[0],new[]{0.0,.236,.382},new[]{.50,.30,.20});
+            // Each family owns its execution geometry.  No family quota is used: capital still requires
+            // positive expectancy in calibration, but no family is forced through a foreign grid shape.
+            AddV68Grid("Gartley","RISK",1.00,90,.50,.40,.98,2,
+                new[]{0.0,.236,.382,.618},new[]{.40,.30,.20,.10},new double[0],new double[0],new[]{0.0,.236,.382},new[]{.50,.30,.20});
+            AddV68Grid("Bat","RISK",.95,105,.50,.40,.98,2,
+                new[]{0.0,.236,.382,.618},new[]{.40,.30,.20,.10},new double[0],new double[0],new[]{0.0,.236,.382},new[]{.50,.30,.20});
+            AddV68Grid("Alt Bat","CD",.38,90,.42,.40,.96,2,
+                new double[0],new double[0],new[]{0.0,.118,.236},new[]{.55,.30,.15},new[]{0.0,.118,.236},new[]{.55,.30,.15});
+            AddV68Grid("Butterfly","CD",.34,90,.42,.40,.96,2,
+                new double[0],new double[0],new[]{0.0,.118,.236,.382},new[]{.50,.28,.14,.08},new[]{0.0,.118,.236},new[]{.55,.30,.15});
+            AddV68Grid("Crab","CD",.28,75,.38,.38,.94,2,
+                new double[0],new double[0],new[]{0.0,.10,.20},new[]{.60,.28,.12},new[]{0.0,.10,.20},new[]{.60,.28,.12});
+            AddV68Grid("Deep Crab","CD",.24,75,.35,.38,.94,2,
+                new double[0],new double[0],new[]{0.0,.08,.18},new[]{.65,.25,.10},new[]{0.0,.08,.18},new[]{.65,.25,.10});
+            AddV68Grid("Deep Gartley","RISK",.95,105,.50,.40,.98,2,
+                new[]{0.0,.236,.382},new[]{.50,.30,.20},new double[0],new double[0],new[]{0.0,.236,.382},new[]{.50,.30,.20});
+            AddV68Grid("Rat","D_STOP",.78,90,.50,.36,.98,2,
+                new[]{0.0,.18,.382},new[]{.45,.35,.20},new double[0],new double[0],new[]{0.0,.18,.30},new[]{.50,.30,.20});
+            AddV68Grid("Cypher","RISK",.90,90,.50,.35,.98,2,
+                new[]{0.0,.236,.382},new[]{.50,.33,.17},new[]{0.0,.236},new[]{.65,.35},new[]{0.0,.236,.382},new[]{.50,.33,.17});
+            AddV68Grid("Shark","RISK",.85,75,.42,.32,.96,2,
+                new[]{0.0,.236},new[]{.65,.35},new[]{0.0,.236},new[]{.65,.35},new[]{0.0,.236},new[]{.65,.35});
+            AddV68Grid("5-0","RISK",.90,75,.42,.35,.96,2,
+                new double[0],new double[0],new double[0],new double[0],new[]{0.0,.236},new[]{.70,.30});
+            AddV68Grid("AB=CD","RISK",1.00,90,.50,.28,.98,2,
+                new[]{0.0,.236,.382,.618},new[]{.428571,.285714,.142857,.142858},new double[0],new double[0],new[]{0.0,.236,.382},new[]{.50,.30,.20});
         }
 
         private void AddV68Grid(string name,string geometryBasis,double scale,int ttl,double cancelMfe,
+            double activationRiskFraction,double maxFamilyRiskShare,int minLogicalLegs,
             double[] tf,double[] tw,double[] ef,double[] ew,double[] xf,double[] xw)
         {
             _familyGridAtlas[name]=new FamilyGridModule
             {
                 Name=name,GeometryBasis=geometryBasis,GeometryScale=scale,PendingTtlMinutes=ttl,CancelPendingMfeR=cancelMfe,
+                ActivationRiskFraction=activationRiskFraction,MaxFamilyRiskShare=maxFamilyRiskShare,MinLogicalLegs=minLogicalLegs,
                 TrendFractions=tf??new double[0],TrendWeights=tw??new double[0],
                 ExhaustionFractions=ef??new double[0],ExhaustionWeights=ew??new double[0],
                 TransitionFractions=xf??new double[0],TransitionWeights=xw??new double[0]
@@ -3943,13 +3959,14 @@ namespace cAlgo.Robots
                 GridModuleName=m.Name+"_"+m.GeometryBasis,CancelPendingAtMfeR=m.CancelPendingMfeR
             };
             if(plan.BasketRiskAmount<=0)return GridPlanReject(c,"RISK_BUDGET");
+            plan.BasketRiskAmount*=Math.Min(1.0,Math.Max(.25,m.MaxFamilyRiskShare));
             double przWidth=Math.Abs(c.Signal.PrzHigh-c.Signal.PrzLow);
             double tol=Math.Max(przWidth*.65,unit*.22);
             double legalLow=Math.Min(c.Signal.PrzLow,c.Signal.PrzHigh)-tol;
             double legalHigh=Math.Max(c.Signal.PrzLow,c.Signal.PrzHigh)+tol;
             double nearestPrz = anchor < legalLow ? legalLow : (anchor > legalHigh ? legalHigh : anchor);
             double activationDrift=Math.Abs(anchor-nearestPrz);
-            double activationLimit=Math.Max(tol,riskDistance*V68ActivationDriftRisk(c.Signal.PatternName,c.Route));
+            double activationLimit=Math.Max(tol,riskDistance*Math.Max(.10,m.ActivationRiskFraction));
             bool l0ActivationLegal=activationDrift<=activationLimit;
             int maxLegs=Math.Min(4,fractions.Length);
 
@@ -3974,6 +3991,8 @@ namespace cAlgo.Robots
 
             if(plan.Legs.Count==0||plan.Legs[0].Index!=0)return GridPlanReject(c,"V68_NO_LEGAL_L0");
             plan.LogicalLegCount=plan.Legs.Count;
+            if(plan.LogicalLegCount<m.MinLogicalLegs && Account.Equity>MicroCapitalThreshold)
+                return GridPlanReject(c,"V68_FAMILY_GRID_DEPTH");
             double ws=plan.Legs.Sum(x=>x.RiskWeight);
             if(ws<=0)return GridPlanReject(c,"V68_ZERO_WEIGHT");
             foreach(var l in plan.Legs)l.RiskWeight/=ws;
@@ -4836,6 +4855,9 @@ namespace cAlgo.Robots
         public double GeometryScale;
         public int PendingTtlMinutes;
         public double CancelPendingMfeR;
+        public double ActivationRiskFraction;
+        public double MaxFamilyRiskShare;
+        public int MinLogicalLegs;
         public double[] TrendFractions=new double[0],TrendWeights=new double[0];
         public double[] ExhaustionFractions=new double[0],ExhaustionWeights=new double[0];
         public double[] TransitionFractions=new double[0],TransitionWeights=new double[0];
