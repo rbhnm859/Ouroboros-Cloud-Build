@@ -1,0 +1,141 @@
+name: HarmonyBot V68 Current-HEAD Calibration Recovery
+
+on:
+  push:
+    branches: [harmonybot/v68-harmonic-family-grid-atlas-positive-throughput-rebase]
+    paths:
+      - '.github/workflows/harmonybot-v68-current-head-calibration-recovery.yml'
+
+concurrency:
+  group: harmonybot-v68-current-head-calibration-recovery
+  cancel-in-progress: true
+
+permissions:
+  actions: read
+  contents: read
+
+env:
+  CTRADER_PASSWORD: ${{ secrets.CTRADER_PASSWORD }}
+  CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+  CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: harmonybot/v68-harmonic-family-grid-atlas-positive-throughput-rebase
+          path: control
+          fetch-depth: 1
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+      - name: Build current V68 head
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd control
+          python3 HarmonyBot-V68/tools/static_contract_audit.py HarmonyBot-V68/src/HarmonyBotV68.cs
+          dotnet restore HarmonyBot-V68/HarmonyBotV68.csproj
+          dotnet build HarmonyBot-V68/HarmonyBotV68.csproj -c Release --no-restore --nologo
+          mkdir -p HarmonyBot-V68/dist
+          A=$(find HarmonyBot-V68/bin/Release -type f -name '*.algo' | head -1); test -s "$A"
+          cp "$A" HarmonyBot-V68/dist/HarmonyBot_V68_Harmonic_Family_Grid_Atlas_Positive_Throughput_Rebase.algo
+          printf '%s\n' "$GITHUB_SHA" > HarmonyBot-V68/dist/SOURCE_COMMIT.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: v68-recovery-build
+          path: control/HarmonyBot-V68/dist
+          retention-days: 30
+
+  calibration:
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      max-parallel: 12
+      matrix:
+        variant: [A_V52_EXACT_CONTROL, B_FAMILY_GRID_ATLAS, C_POSITIVE_THROUGHPUT, D_FAMILY_PORTFOLIO_MAX]
+        window: [Y2021, Y2022, Y2023]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: harmonybot/v68-harmonic-family-grid-atlas-positive-throughput-rebase
+          path: control
+          fetch-depth: 1
+      - uses: actions/download-artifact@v4
+        with:
+          name: v68-recovery-build
+          path: control/HarmonyBot-V68/shared
+      - uses: actions/download-artifact@v4
+        with:
+          name: v52-build
+          path: control/HarmonyBot-V52/formal
+          run-id: 35531304357
+          github-token: ${{ github.token }}
+      - name: Prepare immutable binaries
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p control/HarmonyBot-V68/dist control/HarmonyBot-V52/dist
+          V68=$(find control/HarmonyBot-V68/shared -type f -name 'HarmonyBot_V68_Harmonic_Family_Grid_Atlas_Positive_Throughput_Rebase.algo' | head -1)
+          V52=$(find control/HarmonyBot-V52/formal -type f -name 'HarmonyBot_V52_Family_Identity_Detection_Graph_Reconstruction_RC.algo' | head -1)
+          test -s "$V68"; test -s "$V52"
+          test "$(sha256sum "$V52" | awk '{print $1}')" = "b862716f7477f947a390fe394c113d77f0bf2ce518956a419b082b00cd8251e1"
+          cp "$V68" control/HarmonyBot-V68/dist/
+          cp "$V52" control/HarmonyBot-V52/dist/
+      - name: Resolve calibration window
+        id: d
+        shell: bash
+        run: |
+          case "${{ matrix.window }}" in
+            Y2021) echo "start=04/01/2021" >> "$GITHUB_OUTPUT"; echo "eval=2021-01-11T00:00:00Z" >> "$GITHUB_OUTPUT"; echo "end=31/12/2021" >> "$GITHUB_OUTPUT";;
+            Y2022) echo "start=03/01/2022" >> "$GITHUB_OUTPUT"; echo "eval=2022-01-10T00:00:00Z" >> "$GITHUB_OUTPUT"; echo "end=30/12/2022" >> "$GITHUB_OUTPUT";;
+            Y2023) echo "start=02/01/2023" >> "$GITHUB_OUTPUT"; echo "eval=2023-01-09T00:00:00Z" >> "$GITHUB_OUTPUT"; echo "end=29/12/2023" >> "$GITHUB_OUTPUT";;
+          esac
+      - name: Run current-head calibration
+        shell: bash
+        run: |
+          chmod +x control/HarmonyBot-V68/tools/*.sh control/HarmonyBot-V52/tools/*.sh
+          if [ "${{ matrix.variant }}" = "A_V52_EXACT_CONTROL" ]; then
+            control/HarmonyBot-V68/tools/run_control_window.sh "${{ matrix.window }}" "${{ steps.d.outputs.start }}" "${{ steps.d.outputs.eval }}" "${{ steps.d.outputs.end }}" 1.0
+          else
+            control/HarmonyBot-V68/tools/run_window.sh "${{ matrix.variant }}" "${{ matrix.window }}" "${{ steps.d.outputs.start }}" "${{ steps.d.outputs.eval }}" "${{ steps.d.outputs.end }}" 1.0
+          fi
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: v68-recovery-cal-${{ matrix.variant }}-${{ matrix.window }}
+          path: control/HarmonyBot-V68/output-${{ matrix.variant }}-${{ matrix.window }}
+          retention-days: 30
+          if-no-files-found: error
+
+  analyze:
+    needs: calibration
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: harmonybot/v68-harmonic-family-grid-atlas-positive-throughput-rebase
+          path: control
+          fetch-depth: 1
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: 'v68-recovery-cal-*'
+          path: control/HarmonyBot-V68/merged
+          merge-multiple: true
+      - name: Analyze current-head family positive throughput
+        shell: bash
+        run: |
+          mkdir -p control/HarmonyBot-V68/recovery-final
+          python3 control/HarmonyBot-V68/tools/analyze_calibration.py control/HarmonyBot-V68/merged control/HarmonyBot-V68/recovery-final
+          cp control/HarmonyBot-V68/dist/SOURCE_COMMIT.txt control/HarmonyBot-V68/recovery-final/SOURCE_COMMIT.txt 2>/dev/null || true
+      - uses: actions/upload-artifact@v4
+        with:
+          name: HARMONYBOT-V68-CURRENT-HEAD-CALIBRATION-RECOVERY
+          path: control/HarmonyBot-V68/recovery-final
+          retention-days: 30
