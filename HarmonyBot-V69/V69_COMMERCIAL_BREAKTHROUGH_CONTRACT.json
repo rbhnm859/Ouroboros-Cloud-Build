@@ -1,0 +1,72 @@
+{
+  "version": "HarmonyBot V69",
+  "architecture": "Family Positive Cohort Commercial Breakthrough",
+  "parent": {
+    "branch": "harmonybot/v68-harmonic-family-grid-atlas-positive-throughput-rebase",
+    "head": "351a7154d3d7639b433bf3dcba052e30587d27d4",
+    "evidence_run_15": 36246857602,
+    "failed_repro_run_19": 36250738773
+  },
+  "immutable_control": {
+    "v52_formal_run_id": 35531304357,
+    "algo_sha256": "b862716f7477f947a390fe394c113d77f0bf2ce518956a419b082b00cd8251e1",
+    "replicates_per_window": 2,
+    "require_nonzero_identical_basket_fingerprint": true
+  },
+  "hard_constraints": {
+    "max_active_basket": 1,
+    "whole_basket_stressed_risk_pct_max": 1,
+    "minimum_net_rr": 2,
+    "hedging": false,
+    "martingale": false,
+    "dca": false,
+    "recovery": false,
+    "loss_averaging": false,
+    "stop_widening": false
+  },
+  "calibration": {
+    "period": "2021-2023 burned only",
+    "required_positive_families": 12,
+    "min_family_trades": 5,
+    "min_family_active_years": 2,
+    "min_family_positive_years": 2,
+    "max_family_trade_share": 0.35,
+    "validation_tuning": false
+  },
+  "commercial_gate": {
+    "frequency_per_year_min": 60,
+    "net_1p5y_min": 1800,
+    "pf_min": 2,
+    "expectancy_min": 20,
+    "win_rate_min": 0.5,
+    "max_dd_pct": 6
+  },
+  "v51_superiority_gate": {
+    "frequency_per_year_gt": 38.6667,
+    "net_1p5y_gt": 2101.66,
+    "pf_gt": 2.1096878432,
+    "expectancy_gt": 36.2355,
+    "win_rate_min": 0.534483,
+    "max_dd_pct": 4.49784
+  },
+  "validation": {
+    "windows": [
+      "2026Q1",
+      "2026Q2"
+    ],
+    "unlock_only_after_calibration_candidate": true,
+    "all_windows_positive": true,
+    "no_tuning": true
+  },
+  "fresh": {
+    "window": "2020H1",
+    "unlock_only_after_validation_pass": true,
+    "no_tuning": true
+  },
+  "governance": [
+    "Risk veto",
+    "Model Validation veto",
+    "Red Team veto",
+    "Data Governance/OOS veto"
+  ]
+}
