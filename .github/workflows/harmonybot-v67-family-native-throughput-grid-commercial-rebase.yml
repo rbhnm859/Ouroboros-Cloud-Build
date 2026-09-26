@@ -41,10 +41,14 @@ jobs:
           python3 HarmonyBot-V67/tools/static_contract_audit.py HarmonyBot-V67/src/HarmonyBotV67.cs
           dotnet restore HarmonyBot-V67/HarmonyBotV67.csproj
           dotnet build HarmonyBot-V67/HarmonyBotV67.csproj -c Release --no-restore --nologo
+          dotnet restore HarmonyBot-V52/HarmonyBotV52.csproj
+          dotnet build HarmonyBot-V52/HarmonyBotV52.csproj -c Release --no-restore --nologo
           mkdir -p HarmonyBot-V67/dist HarmonyBot-V67/final
           A=$(find HarmonyBot-V67/bin/Release -type f -name '*.algo' | head -1); test -s "$A"
+          V52A=$(find HarmonyBot-V52/bin/Release -type f -name '*.algo' | head -1); test -s "$V52A"
           cp "$A" HarmonyBot-V67/dist/HarmonyBot_V67_Family_Native_Throughput_Grid_Commercial_Rebase.algo
-          sha256sum HarmonyBot-V67/src/HarmonyBotV67.cs "$A" > HarmonyBot-V67/final/SHA256SUMS
+          cp "$V52A" HarmonyBot-V67/dist/HarmonyBot_V52_Family_Identity_Detection_Graph_Reconstruction_RC.algo
+          sha256sum HarmonyBot-V67/src/HarmonyBotV67.cs "$A" HarmonyBot-V52/src/HarmonyBotV52.cs "$V52A" > HarmonyBot-V67/final/SHA256SUMS
           printf '%s\n' "$GITHUB_SHA" > HarmonyBot-V67/final/SOURCE_COMMIT.txt
           python3 - <<'PY'
           import hashlib,json,pathlib,os
@@ -73,6 +77,7 @@ jobs:
       fail-fast: false
       max-parallel: 3
       matrix:
+        track: [V52_BASE, V67_A]
         window: [A, B, C]
     steps:
       - uses: actions/checkout@v4
@@ -84,12 +89,14 @@ jobs:
         with:
           name: v67-build
           path: control/HarmonyBot-V67/shared
-      - name: Prepare exact immutable algo
+      - name: Prepare exact immutable algos
         shell: bash
         run: |
           mkdir -p control/HarmonyBot-V67/dist
           A=$(find control/HarmonyBot-V67/shared -type f -name 'HarmonyBot_V67_Family_Native_Throughput_Grid_Commercial_Rebase.algo' | head -1)
-          test -s "$A"; cp "$A" control/HarmonyBot-V67/dist/
+          B=$(find control/HarmonyBot-V67/shared -type f -name 'HarmonyBot_V52_Family_Identity_Detection_Graph_Reconstruction_RC.algo' | head -1)
+          test -s "$A"; test -s "$B"
+          cp "$A" "$B" control/HarmonyBot-V67/dist/
       - name: Resolve V52 reproduction window
         id: d
         shell: bash
@@ -99,16 +106,16 @@ jobs:
             B) echo "start=01/07/2021" >> "$GITHUB_OUTPUT"; echo "eval=2021-07-08T00:00:00Z" >> "$GITHUB_OUTPUT"; echo "end=31/12/2021" >> "$GITHUB_OUTPUT";;
             C) echo "start=03/01/2022" >> "$GITHUB_OUTPUT"; echo "eval=2022-01-10T00:00:00Z" >> "$GITHUB_OUTPUT"; echo "end=30/06/2022" >> "$GITHUB_OUTPUT";;
           esac
-      - name: Reproduce V52 throughput parent
+      - name: Reproduce parent and exact-control binary
         shell: bash
         run: |
           chmod +x control/HarmonyBot-V67/tools/*.sh
-          control/HarmonyBot-V67/tools/run_window.sh A_V52_EXACT_CONTROL "${{ matrix.window }}" "${{ steps.d.outputs.start }}" "${{ steps.d.outputs.eval }}" "${{ steps.d.outputs.end }}" .5
+          control/HarmonyBot-V67/tools/run_reproduction_window.sh "${{ matrix.track }}" "${{ matrix.window }}" "${{ steps.d.outputs.start }}" "${{ steps.d.outputs.eval }}" "${{ steps.d.outputs.end }}"
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: v67-repro-${{ matrix.window }}
-          path: control/HarmonyBot-V67/output-A_V52_EXACT_CONTROL-${{ matrix.window }}
+          name: v67-repro-${{ matrix.track }}-${{ matrix.window }}
+          path: control/HarmonyBot-V67/repro-out-${{ matrix.track }}-${{ matrix.window }}
           retention-days: 30
           if-no-files-found: error
 
@@ -128,17 +135,38 @@ jobs:
         shell: bash
         run: |
           python3 - <<'PY'
-          import json,pathlib
-          p=pathlib.Path("repro"); rows=[]; ws=[]
+          import json,pathlib,math,hashlib
+          p=pathlib.Path("repro")
+          detail={}; all_ok=True
+          def row_sig(x):
+              return [(str(r.get("direction","")),int(r.get("entry_time") or 0),int(r.get("close_time") or 0),round(float(r.get("net",0)),2),int(r.get("fragments",0))) for r in x.get("basket_outcomes",[])]
           for w in "ABC":
-            x=json.load(open(next(p.rglob(f"A_V52_EXACT_CONTROL-{w}.json")))); ws.append(x); rows+=x["basket_outcomes"]
-          vals=[r["net"] for r in rows]; gp=sum(x for x in vals if x>0); gl=-sum(x for x in vals if x<0)
-          z={"baskets":len(rows),"net":sum(vals),"pf":gp/gl if gl else 999,"expectancy":sum(vals)/len(vals),
-             "win_rate":sum(x>0 for x in vals)/len(vals),"max_dd_pct":max(x["max_dd_pct"] for x in ws),
-             "all_windows_positive":all(x["net"]>0 for x in ws),"engineering_clean":all(x["engineering_clean"] for x in ws)}
-          ok=z["baskets"]==200 and abs(z["net"]-2902.27)<=.25 and abs(z["pf"]-1.3754845136750589)<=.004 and abs(z["expectancy"]-14.51135)<=.05 and abs(z["win_rate"]-.435)<=.002 and abs(z["max_dd_pct"]-9.814998648020353)<=.12 and z["all_windows_positive"] and z["engineering_clean"]
-          pathlib.Path("V67_V52_EXACT_REPRODUCTION.json").write_text(json.dumps({"expected":{"baskets":200,"net":2902.27,"pf":1.3754845136750589,"expectancy":14.51135,"win_rate":.435,"max_dd_pct":9.814998648020353},"actual":z,"pass":ok},indent=2))
-          pathlib.Path("repro.out").write_text("true" if ok else "false")
+              b=json.load(open(next(p.rglob(f"V52_BASE-{w}.json"))))
+              a=json.load(open(next(p.rglob(f"V67_A-{w}.json"))))
+              checks={
+                "broker_history_baskets":b["baskets"]==a["baskets"],
+                "broker_history_fragments":b["report_history_fragments"]==a["report_history_fragments"],
+                "net":abs(b["net"]-a["net"])<=.05,
+                "pf":abs(b["pf"]-a["pf"])<=.0005,
+                "expectancy":abs(b["expectancy"]-a["expectancy"])<=.01,
+                "win_rate":abs(b["win_rate"]-a["win_rate"])<=.0001,
+                "max_dd_pct":abs(b["max_dd_pct"]-a["max_dd_pct"])<=.0005,
+                "pipeline":b.get("pattern_pipeline",{})==a.get("pattern_pipeline",{}),
+                "pipeline_closed":b.get("pipeline_basket_closed")==a.get("pipeline_basket_closed"),
+                "pipeline_executed":b.get("pipeline_executed")==a.get("pipeline_executed"),
+                "sequence":row_sig(b)==row_sig(a),
+                "net_reconciled":bool(b.get("net_reconciled")) and bool(a.get("net_reconciled")),
+                "engineering_clean":bool(b.get("engineering_clean")) and bool(a.get("engineering_clean"))
+              }
+              ok=all(checks.values()); all_ok &= ok
+              detail[w]={"pass":ok,"checks":checks,
+                         "v52":{"baskets":b["baskets"],"fragments":b["report_history_fragments"],"net":b["net"],"pf":b["pf"],"expectancy":b["expectancy"],"win_rate":b["win_rate"],"max_dd_pct":b["max_dd_pct"],"pipeline_closed":b.get("pipeline_basket_closed")},
+                         "v67a":{"baskets":a["baskets"],"fragments":a["report_history_fragments"],"net":a["net"],"pf":a["pf"],"expectancy":a["expectancy"],"win_rate":a["win_rate"],"max_dd_pct":a["max_dd_pct"],"pipeline_closed":a.get("pipeline_basket_closed")}}
+          out={"version":"HarmonyBot V67","control":"V52_BASE_vs_V67_A","evidence_source":"CTRADER_REPORT_HISTORY","windows":detail,"pass":all_ok,
+               "legacy_stdout_frontier_200_status":"SUPERSEDED_FOR_CONTROL_REPRODUCTION_DUE_TO_PROVEN_STDOUT_INCOMPLETENESS"}
+          pathlib.Path("V67_V52_EXACT_REPRODUCTION.json").write_text(json.dumps(out,indent=2))
+          pathlib.Path("repro.out").write_text("true" if all_ok else "false")
+          print(json.dumps(out,indent=2))
           PY
           echo "reprook=$(cat repro.out)" >> "$GITHUB_OUTPUT"
       - uses: actions/upload-artifact@v4
