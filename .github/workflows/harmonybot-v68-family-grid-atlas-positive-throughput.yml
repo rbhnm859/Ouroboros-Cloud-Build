@@ -14,6 +14,7 @@ concurrency:
 
 permissions:
   contents: read
+  actions: read
 
 env:
   CTRADER_PASSWORD: ${{ secrets.CTRADER_PASSWORD }}
@@ -78,12 +79,20 @@ jobs:
         with:
           name: v68-build
           path: control/HarmonyBot-V68/shared
+      - uses: actions/download-artifact@v4
+        with:
+          name: v52-build
+          path: control/HarmonyBot-V52/formal
+          run-id: 35531304357
+          github-token: ${{ github.token }}
       - name: Prepare immutable control algo
         shell: bash
         run: |
           mkdir -p control/HarmonyBot-V52/dist
-          A=$(find control/HarmonyBot-V68/shared -type f -name 'HarmonyBot_V52_Family_Identity_Detection_Graph_Reconstruction_RC.algo' | head -1)
-          test -s "$A"; cp "$A" control/HarmonyBot-V52/dist/
+          A=$(find control/HarmonyBot-V52/formal -type f -name 'HarmonyBot_V52_Family_Identity_Detection_Graph_Reconstruction_RC.algo' | head -1)
+          test -s "$A"
+          test "$(sha256sum "$A" | awk '{print $1}')" = "b862716f7477f947a390fe394c113d77f0bf2ce518956a419b082b00cd8251e1"
+          cp "$A" control/HarmonyBot-V52/dist/
       - name: Resolve V52 parent window
         id: d
         shell: bash
@@ -162,13 +171,20 @@ jobs:
         with:
           name: v68-build
           path: control/HarmonyBot-V68/shared
+      - uses: actions/download-artifact@v4
+        with:
+          name: v52-build
+          path: control/HarmonyBot-V52/formal
+          run-id: 35531304357
+          github-token: ${{ github.token }}
       - name: Prepare immutable calibration algos
         shell: bash
         run: |
           mkdir -p control/HarmonyBot-V68/dist control/HarmonyBot-V52/dist
           A=$(find control/HarmonyBot-V68/shared -type f -name 'HarmonyBot_V68_Harmonic_Family_Grid_Atlas_Positive_Throughput_Rebase.algo' | head -1)
-          B=$(find control/HarmonyBot-V68/shared -type f -name 'HarmonyBot_V52_Family_Identity_Detection_Graph_Reconstruction_RC.algo' | head -1)
+          B=$(find control/HarmonyBot-V52/formal -type f -name 'HarmonyBot_V52_Family_Identity_Detection_Graph_Reconstruction_RC.algo' | head -1)
           test -s "$A"; test -s "$B"
+          test "$(sha256sum "$B" | awk '{print $1}')" = "b862716f7477f947a390fe394c113d77f0bf2ce518956a419b082b00cd8251e1"
           cp "$A" control/HarmonyBot-V68/dist/
           cp "$B" control/HarmonyBot-V52/dist/
       - name: Resolve burned calibration window
