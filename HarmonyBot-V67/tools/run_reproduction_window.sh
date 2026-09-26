@@ -17,6 +17,7 @@ case "$TRACK" in
    ;;
  *) echo "unknown reproduction track $TRACK"; exit 31;;
 esac
+chmod +x "$C/HarmonyBot-V52/tools/run_backtest.sh" "$C/HarmonyBot-V67/tools/run_backtest.sh"
 N="V67-REPRO-$TRACK-$WIN-B10000"
 (
  cd "$W"
