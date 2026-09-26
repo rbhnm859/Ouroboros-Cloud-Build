@@ -22,7 +22,7 @@ thr=re.findall(r"\[V67-THROUGHPUT-SUMMARY\].*?slotBlocked=(\d+).*?parked=(\d+).*
 throughput={"slot_blocked":0,"parked":0,"recovered_executions":0,"avg_slot_wait_min":0.0,"avg_basket_occupancy_min":0.0,"missed_positive":0,"avoided_negative":0}
 if thr:
     q=thr[-1]; throughput.update(slot_blocked=int(q[0]),parked=int(q[1]),recovered_executions=int(q[2]),avg_slot_wait_min=float(q[3]),avg_basket_occupancy_min=float(q[4]),missed_positive=int(q[5]),avoided_negative=int(q[6]))
-slot_rx=re.compile(r"\\[V67-SLOT-OCCUPANCY\\].*?pattern=(.*?)\\s+route=(\\S+)\\s+occupancyMinutes=([-0-9.]+)\\s+realizedR=([-0-9.]+)\\s+net=([-0-9.]+)")
+slot_rx=re.compile(r"\[V67-SLOT-OCCUPANCY\].*?pattern=(.*?)\s+route=(\S+)\s+occupancyMinutes=([-0-9.]+)\s+realizedR=([-0-9.]+)\s+net=([-0-9.]+)")
 slot_rows=[{"pattern":m.group(1),"route":m.group(2),"occupancy_minutes":float(m.group(3)),"realized_r":float(m.group(4)),"net":float(m.group(5))} for m in slot_rx.finditer(t)]
 eq=d.get("equity",{})
 out={
