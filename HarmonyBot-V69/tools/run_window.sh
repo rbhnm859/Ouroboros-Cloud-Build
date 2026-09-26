@@ -20,7 +20,7 @@ esac
 C="$PWD/control"; W="$C/HarmonyBot-V69/window-$VAR-$WIN"; O="$C/HarmonyBot-V69/output-$VAR-$WIN"
 rm -rf "$O" "$W"; mkdir -p "$W/seal/algo" "$W/seal/data" "$O/raw-logs"
 if [ "$CONTROL" = "V52" ]; then
-  cp "$C/HarmonyBot-V69/dist/HarmonyBot_V52_Family_Identity_Detection_Graph_Reconstruction_RC.algo" "$W/seal/algo/"
+  cp "$C/HarmonyBot-V52/dist/HarmonyBot_V52_Family_Identity_Detection_Graph_Reconstruction_RC.algo" "$W/seal/algo/"
   RUNNER="$C/HarmonyBot-V52/tools/run_backtest.sh"
 else
   cp "$C/HarmonyBot-V69/dist/HarmonyBot_V69_Family_Native_Regime_Survival_Commercial_Convergence.algo" "$W/seal/algo/"
