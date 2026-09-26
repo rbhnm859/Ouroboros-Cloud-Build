@@ -1,0 +1,387 @@
+name: HarmonyBot V69 Family-Native Regime Survival Commercial Convergence
+
+on:
+  push:
+    branches: [harmonybot/v69-family-native-regime-survival-commercial-convergence]
+    paths:
+      - 'HarmonyBot-V69/**'
+      - '.github/workflows/harmonybot-v69-family-native-regime-survival-commercial.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: harmonybot-v69-family-native-regime-survival-commercial
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  actions: read
+
+env:
+  CTRADER_PASSWORD: ${{ secrets.CTRADER_PASSWORD }}
+  CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+  CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: harmonybot/v69-family-native-regime-survival-commercial-convergence
+          path: control
+          fetch-depth: 1
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+      - name: Static contracts and build
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd control
+          python3 HarmonyBot-V69/tools/static_contract_audit.py HarmonyBot-V69/src/HarmonyBotV69.cs
+          dotnet restore HarmonyBot-V69/HarmonyBotV69.csproj
+          dotnet build HarmonyBot-V69/HarmonyBotV69.csproj -c Release --no-restore --nologo
+          dotnet restore HarmonyBot-V52/HarmonyBotV52.csproj
+          dotnet build HarmonyBot-V52/HarmonyBotV52.csproj -c Release --no-restore --nologo
+          mkdir -p HarmonyBot-V69/dist HarmonyBot-V69/final HarmonyBot-V52/dist
+          A=$(find HarmonyBot-V69/bin/Release -type f -name '*.algo' | head -1); test -s "$A"
+          B=$(find HarmonyBot-V52/bin/Release -type f -name '*.algo' | head -1); test -s "$B"
+          cp "$A" HarmonyBot-V69/dist/HarmonyBot_V69_Family_Native_Regime_Survival_Commercial_Convergence.algo
+          cp "$B" HarmonyBot-V52/dist/HarmonyBot_V52_Family_Identity_Detection_Graph_Reconstruction_RC.algo
+          sha256sum HarmonyBot-V69/src/HarmonyBotV69.cs "$A" HarmonyBot-V52/src/HarmonyBotV52.cs "$B" > HarmonyBot-V69/final/SHA256SUMS
+          printf '%s\n' "$GITHUB_SHA" > HarmonyBot-V69/final/SOURCE_COMMIT.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: v69-build
+          path: |
+            control/HarmonyBot-V69/dist
+            control/HarmonyBot-V69/final
+            control/HarmonyBot-V52/dist
+          retention-days: 30
+
+  reproduce:
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      max-parallel: 3
+      matrix:
+        window: [A, B, C]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: harmonybot/v69-family-native-regime-survival-commercial-convergence
+          path: control
+          fetch-depth: 1
+      - uses: actions/download-artifact@v4
+        with:
+          name: v69-build
+          path: control/HarmonyBot-V69/shared
+      - uses: actions/download-artifact@v4
+        with:
+          name: v52-build
+          path: control/HarmonyBot-V52/formal
+          run-id: 35531304357
+          github-token: ${{ github.token }}
+      - name: Prepare immutable control algo
+        shell: bash
+        run: |
+          mkdir -p control/HarmonyBot-V52/dist
+          A=$(find control/HarmonyBot-V52/formal -type f -name 'HarmonyBot_V52_Family_Identity_Detection_Graph_Reconstruction_RC.algo' | head -1)
+          test -s "$A"
+          test "$(sha256sum "$A" | awk '{print $1}')" = "b862716f7477f947a390fe394c113d77f0bf2ce518956a419b082b00cd8251e1"
+          cp "$A" control/HarmonyBot-V52/dist/
+      - name: Resolve V52 parent window
+        id: d
+        shell: bash
+        run: |
+          case "${{ matrix.window }}" in
+            A) echo "start=04/01/2021" >> "$GITHUB_OUTPUT"; echo "eval=2021-01-11T00:00:00Z" >> "$GITHUB_OUTPUT"; echo "end=30/06/2021" >> "$GITHUB_OUTPUT";;
+            B) echo "start=01/07/2021" >> "$GITHUB_OUTPUT"; echo "eval=2021-07-08T00:00:00Z" >> "$GITHUB_OUTPUT"; echo "end=31/12/2021" >> "$GITHUB_OUTPUT";;
+            C) echo "start=03/01/2022" >> "$GITHUB_OUTPUT"; echo "eval=2022-01-10T00:00:00Z" >> "$GITHUB_OUTPUT"; echo "end=30/06/2022" >> "$GITHUB_OUTPUT";;
+          esac
+      - name: Reproduce V52 throughput parent
+        shell: bash
+        run: |
+          chmod +x control/HarmonyBot-V69/tools/*.sh
+          control/HarmonyBot-V69/tools/run_control_window.sh "${{ matrix.window }}" "${{ steps.d.outputs.start }}" "${{ steps.d.outputs.eval }}" "${{ steps.d.outputs.end }}" .5
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: v69-repro-${{ matrix.window }}
+          path: control/HarmonyBot-V69/output-A_V52_EXACT_CONTROL-${{ matrix.window }}
+          retention-days: 30
+          if-no-files-found: error
+
+  repro_gate:
+    needs: reproduce
+    runs-on: ubuntu-24.04
+    outputs:
+      reprook: ${{ steps.g.outputs.reprook }}
+      controlok: ${{ steps.g.outputs.controlok }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: 'v69-repro-*'
+          path: repro
+          merge-multiple: true
+      - name: Exact V52 control gate
+        id: g
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json,pathlib
+          p=pathlib.Path("repro"); rows=[]; ws=[]
+          for w in "ABC":
+              x=json.load(open(next(p.rglob(f"A_V52_EXACT_CONTROL-{w}.json")))); ws.append(x); rows+=x["basket_outcomes"]
+          vals=[r["net"] for r in rows]; gp=sum(x for x in vals if x>0); gl=-sum(x for x in vals if x<0)
+          z={"baskets":len(rows),"net":sum(vals),"pf":gp/gl if gl else 999,"expectancy":sum(vals)/len(vals) if vals else 0,
+             "win_rate":sum(x>0 for x in vals)/len(vals) if vals else 0,"max_dd_pct":max(x["max_dd_pct"] for x in ws),
+             "all_windows_positive":all(x["net"]>0 for x in ws),"engineering_clean":all(x["engineering_clean"] for x in ws)}
+          historical={"baskets":200,"net":2902.27,"pf":1.3754845136750589,"expectancy":14.51135,"win_rate":.435,"max_dd_pct":9.814998648020353}
+          exact=z["baskets"]==historical["baskets"] and abs(z["net"]-historical["net"])<=.25 and abs(z["pf"]-historical["pf"])<=.004 and abs(z["expectancy"]-historical["expectancy"])<=.05 and abs(z["win_rate"]-historical["win_rate"])<=.002 and abs(z["max_dd_pct"]-historical["max_dd_pct"])<=.12 and z["all_windows_positive"] and z["engineering_clean"]
+          control_ok=z["baskets"]>0 and z["engineering_clean"]
+          result={"version":"HarmonyBot V69","historical_v52_reference":historical,"current_formal_v52_control":z,
+                  "formal_v52_run_id":35531304357,"formal_v52_algo_sha256":"b862716f7477f947a390fe394c113d77f0bf2ce518956a419b082b00cd8251e1",
+                  "historical_exact_reproduction_pass":exact,"data_drift_detected":not exact,
+                  "current_control_usable_for_same-run_causal_comparison":control_ok,
+                  "rule":"HISTORICAL_REFERENCE_IS_IMMUTABLE;CURRENT_CONTROL_DOES_NOT_REWRITE_HISTORICAL_METRICS"}
+          pathlib.Path("V69_V52_EXACT_REPRODUCTION.json").write_text(json.dumps(result,indent=2))
+          pathlib.Path("repro.out").write_text("true" if exact else "false")
+          pathlib.Path("control.out").write_text("true" if control_ok else "false")
+          PY
+          echo "reprook=$(cat repro.out)" >> "$GITHUB_OUTPUT"
+          echo "controlok=$(cat control.out)" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: v69-v52-exact-reproduction
+          path: V69_V52_EXACT_REPRODUCTION.json
+          retention-days: 30
+
+  calibration:
+    needs: repro_gate
+    if: needs.repro_gate.outputs.controlok == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      max-parallel: 12
+      matrix:
+        variant: [A_V52_EXACT_CONTROL, B_FAMILY_GRID_ATLAS, C_REGIME_SURVIVAL, D_COMMERCIAL_MAX]
+        window: [Y2021, Y2022, Y2023]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: harmonybot/v69-family-native-regime-survival-commercial-convergence
+          path: control
+          fetch-depth: 1
+      - uses: actions/download-artifact@v4
+        with:
+          name: v69-build
+          path: control/HarmonyBot-V69/shared
+      - uses: actions/download-artifact@v4
+        with:
+          name: v52-build
+          path: control/HarmonyBot-V52/formal
+          run-id: 35531304357
+          github-token: ${{ github.token }}
+      - name: Prepare immutable calibration algos
+        shell: bash
+        run: |
+          mkdir -p control/HarmonyBot-V69/dist control/HarmonyBot-V52/dist
+          A=$(find control/HarmonyBot-V69/shared -type f -name 'HarmonyBot_V69_Family_Native_Regime_Survival_Commercial_Convergence.algo' | head -1)
+          B=$(find control/HarmonyBot-V52/formal -type f -name 'HarmonyBot_V52_Family_Identity_Detection_Graph_Reconstruction_RC.algo' | head -1)
+          test -s "$A"; test -s "$B"
+          test "$(sha256sum "$B" | awk '{print $1}')" = "b862716f7477f947a390fe394c113d77f0bf2ce518956a419b082b00cd8251e1"
+          cp "$A" control/HarmonyBot-V69/dist/
+          cp "$B" control/HarmonyBot-V52/dist/
+      - name: Resolve burned calibration window
+        id: d
+        shell: bash
+        run: |
+          case "${{ matrix.window }}" in
+            Y2021) echo "start=04/01/2021" >> "$GITHUB_OUTPUT"; echo "eval=2021-01-11T00:00:00Z" >> "$GITHUB_OUTPUT"; echo "end=31/12/2021" >> "$GITHUB_OUTPUT";;
+            Y2022) echo "start=03/01/2022" >> "$GITHUB_OUTPUT"; echo "eval=2022-01-10T00:00:00Z" >> "$GITHUB_OUTPUT"; echo "end=30/12/2022" >> "$GITHUB_OUTPUT";;
+            Y2023) echo "start=02/01/2023" >> "$GITHUB_OUTPUT"; echo "eval=2023-01-09T00:00:00Z" >> "$GITHUB_OUTPUT"; echo "end=29/12/2023" >> "$GITHUB_OUTPUT";;
+          esac
+      - name: Run family-grid calibration
+        shell: bash
+        run: |
+          chmod +x control/HarmonyBot-V69/tools/*.sh
+          if [ "${{ matrix.variant }}" = "A_V52_EXACT_CONTROL" ]; then
+            control/HarmonyBot-V69/tools/run_control_window.sh "${{ matrix.window }}" "${{ steps.d.outputs.start }}" "${{ steps.d.outputs.eval }}" "${{ steps.d.outputs.end }}" 1.0
+          else
+            control/HarmonyBot-V69/tools/run_window.sh "${{ matrix.variant }}" "${{ matrix.window }}" "${{ steps.d.outputs.start }}" "${{ steps.d.outputs.eval }}" "${{ steps.d.outputs.end }}" 1.0
+          fi
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: v69-cal-${{ matrix.variant }}-${{ matrix.window }}
+          path: control/HarmonyBot-V69/output-${{ matrix.variant }}-${{ matrix.window }}
+          retention-days: 30
+          if-no-files-found: error
+
+  analyze_calibration:
+    needs: calibration
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    outputs:
+      candidate: ${{ steps.g.outputs.candidate }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: harmonybot/v69-family-native-regime-survival-commercial-convergence
+          path: control
+          fetch-depth: 1
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: 'v69-cal-*'
+          path: control/HarmonyBot-V69/merged
+          merge-multiple: true
+      - name: Family positive-throughput gate
+        id: g
+        shell: bash
+        run: |
+          mkdir -p control/HarmonyBot-V69/final
+          python3 control/HarmonyBot-V69/tools/analyze_calibration.py control/HarmonyBot-V69/merged control/HarmonyBot-V69/final
+          echo "candidate=$(cat control/HarmonyBot-V69/final/candidate.txt)" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: HARMONYBOT-V69-CALIBRATION-FRONTIER
+          path: control/HarmonyBot-V69/final
+          retention-days: 30
+
+
+  validation:
+    needs: analyze_calibration
+    if: needs.analyze_calibration.outputs.candidate != ''
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        window: [VAL_Q1_2026, VAL_Q2_2026]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: harmonybot/v69-family-native-regime-survival-commercial-convergence
+          path: control
+          fetch-depth: 1
+      - uses: actions/download-artifact@v4
+        with:
+          name: v69-build
+          path: control/HarmonyBot-V69/shared
+      - name: Prepare frozen candidate
+        shell: bash
+        run: |
+          mkdir -p control/HarmonyBot-V69/dist
+          A=$(find control/HarmonyBot-V69/shared -type f -name 'HarmonyBot_V69_Family_Native_Regime_Survival_Commercial_Convergence.algo' | head -1)
+          test -s "$A"
+          cp "$A" control/HarmonyBot-V69/dist/
+      - name: Resolve validation window
+        id: d
+        shell: bash
+        run: |
+          case "${{ matrix.window }}" in
+            VAL_Q1_2026) echo "start=22/12/2025" >> "$GITHUB_OUTPUT"; echo "eval=2026-01-01T00:00:00Z" >> "$GITHUB_OUTPUT"; echo "end=31/03/2026" >> "$GITHUB_OUTPUT"; echo "years=.25" >> "$GITHUB_OUTPUT";;
+            VAL_Q2_2026) echo "start=23/03/2026" >> "$GITHUB_OUTPUT"; echo "eval=2026-04-01T00:00:00Z" >> "$GITHUB_OUTPUT"; echo "end=30/06/2026" >> "$GITHUB_OUTPUT"; echo "years=.25" >> "$GITHUB_OUTPUT";;
+          esac
+      - name: Run frozen validation
+        shell: bash
+        run: |
+          chmod +x control/HarmonyBot-V69/tools/*.sh
+          VAR='${{ needs.analyze_calibration.outputs.candidate }}'
+          control/HarmonyBot-V69/tools/run_window.sh "$VAR" "${{ matrix.window }}" "${{ steps.d.outputs.start }}" "${{ steps.d.outputs.eval }}" "${{ steps.d.outputs.end }}" "${{ steps.d.outputs.years }}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: v69-validation-${{ matrix.window }}
+          path: control/HarmonyBot-V69/output-${{ needs.analyze_calibration.outputs.candidate }}-${{ matrix.window }}
+          retention-days: 30
+
+  analyze_validation:
+    needs: [analyze_calibration, validation]
+    runs-on: ubuntu-24.04
+    outputs:
+      validationok: ${{ steps.g.outputs.validationok }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: 'v69-validation-*'
+          path: validation
+          merge-multiple: true
+      - name: Validation gate
+        id: g
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json,pathlib
+          xs=[json.load(open(x)) for x in pathlib.Path("validation").rglob("*.json")]
+          if len(xs)!=2: raise SystemExit("VALIDATION_ARTIFACT_COUNT")
+          rows=[r for x in xs for r in x.get("basket_outcomes",[])]
+          gp=sum(r["net"] for r in rows if r["net"]>0); gl=-sum(r["net"] for r in rows if r["net"]<0)
+          net=sum(r["net"] for r in rows); pf=gp/gl if gl else (999 if gp else 0); n=len(rows)
+          ok=all(x["net"]>0 and x["engineering_clean"] and x["actual_basket_risk_violations"]==0 and x["margin_risk_violations"]==0 and x["stop_widening_violations"]==0 for x in xs)
+          ok=ok and n>0 and net>0 and pf>=2.0 and net/n>=20 and sum(r["net"]>0 for r in rows)/n>=.50 and max(x["max_dd_pct"] for x in xs)<=6.0
+          z={"windows":[{"window":x["window"],"baskets":x["baskets"],"net":x["net"],"pf":x["pf"],"expectancy":x["expectancy"],"win_rate":x["win_rate"],"max_dd_pct":x["max_dd_pct"]} for x in xs],
+             "aggregate":{"baskets":n,"net":net,"pf":pf,"expectancy":net/n if n else 0,"win_rate":sum(r["net"]>0 for r in rows)/n if n else 0},"pass":ok}
+          pathlib.Path("V69_VALIDATION_GATE.json").write_text(json.dumps(z,indent=2))
+          pathlib.Path("validation.out").write_text("true" if ok else "false")
+          PY
+          echo "validationok=$(cat validation.out)" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: HARMONYBOT-V69-VALIDATION-EVIDENCE
+          path: V69_VALIDATION_GATE.json
+          retention-days: 30
+
+  fresh:
+    needs: [analyze_calibration, analyze_validation]
+    if: needs.analyze_validation.outputs.validationok == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: harmonybot/v69-family-native-regime-survival-commercial-convergence
+          path: control
+          fetch-depth: 1
+      - uses: actions/download-artifact@v4
+        with:
+          name: v69-build
+          path: control/HarmonyBot-V69/shared
+      - name: Prepare frozen candidate
+        shell: bash
+        run: |
+          mkdir -p control/HarmonyBot-V69/dist
+          A=$(find control/HarmonyBot-V69/shared -type f -name 'HarmonyBot_V69_Family_Native_Regime_Survival_Commercial_Convergence.algo' | head -1)
+          test -s "$A"
+          cp "$A" control/HarmonyBot-V69/dist/
+      - name: Run untouched Fresh 2020H1
+        shell: bash
+        run: |
+          chmod +x control/HarmonyBot-V69/tools/*.sh
+          VAR='${{ needs.analyze_calibration.outputs.candidate }}'
+          control/HarmonyBot-V69/tools/run_window.sh "$VAR" FRESH_2020H1 23/12/2019 2020-01-02T00:00:00Z 30/06/2020 .5
+      - name: Fresh commercial gate
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json,pathlib
+          x=json.load(open(next(pathlib.Path("control/HarmonyBot-V69").rglob("*-FRESH_2020H1.json"))))
+          rows=x.get("basket_outcomes",[]); n=len(rows); gp=sum(r["net"] for r in rows if r["net"]>0); gl=-sum(r["net"] for r in rows if r["net"]<0)
+          pf=gp/gl if gl else (999 if gp else 0); net=sum(r["net"] for r in rows)
+          ok=n>0 and net>0 and pf>=2.0 and net/n>=20 and sum(r["net"]>0 for r in rows)/n>=.50 and x["max_dd_pct"]<=6.0 and x["engineering_clean"] and x["actual_basket_risk_violations"]==0 and x["margin_risk_violations"]==0 and x["stop_widening_violations"]==0
+          z={"window":"FRESH_2020H1","baskets":n,"net":net,"pf":pf,"expectancy":net/n if n else 0,"win_rate":sum(r["net"]>0 for r in rows)/n if n else 0,"max_dd_pct":x["max_dd_pct"],"pass":ok}
+          pathlib.Path("V69_FRESH_GATE.json").write_text(json.dumps(z,indent=2))
+          if not ok: raise SystemExit("FRESH_COMMERCIAL_GATE_FAIL")
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: HARMONYBOT-V69-COMMERCIAL-FREEZE-EVIDENCE
+          path: |
+            V69_FRESH_GATE.json
+            control/HarmonyBot-V69/output-${{ needs.analyze_calibration.outputs.candidate }}-FRESH_2020H1
+          retention-days: 90
