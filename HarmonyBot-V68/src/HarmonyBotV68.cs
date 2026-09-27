@@ -635,7 +635,7 @@ namespace cAlgo.Robots
                     CandidateId = id,
                     SetupKey = setupKey,
                     IdentityKey = identityKey,
-                    CanonicalSetupId = setupKey,
+                    CanonicalSetupId = BuildCanonicalSetupId(setupKey),
                     FamilyId = signal.FamilyId,
                     Signal = signal,
                     State = CandidateState.DETECTED,
@@ -2556,8 +2556,10 @@ namespace cAlgo.Robots
 
         private string GridComment(FibonacciBasket basket, int legIndex)
         {
-            return "cid=" + basket.CandidateId + ";basket=" + basket.BasketId + ";leg=L" + legIndex +
-                   ";pattern=" + basket.Pattern + ";tf=M15;route=" + basket.Route;
+            // Broker history is the authoritative attribution surface. Keep this compact and machine-stable
+            // so canonical identity survives even when stdout telemetry is incomplete.
+            return "fid=" + basket.FamilyId + ";sid=" + (basket.CanonicalSetupId ?? "") +
+                   ";route=" + basket.Route + ";leg=L" + legIndex;
         }
 
         private string LabelBasketId(string label)
@@ -4296,6 +4298,23 @@ namespace cAlgo.Robots
                 case CanonicalFamilyId.ABCD: return "AB=CD";
                 case CanonicalFamilyId.Unknown: return "UNKNOWN";
                 default: return id.ToString();
+            }
+        }
+
+        private string BuildCanonicalSetupId(string setupKey)
+        {
+            unchecked
+            {
+                const ulong offset = 14695981039346656037UL;
+                const ulong prime = 1099511628211UL;
+                ulong hash = offset;
+                string value = setupKey ?? "";
+                for (int i = 0; i < value.Length; i++)
+                {
+                    hash ^= value[i];
+                    hash *= prime;
+                }
+                return hash.ToString("X16", CultureInfo.InvariantCulture);
             }
         }
 
