@@ -2579,7 +2579,7 @@ namespace cAlgo.Robots
         private void BasketEvent(FibonacciBasket basket, string reason)
         {
             Print("[V68-BASKET-EVENT] basket={0} cid={1} canonicalSetup={2} familyId={3} pattern={4} route={5} state={6} reason={7}",
-                basket.BasketId, basket.CandidateId, basket.CanonicalSetupId ?? "", CanonicalFamilyLabel(basket.FamilyId),
+                basket.BasketId, basket.CandidateId, basket.CanonicalSetupId ?? "", basket.FamilyId,
                 basket.Pattern, basket.Route, basket.State, reason);
         }
 
@@ -4351,7 +4351,7 @@ namespace cAlgo.Robots
         {
             double wait = c.ParkedUtc.HasValue ? Math.Max(0, (Server.Time.ToUniversalTime() - c.ParkedUtc.Value).TotalMinutes) : 0;
             Print("[V68-EVENT] cid={0} canonicalSetup={1} familyId={2} pattern={3} subtype={4} scale={5} tf={6} dir={7} state={8} route={9} legacyRoute={10} conflict={11} waitMin={12:F2} reason={13}",
-                c.CandidateId, c.CanonicalSetupId ?? c.SetupKey ?? "", CanonicalFamilyLabel(c.FamilyId), c.Signal.PatternName,
+                c.CandidateId, c.CanonicalSetupId ?? c.SetupKey ?? "", c.FamilyId, c.Signal.PatternName,
                 c.Signal.HarmonicSubtype ?? c.Signal.PatternName, c.Signal.PivotScale, c.Signal.Timeframe, c.Signal.Direction,
                 state, c.Route, c.LegacyRoute, c.Conflict, wait, reason);
         }
