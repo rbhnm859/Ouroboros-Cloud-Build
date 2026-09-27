@@ -5,3 +5,5 @@ This file exists only to trigger the isolated V68 build workflow. It contains no
 Second trigger after workflow syntax isolation.
 
 Trigger full truth-gated causal DEV workflow.
+
+Trigger build plus matrix smoke.
