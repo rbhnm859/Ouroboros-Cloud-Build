@@ -13,11 +13,11 @@ case "$VAR" in
    V68IDENT=true; V68IDFAIL=false; V68PRESERVE=false; V68EXPAND=false; V68GRID=false;;
  C_EVIDENCE_PRESERVING)
    FAMNATIVE=false; CONTRACTS=true; FRONTIER=false; FGRID=false; EVIDENCE=true; EXPAND=false
-   PQUEUE=false; HANDOFF=false; NATIVE=false; DECAY=false; REVALIDATE=false; MAXDD=6
+   PQUEUE=false; HANDOFF=false; NATIVE=false; DECAY=false; REVALIDATE=false; MAXDD=10
    V68IDENT=true; V68IDFAIL=true; V68PRESERVE=true; V68EXPAND=false; V68GRID=false;;
  D_GRID_CHALLENGER)
    FAMNATIVE=false; CONTRACTS=true; FRONTIER=false; FGRID=true; EVIDENCE=true; EXPAND=false
-   PQUEUE=false; HANDOFF=false; NATIVE=false; DECAY=false; REVALIDATE=false; MAXDD=6
+   PQUEUE=false; HANDOFF=false; NATIVE=false; DECAY=false; REVALIDATE=false; MAXDD=10
    V68IDENT=true; V68IDFAIL=true; V68PRESERVE=true; V68EXPAND=false; V68GRID=true;;
  *) echo "unknown V68 variant $VAR"; exit 31;;
 esac
