@@ -81,7 +81,8 @@ names=["execution_errors","grid_risk_pretrade_rejections","duplicate_grid_legs",
 clean={k:0 for k in names}
 if summary:
     for k,zv in zip(names,map(int,summary[-1])):clean[k]=zv
-engineering_names=[k for k in names if k!="grid_risk_pretrade_rejections"]\nengineering=bool(summary) and all(clean[k]==0 for k in engineering_names)
+engineering_names=[k for k in names if k!="grid_risk_pretrade_rejections"]
+engineering=bool(summary) and all(clean[k]==0 for k in engineering_names)
 
 idrx=re.findall(r"\[V68-IDENTITY-SUMMARY\]\s+canonicalFamilyViolations=(\d+)\s+failClosed=(\S+)\s+canonicalIdentity=(\S+)\s+evidencePreserving=(\S+)\s+familyExpansion=(\S+)\s+gridChallenger=(\S+)",t)
 identity={"canonical_family_violations":0,"fail_closed":False,"canonical_identity":False,"evidence_preserving":False,"family_expansion":False,"grid_challenger":False}

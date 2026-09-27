@@ -9,6 +9,10 @@ on:
       - '.github/workflows/harmonybot-v68-evidence-preserving-family-alpha-reconstruction.yml'
   workflow_dispatch:
 
+concurrency:
+  group: harmonybot-v68-evidence-preserving-family-alpha-reconstruction
+  cancel-in-progress: true
+
 permissions:
   contents: read
 
