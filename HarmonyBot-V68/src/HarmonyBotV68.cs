@@ -4084,7 +4084,7 @@ namespace cAlgo.Robots
 
         private double CandidateRank(CandidateRecord c)
         {
-            if (EnableV67FamilyTradeContracts) return V67FamilyNativeCandidateRank(c);
+            if (EnableV67FamilyTradeContracts && !EnableV68EvidencePreservingAdmission) return V67FamilyNativeCandidateRank(c);
             double mtf = c.Conflict == MtfConflict.ALIGNED ? 1.0 :
                          c.Conflict == MtfConflict.SUPPORTED ? .85 :
                          c.Conflict == MtfConflict.TRANSITION ? .70 :
