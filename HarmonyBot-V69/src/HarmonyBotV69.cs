@@ -498,6 +498,7 @@ namespace cAlgo.Robots
                     x.SlotBlocked, x.Parked, x.Revalidated, x.RevalidationRejected, x.BasketPlanned,
                     x.Leg0Executed, x.Leg1Filled, x.Leg2Filled, x.Leg3Filled, x.BasketClosed, x.Executed, x.Expired, x.Rejected, x.Invalidated);
             }
+            FlushV69ShadowAtStop();
             if (EnableV69EqualFamilyVisibility)
             {
                 foreach (var id in V69CanonicalFamilies())
@@ -512,7 +513,6 @@ namespace cAlgo.Robots
                 foreach (var kv in _v69TerminalReasons.OrderBy(x => x.Key))
                     Print("[V69-FAMILY-TERMINAL] key={0} count={1}", kv.Key, kv.Value);
             }
-            FlushV69ShadowAtStop();
             if (EnableEntryAnchorForensics)
             {
                 foreach (var c in _candidates.Values.Where(x => x.Signal != null && x.CompletionAnchorPrice > 0).OrderBy(x => x.CandidateId))
