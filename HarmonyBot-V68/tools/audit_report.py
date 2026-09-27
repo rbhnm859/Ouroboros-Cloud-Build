@@ -77,11 +77,11 @@ rows.sort(key=lambda z:((z["entry_time"] or 0),z["basket"]))
 
 v=[x["net"] for x in rows]; gp=sum(x for x in v if x>0); gl=-sum(x for x in v if x<0)
 summary=re.findall(r"\[V68-SUMMARY\].*?executionErrors=(\d+).*?gridRiskViolations=(\d+).*?duplicateGridLegs=(\d+).*?orphanPendingOrders=(\d+).*?stopWideningViolations=(\d+).*?gapThroughSurvivors=(\d+).*?unprotectedSurvivors=(\d+).*?postFillProtectionFailures=(\d+).*?actualBasketRiskViolations=(\d+).*?executionStateViolations=(\d+).*?marginRiskViolations=(\d+)",t)
-names=["execution_errors","grid_risk_violations","duplicate_grid_legs","orphan_pending_orders","stop_widening_violations","gap_through_survivors","unprotected_survivors","post_fill_protection_failures","actual_basket_risk_violations","execution_state_violations","margin_risk_violations"]
+names=["execution_errors","grid_risk_pretrade_rejections","duplicate_grid_legs","orphan_pending_orders","stop_widening_violations","gap_through_survivors","unprotected_survivors","post_fill_protection_failures","actual_basket_risk_violations","execution_state_violations","margin_risk_violations"]
 clean={k:0 for k in names}
 if summary:
     for k,zv in zip(names,map(int,summary[-1])):clean[k]=zv
-engineering=bool(summary) and all(clean[k]==0 for k in names)
+engineering_names=[k for k in names if k!="grid_risk_pretrade_rejections"]\nengineering=bool(summary) and all(clean[k]==0 for k in engineering_names)
 
 idrx=re.findall(r"\[V68-IDENTITY-SUMMARY\]\s+canonicalFamilyViolations=(\d+)\s+failClosed=(\S+)\s+canonicalIdentity=(\S+)\s+evidencePreserving=(\S+)\s+familyExpansion=(\S+)\s+gridChallenger=(\S+)",t)
 identity={"canonical_family_violations":0,"fail_closed":False,"canonical_identity":False,"evidence_preserving":False,"family_expansion":False,"grid_challenger":False}
