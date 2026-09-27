@@ -56,14 +56,16 @@ for idx,x in enumerate(hist):
     z["close_time"]=ct if z["close_time"] is None else max(z["close_time"],ct or z["close_time"])
     z["direction"]=z["direction"] or txt(x,"direction","Direction").replace("TradeDirection.","")
     z["cid"]=cm.get("cid",""); z["pattern"]=cm.get("pattern",""); z["route"]=cm.get("route","")
+    z["broker_family_id"]=z.get("broker_family_id","") or cm.get("fid","")
+    z["broker_setup_id"]=z.get("broker_setup_id","") or cm.get("sid","")
 
 rows=[]
 for basket,z in groups.items():
     bm=basket_meta.get(basket,{}); cl=close_meta.get(basket,{})
     cid=z.get("cid") or cl.get("cid","") or bm.get("cid",""); cm=cid_meta.get(cid,{})
     z.update(cid=cid,
-      canonical_setup=bm.get("setup") or cl.get("setup") or cm.get("setup") or ("BASKET:"+basket),
-      family_id=bm.get("family_id") or cm.get("family_id") or "Unknown",
+      canonical_setup=z.get("broker_setup_id") or bm.get("setup") or cl.get("setup") or cm.get("setup") or ("BASKET:"+basket),
+      family_id=z.get("broker_family_id") or bm.get("family_id") or cm.get("family_id") or "Unknown",
       pattern=z.get("pattern") or cl.get("pattern") or bm.get("pattern") or cm.get("pattern") or "UNKNOWN",
       route=z.get("route") or cl.get("route") or bm.get("route") or cm.get("route") or "UNKNOWN",
       subtype=cl.get("subtype") or cm.get("subtype") or z.get("pattern") or "UNKNOWN",
