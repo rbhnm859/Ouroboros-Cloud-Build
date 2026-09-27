@@ -20,6 +20,7 @@ checks={
  "identity_propagates_basket":"CanonicalSetupId = c.CanonicalSetupId" in src and "FamilyId = c.FamilyId" in src,
  "identity_propagates_position":"CanonicalSetupId = basket.CanonicalSetupId" in src and "FamilyId = basket.FamilyId" in src,
  "machine_stable_telemetry":"familyId={2}" in src and "familyId={3}" in src,
+ "broker_history_canonical_identity":'"fid=" + basket.FamilyId' in src and '";sid=" + (basket.CanonicalSetupId ?? "")' in src,
  "evidence_preserving_quality":"legacyQualityPass || (EnableV68FamilyExpansion && familyQualityPass)" in src,
  "evidence_preserving_route":"legacyRoute != HarmonicRoute.NO_TRADE" in src,
  "evidence_preserving_confirmation":"c.LegacyConfirmationPassed = legacyConfirmationPass" in src,
