@@ -511,6 +511,9 @@ namespace cAlgo.Robots
                 _virtualGridFills, _microModeBaskets, _capitalRejectedBaskets, _marginRiskViolations);
             Print("[V68-ALPHA-SUMMARY] qualityRejected={0} regimeRejected={1} confirmationRejected={2} capitalInfeasible={3} alphaPassed={4}",
                 _alphaQualityRejected, _regimeRejected, _confirmationRejected, _capitalInfeasibleCandidates, _alphaPassed);
+            Print("[V68-IDENTITY-SUMMARY] canonicalFamilyViolations={0} failClosed={1} canonicalIdentity={2} evidencePreserving={3} familyExpansion={4} gridChallenger={5}",
+                _canonicalFamilyIdentityViolations, EnableV68CanonicalIdentityFailClosed, EnableV68CanonicalIdentity,
+                EnableV68EvidencePreservingAdmission, EnableV68FamilyExpansion, EnableV68GridChallenger);
             Print("[V68-FREQUENCY-SUMMARY] schedulerDeferred={0} schedulerRecoveredExecutions={1} structuredRecallAdmitted={2} activeDeferred={3}",
                 _schedulerDeferred, _schedulerRecoveredExecutions, _structuredRecallAdmitted, _deferredCandidates.Count);
             Print("[V68-INDEPENDENT-SETUP-SUMMARY] duplicateSuppressed={0} uniqueExecuted={1} rescueAdmissions={2} transitionProofRejected={3} independentScaleCandidates={4}",
@@ -637,7 +640,7 @@ namespace cAlgo.Robots
                     Signal = signal,
                     State = CandidateState.DETECTED,
                     DetectedUtc = Server.Time.ToUniversalTime(),
-                    ExpiryUtc = Server.Time.ToUniversalTime().AddMinutes(15.0 * (EnableV67FamilyTradeContracts ? V67FamilyExpiryBars(signal) : Math.Max(2, Math.Min(CandidateTtlM15Bars, signal.Profile.MaxAgeM15Bars)))),
+                    ExpiryUtc = Server.Time.ToUniversalTime().AddMinutes(15.0 * ((EnableV67FamilyTradeContracts && !EnableV68EvidencePreservingAdmission) ? V67FamilyExpiryBars(signal) : Math.Max(2, Math.Min(CandidateTtlM15Bars, signal.Profile.MaxAgeM15Bars)))),
                     LastReason = "PATTERN_DETECTED"
                 };
                 _candidates[id] = record;
