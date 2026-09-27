@@ -1,4 +1,4 @@
-name: HarmonyBot V68 Workflow Graph Smoke
+name: HarmonyBot V68 A-B Truth Backtest
 
 on:
   push:
@@ -15,6 +15,7 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-24.04
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
         with:
@@ -26,20 +27,73 @@ jobs:
       - name: Audit and build
         shell: bash
         run: |
+          set -euo pipefail
           cd control
           python3 HarmonyBot-V68/tools/static_contract_audit.py HarmonyBot-V68/src/HarmonyBotV68.cs
           dotnet restore HarmonyBot-V68/HarmonyBotV68.csproj
           dotnet build HarmonyBot-V68/HarmonyBotV68.csproj -c Release --no-restore --nologo
+          mkdir -p HarmonyBot-V68/dist
+          A=$(find HarmonyBot-V68/bin/Release -type f -name '*.algo' | head -1)
+          test -s "$A"
+          cp "$A" HarmonyBot-V68/dist/HarmonyBot_V68_Evidence_Preserving_Family_Alpha_Reconstruction.algo
+      - uses: actions/upload-artifact@v4
+        with:
+          name: v68-build
+          path: control/HarmonyBot-V68/dist
+          retention-days: 30
 
-  truth_matrix_smoke:
+  truth_dev:
     needs: build
     runs-on: ubuntu-24.04
+    timeout-minutes: 45
     strategy:
       fail-fast: false
+      max-parallel: 12
       matrix:
         variant: [A_SUPPLY_CONTROL, B_TRUTH_ONLY]
         window: [Y2021, Y2022, Y2023, H2024H2, H2025H1, H2025H2]
     steps:
-      - name: Matrix smoke
+      - uses: actions/checkout@v4
+        with:
+          ref: harmonybot/v68-evidence-preserving-family-alpha-reconstruction
+          path: control
+      - uses: actions/download-artifact@v4
+        with:
+          name: v68-build
+          path: control/HarmonyBot-V68/shared
+      - name: Prepare algo
         shell: bash
-        run: echo "${{ matrix.variant }} ${{ matrix.window }}"
+        run: |
+          set -euo pipefail
+          mkdir -p control/HarmonyBot-V68/dist
+          A=$(find control/HarmonyBot-V68/shared -type f -name '*.algo' | head -1)
+          test -s "$A"
+          cp "$A" control/HarmonyBot-V68/dist/HarmonyBot_V68_Evidence_Preserving_Family_Alpha_Reconstruction.algo
+      - name: Resolve window
+        id: d
+        shell: bash
+        run: |
+          case "${{ matrix.window }}" in
+            Y2021) echo "start=04/01/2021" >> "$GITHUB_OUTPUT"; echo "eval=2021-01-11T00:00:00Z" >> "$GITHUB_OUTPUT"; echo "end=31/12/2021" >> "$GITHUB_OUTPUT"; echo "years=1.0" >> "$GITHUB_OUTPUT";;
+            Y2022) echo "start=03/01/2022" >> "$GITHUB_OUTPUT"; echo "eval=2022-01-10T00:00:00Z" >> "$GITHUB_OUTPUT"; echo "end=30/12/2022" >> "$GITHUB_OUTPUT"; echo "years=1.0" >> "$GITHUB_OUTPUT";;
+            Y2023) echo "start=02/01/2023" >> "$GITHUB_OUTPUT"; echo "eval=2023-01-09T00:00:00Z" >> "$GITHUB_OUTPUT"; echo "end=29/12/2023" >> "$GITHUB_OUTPUT"; echo "years=1.0" >> "$GITHUB_OUTPUT";;
+            H2024H2) echo "start=01/07/2024" >> "$GITHUB_OUTPUT"; echo "eval=2024-07-08T00:00:00Z" >> "$GITHUB_OUTPUT"; echo "end=31/12/2024" >> "$GITHUB_OUTPUT"; echo "years=.5" >> "$GITHUB_OUTPUT";;
+            H2025H1) echo "start=02/01/2025" >> "$GITHUB_OUTPUT"; echo "eval=2025-01-09T00:00:00Z" >> "$GITHUB_OUTPUT"; echo "end=30/06/2025" >> "$GITHUB_OUTPUT"; echo "years=.5" >> "$GITHUB_OUTPUT";;
+            H2025H2) echo "start=01/07/2025" >> "$GITHUB_OUTPUT"; echo "eval=2025-07-08T00:00:00Z" >> "$GITHUB_OUTPUT"; echo "end=31/12/2025" >> "$GITHUB_OUTPUT"; echo "years=.5" >> "$GITHUB_OUTPUT";;
+          esac
+      - name: Run cTrader truth backtest
+        shell: bash
+        env:
+          CTRADER_PASSWORD: ${{ secrets.CTRADER_PASSWORD }}
+          CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+          CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+        run: |
+          chmod +x control/HarmonyBot-V68/tools/*.sh
+          control/HarmonyBot-V68/tools/run_window.sh "${{ matrix.variant }}" "${{ matrix.window }}" "${{ steps.d.outputs.start }}" "${{ steps.d.outputs.eval }}" "${{ steps.d.outputs.end }}" "${{ steps.d.outputs.years }}"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: v68-truth-${{ matrix.variant }}-${{ matrix.window }}
+          path: control/HarmonyBot-V68/output-${{ matrix.variant }}-${{ matrix.window }}
+          retention-days: 30
+          if-no-files-found: error
