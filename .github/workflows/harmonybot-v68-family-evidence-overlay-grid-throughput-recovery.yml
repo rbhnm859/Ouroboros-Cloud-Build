@@ -5,7 +5,7 @@ on:
     branches: [harmonybot/v68-v52-family-evidence-overlay-grid-throughput-recovery]
     paths:
       - 'HarmonyBot-V68/**'
-      - '.github/workflows/harmonybot-v68-family-native-throughput-grid-commercial-rebase.yml'
+      - '.github/workflows/harmonybot-v68-family-evidence-overlay-grid-throughput-recovery.yml'
   workflow_dispatch:
 
 concurrency:
