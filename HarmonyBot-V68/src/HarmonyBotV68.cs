@@ -1579,7 +1579,7 @@ namespace cAlgo.Robots
 
             TransitionLegState(basket, l0, GridLegState.SUBMITTING, "L0_SUBMITTING");
             TradeType tt = c.Signal.Direction == TradeDirection.Buy ? TradeType.Buy : TradeType.Sell;
-            var tr = ExecuteMarketOrder(tt, SymbolName, volume, l0Label, slPips, tpPips);
+            var tr = ExecuteMarketOrder(tt, SymbolName, volume, l0Label, slPips, tpPips, GridComment(basket, 0));
             if (tr == null || !tr.IsSuccessful || tr.Position == null)
             {
                 string code = "L0_ORDER_" + (tr == null ? "NULL" : tr.Error.ToString());
