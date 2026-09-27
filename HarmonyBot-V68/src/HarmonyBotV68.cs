@@ -297,7 +297,7 @@ namespace cAlgo.Robots
         private readonly Dictionary<string, PipelineCounter> _pipeline = new Dictionary<string, PipelineCounter>();
         private readonly Dictionary<string, FibonacciBasket> _baskets = new Dictionary<string, FibonacciBasket>();
         private long _basketSeq;
-        private int _gridRiskViolations;
+        private int _gridRiskPlanRejects;
         private int _duplicateGridLegs;
         private int _orphanPendingOrders;
         private int _stopWideningViolations = 0;
@@ -505,8 +505,8 @@ namespace cAlgo.Robots
                     Print("[V68-DETECTOR-TRUTH] pattern={0} stage={1} count={2}", pattern, stage, kv.Value);
                 }
             }
-            Print("[V68-SUMMARY] candidates={0} baskets={1} openLedgers={2} executionErrors={3} gridRiskViolations={4} duplicateGridLegs={5} orphanPendingOrders={6} stopWideningViolations={7} gapThroughInvalidations={8} gapThroughSurvivors={9} unprotectedSurvivors={10} postFillProtectionFailures={11} actualBasketRiskViolations={12} executionStateViolations={13} virtualGridFills={14} microModeBaskets={15} capitalRejectedBaskets={16} marginRiskViolations={17}",
-                _candidateSeq, _baskets.Count, _positions.Count, _executionErrors, _gridRiskViolations, _duplicateGridLegs, _orphanPendingOrders, _stopWideningViolations,
+            Print("[V68-SUMMARY] candidates={0} baskets={1} openLedgers={2} executionErrors={3} gridRiskPlanRejects={4} duplicateGridLegs={5} orphanPendingOrders={6} stopWideningViolations={7} gapThroughInvalidations={8} gapThroughSurvivors={9} unprotectedSurvivors={10} postFillProtectionFailures={11} actualBasketRiskViolations={12} executionStateViolations={13} virtualGridFills={14} microModeBaskets={15} capitalRejectedBaskets={16} marginRiskViolations={17}",
+                _candidateSeq, _baskets.Count, _positions.Count, _executionErrors, _gridRiskPlanRejects, _duplicateGridLegs, _orphanPendingOrders, _stopWideningViolations,
                 _gapThroughInvalidations, _gapThroughSurvivors, _unprotectedSurvivors, _postFillProtectionFailures, _actualBasketRiskViolations, _executionStateViolations,
                 _virtualGridFills, _microModeBaskets, _capitalRejectedBaskets, _marginRiskViolations);
             Print("[V68-ALPHA-SUMMARY] qualityRejected={0} regimeRejected={1} confirmationRejected={2} capitalInfeasible={3} alphaPassed={4}",
@@ -1502,7 +1502,7 @@ namespace cAlgo.Robots
             if (Account.FreeMargin < plan.BasketRiskAmount * MinFreeMarginRiskMultiple) { Reject(c, "MARGIN_HEADROOM"); return; }
             if (plan.WorstCaseRisk > plan.BasketRiskAmount + 1e-8)
             {
-                _gridRiskViolations++;
+                _gridRiskPlanRejects++;
                 Reject(c, "WORST_CASE_BASKET_RISK");
                 return;
             }
@@ -1570,7 +1570,7 @@ namespace cAlgo.Robots
             double l0Worst = volume * _symbol.PipValue * (slPips + ModeledCostPips());
             if (otherWorst + l0Worst > plan.BasketRiskAmount + 1e-8)
             {
-                _gridRiskViolations++;
+                _gridRiskPlanRejects++;
                 basket.State = FibonacciBasketState.RISK_REJECTED;
                 basket.IsActive = false;
                 Reject(c, "L0_SLIPPAGE_RISK_RECHECK");
