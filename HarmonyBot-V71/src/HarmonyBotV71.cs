@@ -289,6 +289,12 @@ namespace cAlgo.Robots
         [Parameter("V71 Family-Native Grid Amplifier", DefaultValue = false)]
         public bool EnableV71FamilyNativeGridAmplifier { get; set; }
 
+        [Parameter("V71 No-Backfill Reservation", DefaultValue = false)]
+        public bool EnableV71NoBackfillReservation { get; set; }
+
+        [Parameter("V71 Family Regime Survival", DefaultValue = false)]
+        public bool EnableV71RegimeSurvival { get; set; }
+
         [Parameter("Min Harmonic Robustness", DefaultValue = 0.56, MinValue = 0.40, MaxValue = 0.80)]
         public double MinHarmonicRobustness { get; set; }
 
@@ -391,6 +397,11 @@ namespace cAlgo.Robots
         private int _v71SelectiveQualityRecalls;
         private int _v71SelectiveRouteRecalls;
         private int _v71GridAmplifiedPlans;
+        private int _v71NoBackfillReservations;
+        private int _v71NoBackfillBlocks;
+        private int _v71RegimeSurvivalRejects;
+        private DateTime _v71VirtualSlotReservationUntilUtc = DateTime.MinValue;
+        private readonly HashSet<string> _v71ReservationSetupKeys = new HashSet<string>();
         private readonly Dictionary<string, ShadowAlphaObservation> _v69Shadow = new Dictionary<string, ShadowAlphaObservation>();
         private readonly HashSet<string> _v69ShadowStarted = new HashSet<string>();
 
@@ -508,8 +519,9 @@ namespace cAlgo.Robots
             Print("[V71-ADMISSION-ARCH] hardVetoRationalization={0} familyRouteAdmission={1} opportunityCostArbitration={2} protectedPositiveLanes={3} timingMaxBars={4} safetyVeto=STRUCTURE_RISK_RR_MARGIN_SESSION_SPREAD_BROKER_DUPLICATE",
                 EnableV70HardVetoRationalization, EnableV70FamilyRouteAdmission, EnableV70OpportunityCostArbitration,
                 EnableV70ProtectedPositiveLanes, V70TimingMaxWaitM1Bars);
-            Print("[V71-SELECTIVE-ARCH] laneSuppression={0} selectiveRecall={1} familyNativeGridAmplifier={2} controlSpine=V69_V70A_EXACT noBlanketRelaxation=true gridRole=FAMILY_NATIVE_PROFIT_AMPLIFIER_NOT_FILTER",
-                EnableV71SelectiveLaneSuppression, EnableV71SelectiveRecall, EnableV71FamilyNativeGridAmplifier);
+            Print("[V71-SELECTIVE-ARCH] laneSuppression={0} selectiveRecall={1} familyNativeGridAmplifier={2} noBackfillReservation={3} regimeSurvival={4} controlSpine=V69_V70A_EXACT noBlanketRelaxation=true gridRole=FAMILY_NATIVE_PROFIT_AMPLIFIER_NOT_FILTER",
+                EnableV71SelectiveLaneSuppression, EnableV71SelectiveRecall, EnableV71FamilyNativeGridAmplifier,
+                EnableV71NoBackfillReservation, EnableV71RegimeSurvival);
             Print("[V71-FAMILY-TRADE-CONTRACTS] enabled={0} detectorFrontier={1} familyGrid={2} evidenceGuard={3} controlledExpansion={4} contracts={5} principle=FAMILY_IDENTITY_ROUTE_CONFIRMATION_GRID_SEPARATED",
                 EnableV67FamilyTradeContracts, EnableV67FamilyDetectorFrontier, EnableV67FamilyNativeGrid,
                 EnableV67EvidenceRouteGuard, EnableV67ControlledExpansion, _familyTradeContracts.Count);
@@ -613,6 +625,8 @@ namespace cAlgo.Robots
                 _v70ProtectedAdmissions, _v70ChallengerAdmissions, _v70HardVetoObservations, _v70TimingDeferrals, _v70ArbitrationSelections);
             Print("[V71-SELECTIVE-SUMMARY] suppressedLegacyLanes={0} selectiveQualityRecalls={1} selectiveRouteRecalls={2} gridAmplifiedPlans={3}",
                 _v71SuppressedLegacyLanes, _v71SelectiveQualityRecalls, _v71SelectiveRouteRecalls, _v71GridAmplifiedPlans);
+            Print("[V71-PORTFOLIO-SUMMARY] noBackfillReservations={0} noBackfillBlocks={1} regimeSurvivalRejects={2}",
+                _v71NoBackfillReservations, _v71NoBackfillBlocks, _v71RegimeSurvivalRejects);
         }
 
         protected override void OnBar()
@@ -809,7 +823,16 @@ namespace cAlgo.Robots
                 if (EnableV71SelectiveLaneSuppression && V71ShouldSuppressLegacyLane(record))
                 {
                     _v71SuppressedLegacyLanes++;
+                    V71ReserveSuppressedSlot(record);
                     Reject(record, "V71_CALIBRATION_NEGATIVE_LEGACY_LANE");
+                    continue;
+                }
+
+                if (!V71RegimeSurvivalEligible(record))
+                {
+                    _v71RegimeSurvivalRejects++;
+                    V71ReserveSuppressedSlot(record);
+                    Reject(record, "V71_FAMILY_REGIME_SURVIVAL_VETO");
                     continue;
                 }
 
@@ -1123,6 +1146,13 @@ namespace cAlgo.Robots
             bool slotBusy = OwnPositions().Any() || OwnPendingOrders().Any() || _baskets.Values.Any(b => b.IsActive);
             if (slotBusy)
             {
+                if (EnablePersistentArmedQueue) ParkArmedCandidates(now);
+                return;
+            }
+
+            if (V71VirtualSlotReserved(now))
+            {
+                _v71NoBackfillBlocks++;
                 if (EnablePersistentArmedQueue) ParkArmedCandidates(now);
                 return;
             }
@@ -4454,6 +4484,52 @@ namespace cAlgo.Robots
             }
 
             return false;
+        }
+
+        private double V71ExpectedSlotMinutes(HarmonicRoute route)
+        {
+            return route == HarmonicRoute.TREND_ALIGNED_REVERSAL ? 90.0 :
+                   route == HarmonicRoute.EXHAUSTION_REVERSAL ? 120.0 :
+                   route == HarmonicRoute.TRANSITION_REVERSAL ? 75.0 : 0.0;
+        }
+
+        private void V71ReserveSuppressedSlot(CandidateRecord c)
+        {
+            if (!EnableV71NoBackfillReservation || c == null || c.Signal == null) return;
+            if (c.LegacyRoute == HarmonicRoute.NO_TRADE || !c.LegacyQualityPassed) return;
+            string key = string.IsNullOrWhiteSpace(c.SetupKey) ? c.CandidateId : c.SetupKey;
+            if (_v71ReservationSetupKeys.Contains(key)) return;
+            DateTime now = Server.Time.ToUniversalTime();
+            if (_v71VirtualSlotReservationUntilUtc > now) return;
+            double minutes = V71ExpectedSlotMinutes(c.LegacyRoute);
+            if (minutes <= 0) return;
+            _v71ReservationSetupKeys.Add(key);
+            _v71VirtualSlotReservationUntilUtc = now.AddMinutes(minutes);
+            _v71NoBackfillReservations++;
+            Event(c, "V71_NO_BACKFILL_RESERVATION_" + minutes.ToString("F0", CultureInfo.InvariantCulture) + "M");
+        }
+
+        private bool V71VirtualSlotReserved(DateTime now)
+        {
+            return EnableV71NoBackfillReservation && _v71VirtualSlotReservationUntilUtc > now;
+        }
+
+        private bool V71RegimeSurvivalEligible(CandidateRecord c)
+        {
+            if (!EnableV71RegimeSurvival || c == null || c.Signal == null || c.Regime == null) return true;
+            string p = c.Signal.PatternName ?? "";
+            string subtype = c.Signal.HarmonicSubtype ?? "";
+
+            if (p == "Rat" && subtype == "Rat" && c.Route == HarmonicRoute.TREND_ALIGNED_REVERSAL)
+                return c.RegimeScore >= .60;
+
+            if (p == "Shark" && subtype == "Shark" && c.Route == HarmonicRoute.TREND_ALIGNED_REVERSAL)
+                return c.RegimeScore >= .66;
+
+            if (p == "AB=CD" && V71SubtypeUnknown(c) && c.Route == HarmonicRoute.TREND_ALIGNED_REVERSAL)
+                return false;
+
+            return true;
         }
 
         private bool V71SelectiveQualityRecall(CandidateRecord c)
