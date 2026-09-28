@@ -81,10 +81,10 @@ front={"version":"HarmonyBot V71","stage":"CALIBRATION_FROZEN_OBSERVED_DEV_STRES
  "calibration":freeze,"candidate":candidate,"control_dev":A,"candidate_dev":C,"marginal_vs_control":marg,
  "control_reproduction":ctrl,"protected_control":bp,"protected_candidate":cp,"protected_no_harm":protected_no_harm,
  "breakthrough_gate":gate,"decision":decision,"validation_used":False,"fresh_used":False,
- "governance":{"dev_reuse_iteration":2,"dev_role":"OBSERVED_STRESS_CONFIRMATION_NOT_PRISTINE_OOS",
+ "governance":{"dev_reuse_iteration":4,"dev_role":"OBSERVED_STRESS_CONFIRMATION_NOT_PRISTINE_OOS",
    "candidate_selected_before_this_dev_run":True,"candidate_selection_source":"BURNED_2021_2023_ONLY",
    "validation_locked":True,"fresh_locked":True,"no_minor_version_promotion":True},
- "final_v80_targets":{"return_pct":100,"pf":2.5,"max_dd_pct":10,"win_rate":.65,"frequency":200,"realized_rr":2.0,"profitable_months_12":10,"net_pct_initial":100}}
+ "risk_policy":{"default_pct":1.0,"hard_ceiling_pct":5.0,"adaptive_not_fixed":True,"alpha_risk_attribution_separated":True},"final_v80_targets":{"return_pct":100,"pf":2.5,"max_dd_pct":10,"win_rate":.65,"frequency":200,"realized_rr":2.0,"profitable_months_12":10,"net_pct_initial":100}}
 (out/"V71_PERFORMANCE_FRONTIER.json").write_text(json.dumps(front,indent=2))
 (out/"V71_FINAL_DEV_DECISION.json").write_text(json.dumps({"version":"HarmonyBot V71","decision":decision,"candidate":candidate,"validation_used":False,"fresh_used":False},indent=2))
 (out/"candidate.txt").write_text(candidate if gate else "")

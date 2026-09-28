@@ -7,6 +7,8 @@ def between(a,b):
     i=s.find(a); j=s.find(b,i+len(a))
     return s[i:j] if i>=0 and j>i else ""
 portfolio=between("private bool V71EvidenceQualifiedCapitalLane","private bool V71SelectiveQualityRecall")
+backfill=between("private bool V71SelectiveBackfillAdmissionEligible","private double V71EffectiveBasketRiskPercent")
+adaptive=between("private double V71EffectiveBasketRiskPercent","private bool V71SelectiveQualityRecall")
 recall=between("private HarmonicRoute V71SelectiveRecallRoute","private double V70MinimumExecutionEvidenceScore")
 grid=between("private bool V71TryGetGridTemplate","private bool GridPlanReject")
 checks={
@@ -22,7 +24,12 @@ checks={
  "grid_is_not_filter":"FAMILY_NATIVE_PROFIT_AMPLIFIER_NOT_FILTER" in s,
  "grid_evidence_lanes":'p == "Rat" && subtype == "Rat"' in grid and 'p == "Shark" && subtype == "Shark"' in grid,
  "grid_fib_levels":all(x in grid for x in [".236",".382",".618"]),
- "grid_risk_ceiling":'[Parameter("Basket Risk %", DefaultValue = 1.0, MinValue = 0.1, MaxValue = 1.0)]' in s and "plan.WorstCaseRisk > plan.BasketRiskAmount + 1e-8" in s,
+ "grid_risk_ceiling":'[Parameter("Basket Risk %", DefaultValue = 1.0, MinValue = 0.1, MaxValue = 5.0)]' in s and "plan.WorstCaseRisk > plan.BasketRiskAmount + 1e-8" in s,
+ "selective_backfill":"EnableV71SelectiveBackfill" in s and "V71SelectiveBackfillAdmissionEligible" in s and "V71SelectiveBackfillExecutionEligible" in s,
+ "selective_backfill_no_future":all(x not in backfill for x in ["OutcomeR","MfeR","MaeR","ShadowAlphaObservation","_v69Shadow"]),
+ "carney_quality_backfill":all(x in backfill for x in ["GeometryQuality >= .72","PrzConfluence >= .72","Confidence >= .68"]),
+ "adaptive_risk_5pct_cap":"EnableV71AdaptiveRiskScaling" in s and "Math.Min(5.0" in adaptive and "allocated = 5.0" in adaptive,
+ "adaptive_risk_no_future":all(x not in adaptive for x in ["OutcomeR","MfeR","MaeR","ShadowAlphaObservation","_v69Shadow"]),
  "minimum_rr":'[Parameter("Minimum Net RR", DefaultValue = 2.0' in s,
  "single_active_basket":"OwnPositions().Any() || OwnPendingOrders().Any() || _baskets.Values.Any(b => b.IsActive)" in s,
  "completed_bar":"private int LastClosedIndex(Bars b) { return b == null ? -1 : b.Count - 2; }" in s,
@@ -34,7 +41,7 @@ checks={
  "no_stop_widening":"stopWideningViolations" in s and "retryImproves" in s,
  "v70_blanket_path_available_but_runner_disabled":"EnableV70HardVetoRationalization" in s and "EnableV70FamilyRouteAdmission" in s
 }
-out={"version":"HarmonyBot V71","audit":"calibration_evidence_portfolio_fail_closed","source_sha256":hashlib.sha256(p.read_bytes()).hexdigest(),"checks":checks,"pass":all(checks.values())}
+out={"version":"HarmonyBot V71","audit":"selective_backfill_adaptive_risk_fail_closed","source_sha256":hashlib.sha256(p.read_bytes()).hexdigest(),"checks":checks,"pass":all(checks.values())}
 pathlib.Path("V71_STATIC_CONTRACT_AUDIT.json").write_text(json.dumps(out,indent=2))
 print(json.dumps(out,indent=2))
 raise SystemExit(0 if out["pass"] else 2)

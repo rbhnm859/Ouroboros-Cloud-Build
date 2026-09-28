@@ -1,4 +1,4 @@
-name: HarmonyBot V71 No-Backfill Regime Survival DEV
+name: HarmonyBot V71 Selective Backfill Adaptive Risk DEV
 
 on:
   push:
@@ -44,7 +44,7 @@ jobs:
           cp "$A" HarmonyBot-V71/dist/HarmonyBot_V71_Selective_Causal_Alpha_Reconstruction_Grid_Amplifier.algo
           sha256sum HarmonyBot-V71/src/HarmonyBotV71.cs "$A" > HarmonyBot-V71/final/SHA256SUMS
           printf '%s\n' "$GITHUB_SHA" > HarmonyBot-V71/final/SOURCE_COMMIT.txt
-          python3 -c 'import hashlib,json,pathlib,os; s=pathlib.Path("HarmonyBot-V71/src/HarmonyBotV71.cs"); a=pathlib.Path("HarmonyBot-V71/dist/HarmonyBot_V71_Selective_Causal_Alpha_Reconstruction_Grid_Amplifier.algo"); pathlib.Path("HarmonyBot-V71/final/V71_PREREGISTERED_FREEZE_MANIFEST.json").write_text(json.dumps({"version":"HarmonyBot V71","source_commit":os.environ["GITHUB_SHA"],"source_sha256":hashlib.sha256(s.read_bytes()).hexdigest(),"algo_sha256":hashlib.sha256(a.read_bytes()).hexdigest(),"variants":["A_V70_TRUTH_CONTROL","B_NO_BACKFILL_PORTFOLIO","C_REGIME_SURVIVAL","D_REGIME_GRID_AMPLIFIER"],"calibration_windows":["Y2021","Y2022","Y2023"],"promotion_dev_windows":["H2024H2","H2025H1","H2025H2"],"candidate_selection_source":"BURNED_2021_2023_ONLY","dev_reuse_iteration":3,"dev_role":"OBSERVED_STRESS_CONFIRMATION_NOT_PRISTINE_OOS","grid_role":"FAMILY_NATIVE_PROFIT_AMPLIFIER_NOT_FILTER","whole_basket_risk_ceiling_pct":1.0,"minimum_net_rr":2.0,"validation_locked":True,"fresh_locked":True,"post_dev_candidate_switching_allowed":False,"minor_version_promotion_allowed":False,"final_v80_targets":{"return_pct":100,"pf":2.5,"max_dd_pct":10,"win_rate":0.65,"trades_per_year":200,"realized_rr":2.0,"profitable_months":10,"net_pct_initial":100}},indent=2))'
+          python3 -c 'import hashlib,json,pathlib,os; s=pathlib.Path("HarmonyBot-V71/src/HarmonyBotV71.cs"); a=pathlib.Path("HarmonyBot-V71/dist/HarmonyBot_V71_Selective_Causal_Alpha_Reconstruction_Grid_Amplifier.algo"); pathlib.Path("HarmonyBot-V71/final/V71_PREREGISTERED_FREEZE_MANIFEST.json").write_text(json.dumps({"version":"HarmonyBot V71","source_commit":os.environ["GITHUB_SHA"],"source_sha256":hashlib.sha256(s.read_bytes()).hexdigest(),"algo_sha256":hashlib.sha256(a.read_bytes()).hexdigest(),"variants":["A_V70_TRUTH_CONTROL","B_SELECTIVE_BACKFILL_ALPHA","C_BACKFILL_REGIME_GRID","D_ADAPTIVE_RISK_5PCT"],"calibration_windows":["Y2021","Y2022","Y2023"],"promotion_dev_windows":["H2024H2","H2025H1","H2025H2"],"candidate_selection_source":"BURNED_2021_2023_ONLY","dev_reuse_iteration":4,"dev_role":"OBSERVED_STRESS_CONFIRMATION_NOT_PRISTINE_OOS","grid_role":"FAMILY_NATIVE_PROFIT_AMPLIFIER_NOT_FILTER","whole_basket_risk_default_pct":1.0,"whole_basket_risk_ceiling_pct":5.0,"risk_attribution":"B_C_ALPHA_AT_1PCT_D_ADAPTIVE_OVERLAY","minimum_net_rr":2.0,"validation_locked":True,"fresh_locked":True,"post_dev_candidate_switching_allowed":False,"minor_version_promotion_allowed":False,"final_v80_targets":{"return_pct":100,"pf":2.5,"max_dd_pct":10,"win_rate":0.65,"trades_per_year":200,"realized_rr":2.0,"profitable_months":10,"net_pct_initial":100}},indent=2))'
       - uses: actions/upload-artifact@v4
         with:
           name: v71-build
@@ -62,7 +62,7 @@ jobs:
       fail-fast: false
       max-parallel: 8
       matrix:
-        variant: [A_V70_TRUTH_CONTROL, B_NO_BACKFILL_PORTFOLIO, C_REGIME_SURVIVAL, D_REGIME_GRID_AMPLIFIER]
+        variant: [A_V70_TRUTH_CONTROL, B_SELECTIVE_BACKFILL_ALPHA, C_BACKFILL_REGIME_GRID, D_ADAPTIVE_RISK_5PCT]
         window: [Y2021, Y2022, Y2023]
     steps:
       - uses: actions/checkout@v4

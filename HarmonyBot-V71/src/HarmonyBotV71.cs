@@ -19,7 +19,7 @@ namespace cAlgo.Robots
         [Parameter("Trading Enabled", DefaultValue = true)]
         public bool TradingEnabled { get; set; }
 
-        [Parameter("Basket Risk %", DefaultValue = 1.0, MinValue = 0.1, MaxValue = 1.0)]
+        [Parameter("Basket Risk %", DefaultValue = 1.0, MinValue = 0.1, MaxValue = 5.0)]
         public double BasketRiskPercent { get; set; }
 
         [Parameter("Adaptive Capital Mode", DefaultValue = true)]
@@ -295,6 +295,12 @@ namespace cAlgo.Robots
         [Parameter("V71 Family Regime Survival", DefaultValue = false)]
         public bool EnableV71RegimeSurvival { get; set; }
 
+        [Parameter("V71 Selective Backfill Admission", DefaultValue = false)]
+        public bool EnableV71SelectiveBackfill { get; set; }
+
+        [Parameter("V71 Adaptive Risk Scaling", DefaultValue = false)]
+        public bool EnableV71AdaptiveRiskScaling { get; set; }
+
         [Parameter("Min Harmonic Robustness", DefaultValue = 0.56, MinValue = 0.40, MaxValue = 0.80)]
         public double MinHarmonicRobustness { get; set; }
 
@@ -400,6 +406,9 @@ namespace cAlgo.Robots
         private int _v71NoBackfillReservations;
         private int _v71NoBackfillBlocks;
         private int _v71RegimeSurvivalRejects;
+        private int _v71SelectiveBackfillAdmissions;
+        private int _v71SelectiveBackfillBypasses;
+        private int _v71AdaptiveRiskPlans;
         private DateTime _v71VirtualSlotReservationUntilUtc = DateTime.MinValue;
         private readonly HashSet<string> _v71ReservationSetupKeys = new HashSet<string>();
         private readonly Dictionary<string, ShadowAlphaObservation> _v69Shadow = new Dictionary<string, ShadowAlphaObservation>();
@@ -625,8 +634,10 @@ namespace cAlgo.Robots
                 _v70ProtectedAdmissions, _v70ChallengerAdmissions, _v70HardVetoObservations, _v70TimingDeferrals, _v70ArbitrationSelections);
             Print("[V71-SELECTIVE-SUMMARY] suppressedLegacyLanes={0} selectiveQualityRecalls={1} selectiveRouteRecalls={2} gridAmplifiedPlans={3}",
                 _v71SuppressedLegacyLanes, _v71SelectiveQualityRecalls, _v71SelectiveRouteRecalls, _v71GridAmplifiedPlans);
-            Print("[V71-PORTFOLIO-SUMMARY] noBackfillReservations={0} noBackfillBlocks={1} regimeSurvivalRejects={2}",
-                _v71NoBackfillReservations, _v71NoBackfillBlocks, _v71RegimeSurvivalRejects);
+            Print("[V71-PORTFOLIO-SUMMARY] noBackfillReservations={0} noBackfillBlocks={1} regimeSurvivalRejects={2} selectiveBackfillAdmissions={3} selectiveBackfillBypasses={4} adaptiveRiskPlans={5} basketRiskCeilingPct={6:F2}",
+                _v71NoBackfillReservations, _v71NoBackfillBlocks, _v71RegimeSurvivalRejects,
+                _v71SelectiveBackfillAdmissions, _v71SelectiveBackfillBypasses, _v71AdaptiveRiskPlans,
+                Math.Min(5.0, Math.Max(.10, BasketRiskPercent)));
         }
 
         protected override void OnBar()
@@ -822,10 +833,18 @@ namespace cAlgo.Robots
 
                 if (EnableV71SelectiveLaneSuppression && V71ShouldSuppressLegacyLane(record))
                 {
-                    _v71SuppressedLegacyLanes++;
-                    V71ReserveSuppressedSlot(record);
-                    Reject(record, "V71_CALIBRATION_NEGATIVE_LEGACY_LANE");
-                    continue;
+                    if (V71SelectiveBackfillAdmissionEligible(record))
+                    {
+                        _v71SelectiveBackfillAdmissions++;
+                        Event(record, "V71_SELECTIVE_BACKFILL_ADMISSION");
+                    }
+                    else
+                    {
+                        _v71SuppressedLegacyLanes++;
+                        V71ReserveSuppressedSlot(record);
+                        Reject(record, "V71_CALIBRATION_NEGATIVE_LEGACY_LANE");
+                        continue;
+                    }
                 }
 
                 if (!V71RegimeSurvivalEligible(record))
@@ -1150,12 +1169,7 @@ namespace cAlgo.Robots
                 return;
             }
 
-            if (V71VirtualSlotReserved(now))
-            {
-                _v71NoBackfillBlocks++;
-                if (EnablePersistentArmedQueue) ParkArmedCandidates(now);
-                return;
-            }
+            bool v71ReservationActive = V71VirtualSlotReserved(now);
 
             if (!IsInstitutionalSession(now) || !SpreadValid())
             {
@@ -1184,7 +1198,22 @@ namespace cAlgo.Robots
                 .ToList();
             if (armed.Count == 0) return;
 
+            if (v71ReservationActive)
+            {
+                var selectiveBackfills = armed.Where(V71SelectiveBackfillExecutionEligible).ToList();
+                if (selectiveBackfills.Count == 0)
+                {
+                    _v71NoBackfillBlocks++;
+                    if (EnablePersistentArmedQueue) ParkArmedCandidates(now);
+                    return;
+                }
+                armed = selectiveBackfills;
+                _v71SelectiveBackfillBypasses++;
+            }
+
             var winner = armed[0];
+            if (v71ReservationActive)
+                Event(winner, "V71_SELECTIVE_BACKFILL_RESERVATION_BYPASS");
             if (EnableV70OpportunityCostArbitration)
             {
                 _v70ArbitrationSelections++;
@@ -1514,6 +1543,10 @@ namespace cAlgo.Robots
             int maxLegs = Math.Min(Math.Min(routeMax, familyMax), gridFractions.Length);
             if (maxLegs <= 0) return GridPlanReject(c, "ROUTE_LEGS");
 
+            double effectiveBasketRiskPercent = V71EffectiveBasketRiskPercent(c);
+            if (EnableV71AdaptiveRiskScaling && effectiveBasketRiskPercent > 1.000001)
+                _v71AdaptiveRiskPlans++;
+
             var plan = new FibonacciGridPlan
             {
                 CandidateId = c.CandidateId,
@@ -1525,7 +1558,7 @@ namespace cAlgo.Robots
                 EntryAnchor = anchor,
                 StructuralStop = stop,
                 GridDistance = executionUnit,
-                BasketRiskAmount = Account.Equity * BasketRiskPercent / 100.0,
+                BasketRiskAmount = Account.Equity * effectiveBasketRiskPercent / 100.0,
                 CreatedUtc = Server.Time.ToUniversalTime(),
                 ExpirationUtc = MinDate(c.ExpiryUtc, Server.Time.ToUniversalTime().AddMinutes(p.PendingTtlMinutes)),
                 MicroCapitalMode = AdaptiveCapitalMode && Account.Equity <= MicroCapitalThreshold
@@ -4521,6 +4554,54 @@ namespace cAlgo.Robots
                 return false;
 
             return true;
+        }
+
+        private bool V71SelectiveBackfillAdmissionEligible(CandidateRecord c)
+        {
+            if (!EnableV71SelectiveBackfill || c == null || c.Signal == null || c.Regime == null) return false;
+            if (c.Route == HarmonicRoute.NO_TRADE) return false;
+            if (c.Conflict == MtfConflict.CONFLICT && c.Route != HarmonicRoute.EXHAUSTION_REVERSAL) return false;
+            string subtype = c.Signal.HarmonicSubtype ?? "";
+            if (subtype == "ABCD_LEGACY_BROAD") return false;
+
+            bool carneyQuality = c.Signal.GeometryQuality >= .72 &&
+                                 c.Signal.PrzConfluence >= .72 &&
+                                 c.Signal.Confidence >= .68;
+            if (!carneyQuality || c.RegimeScore < .60) return false;
+
+            if (c.Route == HarmonicRoute.TREND_ALIGNED_REVERSAL)
+                return c.RegimeScore >= .64 && c.Regime.Efficiency >= .18;
+            if (c.Route == HarmonicRoute.EXHAUSTION_REVERSAL)
+                return c.Regime.ExtensionAtr >= 1.15;
+            if (c.Route == HarmonicRoute.TRANSITION_REVERSAL)
+                return c.Regime.Transition && c.Regime.Efficiency >= .22;
+            return false;
+        }
+
+        private bool V71SelectiveBackfillExecutionEligible(CandidateRecord c)
+        {
+            return V71SelectiveBackfillAdmissionEligible(c) &&
+                   c.ConfirmationScore >= .60 &&
+                   c.NetRR >= MinimumNetRR;
+        }
+
+        private double V71EffectiveBasketRiskPercent(CandidateRecord c)
+        {
+            double hardCap = Math.Min(5.0, Math.Max(.10, BasketRiskPercent));
+            if (!EnableV71AdaptiveRiskScaling || c == null || c.Signal == null)
+                return hardCap;
+
+            double q = .28 * c.Signal.GeometryQuality +
+                       .24 * c.Signal.PrzConfluence +
+                       .14 * c.Signal.Confidence +
+                       .18 * VClamp(c.RegimeScore) +
+                       .16 * VClamp(c.ConfirmationScore);
+
+            double allocated = 1.0;
+            if (q >= .78) allocated = 2.0;
+            if (q >= .86 && c.Conflict == MtfConflict.ALIGNED) allocated = 3.0;
+            if (q >= .92 && c.RegimeScore >= .75 && c.ConfirmationScore >= .75) allocated = 5.0;
+            return Math.Min(hardCap, allocated);
         }
 
         private bool V71SelectiveQualityRecall(CandidateRecord c)

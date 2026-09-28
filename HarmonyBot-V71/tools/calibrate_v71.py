@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 import json,pathlib,sys,statistics
 root=pathlib.Path(sys.argv[1]); out=pathlib.Path(sys.argv[2]); out.mkdir(parents=True,exist_ok=True)
-V=["A_V70_TRUTH_CONTROL","B_NO_BACKFILL_PORTFOLIO","C_REGIME_SURVIVAL","D_REGIME_GRID_AMPLIFIER"]
+V=["A_V70_TRUTH_CONTROL","B_SELECTIVE_BACKFILL_ALPHA","C_BACKFILL_REGIME_GRID","D_ADAPTIVE_RISK_5PCT"]
 CAL=["Y2021","Y2022","Y2023"]
 REF={
 "Y2021":{"baskets":164,"net":1561.19,"pf":1.2388820883190013},
@@ -23,6 +23,8 @@ def agg(v):
     n=len(rows); net=sum(r["net"] for r in rows)
     return {"baskets":n,"net":net,"pf":pf(rows),"expectancy":net/n if n else 0,
       "win_rate":sum(r["net"]>0 for r in rows)/n if n else 0,
+      "frequency":n/3.0,
+      "max_dd_pct":max(R[(v,w)]["max_dd_pct"] for w in CAL),
       "positive_windows":sum(R[(v,w)]["net"]>0 for w in CAL),
       "engineering_clean":all(R[(v,w)]["engineering_clean"] for w in CAL),
       "risk_clean":all(R[(v,w)]["actual_basket_risk_violations"]==0 and R[(v,w)]["margin_risk_violations"]==0 and R[(v,w)]["stop_widening_violations"]==0 for w in CAL),
@@ -58,15 +60,15 @@ for v in V:
     p=protected(A[v]["_rows"]); A[v]["protected"]=p
     A[v]["protected_no_harm"]=p["net"]+.05>=basep["net"] and p["pf"]+.0005>=basep["pf"]
 M={"B-A":marginal(V[0],V[1]),"C-B":marginal(V[1],V[2]),"D-C":marginal(V[2],V[3])}
-B=control_gate and clean(A[V[1]]) and A[V[1]]["net"]>0 and A[V[1]]["pf"]>=1.20 and A[V[1]]["expectancy"]>0 and M["B-A"]["delta_net"]>0 and M["B-A"]["delta_pf"]>0 and M["B-A"]["delta_expectancy"]>0 and M["B-A"]["positive_delta_windows"]>=2 and A[V[1]]["protected_no_harm"]
-C=B and clean(A[V[2]]) and M["C-B"]["delta_net"]>0 and M["C-B"]["delta_pf"]>=0 and M["C-B"]["delta_expectancy"]>=0 and M["C-B"]["positive_delta_windows"]>=2 and M["C-B"]["removed_count"]>0 and M["C-B"]["removed_net"]<0 and A[V[2]]["protected_no_harm"]
-D=C and clean(A[V[3]]) and M["D-C"]["delta_net"]>0 and M["D-C"]["delta_pf"]>=0 and M["D-C"]["delta_expectancy"]>=0 and M["D-C"]["positive_delta_windows"]>=2 and sum(int(R[(V[3],w)].get("grid_amplified_plans",0)) for w in CAL)>0 and A[V[3]]["protected_no_harm"]
+B=control_gate and clean(A[V[1]]) and A[V[1]]["net"]>A[V[0]]["net"] and A[V[1]]["pf"]>A[V[0]]["pf"] and A[V[1]]["expectancy"]>A[V[0]]["expectancy"] and A[V[1]]["frequency"]>=60 and A[V[1]]["max_dd_pct"]<=10 and M["B-A"]["delta_net"]>0 and M["B-A"]["delta_pf"]>0 and M["B-A"]["delta_expectancy"]>0 and M["B-A"]["positive_delta_windows"]>=2 and A[V[1]]["protected_no_harm"]
+C=B and clean(A[V[2]]) and A[V[2]]["frequency"]>=A[V[1]]["frequency"]*.90 and A[V[2]]["max_dd_pct"]<=10 and M["C-B"]["delta_net"]>0 and M["C-B"]["delta_pf"]>=0 and M["C-B"]["delta_expectancy"]>=0 and M["C-B"]["positive_delta_windows"]>=2 and A[V[2]]["protected_no_harm"]
+D=C and clean(A[V[3]]) and A[V[3]]["net"]>A[V[2]]["net"] and A[V[3]]["expectancy"]>A[V[2]]["expectancy"] and A[V[3]]["pf"]>=A[V[2]]["pf"]-.02 and A[V[3]]["win_rate"]>=A[V[2]]["win_rate"]-.01 and A[V[3]]["frequency"]>=A[V[2]]["frequency"]*.95 and A[V[3]]["max_dd_pct"]<=10 and A[V[3]]["protected_no_harm"]
 candidate=V[3] if D else V[2] if C else V[1] if B else None
 for v in V: A[v].pop("_rows",None)
 freeze={"version":"HarmonyBot V71","stage":"CALIBRATION_ONLY_SELECTION","calibration_windows":CAL,
  "control_reproduction_gate":control_gate,"control_reproduction":control,"variants":A,"marginal":M,
- "gates":{"B_no_backfill_portfolio":B,"C_regime_survival":C,"D_regime_grid":D},
- "candidate":candidate,"candidate_selection_source":"BURNED_2021_2023_ONLY",
+ "gates":{"B_selective_backfill_alpha":B,"C_backfill_regime_grid":C,"D_adaptive_risk_5pct":D},
+ "candidate":candidate,"candidate_selection_source":"BURNED_2021_2023_ONLY","risk_attribution_rule":"B/C_ALPHA_AT_1PCT_THEN_D_RISK_OVERLAY_UP_TO_5PCT",
  "dev_seen_previously":True,"dev_used_for_threshold_selection":False,
  "validation_used":False,"fresh_used":False,
  "decision":"CALIBRATION_CANDIDATE_FROZEN" if candidate else "CALIBRATION_HOLD"}
