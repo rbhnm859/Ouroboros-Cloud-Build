@@ -106,6 +106,16 @@ for m in rx.finditer(t):
     shadow.append({"family_id":m.group(1),"setup":m.group(2),"cid":m.group(3),"route":m.group(4),"terminal_reason":m.group(5),"result":m.group(6),
       "outcome_r":float(m.group(7)),"mfe_r":float(m.group(8)),"mae_r":float(m.group(9)),"target_r":float(m.group(10))})
 
+# Regression guard: these telemetry regexes must compile before any report parsing.
+# This prevents a completed cTrader backtest from being discarded by an escaping regression.
+def _compile_v70_telemetry_patterns():
+    patterns=[
+      r"\[V70-FILTER-EVIDENCE\]\s+filter=(\S+)\s+observed=(\d+)\s+pass=(\d+)\s+blocked=(\d+)\s+convertedToObservation=(\d+)",
+      r"\[V70-ADMISSION-SUMMARY\]\s+protectedAdmissions=(\d+)\s+challengerAdmissions=(\d+)\s+hardVetoObservations=(\d+)\s+timingDeferrals=(\d+)\s+arbitrationSelections=(\d+)"
+    ]
+    for p in patterns: re.compile(p)
+_compile_v70_telemetry_patterns()
+
 filter_evidence={}
 rx=re.compile(r"\[V70-FILTER-EVIDENCE\]\s+filter=(\S+)\s+observed=(\d+)\s+pass=(\d+)\s+blocked=(\d+)\s+convertedToObservation=(\d+)")
 for m in rx.finditer(t):
