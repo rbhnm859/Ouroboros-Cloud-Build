@@ -301,6 +301,21 @@ namespace cAlgo.Robots
         [Parameter("V71 Adaptive Risk Scaling", DefaultValue = false)]
         public bool EnableV71AdaptiveRiskScaling { get; set; }
 
+        [Parameter("V71 Canonical Capital Spine", DefaultValue = false)]
+        public bool EnableV71CanonicalCapitalSpine { get; set; }
+
+        [Parameter("V71 Post-Selection Grid Isolation", DefaultValue = false)]
+        public bool EnableV71PostSelectionGridIsolation { get; set; }
+
+        [Parameter("V71 Core Arbitration", DefaultValue = false)]
+        public bool EnableV71CoreArbitration { get; set; }
+
+        [Parameter("V71 Challenger Reserve", DefaultValue = false)]
+        public bool EnableV71ChallengerReserve { get; set; }
+
+        [Parameter("V71 Cross-Regime Survival V2", DefaultValue = false)]
+        public bool EnableV71CrossRegimeSurvivalV2 { get; set; }
+
         [Parameter("Min Harmonic Robustness", DefaultValue = 0.56, MinValue = 0.40, MaxValue = 0.80)]
         public double MinHarmonicRobustness { get; set; }
 
@@ -831,7 +846,23 @@ namespace cAlgo.Robots
                     }
                 }
 
-                if (EnableV71SelectiveLaneSuppression && V71ShouldSuppressLegacyLane(record))
+                if (EnableV71CanonicalCapitalSpine)
+                {
+                    bool coreSpine = V71CanonicalCapitalSpineEligible(record);
+                    bool challenger = V71CanonicalChallengerEligible(record);
+                    if (!coreSpine && !challenger)
+                    {
+                        Reject(record, "V71_NOT_CANONICAL_CAPITAL_SPINE");
+                        continue;
+                    }
+                    if (!V71CrossRegimeSurvivalPass(record))
+                    {
+                        Reject(record, "V71_CROSS_REGIME_SURVIVAL_VETO");
+                        continue;
+                    }
+                    Event(record, coreSpine ? "V71_CANONICAL_CORE_SPINE" : "V71_CANONICAL_CHALLENGER_RESERVE");
+                }
+                else if (EnableV71SelectiveLaneSuppression && V71ShouldSuppressLegacyLane(record))
                 {
                     if (V71SelectiveBackfillAdmissionEligible(record))
                     {
@@ -847,7 +878,7 @@ namespace cAlgo.Robots
                     }
                 }
 
-                if (!V71RegimeSurvivalEligible(record))
+                if (!EnableV71CanonicalCapitalSpine && !V71RegimeSurvivalEligible(record))
                 {
                     _v71RegimeSurvivalRejects++;
                     V71ReserveSuppressedSlot(record);
@@ -1127,14 +1158,26 @@ namespace cAlgo.Robots
                     }
 
                     if (EnableV69EqualFamilyVisibility) V69Visibility(c.FamilyId).ConfirmationPassed++;
-                    if (!TryBuildFibonacciGridPlan(c))
+                    if (EnableV71PostSelectionGridIsolation)
                     {
-                        Reject(c, "FIB_GRID_PLAN_REJECTED");
-                        continue;
+                        c.GridPlan = null;
+                        if (!V71PrepareAlphaOnlyCandidate(c))
+                        {
+                            Reject(c, "V71_ALPHA_ONLY_RR_OR_GEOMETRY_REJECTED");
+                            continue;
+                        }
                     }
-                    if (EnableV69EqualFamilyVisibility) V69Visibility(c.FamilyId).GridPlanned++;
+                    else
+                    {
+                        if (!TryBuildFibonacciGridPlan(c))
+                        {
+                            Reject(c, "FIB_GRID_PLAN_REJECTED");
+                            continue;
+                        }
+                        if (EnableV69EqualFamilyVisibility) V69Visibility(c.FamilyId).GridPlanned++;
+                    }
 
-                    c.Rank = CandidateRank(c);
+                    c.Rank = EnableV71CoreArbitration ? V71AlphaArbitrationScore(c, utc) : CandidateRank(c);
                     _alphaPassed++;
                     c.ArmedUtc = utc;
                     if (EnableArmedExecutionGrace)
@@ -1185,7 +1228,8 @@ namespace cAlgo.Robots
                 : new[] { CandidateState.ARMED };
 
             var armedQuery = _candidates.Values
-                .Where(c => executableStates.Contains(c.State) && c.IsActive && c.GridPlan != null &&
+                .Where(c => executableStates.Contains(c.State) && c.IsActive &&
+                            (c.GridPlan != null || EnableV71PostSelectionGridIsolation) &&
                             (!EnableCanonicalSetupIdentity || !_executedSetupKeys.Contains(c.SetupKey)));
 
             if (EnableDiversityScheduler)
@@ -1193,12 +1237,22 @@ namespace cAlgo.Robots
                     .Select(g => g.OrderByDescending(c => EnableOpportunityDecayRanking ? OpportunityScore(c, now) : c.Rank).First());
 
             var armed = armedQuery
-                .OrderByDescending(c => EnableV70OpportunityCostArbitration ? V70OpportunityCostScore(c, now) :
-                    (EnableOpportunityDecayRanking ? OpportunityScore(c, now) : c.Rank))
+                .OrderByDescending(c => EnableV71CoreArbitration ? V71AlphaArbitrationScore(c, now) :
+                    (EnableV70OpportunityCostArbitration ? V70OpportunityCostScore(c, now) :
+                    (EnableOpportunityDecayRanking ? OpportunityScore(c, now) : c.Rank)))
                 .ToList();
             if (armed.Count == 0) return;
 
-            if (v71ReservationActive)
+            if (EnableV71CoreArbitration)
+            {
+                var core = armed.Where(V71CanonicalCapitalSpineEligible).ToList();
+                if (core.Count > 0)
+                    armed = core;
+                else if (!EnableV71ChallengerReserve)
+                    return;
+            }
+
+            if (v71ReservationActive && !EnableV71CanonicalCapitalSpine)
             {
                 var selectiveBackfills = armed.Where(V71SelectiveBackfillExecutionEligible).ToList();
                 if (selectiveBackfills.Count == 0)
@@ -1220,7 +1274,23 @@ namespace cAlgo.Robots
                 Event(winner, "V70_OPPORTUNITY_COST_WINNER_SCORE_" + V70OpportunityCostScore(winner, now).ToString("F4", CultureInfo.InvariantCulture));
             }
 
-            if (EnablePreExecutionGridRevalidation || (EnablePersistentArmedQueue && winner.WasParked))
+            if (EnableV71PostSelectionGridIsolation)
+            {
+                if (!HardThesisValid(winner, now, true, out string v71Reason) || !V71PrepareAlphaOnlyCandidate(winner))
+                {
+                    Reject(winner, "V71_POST_SELECTION_ALPHA_REVALIDATION_" + v71Reason);
+                    return;
+                }
+                winner.GridPlan = null;
+                if (!TryBuildFibonacciGridPlan(winner))
+                {
+                    Reject(winner, "V71_POST_SELECTION_GRID_REJECTED");
+                    return;
+                }
+                if (EnableV69EqualFamilyVisibility) V69Visibility(winner.FamilyId).GridPlanned++;
+                Event(winner, "V71_ALPHA_WINNER_FROZEN_BEFORE_GRID");
+            }
+            else if (EnablePreExecutionGridRevalidation || (EnablePersistentArmedQueue && winner.WasParked))
             {
                 winner.GridPlan = null;
                 Transition(winner, CandidateState.REVALIDATING, "PRE_EXECUTION_REVALIDATION");
@@ -4554,6 +4624,111 @@ namespace cAlgo.Robots
                 return false;
 
             return true;
+        }
+
+        // V71 Final Structural Rebase:
+        // Capital starts from the Carney-canonical, cross-year stable family/route spine.
+        // Burned 2021-2023 A-control evidence for these exact lanes:
+        // Rat Trend, Shark Trend, Gartley Trend, 5-0 Exhaustion, AB=CD Exact Exhaustion.
+        // The policy is static at runtime and never reads realized/future outcomes.
+        private bool V71CanonicalCapitalSpineEligible(CandidateRecord c)
+        {
+            if (c == null || c.Signal == null) return false;
+            string p = c.Signal.PatternName ?? "";
+            string subtype = c.Signal.HarmonicSubtype ?? "";
+
+            if (p == "Rat" && subtype == "Rat")
+                return c.Route == HarmonicRoute.TREND_ALIGNED_REVERSAL;
+            if (p == "Shark" && subtype == "Shark")
+                return c.Route == HarmonicRoute.TREND_ALIGNED_REVERSAL;
+            if (p == "Gartley" && subtype == "Gartley")
+                return c.Route == HarmonicRoute.TREND_ALIGNED_REVERSAL;
+            if (p == "5-0" && subtype == "5-0")
+                return c.Route == HarmonicRoute.EXHAUSTION_REVERSAL;
+            if (p == "AB=CD" && subtype == "ABCD_EXACT")
+                return c.Route == HarmonicRoute.EXHAUSTION_REVERSAL;
+            return false;
+        }
+
+        // Challenger reserve is deliberately small.  It cannot displace an available core-spine
+        // thesis and requires strong Carney geometry/PRZ plus pre-entry regime evidence.
+        private bool V71CanonicalChallengerEligible(CandidateRecord c)
+        {
+            if (!EnableV71ChallengerReserve || c == null || c.Signal == null || c.Regime == null) return false;
+            string p = c.Signal.PatternName ?? "";
+            string subtype = c.Signal.HarmonicSubtype ?? "";
+            bool identity =
+                (p == "AB=CD" && subtype == "ABCD_EXACT" && c.Route == HarmonicRoute.TREND_ALIGNED_REVERSAL) ||
+                (p == "Cypher" && subtype == "Cypher" && c.Route == HarmonicRoute.TREND_ALIGNED_REVERSAL);
+            if (!identity) return false;
+            if (c.Conflict == MtfConflict.CONFLICT) return false;
+            return c.Signal.GeometryQuality >= .82 &&
+                   c.Signal.PrzConfluence >= .78 &&
+                   c.Signal.Confidence >= .75 &&
+                   c.RegimeScore >= .68 &&
+                   c.Regime.Efficiency >= .18;
+        }
+
+        private bool V71CrossRegimeSurvivalPass(CandidateRecord c)
+        {
+            if (!EnableV71CrossRegimeSurvivalV2 || c == null || c.Signal == null || c.Regime == null) return true;
+            string p = c.Signal.PatternName ?? "";
+            string subtype = c.Signal.HarmonicSubtype ?? "";
+
+            if (V71CanonicalChallengerEligible(c))
+                return c.RegimeScore >= .68 && c.Regime.Efficiency >= .18;
+
+            if (p == "Rat" && subtype == "Rat" && c.Route == HarmonicRoute.TREND_ALIGNED_REVERSAL)
+                return c.Conflict != MtfConflict.CONFLICT && c.RegimeScore >= .45;
+            if (p == "Shark" && subtype == "Shark" && c.Route == HarmonicRoute.TREND_ALIGNED_REVERSAL)
+                return c.Conflict != MtfConflict.CONFLICT && c.RegimeScore >= .55 && c.Regime.Efficiency >= .12;
+            if (p == "Gartley" && subtype == "Gartley" && c.Route == HarmonicRoute.TREND_ALIGNED_REVERSAL)
+                return c.Conflict != MtfConflict.CONFLICT && c.RegimeScore >= .45;
+            if (p == "5-0" && subtype == "5-0" && c.Route == HarmonicRoute.EXHAUSTION_REVERSAL)
+                return c.Regime.ExtensionAtr >= 1.00 && c.RegimeScore >= .45;
+            if (p == "AB=CD" && subtype == "ABCD_EXACT" && c.Route == HarmonicRoute.EXHAUSTION_REVERSAL)
+                return c.Regime.ExtensionAtr >= .90 && c.RegimeScore >= .45;
+            return false;
+        }
+
+        // Alpha feasibility is evaluated before Grid exists.  Grid therefore cannot alter the
+        // candidate set, ranking or admission decision.
+        private bool V71PrepareAlphaOnlyCandidate(CandidateRecord c)
+        {
+            if (c == null || c.Signal == null) return false;
+            double entry = c.Signal.Direction == TradeDirection.Buy ? _symbol.Ask : _symbol.Bid;
+            double stop = c.Signal.StructuralInvalidation;
+            if ((c.Signal.Direction == TradeDirection.Buy && stop >= entry) ||
+                (c.Signal.Direction == TradeDirection.Sell && stop <= entry))
+                return false;
+            if (PriceToPips(Math.Abs(entry - stop)) < MinStopLossPips) return false;
+
+            double target, netRr;
+            if (!SelectCanonicalBasketTarget(c.Signal, entry, stop, out target, out netRr))
+                return false;
+            if (netRr < MinimumNetRR) return false;
+
+            c.SelectedTarget = target;
+            c.NetRR = netRr;
+            return true;
+        }
+
+        private double V71AlphaArbitrationScore(CandidateRecord c, DateTime now)
+        {
+            if (c == null || c.Signal == null || c.Regime == null) return -999;
+            double canonical = V71CanonicalCapitalSpineEligible(c) ? 1.0 : .55;
+            double q = .26 * c.Signal.GeometryQuality +
+                       .22 * c.Signal.PrzConfluence +
+                       .14 * c.Signal.Confidence +
+                       .14 * VClamp(c.RegimeScore) +
+                       .14 * VClamp(c.ConfirmationScore) +
+                       .10 * VClamp(c.NetRR / 3.0);
+            double expectedMinutes = c.Route == HarmonicRoute.TREND_ALIGNED_REVERSAL ? 90.0 :
+                                     c.Route == HarmonicRoute.EXHAUSTION_REVERSAL ? 120.0 : 75.0;
+            double age = Math.Max(0, (now - c.DetectedUtc).TotalMinutes);
+            double agePenalty = Math.Min(.12, age / 240.0 * .12);
+            double spreadPenalty = Math.Min(.10, CurrentSpreadPips() / Math.Max(1.0, MaxSpreadPips) * .10);
+            return canonical + q / Math.Max(.75, expectedMinutes / 90.0) - agePenalty - spreadPenalty;
         }
 
         private bool V71SelectiveBackfillAdmissionEligible(CandidateRecord c)

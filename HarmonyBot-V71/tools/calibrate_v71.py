@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 import json,pathlib,sys,statistics
 root=pathlib.Path(sys.argv[1]); out=pathlib.Path(sys.argv[2]); out.mkdir(parents=True,exist_ok=True)
-V=["A_V70_TRUTH_CONTROL","B_SELECTIVE_BACKFILL_ALPHA","C_BACKFILL_REGIME_GRID","D_ADAPTIVE_RISK_5PCT"]
+V=["A_V70_TRUTH_CONTROL","B_CANONICAL_CORE_SPINE","C_CORE_REGIME_SURVIVAL","D_CHALLENGER_RESERVE","E_POST_SELECTION_GRID","F_ADAPTIVE_RISK_CAPACITY"]
 CAL=["Y2021","Y2022","Y2023"]
 REF={
 "Y2021":{"baskets":164,"net":1561.19,"pf":1.2388820883190013},
@@ -25,6 +25,7 @@ def agg(v):
       "win_rate":sum(r["net"]>0 for r in rows)/n if n else 0,
       "frequency":n/3.0,
       "max_dd_pct":max(R[(v,w)]["max_dd_pct"] for w in CAL),
+      "min_window_net":min(R[(v,w)]["net"] for w in CAL),
       "positive_windows":sum(R[(v,w)]["net"]>0 for w in CAL),
       "engineering_clean":all(R[(v,w)]["engineering_clean"] for w in CAL),
       "risk_clean":all(R[(v,w)]["actual_basket_risk_violations"]==0 and R[(v,w)]["margin_risk_violations"]==0 and R[(v,w)]["stop_widening_violations"]==0 for w in CAL),
@@ -43,10 +44,12 @@ def marginal(a,b):
 def protected(rows):
     z=[]
     for r in rows:
-        f=r.get("family_id"); route=r.get("route"); st=r.get("subtype") or ""
-        if f=="Rat" and route in ("TREND_ALIGNED_REVERSAL","EXHAUSTION_REVERSAL"): z.append(r)
-        elif f=="Shark" and route=="TREND_ALIGNED_REVERSAL": z.append(r)
-        elif f=="Shark" and route=="EXHAUSTION_REVERSAL" and st=="Shark": z.append(r)
+        p=r.get("pattern"); route=r.get("route"); st=r.get("subtype") or ""
+        if p=="Rat" and st=="Rat" and route=="TREND_ALIGNED_REVERSAL": z.append(r)
+        elif p=="Shark" and st=="Shark" and route=="TREND_ALIGNED_REVERSAL": z.append(r)
+        elif p=="Gartley" and st=="Gartley" and route=="TREND_ALIGNED_REVERSAL": z.append(r)
+        elif p=="5-0" and st=="5-0" and route=="EXHAUSTION_REVERSAL": z.append(r)
+        elif p=="AB=CD" and st=="ABCD_EXACT" and route=="EXHAUSTION_REVERSAL": z.append(r)
     return {"baskets":len(z),"net":sum(r["net"] for r in z),"pf":pf(z)}
 def clean(z): return z["engineering_clean"] and z["risk_clean"] and z["identity_clean"]
 control={}
@@ -59,16 +62,18 @@ basep=protected(A[V[0]]["_rows"])
 for v in V:
     p=protected(A[v]["_rows"]); A[v]["protected"]=p
     A[v]["protected_no_harm"]=p["net"]+.05>=basep["net"] and p["pf"]+.0005>=basep["pf"]
-M={"B-A":marginal(V[0],V[1]),"C-B":marginal(V[1],V[2]),"D-C":marginal(V[2],V[3])}
-B=control_gate and clean(A[V[1]]) and A[V[1]]["net"]>A[V[0]]["net"] and A[V[1]]["pf"]>A[V[0]]["pf"] and A[V[1]]["expectancy"]>A[V[0]]["expectancy"] and A[V[1]]["frequency"]>=60 and A[V[1]]["max_dd_pct"]<=10 and M["B-A"]["delta_net"]>0 and M["B-A"]["delta_pf"]>0 and M["B-A"]["delta_expectancy"]>0 and M["B-A"]["positive_delta_windows"]>=2 and A[V[1]]["protected_no_harm"]
-C=B and clean(A[V[2]]) and A[V[2]]["frequency"]>=A[V[1]]["frequency"]*.90 and A[V[2]]["max_dd_pct"]<=10 and M["C-B"]["delta_net"]>0 and M["C-B"]["delta_pf"]>=0 and M["C-B"]["delta_expectancy"]>=0 and M["C-B"]["positive_delta_windows"]>=2 and A[V[2]]["protected_no_harm"]
-D=C and clean(A[V[3]]) and A[V[3]]["net"]>A[V[2]]["net"] and A[V[3]]["expectancy"]>A[V[2]]["expectancy"] and A[V[3]]["pf"]>=A[V[2]]["pf"]-.02 and A[V[3]]["win_rate"]>=A[V[2]]["win_rate"]-.01 and A[V[3]]["frequency"]>=A[V[2]]["frequency"]*.95 and A[V[3]]["max_dd_pct"]<=10 and A[V[3]]["protected_no_harm"]
-candidate=V[3] if D else V[2] if C else V[1] if B else None
+M={"B-A":marginal(V[0],V[1]),"C-B":marginal(V[1],V[2]),"D-C":marginal(V[2],V[3]),"E-D":marginal(V[3],V[4]),"F-E":marginal(V[4],V[5])}
+B=control_gate and clean(A[V[1]]) and A[V[1]]["positive_windows"]==3 and A[V[1]]["net"]>2101.66 and A[V[1]]["pf"]>=2.0 and A[V[1]]["expectancy"]>=20 and A[V[1]]["win_rate"]>=.50 and A[V[1]]["frequency"]>=20 and A[V[1]]["max_dd_pct"]<=6 and A[V[1]]["protected_no_harm"]
+C=B and clean(A[V[2]]) and A[V[2]]["positive_windows"]==3 and A[V[2]]["min_window_net"]>=A[V[1]]["min_window_net"] and A[V[2]]["net"]>=A[V[1]]["net"]*.95 and A[V[2]]["pf"]>=A[V[1]]["pf"] and A[V[2]]["expectancy"]>=A[V[1]]["expectancy"] and A[V[2]]["max_dd_pct"]<=A[V[1]]["max_dd_pct"]+.25 and A[V[2]]["protected_no_harm"]
+D=C and clean(A[V[3]]) and A[V[3]]["positive_windows"]==3 and A[V[3]]["frequency"]>=A[V[2]]["frequency"] and A[V[3]]["net"]>=A[V[2]]["net"]*.95 and A[V[3]]["pf"]>=A[V[2]]["pf"]*.95 and A[V[3]]["expectancy"]>=A[V[2]]["expectancy"]*.90 and A[V[3]]["max_dd_pct"]<=6 and A[V[3]]["protected_no_harm"]
+E=D and clean(A[V[4]]) and A[V[4]]["positive_windows"]==3 and M["E-D"]["delta_net"]>0 and M["E-D"]["delta_pf"]>=0 and M["E-D"]["delta_expectancy"]>=0 and M["E-D"]["positive_delta_windows"]>=2 and A[V[4]]["max_dd_pct"]<=6 and A[V[4]]["protected_no_harm"]
+F=clean(A[V[5]]) and A[V[5]]["max_dd_pct"]<=10
+candidate=V[4] if E else V[3] if D else V[2] if C else V[1] if B else None
 for v in V: A[v].pop("_rows",None)
 freeze={"version":"HarmonyBot V71","stage":"CALIBRATION_ONLY_SELECTION","calibration_windows":CAL,
  "control_reproduction_gate":control_gate,"control_reproduction":control,"variants":A,"marginal":M,
- "gates":{"B_selective_backfill_alpha":B,"C_backfill_regime_grid":C,"D_adaptive_risk_5pct":D},
- "candidate":candidate,"candidate_selection_source":"BURNED_2021_2023_ONLY","risk_attribution_rule":"B/C_ALPHA_AT_1PCT_THEN_D_RISK_OVERLAY_UP_TO_5PCT",
+ "gates":{"B_canonical_core_spine":B,"C_core_regime_survival":C,"D_challenger_reserve":D,"E_post_selection_grid":E,"F_adaptive_risk_capacity_research_only":F},
+ "candidate":candidate,"candidate_selection_source":"BURNED_2021_2023_ONLY","risk_attribution_rule":"B_E_PROMOTION_ALWAYS_1PCT_F_IS_RESEARCH_ONLY_5PCT_CAPACITY",
  "dev_seen_previously":True,"dev_used_for_threshold_selection":False,
  "validation_used":False,"fresh_used":False,
  "decision":"CALIBRATION_CANDIDATE_FROZEN" if candidate else "CALIBRATION_HOLD"}
