@@ -27,3 +27,9 @@ D — C + adaptive expansion risk up to the 5% hard ceiling; research only and i
 
 ## Promotion
 Only B or C can promote. Core setup signatures must remain unchanged versus A. Candidate must exceed the immutable V51 floor, remain positive in all burned calibration years, pass cross-fit diagnostics, then pass all three fixed observed DEV windows. Only then may CI create the V72 branch.
+
+
+## Core preemption invariant
+Expansion is provisional. If a V51 core thesis appears after an expansion has armed or entered, the expansion shadow is truncated at the contemporaneous completed-M1 price and any live expansion basket is cancelled/closed with `V51_CORE_PREEMPT`. This makes the training target match realizable incremental returns and prevents a prior expansion position from owning the single basket slot when Champion Alpha appears.
+
+Same-setup expansion candidates are excluded after the V51 core candidate book is established. The cross-fit capital gate is fixed at `EdgeLCB > +0.015R`; this raises, rather than lowers, the original zero-LCB admission standard. On the burned three-fold census this margin preserves at least 60 selected samples per held-out year while moving the weakest held-out PF_R above 1.10.

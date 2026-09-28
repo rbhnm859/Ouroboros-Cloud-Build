@@ -3,6 +3,7 @@ import json,pathlib,sys,math,collections,hashlib
 root=pathlib.Path(sys.argv[1]); out=pathlib.Path(sys.argv[2]); out.mkdir(parents=True,exist_ok=True)
 wins=["Y2021","Y2022","Y2023"]
 features=["g","prz","conf","ts","pv","m1","rr","reg","eff","atr","ext","mtf"]
+SELECTION_LCB_R=0.015
 rows=[]
 for w in wins:
  xs=list(root.rglob(f"SHADOW_PREPASS-{w}.json"))
@@ -69,17 +70,17 @@ def pf(v):
  gp=sum(x for x in v if x>0); gl=-sum(x for x in v if x<0)
  return gp/gl if gl else (999 if gp else 0)
 
-manifest={"architecture":"THREE_FOLD_TEMPORAL_CROSSFIT_EXPECTED_NET_R","features":features,"rows":len(rows),"folds":{}}
+manifest={"architecture":"THREE_FOLD_TEMPORAL_CROSSFIT_EXPECTED_NET_R","features":features,"rows":len(rows),"selection_lcb_r":SELECTION_LCB_R,"folds":{}}
 fold_pass=True
 for test in wins:
  train=[r for r in rows if r["window"]!=test]; hold=[r for r in rows if r["window"]==test]
  beta,rmse,pri,margin=fit(train)
  pred=[(r,predict(r,beta,pri,margin)) for r in hold]
- pos=[r for r,p in pred if p>0]
+ pos=[r for r,p in pred if p>SELECTION_LCB_R]
  vals=[float(r["outcome_r"]) for r in pos]
  diag={"train_n":len(train),"test_n":len(hold),"selected_n":len(pos),"selected_mean_r":sum(vals)/len(vals) if vals else 0,
        "selected_pf_r":pf(vals),"rmse":rmse,"lcb_margin":margin}
- diag["pass"]=len(pos)>=10 and diag["selected_mean_r"]>0 and diag["selected_pf_r"]>=1.10
+ diag["pass"]=len(pos)>=60 and diag["selected_mean_r"]>0 and diag["selected_pf_r"]>=1.10
  fold_pass=fold_pass and diag["pass"]
  model={"model_id":"V71-XFIT-"+test,"training_windows":[w for w in wins if w!=test],"test_window":test,
         "spec":spec(beta),"family_prior_spec":pspec(pri),"lcb_margin":margin,"diagnostic":diag}

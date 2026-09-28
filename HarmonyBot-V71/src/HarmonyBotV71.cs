@@ -242,6 +242,9 @@ namespace cAlgo.Robots
         [Parameter("V71 Edge LCB Margin", DefaultValue = 0.0, MinValue = 0.0, MaxValue = 2.0)]
         public double V71EdgeLcbMargin { get; set; }
 
+        [Parameter("V71 Expansion Min Edge LCB R", DefaultValue = 0.015, MinValue = 0.0, MaxValue = 1.0)]
+        public double V71ExpansionMinEdgeLcbR { get; set; }
+
         [Parameter("V71 Model ID", DefaultValue = "NONE")]
         public string V71ModelId { get; set; }
 
@@ -455,6 +458,8 @@ namespace cAlgo.Robots
             Print("[V71-PROTECTED-CORE] trustedParent={0} expansionShadow={1} expansionExecution={2} expansionGrid={3} expansionAdaptiveRisk={4} expansionRiskCap={5:F2} model={6} modelReady={7}",
                 V51TrustedParent, EnableV71ExpansionShadow, EnableV71ExpansionExecution, EnableV71ExpansionGrid,
                 EnableV71ExpansionAdaptiveRisk, Math.Min(5.0, V71ExpansionRiskPercent), V71ModelId, _v71ModelReady);
+            Print("[V71-INCREMENTAL-POLICY] corePreemption=true minEdgeLcbR={0:F3} sameSetupExpansionBlocked=true",
+                Math.Max(0, V71ExpansionMinEdgeLcbR));
         }
 
         protected override void OnStop()
@@ -567,14 +572,6 @@ namespace cAlgo.Robots
             var regime = BuildRegimeSnapshot();
             var detected = DetectPatternCandidates(_m15Bars, i, M15SwingDepth, M15SwingLookback, PortfolioMaxCandidates, "M15");
 
-            if (EnableV71ExpansionShadow || EnableV71ExpansionExecution)
-            {
-                var expansionDetected = DetectPatternCandidates(_m15Bars, i, M15SwingDepth, M15SwingLookback,
-                    Math.Max(8, Math.Min(32, V71ExpansionMaxCandidates)), "M15");
-                foreach (var expansionSignal in expansionDetected)
-                    V71TrackExpansionSignal(expansionSignal, h4State, h1State, regime);
-            }
-
             foreach (var signal in detected)
             {
                 string setupKey = BuildSetupGeometryKey(signal);
@@ -680,6 +677,18 @@ namespace cAlgo.Robots
                 CountPipeline(signal.PatternName).Routed++;
                 Transition(record, CandidateState.WAIT_PRZ, "WAIT_PRZ");
                 CountPipeline(signal.PatternName).PrzWaiting++;
+            }
+
+            // V71 invariant: establish the exact V51 core candidate book first.
+            // Expansion is discovered only after core ownership is known, so identical setups
+            // can never enter the expansion book.
+            V71PreemptExpansionForCore(Server.Time.ToUniversalTime());
+            if (EnableV71ExpansionShadow || EnableV71ExpansionExecution)
+            {
+                var expansionDetected = DetectPatternCandidates(_m15Bars, i, M15SwingDepth, M15SwingLookback,
+                    Math.Max(8, Math.Min(32, V71ExpansionMaxCandidates)), "M15");
+                foreach (var expansionSignal in expansionDetected)
+                    V71TrackExpansionSignal(expansionSignal, h4State, h1State, regime);
             }
 
             TrimCandidateBook();
@@ -872,6 +881,10 @@ namespace cAlgo.Robots
             if (!_initialCapitalEligible) return;
             DateTime now = Server.Time.ToUniversalTime();
             if (_evaluationStartUtc.HasValue && now < _evaluationStartUtc.Value) return;
+
+            // Expansion is explicitly preemptible. A newly-detected V51 core thesis gets
+            // immediate priority before the MaxActiveBasket=1 busy check.
+            V71PreemptExpansionForCore(now);
 
             bool slotBusy = OwnPositions().Any() || OwnPendingOrders().Any() || _baskets.Values.Any(b => b.IsActive);
             if (slotBusy)
@@ -2609,6 +2622,7 @@ namespace cAlgo.Robots
             if (!V71ExpansionIntegrity(s)) return;
             string setup = BuildSetupGeometryKey(s);
             if (_executedSetupKeys.Contains(setup)) return;
+            if (_activeSetupOwners.ContainsKey(setup)) return;
             string id = V71FamilyKey(s.PatternName) + "|" + setup;
             if (_v71Expansion.ContainsKey(id)) return;
 
@@ -2766,6 +2780,8 @@ namespace cAlgo.Robots
                 if (e.State == V71ExpansionState.CONFIRMING)
                 {
                     if (!e.PrzTouchUtc.HasValue || utc <= e.PrzTouchUtc.Value) continue;
+                    // Expansion is incremental only. A live V51 core thesis owns the slot.
+                    if (V71CoreHasActiveThesis()) continue;
                     double score;
                     if (V71ExpansionM1Confirmation(i, e, out score))
                         V71ArmExpansion(i, utc, e, score);
@@ -2775,6 +2791,13 @@ namespace cAlgo.Robots
                 if (e.State == V71ExpansionState.ARMED && e.ShadowStarted && !e.ShadowFinished)
                 {
                     if (!e.ArmedUtc.HasValue || utc <= e.ArmedUtc.Value) continue;
+                    if (V71CoreHasActiveThesis())
+                    {
+                        V71FinalizeExpansionShadow(e, i, "CORE_PREEMPT");
+                        e.IsActive = false;
+                        e.State = V71ExpansionState.EXPIRED;
+                        continue;
+                    }
                     e.ShadowBars++;
                     double high = _m1Bars.HighPrices[i], low = _m1Bars.LowPrices[i];
                     bool stop = e.Signal.Direction == TradeDirection.Buy ? low <= e.StructuralStop : high >= e.StructuralStop;
@@ -2831,6 +2854,28 @@ namespace cAlgo.Robots
         private bool V71CoreHasActiveThesis()
         {
             return _candidates.Values.Any(x => x.IsActive);
+        }
+
+        private void V71PreemptExpansionForCore(DateTime now)
+        {
+            if (!EnableV71ExpansionExecution || !V71CoreHasActiveThesis()) return;
+            foreach (var basket in _baskets.Values
+                .Where(b => b.IsActive && !string.IsNullOrWhiteSpace(b.CandidateId) &&
+                            b.CandidateId.StartsWith("V71EXP-", StringComparison.Ordinal))
+                .ToList())
+            {
+                CancelBasketPending(basket, "V51_CORE_PREEMPT");
+                CloseBasketPositions(basket, "V51_CORE_PREEMPT");
+                bool hasPosition = OwnPositions().Any(p => LabelBasketId(p.Label) == basket.BasketId);
+                bool hasPending = OwnPendingOrders().Any(o => LabelBasketId(o.Label) == basket.BasketId);
+                if (!hasPosition && !hasPending)
+                {
+                    basket.State = FibonacciBasketState.CANCELLED;
+                    basket.IsActive = false;
+                }
+                Print("[V71-EXP-PREEMPT] basket={0} candidate={1} coreActive={2} utc={3:o}",
+                    basket.BasketId, basket.CandidateId, V71CoreHasActiveThesis(), now);
+            }
         }
 
         private double V71ExpansionRiskFor(V71ExpansionCandidate e)
@@ -2913,14 +2958,15 @@ namespace cAlgo.Robots
 
             var eligible = _v71Expansion.Values
                 .Where(e => e.IsActive && e.State == V71ExpansionState.ARMED && !e.Executed &&
-                            e.EdgeLcb > 0 && e.NetRR >= MinimumNetRR &&
+                            e.EdgeLcb > Math.Max(0, V71ExpansionMinEdgeLcbR) && e.NetRR >= MinimumNetRR &&
                             !_executedSetupKeys.Contains(e.SetupKey))
                 .OrderByDescending(e => e.SlotScore)
                 .ThenByDescending(e => e.EdgeLcb)
                 .ToList();
             if (eligible.Count == 0)
             {
-                if (_v71Expansion.Values.Any(e => e.IsActive && e.State == V71ExpansionState.ARMED && e.EdgeLcb <= 0))
+                if (_v71Expansion.Values.Any(e => e.IsActive && e.State == V71ExpansionState.ARMED &&
+                    e.EdgeLcb <= Math.Max(0, V71ExpansionMinEdgeLcbR)))
                     _v71ExpansionModelRejected++;
                 return;
             }

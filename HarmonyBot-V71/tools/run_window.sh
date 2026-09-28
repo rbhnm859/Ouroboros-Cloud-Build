@@ -17,7 +17,7 @@ rm -rf "$O" "$W"; mkdir -p "$W/seal/algo" "$W/seal/data" "$O/raw-logs"
 cp "$C/HarmonyBot-V71/dist/HarmonyBot_V71_Protected_Champion_Core_Incremental_Alpha.algo" "$W/seal/algo/"
 N="V71-$VAR-$WIN-B10000"
 
-EDGE_MODEL_SPEC="i:0;g:0;prz:0;conf:0;ts:0;pv:0;m1:0;rr:0;reg:0;eff:0;atr:0;ext:0;mtf:0;prior:0"; EDGE_PRIOR_SPEC="UNKNOWN:N:0"; EDGE_LCB_MARGIN=0; EDGE_MODEL_ID="DISABLED"
+EDGE_MODEL_SPEC="i:0;g:0;prz:0;conf:0;ts:0;pv:0;m1:0;rr:0;reg:0;eff:0;atr:0;ext:0;mtf:0;prior:0"; EDGE_PRIOR_SPEC="UNKNOWN:N:0"; EDGE_LCB_MARGIN=0; EDGE_MODEL_ID="DISABLED"; EDGE_MIN_LCB=0.015
 if [ "$EXPEXEC" = true ]; then
  MODEL_DIR="${MODEL_DIR:-$C/HarmonyBot-V71/model}"
  MF="$MODEL_DIR/$WIN.json"
@@ -34,7 +34,7 @@ fi
 
 (
  cd "$W"
- RUN_NAME="$N" START_DATE="$START" EVAL_DATE="$EVAL" END_DATE="$END" BALANCE=10000  EXPSHADOW="$EXPSHADOW" EXPEXEC="$EXPEXEC" EXPGRID="$EXPGRID" EXPADAPRISK="$EXPADAPRISK" EXPRISK="$EXPRISK"  EDGE_MODEL_SPEC="$EDGE_MODEL_SPEC" EDGE_PRIOR_SPEC="$EDGE_PRIOR_SPEC" EDGE_LCB_MARGIN="$EDGE_LCB_MARGIN" EDGE_MODEL_ID="$EDGE_MODEL_ID"  BACKTEST_TIMEOUT_SECONDS=1800 "$C/HarmonyBot-V71/tools/run_backtest.sh"
+ RUN_NAME="$N" START_DATE="$START" EVAL_DATE="$EVAL" END_DATE="$END" BALANCE=10000  EXPSHADOW="$EXPSHADOW" EXPEXEC="$EXPEXEC" EXPGRID="$EXPGRID" EXPADAPRISK="$EXPADAPRISK" EXPRISK="$EXPRISK"  EDGE_MODEL_SPEC="$EDGE_MODEL_SPEC" EDGE_PRIOR_SPEC="$EDGE_PRIOR_SPEC" EDGE_LCB_MARGIN="$EDGE_LCB_MARGIN" EDGE_MIN_LCB="$EDGE_MIN_LCB" EDGE_MODEL_ID="$EDGE_MODEL_ID"  BACKTEST_TIMEOUT_SECONDS=1800 "$C/HarmonyBot-V71/tools/run_backtest.sh"
 )
 test -s "$W/seal/logs/$N.log"; test -s "$W/seal/reports/$N.json"
 cp "$W/seal/logs/$N.log" "$O/raw-logs/$N.log"; cp "$W/seal/reports/$N.json" "$O/raw-report.json"
