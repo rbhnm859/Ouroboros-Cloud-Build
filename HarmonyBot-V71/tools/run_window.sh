@@ -17,7 +17,7 @@ rm -rf "$O" "$W"; mkdir -p "$W/seal/algo" "$W/seal/data" "$O/raw-logs"
 cp "$C/HarmonyBot-V71/dist/HarmonyBot_V71_Protected_Champion_Core_Incremental_Alpha.algo" "$W/seal/algo/"
 N="V71-$VAR-$WIN-B10000"
 
-EDGE_MODEL_SPEC=""; EDGE_PRIOR_SPEC=""; EDGE_LCB_MARGIN=0; EDGE_MODEL_ID="NONE"
+EDGE_MODEL_SPEC="i:0;g:0;prz:0;conf:0;ts:0;pv:0;m1:0;rr:0;reg:0;eff:0;atr:0;ext:0;mtf:0;prior:0"; EDGE_PRIOR_SPEC="UNKNOWN:N:0"; EDGE_LCB_MARGIN=0; EDGE_MODEL_ID="DISABLED"
 if [ "$EXPEXEC" = true ]; then
  MODEL_DIR="${MODEL_DIR:-$C/HarmonyBot-V71/model}"
  MF="$MODEL_DIR/$WIN.json"
