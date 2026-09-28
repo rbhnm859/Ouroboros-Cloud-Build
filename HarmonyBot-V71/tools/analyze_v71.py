@@ -74,7 +74,7 @@ marg={"delta_baskets":C["baskets"]-A["baskets"],"delta_net":C["net"]-A["net"],"d
  "removed_count":len(removed),"removed_net":sum(r["net"] for r in removed),"removed_pf":pf(removed)}
 ctrl={w:(R[(V[0],w)]["baskets"]==REF[w]["baskets"] and abs(R[(V[0],w)]["net"]-REF[w]["net"])<=.02 and abs(R[(V[0],w)]["pf"]-REF[w]["pf"])<=1e-9) for w in DEV}
 bp=protected(A["_rows"]); cp=protected(C["_rows"]); protected_no_harm=cp["net"]+.05>=bp["net"] and cp["pf"]+.0005>=bp["pf"]
-gate=all(ctrl.values()) and clean(C) and marg["delta_net"]>0 and marg["delta_pf"]>0 and marg["delta_expectancy"]>0 and marg["positive_delta_windows"]>=2 and C["net"]>0 and C["pf"]>=1.10 and C["expectancy"]>0 and C["max_dd_pct"]<=10 and protected_no_harm
+gate=all(ctrl.values()) and clean(C) and marg["delta_net"]>0 and marg["delta_pf"]>0 and marg["delta_expectancy"]>0 and marg["positive_delta_windows"]>=2 and C["positive_windows"]==3 and C["frequency"]>38.6667 and C["net"]>2101.66 and C["pf"]>2.1096878432 and C["expectancy"]>36.2355 and C["win_rate"]>=.534483 and C["max_dd_pct"]<=4.49784 and protected_no_harm
 decision="BREAKTHROUGH_PASS" if gate else "HOLD_WITH_EVIDENCE"
 for z in (A,C): z.pop("_rows",None)
 front={"version":"HarmonyBot V71","stage":"CALIBRATION_FROZEN_OBSERVED_DEV_STRESS",
@@ -84,7 +84,7 @@ front={"version":"HarmonyBot V71","stage":"CALIBRATION_FROZEN_OBSERVED_DEV_STRES
  "governance":{"dev_reuse_iteration":4,"dev_role":"OBSERVED_STRESS_CONFIRMATION_NOT_PRISTINE_OOS",
    "candidate_selected_before_this_dev_run":True,"candidate_selection_source":"BURNED_2021_2023_ONLY",
    "validation_locked":True,"fresh_locked":True,"no_minor_version_promotion":True},
- "risk_policy":{"default_pct":1.0,"hard_ceiling_pct":5.0,"adaptive_not_fixed":True,"alpha_risk_attribution_separated":True},"final_v80_targets":{"return_pct":100,"pf":2.5,"max_dd_pct":10,"win_rate":.65,"frequency":200,"realized_rr":2.0,"profitable_months_12":10,"net_pct_initial":100}}
+ "risk_policy":{"default_pct":1.0,"hard_ceiling_pct":5.0,"adaptive_not_fixed":True,"alpha_risk_attribution_separated":True},"v51_promotion_floor":{"frequency":38.6667,"net":2101.66,"pf":2.1096878432,"expectancy":36.2355,"win_rate":.534483,"max_dd_pct":4.49784},"final_v80_targets":{"return_pct":100,"pf":2.5,"max_dd_pct":10,"win_rate":.65,"frequency":200,"realized_rr":2.0,"profitable_months_12":10,"net_pct_initial":100}}
 (out/"V71_PERFORMANCE_FRONTIER.json").write_text(json.dumps(front,indent=2))
 (out/"V71_FINAL_DEV_DECISION.json").write_text(json.dumps({"version":"HarmonyBot V71","decision":decision,"candidate":candidate,"validation_used":False,"fresh_used":False},indent=2))
 (out/"candidate.txt").write_text(candidate if gate else "")
