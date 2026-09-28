@@ -27,7 +27,10 @@ N="V70-$VAR-$WIN-B10000"
  RUN_NAME="$N" START_DATE="$START" EVAL_DATE="$EVAL" END_DATE="$END" BALANCE=10000  FAMNATIVE=false FAMOBS=true CANCONTRACT=true FAMCONF=true GRIDV2=true STOPV2=true JOINT=true CORRIDOR=false ANCHORFORENSICS=true  IDENT=true BOUNDED=true SKIPS=2 FQUOTA=4 PRJPRZ=false DTRUTH=true  PQUEUE=false HANDOFF=false NATIVE=false NATIVEBARS=4 DECAY=false HARDLIFE=180 REVALIDATE=false  V67CONTRACTS=false V67FRONTIER=false V67FGRID=false V67EVIDENCE=false V67EXPAND=false  V68IDENT=true V68IDFAIL=false V68PRESERVE=false V68EXPAND=false V68GRID=false  V69VIS=true V69SHADOW=true V69HORIZON=180  V70HARD="$V70HARD" V70FAM="$V70FAM" V70ARB="$V70ARB" V70PROTECT=true V70WAIT=12  MAXDD=10 BACKTEST_TIMEOUT_SECONDS=1800  "$C/HarmonyBot-V70/tools/run_backtest.sh"
 )
 
-python3 "$C/HarmonyBot-V70/tools/audit_report.py"  --report "$W/seal/reports/$N.json"  --log "$W/seal/logs/$N.log"  --out "$O/$VAR-$WIN.json"  --window "$WIN" --family "$VAR" --years "$YEARS" --balance 10000
-
+# Preserve immutable raw evidence before parsing so parser failures cannot erase a completed backtest.
+test -s "$W/seal/logs/$N.log"
+test -s "$W/seal/reports/$N.json"
 cp "$W/seal/logs/$N.log" "$O/raw-logs/$N.log"
 cp "$W/seal/reports/$N.json" "$O/raw-report.json"
+
+python3 "$C/HarmonyBot-V70/tools/audit_report.py"  --report "$W/seal/reports/$N.json"  --log "$W/seal/logs/$N.log"  --out "$O/$VAR-$WIN.json"  --window "$WIN" --family "$VAR" --years "$YEARS" --balance 10000
