@@ -4462,10 +4462,17 @@ namespace cAlgo.Robots
             if (p == "Rat")
                 return c.Route == HarmonicRoute.TREND_ALIGNED_REVERSAL;
 
+            // Preserve subtype-aware preregistration while keeping non-selected families fail-closed.
+            if (p == "Shark" && subtype == "Shark")
+                return false;
+
             if (p == "AB=CD" && unknown)
                 return c.Route == HarmonicRoute.TREND_ALIGNED_REVERSAL ||
                        c.Route == HarmonicRoute.EXHAUSTION_REVERSAL ||
                        c.Route == HarmonicRoute.TRANSITION_REVERSAL;
+
+            if (p == "AB=CD" && (subtype == "ABCD_EXACT" || subtype == "ABCD_NEAR_127"))
+                return false;
 
             return false;
         }
