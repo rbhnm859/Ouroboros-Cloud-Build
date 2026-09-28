@@ -107,12 +107,12 @@ for m in rx.finditer(t):
       "outcome_r":float(m.group(7)),"mfe_r":float(m.group(8)),"mae_r":float(m.group(9)),"target_r":float(m.group(10))})
 
 filter_evidence={}
-rx=re.compile(r"\\[V70-FILTER-EVIDENCE\\]\\s+filter=(\\S+)\\s+observed=(\\d+)\\s+pass=(\\d+)\\s+blocked=(\\d+)\\s+convertedToObservation=(\\d+)")
+rx=re.compile(r"\[V70-FILTER-EVIDENCE\]\s+filter=(\S+)\s+observed=(\d+)\s+pass=(\d+)\s+blocked=(\d+)\s+convertedToObservation=(\d+)")
 for m in rx.finditer(t):
     filter_evidence[m.group(1)]={"observed":int(m.group(2)),"pass":int(m.group(3)),"blocked":int(m.group(4)),"converted_to_observation":int(m.group(5))}
 
 adm={"protected_admissions":0,"challenger_admissions":0,"hard_veto_observations":0,"timing_deferrals":0,"arbitration_selections":0}
-rx=re.compile(r"\\[V70-ADMISSION-SUMMARY\\]\\s+protectedAdmissions=(\\d+)\\s+challengerAdmissions=(\\d+)\\s+hardVetoObservations=(\\d+)\\s+timingDeferrals=(\\d+)\\s+arbitrationSelections=(\\d+)")
+rx=re.compile(r"\[V70-ADMISSION-SUMMARY\]\s+protectedAdmissions=(\d+)\s+challengerAdmissions=(\d+)\s+hardVetoObservations=(\d+)\s+timingDeferrals=(\d+)\s+arbitrationSelections=(\d+)")
 mm=list(rx.finditer(t))
 if mm:
     m=mm[-1]
