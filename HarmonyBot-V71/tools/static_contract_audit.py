@@ -39,9 +39,17 @@ checks={
  "no_future_recall":all(x not in recall for x in ["OutcomeR","MfeR","MaeR","ShadowAlphaObservation","_v69Shadow"]),
  "no_future_grid":all(x not in grid for x in ["OutcomeR","MfeR","MaeR","ShadowAlphaObservation","_v69Shadow"]),
  "no_stop_widening":"stopWideningViolations" in s and "retryImproves" in s,
- "v70_blanket_path_available_but_runner_disabled":"EnableV70HardVetoRationalization" in s and "EnableV70FamilyRouteAdmission" in s
+ "v70_blanket_path_available_but_runner_disabled":"EnableV70HardVetoRationalization" in s and "EnableV70FamilyRouteAdmission" in s,
+ "minimal_filter_rebase":"EnableV71MinimalFilterRebase" in s and "V71MinimalSignalIntegrityPass" in s and "V71MinimalRoute" in s,
+ "minimal_all_family_no_whitelist":all(('p == "'+f+'"') not in between("private bool V71MinimalSignalIntegrityPass","private HarmonicRoute V71MinimalRoute") for f in families),
+ "minimal_context_soft":"V71SignalPreservingScore" in s and "MTF_HARD_CONFLICT" in s and "!EnableV71MinimalFilterRebase" in s,
+ "minimal_m1_execution_only":"V71MinimalM1ConfirmationPass" in s and "V71_MINIMAL_M1_EXECUTION_CONFIRMATION" in s,
+ "nonblocking_grid":"V71BuildPostSelectionExecutionPlan" in s and "V71_GRID_NONBLOCKING_SINGLE_LEG_FALLBACK" in s,
+ "single_leg_fallback_risk_bound":"V71BuildSingleLegExecutionPlan" in s and "plan.WorstCaseRisk > plan.BasketRiskAmount + 1e-8" in s,
+ "signal_preserving_arbitration":"EnableV71SignalPreservingArbitration" in s and "V71SignalPreservingScore" in s,
+ "minimal_no_future":all(x not in between("private bool V71MinimalSignalIntegrityPass","// V71 Final Structural Rebase:") for x in ["OutcomeR","MfeR","MaeR","ShadowAlphaObservation","_v69Shadow"])
 }
-out={"version":"HarmonyBot V71","audit":"selective_backfill_adaptive_risk_fail_closed","source_sha256":hashlib.sha256(p.read_bytes()).hexdigest(),"checks":checks,"pass":all(checks.values())}
+out={"version":"HarmonyBot V71","audit":"minimal_gate_signal_preservation_fail_closed","source_sha256":hashlib.sha256(p.read_bytes()).hexdigest(),"checks":checks,"pass":all(checks.values())}
 pathlib.Path("V71_STATIC_CONTRACT_AUDIT.json").write_text(json.dumps(out,indent=2))
 print(json.dumps(out,indent=2))
 raise SystemExit(0 if out["pass"] else 2)

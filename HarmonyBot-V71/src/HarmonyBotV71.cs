@@ -316,6 +316,18 @@ namespace cAlgo.Robots
         [Parameter("V71 Cross-Regime Survival V2", DefaultValue = false)]
         public bool EnableV71CrossRegimeSurvivalV2 { get; set; }
 
+        [Parameter("V71 Minimal Filter Rebase", DefaultValue = false)]
+        public bool EnableV71MinimalFilterRebase { get; set; }
+
+        [Parameter("V71 Signal-Preserving Arbitration", DefaultValue = false)]
+        public bool EnableV71SignalPreservingArbitration { get; set; }
+
+        [Parameter("V71 Force Single-Leg Control", DefaultValue = false)]
+        public bool EnableV71ForceSingleLegExecution { get; set; }
+
+        [Parameter("V71 Non-Blocking Grid", DefaultValue = false)]
+        public bool EnableV71NonBlockingGrid { get; set; }
+
         [Parameter("Min Harmonic Robustness", DefaultValue = 0.56, MinValue = 0.40, MaxValue = 0.80)]
         public double MinHarmonicRobustness { get; set; }
 
@@ -424,6 +436,10 @@ namespace cAlgo.Robots
         private int _v71SelectiveBackfillAdmissions;
         private int _v71SelectiveBackfillBypasses;
         private int _v71AdaptiveRiskPlans;
+        private int _v71MinimalSignalAdmissions;
+        private int _v71MinimalRouteFallbacks;
+        private int _v71MinimalM1Confirmations;
+        private int _v71GridFallbackSingleLegs;
         private DateTime _v71VirtualSlotReservationUntilUtc = DateTime.MinValue;
         private readonly HashSet<string> _v71ReservationSetupKeys = new HashSet<string>();
         private readonly Dictionary<string, ShadowAlphaObservation> _v69Shadow = new Dictionary<string, ShadowAlphaObservation>();
@@ -653,6 +669,9 @@ namespace cAlgo.Robots
                 _v71NoBackfillReservations, _v71NoBackfillBlocks, _v71RegimeSurvivalRejects,
                 _v71SelectiveBackfillAdmissions, _v71SelectiveBackfillBypasses, _v71AdaptiveRiskPlans,
                 Math.Min(5.0, Math.Max(.10, BasketRiskPercent)));
+            Print("[V71-MINIMAL-GATE-SUMMARY] signalAdmissions={0} routeFallbacks={1} minimalM1Confirmations={2} gridFallbackSingleLegs={3} minimalMode={4}",
+                _v71MinimalSignalAdmissions, _v71MinimalRouteFallbacks, _v71MinimalM1Confirmations,
+                _v71GridFallbackSingleLegs, EnableV71MinimalFilterRebase);
         }
 
         protected override void OnBar()
@@ -774,28 +793,39 @@ namespace cAlgo.Robots
                     signal.PrzConfluence >= Math.Max(MinPrzConfluence, signal.Profile.MinPrz);
                 bool familyQualityPass = EnableV67FamilyTradeContracts ? V67FamilyQualityPass(signal) : legacyQualityPass;
                 record.LegacyQualityPassed = legacyQualityPass;
-                bool admissionQualityPass = EnableV68EvidencePreservingAdmission
-                    ? (legacyQualityPass || (EnableV68FamilyExpansion && familyQualityPass))
-                    : familyQualityPass;
-                if (!admissionQualityPass && EnableV71SelectiveRecall && V71SelectiveQualityRecall(record))
+
+                bool admissionQualityPass;
+                if (EnableV71MinimalFilterRebase)
                 {
-                    admissionQualityPass = true;
-                    record.V71SelectiveRecallLane = true;
-                    _v71SelectiveQualityRecalls++;
-                    Event(record, "V71_SELECTIVE_QUALITY_RECALL");
+                    admissionQualityPass = V71MinimalSignalIntegrityPass(signal);
+                    if (admissionQualityPass)
+                    {
+                        _v71MinimalSignalAdmissions++;
+                        Event(record, "V71_MINIMAL_SIGNAL_INTEGRITY_PASS");
+                    }
                 }
-                V70ObserveFilter("QUALITY", admissionQualityPass, EnableV70HardVetoRationalization && !admissionQualityPass);
-                if (!admissionQualityPass && !EnableV70HardVetoRationalization)
+                else
+                {
+                    admissionQualityPass = EnableV68EvidencePreservingAdmission
+                        ? (legacyQualityPass || (EnableV68FamilyExpansion && familyQualityPass))
+                        : familyQualityPass;
+                    if (!admissionQualityPass && EnableV71SelectiveRecall && V71SelectiveQualityRecall(record))
+                    {
+                        admissionQualityPass = true;
+                        record.V71SelectiveRecallLane = true;
+                        _v71SelectiveQualityRecalls++;
+                        Event(record, "V71_SELECTIVE_QUALITY_RECALL");
+                    }
+                }
+
+                V70ObserveFilter("QUALITY", admissionQualityPass, !EnableV71MinimalFilterRebase && EnableV70HardVetoRationalization && !admissionQualityPass);
+                if (!admissionQualityPass)
                 {
                     if (EnableV69EqualFamilyVisibility) V69Visibility(record.FamilyId).QualityRejected++;
-                    Reject(record, EnableV68EvidencePreservingAdmission ? "V68_EVIDENCE_PRESERVING_QUALITY" :
-                        (EnableV67FamilyTradeContracts ? "V67_FAMILY_QUALITY" : "PATTERN_QUALITY"));
+                    Reject(record, EnableV71MinimalFilterRebase ? "V71_MINIMAL_SIGNAL_INTEGRITY" :
+                        (EnableV68EvidencePreservingAdmission ? "V68_EVIDENCE_PRESERVING_QUALITY" :
+                        (EnableV67FamilyTradeContracts ? "V67_FAMILY_QUALITY" : "PATTERN_QUALITY")));
                     continue;
-                }
-                if (!admissionQualityPass && EnableV70HardVetoRationalization)
-                {
-                    _v70HardVetoObservations++;
-                    Event(record, "V70_QUALITY_OBSERVATION_NOT_VETO");
                 }
 
                 if (EnableV69EqualFamilyVisibility) V69Visibility(record.FamilyId).QualityPassed++;
@@ -814,7 +844,15 @@ namespace cAlgo.Robots
                 HarmonicRoute legacyRoute = RouteSignal(signal, record.Conflict, regime);
                 HarmonicRoute familyRoute = EnableV67FamilyTradeContracts ? RouteSignalFamilyNativeV67(signal, record.Conflict, regime) : legacyRoute;
                 record.LegacyRoute = legacyRoute;
-                if (EnableV68EvidencePreservingAdmission)
+
+                if (EnableV71MinimalFilterRebase)
+                {
+                    record.RegimeScore = RegimeContextScore(signal, record.Conflict, regime);
+                    record.Route = V71MinimalRoute(signal, record.Conflict, regime);
+                    if (legacyRoute == HarmonicRoute.NO_TRADE) _v71MinimalRouteFallbacks++;
+                    Event(record, "V71_MINIMAL_ROUTE_" + record.Route);
+                }
+                else if (EnableV68EvidencePreservingAdmission)
                 {
                     record.RegimeScore = RegimeContextScore(signal, record.Conflict, regime);
                     record.Route = legacyRoute != HarmonicRoute.NO_TRADE
@@ -827,14 +865,14 @@ namespace cAlgo.Robots
                     record.Route = familyRoute;
                 }
 
-                if (EnableV70FamilyRouteAdmission)
+                if (!EnableV71MinimalFilterRebase && EnableV70FamilyRouteAdmission)
                 {
                     HarmonicRoute reconstructed = V70FamilyRouteAdmission(record, legacyRoute, familyRoute);
                     if (reconstructed != HarmonicRoute.NO_TRADE)
                         record.Route = reconstructed;
                 }
 
-                if (EnableV71SelectiveRecall && record.Route == HarmonicRoute.NO_TRADE)
+                if (!EnableV71MinimalFilterRebase && EnableV71SelectiveRecall && record.Route == HarmonicRoute.NO_TRADE)
                 {
                     HarmonicRoute selective = V71SelectiveRecallRoute(record);
                     if (selective != HarmonicRoute.NO_TRADE)
@@ -846,7 +884,7 @@ namespace cAlgo.Robots
                     }
                 }
 
-                if (EnableV71CanonicalCapitalSpine)
+                if (!EnableV71MinimalFilterRebase && EnableV71CanonicalCapitalSpine)
                 {
                     bool coreSpine = V71CanonicalCapitalSpineEligible(record);
                     bool challenger = V71CanonicalChallengerEligible(record);
@@ -862,7 +900,7 @@ namespace cAlgo.Robots
                     }
                     Event(record, coreSpine ? "V71_CANONICAL_CORE_SPINE" : "V71_CANONICAL_CHALLENGER_RESERVE");
                 }
-                else if (EnableV71SelectiveLaneSuppression && V71ShouldSuppressLegacyLane(record))
+                else if (!EnableV71MinimalFilterRebase && EnableV71SelectiveLaneSuppression && V71ShouldSuppressLegacyLane(record))
                 {
                     if (V71SelectiveBackfillAdmissionEligible(record))
                     {
@@ -878,7 +916,7 @@ namespace cAlgo.Robots
                     }
                 }
 
-                if (!EnableV71CanonicalCapitalSpine && !V71RegimeSurvivalEligible(record))
+                if (!EnableV71MinimalFilterRebase && !EnableV71CanonicalCapitalSpine && !V71RegimeSurvivalEligible(record))
                 {
                     _v71RegimeSurvivalRejects++;
                     V71ReserveSuppressedSlot(record);
@@ -909,7 +947,7 @@ namespace cAlgo.Robots
                 // V47 expands only genuinely independent secondary-scale setups.
                 // V45 DEV showed secondary-scale AB=CD exhaustion positive in A/B/C,
                 // while secondary-scale trend-aligned AB=CD was negative overall.
-                if ((!EnableV67FamilyTradeContracts || EnableV68EvidencePreservingAdmission) && EnableScaleRouteAdmission && signal.PivotScale != M15SwingDepth &&
+                if (!EnableV71MinimalFilterRebase && (!EnableV67FamilyTradeContracts || EnableV68EvidencePreservingAdmission) && EnableScaleRouteAdmission && signal.PivotScale != M15SwingDepth &&
                     signal.PatternName == "AB=CD" &&
                     (EnableV68EvidencePreservingAdmission ? record.LegacyRoute : record.Route) != HarmonicRoute.EXHAUSTION_REVERSAL)
                 {
@@ -926,7 +964,7 @@ namespace cAlgo.Robots
 
                 if (EnableV69EqualFamilyVisibility) V69Visibility(record.FamilyId).RoutePassed++;
 
-                if (EnableCapitalFeasibilityGate)
+                if (!EnableV71MinimalFilterRebase && EnableCapitalFeasibilityGate)
                 {
                     double minL0Risk, minL0Margin;
                     record.CapitalFeasible = CapitalFeasibilityEligible(record, out minL0Risk, out minL0Margin);
@@ -1024,9 +1062,18 @@ namespace cAlgo.Robots
                     double legacyRequired = c.Route == HarmonicRoute.EXHAUSTION_REVERSAL ? 0.75 : 0.60;
                     bool legacyConfirmationPass = legacyScore >= legacyRequired;
                     c.LegacyConfirmationPassed = legacyConfirmationPass;
-                    bool familyContractLane = EnableV67FamilyTradeContracts || (EnableFamilyCompletionContract && IsFamilyCompletionLane(c.Signal.PatternName));
+                    double minimalScore = 0;
+                    bool minimalConfirmationPass = EnableV71MinimalFilterRebase && V71MinimalM1ConfirmationPass(i, c, out minimalScore);
+                    if (minimalConfirmationPass)
+                    {
+                        c.ConfirmationScore = Math.Max(c.ConfirmationScore, minimalScore);
+                        _v71MinimalM1Confirmations++;
+                        Event(c, "V71_MINIMAL_M1_EXECUTION_CONFIRMATION_" + minimalScore.ToString("F2", CultureInfo.InvariantCulture));
+                    }
+                    bool familyContractLane = !EnableV71MinimalFilterRebase &&
+                                              (EnableV67FamilyTradeContracts || (EnableFamilyCompletionContract && IsFamilyCompletionLane(c.Signal.PatternName)));
                     bool familyEvidencePass = false;
-                    bool confirmationPass = legacyConfirmationPass;
+                    bool confirmationPass = EnableV71MinimalFilterRebase ? minimalConfirmationPass : legacyConfirmationPass;
 
                     if (familyContractLane)
                     {
@@ -1141,9 +1188,10 @@ namespace cAlgo.Robots
                     if (EnableEntryAnchorForensics && c.NativeConfirmAnchorPrice <= 0)
                         c.NativeConfirmAnchorPrice = _m1Bars.ClosePrices[i];
 
-                    bool routeEvidencePass = EnableV68EvidencePreservingAdmission
+                    bool routeEvidencePass = EnableV71MinimalFilterRebase ? true :
+                        (EnableV68EvidencePreservingAdmission
                         ? RouteSpecificM1EvidencePass(i, c.Signal, c.Route)
-                        : (EnableV67FamilyTradeContracts ? V67FamilyRouteEvidencePass(i, c) : RouteSpecificM1EvidencePass(i, c.Signal, c.Route));
+                        : (EnableV67FamilyTradeContracts ? V67FamilyRouteEvidencePass(i, c) : RouteSpecificM1EvidencePass(i, c.Signal, c.Route)));
                     V70ObserveFilter("ROUTE_M1_EVIDENCE", routeEvidencePass, EnableV70HardVetoRationalization && !routeEvidencePass);
                     if (EnableRouteSpecificM1Veto && !routeEvidencePass && !EnableV70HardVetoRationalization)
                     {
@@ -1177,7 +1225,9 @@ namespace cAlgo.Robots
                         if (EnableV69EqualFamilyVisibility) V69Visibility(c.FamilyId).GridPlanned++;
                     }
 
-                    c.Rank = EnableV71CoreArbitration ? V71AlphaArbitrationScore(c, utc) : CandidateRank(c);
+                    c.Rank = EnableV71MinimalFilterRebase && EnableV71SignalPreservingArbitration
+                        ? V71SignalPreservingScore(c, utc)
+                        : (EnableV71CoreArbitration ? V71AlphaArbitrationScore(c, utc) : CandidateRank(c));
                     _alphaPassed++;
                     c.ArmedUtc = utc;
                     if (EnableArmedExecutionGrace)
@@ -1234,16 +1284,20 @@ namespace cAlgo.Robots
 
             if (EnableDiversityScheduler)
                 armedQuery = armedQuery.GroupBy(c => string.IsNullOrWhiteSpace(c.SetupKey) ? c.CandidateId : c.SetupKey)
-                    .Select(g => g.OrderByDescending(c => EnableOpportunityDecayRanking ? OpportunityScore(c, now) : c.Rank).First());
+                    .Select(g => g.OrderByDescending(c => EnableV71MinimalFilterRebase && EnableV71SignalPreservingArbitration
+                        ? V71SignalPreservingScore(c, now)
+                        : (EnableOpportunityDecayRanking ? OpportunityScore(c, now) : c.Rank)).First());
 
             var armed = armedQuery
-                .OrderByDescending(c => EnableV71CoreArbitration ? V71AlphaArbitrationScore(c, now) :
+                .OrderByDescending(c => EnableV71MinimalFilterRebase && EnableV71SignalPreservingArbitration
+                    ? V71SignalPreservingScore(c, now)
+                    : (EnableV71CoreArbitration ? V71AlphaArbitrationScore(c, now) :
                     (EnableV70OpportunityCostArbitration ? V70OpportunityCostScore(c, now) :
-                    (EnableOpportunityDecayRanking ? OpportunityScore(c, now) : c.Rank)))
+                    (EnableOpportunityDecayRanking ? OpportunityScore(c, now) : c.Rank))))
                 .ToList();
             if (armed.Count == 0) return;
 
-            if (EnableV71CoreArbitration)
+            if (!EnableV71MinimalFilterRebase && EnableV71CoreArbitration)
             {
                 var core = armed.Where(V71CanonicalCapitalSpineEligible).ToList();
                 if (core.Count > 0)
@@ -1282,9 +1336,12 @@ namespace cAlgo.Robots
                     return;
                 }
                 winner.GridPlan = null;
-                if (!TryBuildFibonacciGridPlan(winner))
+                bool executionPlanBuilt = EnableV71MinimalFilterRebase
+                    ? V71BuildPostSelectionExecutionPlan(winner)
+                    : TryBuildFibonacciGridPlan(winner);
+                if (!executionPlanBuilt)
                 {
-                    Reject(winner, "V71_POST_SELECTION_GRID_REJECTED");
+                    Reject(winner, EnableV71MinimalFilterRebase ? "V71_MINIMAL_EXECUTION_PLAN_REJECTED" : "V71_POST_SELECTION_GRID_REJECTED");
                     return;
                 }
                 if (EnableV69EqualFamilyVisibility) V69Visibility(winner.FamilyId).GridPlanned++;
@@ -1420,6 +1477,12 @@ namespace cAlgo.Robots
                 return false;
             }
             c.GridPlan = null;
+            if (EnableV71MinimalFilterRebase)
+            {
+                if (!V71PrepareAlphaOnlyCandidate(c)) return false;
+                if (finalCheck && !SpreadValid()) return false;
+                return true;
+            }
             if (!TryBuildFibonacciGridPlan(c)) return false;
             if (c.NetRR < MinimumNetRR) return false;
             if (c.GridPlan == null || c.GridPlan.WorstCaseRisk > c.GridPlan.BasketRiskAmount + 1e-8) return false;
@@ -1441,7 +1504,8 @@ namespace cAlgo.Robots
             if (c.Signal.Direction == TradeDirection.Sell && px <= c.Signal.CanonicalTarget1) { reason = "TARGET_ALREADY_REACHED"; return false; }
             var h4 = GetActiveHarmonicState(_h4Bars, H4SwingDepth, 220, 3);
             var h1 = GetActiveHarmonicState(_h1Bars, H1SwingDepth, 260, 4);
-            if (ClassifyMtfConflict(c.Signal.Direction, h4, h1) == MtfConflict.CONFLICT &&
+            if (!EnableV71MinimalFilterRebase &&
+                ClassifyMtfConflict(c.Signal.Direction, h4, h1) == MtfConflict.CONFLICT &&
                 c.Route != HarmonicRoute.EXHAUSTION_REVERSAL) { reason = "MTF_HARD_CONFLICT"; return false; }
             if (_dailyLocked || PeakDrawdownExceeded()) { reason = "RISK_LOCK"; return false; }
             if (!SpreadValid()) { reason = "SPREAD_INVALID"; return false; }
@@ -4624,6 +4688,153 @@ namespace cAlgo.Robots
                 return false;
 
             return true;
+        }
+
+        // V71 Minimal-Gate Signal Preservation Rebase.
+        // Hard vetoes are limited to canonical identity/integrity, structural invalidation,
+        // minimum net RR, session/spread, single-basket, and risk/margin legality.
+        // Regime, MTF conflict, confirmation strength and family history are soft ranking inputs.
+        private bool V71MinimalSignalIntegrityPass(PatternSignal s)
+        {
+            if (s == null || s.Profile == null) return false;
+            if (CanonicalFamilyFromName(s.PatternName) == CanonicalFamilyId.Unknown) return false;
+            if (!double.IsFinite(s.GeometryQuality) || !double.IsFinite(s.PrzConfluence) ||
+                !double.IsFinite(s.StructuralInvalidation) || !double.IsFinite(s.CanonicalTarget1))
+                return false;
+            if (s.StructuralInvalidation <= 0 || s.CanonicalTarget1 <= 0) return false;
+            return s.GeometryQuality >= MinGeometryQuality &&
+                   s.PrzConfluence >= MinPrzConfluence;
+        }
+
+        private HarmonicRoute V71MinimalRoute(PatternSignal s, MtfConflict conflict, RegimeSnapshot regime)
+        {
+            if (regime != null && regime.Transition)
+                return HarmonicRoute.TRANSITION_REVERSAL;
+            if (conflict == MtfConflict.CONFLICT)
+                return HarmonicRoute.EXHAUSTION_REVERSAL;
+            return HarmonicRoute.TREND_ALIGNED_REVERSAL;
+        }
+
+        private bool V71MinimalM1ConfirmationPass(int i, CandidateRecord c, out double score)
+        {
+            score = 0;
+            if (c == null || c.Signal == null || i <= 0 || i >= _m1Bars.Count) return false;
+            double open = _m1Bars.OpenPrices[i];
+            double close = _m1Bars.ClosePrices[i];
+            double prev = _m1Bars.ClosePrices[i - 1];
+            double high = _m1Bars.HighPrices[i];
+            double low = _m1Bars.LowPrices[i];
+            double range = Math.Max(high - low, _symbol.PipSize);
+            double bodyFrac = Math.Min(1.0, Math.Abs(close - open) / range);
+            bool directional = c.Signal.Direction == TradeDirection.Buy
+                ? (close > open || close > prev)
+                : (close < open || close < prev);
+            bool structurallyAlive = c.Signal.Direction == TradeDirection.Buy
+                ? close > c.Signal.StructuralInvalidation
+                : close < c.Signal.StructuralInvalidation;
+            score = .45 + (directional ? .30 : 0) + .15 * bodyFrac +
+                    .10 * VClamp(c.RegimeScore);
+            return directional && structurallyAlive;
+        }
+
+        private double V71SignalPreservingScore(CandidateRecord c, DateTime now)
+        {
+            if (c == null || c.Signal == null) return -999;
+            double quality =
+                .23 * VClamp(c.Signal.GeometryQuality) +
+                .20 * VClamp(c.Signal.PrzConfluence) +
+                .12 * VClamp(c.Signal.Confidence) +
+                .05 * VClamp(c.Signal.TimeSymmetry) +
+                .04 * VClamp(c.Signal.PivotQuality);
+            double execution =
+                .18 * VClamp(c.ConfirmationScore) +
+                .08 * VClamp(c.RegimeScore) +
+                .10 * VClamp(c.NetRR / 3.0);
+            double conflictPenalty = c.Conflict == MtfConflict.CONFLICT ? .08 : 0;
+            double ageMinutes = Math.Max(0, (now - c.DetectedUtc).TotalMinutes);
+            double agePenalty = Math.Min(.08, ageMinutes / 240.0 * .08);
+            double spreadPenalty = Math.Min(.06, CurrentSpreadPips() / Math.Max(1.0, MaxSpreadPips) * .06);
+            return quality + execution - conflictPenalty - agePenalty - spreadPenalty;
+        }
+
+        private bool V71BuildSingleLegExecutionPlan(CandidateRecord c)
+        {
+            if (c == null || c.Signal == null || c.Signal.Profile == null) return false;
+            double anchor = c.Signal.Direction == TradeDirection.Buy ? _symbol.Ask : _symbol.Bid;
+            double stop = c.Signal.StructuralInvalidation;
+            double distance = c.Signal.Direction == TradeDirection.Buy ? anchor - stop : stop - anchor;
+            if (distance <= PipsToPrice(MinStopLossPips)) return false;
+
+            double target, netRr;
+            if (!SelectCanonicalBasketTarget(c.Signal, anchor, stop, out target, out netRr) || netRr < MinimumNetRR)
+                return false;
+
+            double effectiveRiskPct = V71EffectiveBasketRiskPercent(c);
+            var plan = new FibonacciGridPlan
+            {
+                CandidateId = c.CandidateId,
+                Pattern = c.Signal.PatternName,
+                CanonicalSetupId = c.CanonicalSetupId,
+                FamilyId = c.FamilyId,
+                Direction = c.Signal.Direction,
+                Route = c.Route,
+                EntryAnchor = anchor,
+                StructuralStop = stop,
+                GridDistance = distance,
+                BasketRiskAmount = Account.Equity * effectiveRiskPct / 100.0,
+                CreatedUtc = Server.Time.ToUniversalTime(),
+                ExpirationUtc = MinDate(c.ExpiryUtc, Server.Time.ToUniversalTime().AddMinutes(Math.Max(15, c.Signal.Profile.PendingTtlMinutes))),
+                MicroCapitalMode = AdaptiveCapitalMode && Account.Equity <= MicroCapitalThreshold,
+                CanonicalTarget = target,
+                ExpectedNetRR = netRr,
+                ExpectedWeightedEntry = anchor,
+                VirtualWeightedEntry = anchor
+            };
+            if (plan.BasketRiskAmount <= 0) return false;
+
+            double slPips = PriceToPips(Math.Abs(anchor - stop));
+            double minRisk = _symbol.VolumeInUnitsMin * _symbol.PipValue * (slPips + ModeledCostPips());
+            plan.Legs.Add(new FibonacciGridLeg
+            {
+                Index = 0,
+                Fraction = 0,
+                PlannedPrice = anchor,
+                RiskWeight = 1.0,
+                RiskBudget = plan.BasketRiskAmount,
+                MinBrokerRisk = minRisk,
+                Volume = 0,
+                PlannedRisk = 0,
+                ModeledCost = 0,
+                Physical = false,
+                State = GridLegState.VIRTUAL_ONLY
+            });
+            plan.LogicalLegCount = 1;
+            if (!ConfigureCapitalExecution(plan)) return false;
+            if (plan.Legs.Count == 0 || !plan.Legs[0].Physical || plan.WorstCaseRisk > plan.BasketRiskAmount + 1e-8) return false;
+
+            c.GridPlan = plan;
+            c.SelectedTarget = target;
+            c.NetRR = netRr;
+            return true;
+        }
+
+        private bool V71BuildPostSelectionExecutionPlan(CandidateRecord c)
+        {
+            if (EnableV71ForceSingleLegExecution)
+                return V71BuildSingleLegExecutionPlan(c);
+
+            if (EnableV71NonBlockingGrid)
+            {
+                c.GridPlan = null;
+                if (TryBuildFibonacciGridPlan(c))
+                    return true;
+                c.GridPlan = null;
+                _v71GridFallbackSingleLegs++;
+                Event(c, "V71_GRID_NONBLOCKING_SINGLE_LEG_FALLBACK");
+                return V71BuildSingleLegExecutionPlan(c);
+            }
+
+            return TryBuildFibonacciGridPlan(c);
         }
 
         // V71 Final Structural Rebase:
