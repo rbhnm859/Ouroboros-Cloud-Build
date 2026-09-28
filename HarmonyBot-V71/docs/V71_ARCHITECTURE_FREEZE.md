@@ -1,31 +1,41 @@
 # HarmonyBot V71 — Selective Causal Alpha Reconstruction & Family-Native Grid Amplifier
 
 ## Major-version rule
-V71 is a major research version, not a patch. No V71.1/V71.2 promotion labels are permitted. Engineering repairs remain commits inside this same branch. V72 may be created only after V71 produces a preregistered causal breakthrough.
+V71 remains the active major version. No V71.1/V71.2 labels are permitted. Engineering and research commits stay on the same V71 branch. V72 is illegal until a preregistered V71 causal breakthrough passes.
 
-## Evidence inherited from V70
-V70 final decision was HOLD_WITH_EVIDENCE. Blanket hard-veto rationalization destroyed Alpha and Rat/Shark protection. Therefore V71 starts from the exact V69/V70-A capital spine and does not enable V70 blanket relaxation.
+## Evidence history
+The first frozen V71 experiment completed successfully but ended HOLD_WITH_EVIDENCE. Coarse suppression removed negative trades yet freed MaxActiveBasket=1 slot-hours that were backfilled by worse replacement trades. Cypher transition recall was negative in calibration, and broad family-native Grid damaged right-tail/protected cohorts. Those hypotheses are retired.
 
-## Scientific hypothesis
-The dominant problem is selection inversion, not lack of harmonic supply. Calibration-negative legacy capital lanes are removed selectively, while only preregistered positive-recall lanes may be reintroduced. Grid is not a filter: it is a family-native staged-entry profit amplifier whose only authority is execution geometry under the same whole-basket risk ceiling.
+## New preregistered hypothesis — calibration only
+All capital-selection details below were chosen from burned 2021–2023 calibration evidence only. Previously observed 2024H2/2025H1/2025H2 DEV is not used to set subtype thresholds or choose lanes.
 
-## Variants
-- A_V70_TRUTH_CONTROL — exact V70 A / V69 capital truth.
-- B_NEGATIVE_LANE_SUPPRESSED — A plus suppression of legacy-quality AB=CD, Deep Gartley and 5-0 Trend/Exhaustion lanes. Rat/Shark are protected.
-- C_SELECTIVE_ALPHA_RECALL — B plus pre-entry-only Cypher route recall and exact/near-1.27 AB=CD transition recall.
-- D_FAMILY_NATIVE_GRID_AMPLIFIER — C plus family-native Fibonacci staged-entry templates for Rat, Shark, Cypher, Gartley and recalled AB=CD transition.
+B_EVIDENCE_QUALIFIED_PORTFOLIO admits only calibration-positive family/route/subtype lanes:
+- Rat Trend and Exhaustion.
+- Shark Trend; Shark Exhaustion only canonical Shark subtype.
+- Cypher Trend only.
+- Gartley Trend only.
+- AB=CD Trend only EXACT / NEAR_127 / UNKNOWN; Exhaustion only UNKNOWN; Transition EXACT / NEAR_127 / UNKNOWN.
+Everything else is research/shadow until new evidence exists.
 
-## Grid constitution
-Grid is never a filter, recovery system, DCA, Martingale, hedge or loss-averaging device. It adapts staged entries to family/route geometry. Whole-basket stressed risk remains <=1%, including filled and pending legs, spread, commission, slippage stress, broker rounding and minimum volume. Basket MFE >= +0.50R cancels deeper pending legs through the existing safety contract.
+C_SELECTIVE_ALPHA_RECALL removes the falsified Cypher Transition recall. It may recall only exact/near-1.27 AB=CD Transition using pre-entry geometry/PRZ/confidence.
 
-## Locked safety
-MaxActiveBasket=1; unique thesis; completed-bar/no-lookahead; Minimum Net RR >=2.0; no stop widening; no future MFE/MAE/outcome in admission, routing, grid or scheduling; broker/session/margin/risk hard vetoes remain fail-closed.
+D_EVIDENCE_GRID_AMPLIFIER is deliberately narrow. Grid remains a profit-amplification staged-entry mechanism, never a filter. Capital Grid is allowed only for canonical Rat Trend and canonical Shark Trend because those were the only matched calibration Grid lanes with positive incremental evidence in the first V71 experiment. All other family Grid templates remain research-only.
 
-## Data governance
-2021/2022/2023 are calibration diagnostics. Promotion DEV is fixed to 2024H2, 2025H1, 2025H2. 2026 Q1/Q2 Validation and Fresh 2020H1 remain locked. No post-DEV threshold lowering, Fresh rescue or Validation tuning.
+## Workflow governance
+The workflow is now calibration-first:
+1. immutable build/static audit;
+2. 4 variants × 3 burned calibration windows;
+3. calibration analyzer freezes at most one candidate;
+4. only exact control + frozen candidate enter the three observed DEV stress windows;
+5. final analyzer reports causal delta.
+
+This reduces unnecessary DEV exposure and prevents post-DEV candidate switching. Because DEV was already viewed in the first V71 experiment, subsequent DEV is explicitly labeled observed stress confirmation, not pristine OOS. Validation 2026 Q1/Q2 and Fresh 2020H1 remain locked and untouched.
+
+## Safety constitution
+MaxActiveBasket=1; unique thesis; completed-bar/no-lookahead; Minimum Net RR >=2.0; whole-basket stressed risk <=1%; no hedge, Martingale, DCA, Recovery, Loss Averaging or stop widening. Grid never enlarges total basket risk. Future MFE/MAE/outcome/shadow result cannot enter admission, routing, Grid or ranking.
 
 ## Breakthrough gate
-A must exactly reproduce V70 A. A challenger may be called a V71 breakthrough only if its causal parent delta is positive, PF and expectancy improve/non-degrade as preregistered for that stage, engineering/risk/identity are clean, protected Rat/Shark are not harmed, at least 2/3 fixed DEV windows improve, aggregate DEV Net >0, PF >=1.10, expectancy >0 and DD <=10%. Failing this produces HOLD_WITH_EVIDENCE and blocks V72.
+Calibration must select the candidate before the new DEV run. The frozen candidate must improve aggregate DEV Net, PF and expectancy versus exact control, improve at least 2/3 DEV windows, keep protected Rat/Shark non-degraded, remain engineering/risk/identity clean, produce DEV Net >0, PF >=1.10, expectancy >0 and DD <=10%. Otherwise V71 remains HOLD and V72 remains blocked.
 
-## V80 target remains unchanged
-Return >=100%; PF >=2.5; Max DD <=10%; Win Rate >=65%; Trades >=200/year; realized RR >=2:1; Profitable Months >=10/12; Net Profit >=100% of initial capital. These targets may not be lowered to rescue a version.
+## V80 target
+Return >=100%; PF >=2.5; Max DD <=10%; Win Rate >=65%; Trades >=200/year; realized RR >=2:1; Profitable Months >=10/12; Net Profit >=100% of initial capital. These targets are not lowered to rescue a version.

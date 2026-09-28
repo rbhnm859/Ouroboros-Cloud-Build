@@ -1420,33 +1420,26 @@ namespace cAlgo.Robots
             fractions = c != null && c.Signal != null && c.Signal.Profile != null ? c.Signal.Profile.GridFractions : new double[0];
             weights = c != null && c.Signal != null && c.Signal.Profile != null ? c.Signal.Profile.GridRiskWeights : new double[0];
             if (c == null || c.Signal == null) return false;
-            string p = c.Signal.PatternName ?? "";
 
-            if (p == "Rat")
+            string p = c.Signal.PatternName ?? "";
+            string subtype = c.Signal.HarmonicSubtype ?? "";
+
+            // Calibration matched-trade evidence supported Grid only in these exact lanes.
+            // Grid is a profit-amplification execution template, never an admission filter.
+            if (p == "Rat" && subtype == "Rat" && c.Route == HarmonicRoute.TREND_ALIGNED_REVERSAL)
             {
-                if (c.Route == HarmonicRoute.TREND_ALIGNED_REVERSAL) { fractions = new[] { 0.0, .236, .382, .618 }; weights = new[] { .40, .30, .20, .10 }; return true; }
-                if (c.Route == HarmonicRoute.EXHAUSTION_REVERSAL) { fractions = new[] { 0.0, .382 }; weights = new[] { .65, .35 }; return true; }
-                if (c.Route == HarmonicRoute.TRANSITION_REVERSAL) { fractions = new[] { 0.0, .236, .382 }; weights = new[] { .50, .30, .20 }; return true; }
+                fractions = new[] { 0.0, .236, .382, .618 };
+                weights = new[] { .40, .30, .20, .10 };
+                return true;
             }
-            if (p == "Shark")
+
+            if (p == "Shark" && subtype == "Shark" && c.Route == HarmonicRoute.TREND_ALIGNED_REVERSAL)
             {
-                if (c.Route == HarmonicRoute.TREND_ALIGNED_REVERSAL) { fractions = new[] { 0.0, .236, .382 }; weights = new[] { .50, .30, .20 }; return true; }
-                if (c.Route == HarmonicRoute.EXHAUSTION_REVERSAL) { fractions = new[] { 0.0, .236 }; weights = new[] { .70, .30 }; return true; }
-                if (c.Route == HarmonicRoute.TRANSITION_REVERSAL) { fractions = new[] { 0.0, .236 }; weights = new[] { .60, .40 }; return true; }
+                fractions = new[] { 0.0, .236, .382 };
+                weights = new[] { .50, .30, .20 };
+                return true;
             }
-            if (p == "Cypher")
-            {
-                if (c.Route == HarmonicRoute.TREND_ALIGNED_REVERSAL) { fractions = new[] { 0.0, .236, .382 }; weights = new[] { .50, .30, .20 }; return true; }
-                if (c.Route == HarmonicRoute.TRANSITION_REVERSAL) { fractions = new[] { 0.0, .236, .382 }; weights = new[] { .45, .35, .20 }; return true; }
-            }
-            if (p == "Gartley" && c.Route == HarmonicRoute.TREND_ALIGNED_REVERSAL)
-            {
-                fractions = new[] { 0.0, .236, .382 }; weights = new[] { .50, .30, .20 }; return true;
-            }
-            if (p == "AB=CD" && c.V71SelectiveRecallLane && c.Route == HarmonicRoute.TRANSITION_REVERSAL)
-            {
-                fractions = new[] { 0.0, .236 }; weights = new[] { .70, .30 }; return true;
-            }
+
             return false;
         }
 
@@ -4415,52 +4408,90 @@ namespace cAlgo.Robots
             return route;
         }
 
+        private bool V71SubtypeUnknown(CandidateRecord c)
+        {
+            if (c == null || c.Signal == null) return false;
+            string subtype = c.Signal.HarmonicSubtype ?? "";
+            return string.IsNullOrWhiteSpace(subtype) || subtype == "UNKNOWN";
+        }
+
+        // Burned 2021-2023 calibration-only capital portfolio.
+        // The first V71 DEV exposure proved that coarse family suppression can backfill MaxActiveBasket=1
+        // with worse replacement trades.  This gate therefore admits only family/route/subtype lanes
+        // that had positive calibration contribution; it never reads future bars or outcomes.
+        private bool V71EvidenceQualifiedCapitalLane(CandidateRecord c)
+        {
+            if (c == null || c.Signal == null) return false;
+            string p = c.Signal.PatternName ?? "";
+            string subtype = c.Signal.HarmonicSubtype ?? "";
+            bool unknown = V71SubtypeUnknown(c);
+
+            if (p == "Rat")
+                return c.Route == HarmonicRoute.TREND_ALIGNED_REVERSAL ||
+                       c.Route == HarmonicRoute.EXHAUSTION_REVERSAL;
+
+            if (p == "Shark")
+            {
+                if (c.Route == HarmonicRoute.TREND_ALIGNED_REVERSAL) return true;
+                if (c.Route == HarmonicRoute.EXHAUSTION_REVERSAL && subtype == "Shark") return true;
+                return false;
+            }
+
+            if (p == "Cypher")
+                return c.Route == HarmonicRoute.TREND_ALIGNED_REVERSAL;
+
+            if (p == "Gartley")
+                return c.Route == HarmonicRoute.TREND_ALIGNED_REVERSAL;
+
+            if (p == "AB=CD")
+            {
+                if (c.Route == HarmonicRoute.TREND_ALIGNED_REVERSAL)
+                    return unknown || subtype == "ABCD_EXACT" || subtype == "ABCD_NEAR_127";
+                if (c.Route == HarmonicRoute.EXHAUSTION_REVERSAL)
+                    return unknown;
+                if (c.Route == HarmonicRoute.TRANSITION_REVERSAL)
+                    return unknown || subtype == "ABCD_EXACT" || subtype == "ABCD_NEAR_127";
+            }
+
+            return false;
+        }
+
         private bool V71SelectiveQualityRecall(CandidateRecord c)
         {
             if (c == null || c.Signal == null) return false;
             string p = c.Signal.PatternName ?? "";
-            if (V70IsProtectedPositiveFamily(p)) return false;
-            double g = c.Signal.GeometryQuality, prz = c.Signal.PrzConfluence, conf = c.Signal.Confidence;
-            if (p == "AB=CD")
-            {
-                bool identityOk = c.Signal.HarmonicSubtype == "ABCD_EXACT" || c.Signal.HarmonicSubtype == "ABCD_NEAR_127";
-                return identityOk && g >= .60 && prz >= .58 && conf >= .58;
-            }
-            return false;
+            if (p != "AB=CD") return false;
+            string subtype = c.Signal.HarmonicSubtype ?? "";
+            bool identityOk = subtype == "ABCD_EXACT" || subtype == "ABCD_NEAR_127";
+            return identityOk &&
+                   c.Signal.GeometryQuality >= .60 &&
+                   c.Signal.PrzConfluence >= .58 &&
+                   c.Signal.Confidence >= .58;
         }
 
         private bool V71ShouldSuppressLegacyLane(CandidateRecord c)
         {
-            if (c == null || c.Signal == null || !c.LegacyQualityPassed) return false;
-            string p = c.Signal.PatternName ?? "";
-            if (V70IsProtectedPositiveFamily(p)) return false;
-            bool negativeRoute = c.Route == HarmonicRoute.TREND_ALIGNED_REVERSAL || c.Route == HarmonicRoute.EXHAUSTION_REVERSAL;
-            if (!negativeRoute) return false;
-            return p == "AB=CD" || p == "Deep Gartley" || p == "5-0";
+            if (c == null || c.Signal == null) return true;
+            return !V71EvidenceQualifiedCapitalLane(c);
         }
 
         private HarmonicRoute V71SelectiveRecallRoute(CandidateRecord c)
         {
             if (c == null || c.Signal == null || c.Regime == null) return HarmonicRoute.NO_TRADE;
-            string p = c.Signal.PatternName ?? "";
-            if (V70IsProtectedPositiveFamily(p)) return HarmonicRoute.NO_TRADE;
-            double g = c.Signal.GeometryQuality, prz = c.Signal.PrzConfluence, conf = c.Signal.Confidence;
-            var r = c.Regime;
-            bool aligned = r.TrendDirection == c.Signal.Direction && c.Conflict != MtfConflict.CONFLICT;
-            bool transition = r.Transition || c.Conflict == MtfConflict.TRANSITION || r.TrendDirection == TradeDirection.Neutral;
+            if ((c.Signal.PatternName ?? "") != "AB=CD" || !c.V71SelectiveRecallLane)
+                return HarmonicRoute.NO_TRADE;
 
-            if (p == "Cypher" && g >= .58 && prz >= .55 && conf >= .55)
-            {
-                if (aligned && r.Efficiency >= .18) return HarmonicRoute.TREND_ALIGNED_REVERSAL;
-                if (transition) return HarmonicRoute.TRANSITION_REVERSAL;
-            }
+            string subtype = c.Signal.HarmonicSubtype ?? "";
+            bool identityOk = subtype == "ABCD_EXACT" || subtype == "ABCD_NEAR_127";
+            bool transition = c.Regime.Transition ||
+                              c.Conflict == MtfConflict.TRANSITION ||
+                              c.Regime.TrendDirection == TradeDirection.Neutral;
+            if (identityOk && transition &&
+                c.Signal.GeometryQuality >= .60 &&
+                c.Signal.PrzConfluence >= .58 &&
+                c.Signal.Confidence >= .58)
+                return HarmonicRoute.TRANSITION_REVERSAL;
 
-            if (p == "AB=CD" && c.V71SelectiveRecallLane)
-            {
-                bool identityOk = c.Signal.HarmonicSubtype == "ABCD_EXACT" || c.Signal.HarmonicSubtype == "ABCD_NEAR_127";
-                if (identityOk && transition && g >= .60 && prz >= .58 && conf >= .58)
-                    return HarmonicRoute.TRANSITION_REVERSAL;
-            }
             return HarmonicRoute.NO_TRADE;
         }
 

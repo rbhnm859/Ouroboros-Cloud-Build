@@ -1,4 +1,4 @@
-name: HarmonyBot V71 Selective Causal Alpha Grid DEV
+name: HarmonyBot V71 Calibration-First Selective Alpha DEV
 
 on:
   push:
@@ -34,6 +34,8 @@ jobs:
           set -euo pipefail
           cd control
           python3 HarmonyBot-V71/tools/static_contract_audit.py HarmonyBot-V71/src/HarmonyBotV71.cs
+          python3 -m py_compile HarmonyBot-V71/tools/*.py
+          bash -n HarmonyBot-V71/tools/run_window.sh
           dotnet restore HarmonyBot-V71/HarmonyBotV71.csproj
           dotnet build HarmonyBot-V71/HarmonyBotV71.csproj -c Release --no-restore --nologo
           mkdir -p HarmonyBot-V71/dist HarmonyBot-V71/final
@@ -42,21 +44,7 @@ jobs:
           cp "$A" HarmonyBot-V71/dist/HarmonyBot_V71_Selective_Causal_Alpha_Reconstruction_Grid_Amplifier.algo
           sha256sum HarmonyBot-V71/src/HarmonyBotV71.cs "$A" > HarmonyBot-V71/final/SHA256SUMS
           printf '%s\n' "$GITHUB_SHA" > HarmonyBot-V71/final/SOURCE_COMMIT.txt
-          python3 - <<'PY'
-          import hashlib,json,pathlib,os
-          s=pathlib.Path("HarmonyBot-V71/src/HarmonyBotV71.cs")
-          a=pathlib.Path("HarmonyBot-V71/dist/HarmonyBot_V71_Selective_Causal_Alpha_Reconstruction_Grid_Amplifier.algo")
-          pathlib.Path("HarmonyBot-V71/final/V71_PREREGISTERED_FREEZE_MANIFEST.json").write_text(json.dumps({
-            "version":"HarmonyBot V71","source_commit":os.environ["GITHUB_SHA"],
-            "source_sha256":hashlib.sha256(s.read_bytes()).hexdigest(),"algo_sha256":hashlib.sha256(a.read_bytes()).hexdigest(),
-            "variants":["A_V70_TRUTH_CONTROL","B_NEGATIVE_LANE_SUPPRESSED","C_SELECTIVE_ALPHA_RECALL","D_FAMILY_NATIVE_GRID_AMPLIFIER"],
-            "calibration_windows":["Y2021","Y2022","Y2023"],"promotion_dev_windows":["H2024H2","H2025H1","H2025H2"],
-            "v70_blanket_relaxation_enabled":False,"grid_role":"FAMILY_NATIVE_PROFIT_AMPLIFIER_NOT_FILTER",
-            "whole_basket_risk_ceiling_pct":1.0,"minimum_net_rr":2.0,
-            "validation_locked":True,"fresh_locked":True,"post_dev_tuning_allowed":False,"minor_version_promotion_allowed":False,
-            "final_v80_targets":{"return_pct":100,"pf":2.5,"max_dd_pct":10,"win_rate":0.65,"trades_per_year":200,"realized_rr":2.0,"profitable_months":10,"net_pct_initial":100}
-          },indent=2))
-          PY
+          python3 -c 'import hashlib,json,pathlib,os; s=pathlib.Path("HarmonyBot-V71/src/HarmonyBotV71.cs"); a=pathlib.Path("HarmonyBot-V71/dist/HarmonyBot_V71_Selective_Causal_Alpha_Reconstruction_Grid_Amplifier.algo"); pathlib.Path("HarmonyBot-V71/final/V71_PREREGISTERED_FREEZE_MANIFEST.json").write_text(json.dumps({"version":"HarmonyBot V71","source_commit":os.environ["GITHUB_SHA"],"source_sha256":hashlib.sha256(s.read_bytes()).hexdigest(),"algo_sha256":hashlib.sha256(a.read_bytes()).hexdigest(),"variants":["A_V70_TRUTH_CONTROL","B_EVIDENCE_QUALIFIED_PORTFOLIO","C_SELECTIVE_ALPHA_RECALL","D_EVIDENCE_GRID_AMPLIFIER"],"calibration_windows":["Y2021","Y2022","Y2023"],"promotion_dev_windows":["H2024H2","H2025H1","H2025H2"],"candidate_selection_source":"BURNED_2021_2023_ONLY","dev_reuse_iteration":2,"dev_role":"OBSERVED_STRESS_CONFIRMATION_NOT_PRISTINE_OOS","grid_role":"FAMILY_NATIVE_PROFIT_AMPLIFIER_NOT_FILTER","whole_basket_risk_ceiling_pct":1.0,"minimum_net_rr":2.0,"validation_locked":True,"fresh_locked":True,"post_dev_candidate_switching_allowed":False,"minor_version_promotion_allowed":False,"final_v80_targets":{"return_pct":100,"pf":2.5,"max_dd_pct":10,"win_rate":0.65,"trades_per_year":200,"realized_rr":2.0,"profitable_months":10,"net_pct_initial":100}},indent=2))'
       - uses: actions/upload-artifact@v4
         with:
           name: v71-build
@@ -66,7 +54,7 @@ jobs:
             control/V71_STATIC_CONTRACT_AUDIT.json
           retention-days: 30
 
-  causal_dev:
+  calibration:
     needs: build
     runs-on: ubuntu-24.04
     timeout-minutes: 45
@@ -74,8 +62,8 @@ jobs:
       fail-fast: false
       max-parallel: 8
       matrix:
-        variant: [A_V70_TRUTH_CONTROL, B_NEGATIVE_LANE_SUPPRESSED, C_SELECTIVE_ALPHA_RECALL, D_FAMILY_NATIVE_GRID_AMPLIFIER]
-        window: [Y2021, Y2022, Y2023, H2024H2, H2025H1, H2025H2]
+        variant: [A_V70_TRUTH_CONTROL, B_EVIDENCE_QUALIFIED_PORTFOLIO, C_SELECTIVE_ALPHA_RECALL, D_EVIDENCE_GRID_AMPLIFIER]
+        window: [Y2021, Y2022, Y2023]
     steps:
       - uses: actions/checkout@v4
         with:
@@ -93,7 +81,7 @@ jobs:
           A=$(find control/HarmonyBot-V71/shared -type f -name '*.algo' | head -1)
           test -s "$A"
           cp "$A" control/HarmonyBot-V71/dist/HarmonyBot_V71_Selective_Causal_Alpha_Reconstruction_Grid_Amplifier.algo
-      - name: Resolve fixed window
+      - name: Resolve calibration window
         id: d
         shell: bash
         run: |
@@ -101,11 +89,8 @@ jobs:
             Y2021) echo "start=04/01/2021" >> "$GITHUB_OUTPUT"; echo "eval=2021-01-11T00:00:00Z" >> "$GITHUB_OUTPUT"; echo "end=31/12/2021" >> "$GITHUB_OUTPUT"; echo "years=1.0" >> "$GITHUB_OUTPUT";;
             Y2022) echo "start=03/01/2022" >> "$GITHUB_OUTPUT"; echo "eval=2022-01-10T00:00:00Z" >> "$GITHUB_OUTPUT"; echo "end=30/12/2022" >> "$GITHUB_OUTPUT"; echo "years=1.0" >> "$GITHUB_OUTPUT";;
             Y2023) echo "start=02/01/2023" >> "$GITHUB_OUTPUT"; echo "eval=2023-01-09T00:00:00Z" >> "$GITHUB_OUTPUT"; echo "end=29/12/2023" >> "$GITHUB_OUTPUT"; echo "years=1.0" >> "$GITHUB_OUTPUT";;
-            H2024H2) echo "start=01/07/2024" >> "$GITHUB_OUTPUT"; echo "eval=2024-07-08T00:00:00Z" >> "$GITHUB_OUTPUT"; echo "end=31/12/2024" >> "$GITHUB_OUTPUT"; echo "years=.5" >> "$GITHUB_OUTPUT";;
-            H2025H1) echo "start=02/01/2025" >> "$GITHUB_OUTPUT"; echo "eval=2025-01-09T00:00:00Z" >> "$GITHUB_OUTPUT"; echo "end=30/06/2025" >> "$GITHUB_OUTPUT"; echo "years=.5" >> "$GITHUB_OUTPUT";;
-            H2025H2) echo "start=01/07/2025" >> "$GITHUB_OUTPUT"; echo "eval=2025-07-08T00:00:00Z" >> "$GITHUB_OUTPUT"; echo "end=31/12/2025" >> "$GITHUB_OUTPUT"; echo "years=.5" >> "$GITHUB_OUTPUT";;
           esac
-      - name: Run frozen causal window
+      - name: Run calibration causal window
         shell: bash
         env:
           CTRADER_PASSWORD: ${{ secrets.CTRADER_PASSWORD }}
@@ -117,14 +102,100 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: v71-${{ matrix.variant }}-${{ matrix.window }}
+          name: v71-cal-${{ matrix.variant }}-${{ matrix.window }}
+          path: control/HarmonyBot-V71/output-${{ matrix.variant }}-${{ matrix.window }}
+          retention-days: 30
+          if-no-files-found: error
+
+  calibration_analyze:
+    needs: calibration
+    if: needs.calibration.result == 'success'
+    runs-on: ubuntu-24.04
+    outputs:
+      candidate: ${{ steps.pick.outputs.candidate }}
+      dev_matrix: ${{ steps.pick.outputs.dev_matrix }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: control
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: 'v71-cal-*'
+          path: merged
+          merge-multiple: true
+      - name: Freeze calibration candidate
+        id: pick
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p final
+          python3 control/HarmonyBot-V71/tools/calibrate_v71.py merged final
+          echo "candidate=$(cat final/candidate.txt)" >> "$GITHUB_OUTPUT"
+          echo "dev_matrix=$(tr -d '\n' < final/dev_matrix.json)" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: V71-CALIBRATION-FREEZE
+          path: final
+          retention-days: 30
+
+  promotion_dev:
+    needs: calibration_analyze
+    if: needs.calibration_analyze.outputs.candidate != ''
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      max-parallel: 6
+      matrix:
+        variant: ${{ fromJSON(needs.calibration_analyze.outputs.dev_matrix) }}
+        window: [H2024H2, H2025H1, H2025H2]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: control
+      - uses: actions/download-artifact@v4
+        with:
+          name: v71-build
+          path: control/HarmonyBot-V71/shared
+      - name: Prepare immutable algo
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p control/HarmonyBot-V71/dist
+          A=$(find control/HarmonyBot-V71/shared -type f -name '*.algo' | head -1)
+          test -s "$A"
+          cp "$A" control/HarmonyBot-V71/dist/HarmonyBot_V71_Selective_Causal_Alpha_Reconstruction_Grid_Amplifier.algo
+      - name: Resolve observed DEV stress window
+        id: d
+        shell: bash
+        run: |
+          case "${{ matrix.window }}" in
+            H2024H2) echo "start=01/07/2024" >> "$GITHUB_OUTPUT"; echo "eval=2024-07-08T00:00:00Z" >> "$GITHUB_OUTPUT"; echo "end=31/12/2024" >> "$GITHUB_OUTPUT"; echo "years=.5" >> "$GITHUB_OUTPUT";;
+            H2025H1) echo "start=02/01/2025" >> "$GITHUB_OUTPUT"; echo "eval=2025-01-09T00:00:00Z" >> "$GITHUB_OUTPUT"; echo "end=30/06/2025" >> "$GITHUB_OUTPUT"; echo "years=.5" >> "$GITHUB_OUTPUT";;
+            H2025H2) echo "start=01/07/2025" >> "$GITHUB_OUTPUT"; echo "eval=2025-07-08T00:00:00Z" >> "$GITHUB_OUTPUT"; echo "end=31/12/2025" >> "$GITHUB_OUTPUT"; echo "years=.5" >> "$GITHUB_OUTPUT";;
+          esac
+      - name: Run frozen observed DEV stress
+        shell: bash
+        env:
+          CTRADER_PASSWORD: ${{ secrets.CTRADER_PASSWORD }}
+          CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+          CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+        run: |
+          chmod +x control/HarmonyBot-V71/tools/*.sh
+          control/HarmonyBot-V71/tools/run_window.sh "${{ matrix.variant }}" "${{ matrix.window }}" "${{ steps.d.outputs.start }}" "${{ steps.d.outputs.eval }}" "${{ steps.d.outputs.end }}" "${{ steps.d.outputs.years }}"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: v71-dev-${{ matrix.variant }}-${{ matrix.window }}
           path: control/HarmonyBot-V71/output-${{ matrix.variant }}-${{ matrix.window }}
           retention-days: 30
           if-no-files-found: error
 
   analyze:
-    needs: causal_dev
-    if: always() && needs.causal_dev.result == 'success'
+    needs: [calibration_analyze, promotion_dev]
+    if: ${{ always() && needs.calibration_analyze.result == 'success' && (needs.calibration_analyze.outputs.candidate == '' || needs.promotion_dev.result == 'success') }}
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
@@ -133,10 +204,15 @@ jobs:
           path: control
       - uses: actions/download-artifact@v4
         with:
-          pattern: 'v71-*'
+          name: V71-CALIBRATION-FREEZE
+          path: merged
+      - uses: actions/download-artifact@v4
+        if: needs.calibration_analyze.outputs.candidate != ''
+        with:
+          pattern: 'v71-dev-*'
           path: merged
           merge-multiple: true
-      - name: Build selective causal performance frontier
+      - name: Build V71 performance frontier
         shell: bash
         run: |
           set -euo pipefail
@@ -144,6 +220,6 @@ jobs:
           python3 control/HarmonyBot-V71/tools/analyze_v71.py merged final
       - uses: actions/upload-artifact@v4
         with:
-          name: HARMONYBOT-V71-SELECTIVE-CAUSAL-GRID-FRONTIER
+          name: HARMONYBOT-V71-CALIBRATION-FIRST-FRONTIER
           path: final
           retention-days: 30
