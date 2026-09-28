@@ -10,7 +10,7 @@ mkdir -p seal/{reports,logs,data}
 if [ ! -s seal/ctrader.pwd ]; then printf '%s' "$CTRADER_PASSWORD" > seal/ctrader.pwd; chmod 600 seal/ctrader.pwd; fi
 docker image inspect "$IMAGE" >/dev/null 2>&1 || docker pull "$IMAGE" >/dev/null
 if [ ! -s seal/accounts.json ]; then
- docker run --rm -v "$PWD/seal:/work" "$IMAGE" accounts --ctid="$CTRADER_CTID" --pwd-file=/work/seal/ctrader.pwd > seal/accounts.json
+ docker run --rm -v "$PWD/seal:/work" "$IMAGE" accounts --ctid="$CTRADER_CTID" --pwd-file=/work/ctrader.pwd > seal/accounts.json
 fi
 ACCT=$(python3 - <<'PY'
 import json,os
