@@ -4456,15 +4456,18 @@ namespace cAlgo.Robots
             string subtype = c.Signal.HarmonicSubtype ?? "";
             bool unknown = V71SubtypeUnknown(c);
 
+            // Burned 2021-2023 cohort reconstruction only; DEV/Validation/Fresh are not consulted.
+            // Rat trend survived every calibration year. Legacy-unknown AB=CD trend/exhaustion
+            // supplied the strongest persistent completion cohort. Other families stay observable.
             if (p == "Rat")
-                return c.Route == HarmonicRoute.TREND_ALIGNED_REVERSAL ||
-                       c.Route == HarmonicRoute.EXHAUSTION_REVERSAL;
+                return c.Route == HarmonicRoute.TREND_ALIGNED_REVERSAL;
 
-            if (p == "Shark")
-            {
-                if (c.Route == HarmonicRoute.TREND_ALIGNED_REVERSAL) return true;
-                if (c.Route == HarmonicRoute.EXHAUSTION_REVERSAL && subtype == "Shark") return true;
-                return false;
+            if (p == "AB=CD" && unknown)
+                return c.Route == HarmonicRoute.TREND_ALIGNED_REVERSAL ||
+                       c.Route == HarmonicRoute.EXHAUSTION_REVERSAL ||
+                       c.Route == HarmonicRoute.TRANSITION_REVERSAL;
+
+            return false;
             }
 
             if (p == "Cypher")
