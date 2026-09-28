@@ -8,7 +8,11 @@ cp "$C/HarmonyBot-V71/reference/HarmonyBot_V51_Family_Native_Math_Geometry_Econo
 N="V51-REFERENCE-$WIN-B10000"
 (
  cd "$W"
- RUN_NAME="$N" START_DATE="$START" EVAL_DATE="$EVAL" END_DATE="$END" BALANCE=10000  ALGO="seal/algo/HarmonyBot_V51_Family_Native_Math_Geometry_Economic_Conversion_RC.algo"  BACKTEST_TIMEOUT_SECONDS=1800 "$C/HarmonyBot-V51/tools/run_backtest.sh"
+ RUN_NAME="$N" START_DATE="$START" EVAL_DATE="$EVAL" END_DATE="$END" BALANCE=10000 \
+ FAMNATIVE=false FAMOBS=true CANCONTRACT=true FAMCONF=true GRIDV2=true STOPV2=true JOINT=true CORRIDOR=true ANCHORFORENSICS=true \
+ PQUEUE=false HANDOFF=false NATIVE=false NATIVEBARS=4 DECAY=false HARDLIFE=180 REVALIDATE=false \
+ ALGO="seal/algo/HarmonyBot_V51_Family_Native_Math_Geometry_Economic_Conversion_RC.algo" \
+ BACKTEST_TIMEOUT_SECONDS=1800 "$C/HarmonyBot-V51/tools/run_backtest.sh"
 )
 test -s "$W/seal/logs/$N.log"; test -s "$W/seal/reports/$N.json"
 cp "$W/seal/logs/$N.log" "$O/raw-logs/$N.log"; cp "$W/seal/reports/$N.json" "$O/raw-report.json"

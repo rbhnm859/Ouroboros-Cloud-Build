@@ -343,6 +343,7 @@ namespace cAlgo.Robots
         private readonly Dictionary<string, int> _gridPlanRejectReasons = new Dictionary<string, int>();
 
         private readonly Dictionary<string, V71ExpansionCandidate> _v71Expansion = new Dictionary<string, V71ExpansionCandidate>();
+        private readonly HashSet<string> _v71ExpansionExecutedSetupKeys = new HashSet<string>();
         private readonly Dictionary<string, double> _v71EdgeWeights = new Dictionary<string, double>();
         private readonly Dictionary<string, double> _v71FamilyRoutePriors = new Dictionary<string, double>();
         private bool _v71ModelReady;
@@ -1570,10 +1571,14 @@ namespace cAlgo.Robots
             CountPipeline(c.Signal.PatternName).Leg0Executed++;
             BasketEvent(basket, "LEG0_EXECUTED");
             Transition(c, CandidateState.EXECUTED, "FIB_GRID_LEG0_FILLED");
-            if (EnableCanonicalSetupIdentity && !string.IsNullOrWhiteSpace(c.SetupKey))
+            if (EnableCanonicalSetupIdentity && !c.V71Expansion && !string.IsNullOrWhiteSpace(c.SetupKey))
             {
                 _executedSetupKeys.Add(c.SetupKey);
                 _activeSetupOwners.Remove(c.SetupKey);
+            }
+            else if (c.V71Expansion && !string.IsNullOrWhiteSpace(c.SetupKey))
+            {
+                _v71ExpansionExecutedSetupKeys.Add(c.SetupKey);
             }
             CountPipeline(c.Signal.PatternName).Executed++;
 
@@ -2733,6 +2738,8 @@ namespace cAlgo.Robots
             e.ArmedUtc = utc;
             e.State = V71ExpansionState.ARMED;
             e.ShadowStarted = true;
+            e.ShadowPeakR = 0;
+            e.ShadowProtectionR = -1.0;
             e.EdgeMean = V71ExpectedEdge(e);
             e.EdgeLcb = e.EdgeMean - Math.Max(0, V71EdgeLcbMargin);
             e.SlotScore = e.EdgeLcb / Math.Max(.50, V71ExpectedSlotHours(e.Route));
@@ -2798,14 +2805,69 @@ namespace cAlgo.Robots
                         e.State = V71ExpansionState.EXPIRED;
                         continue;
                     }
+
                     e.ShadowBars++;
-                    double high = _m1Bars.HighPrices[i], low = _m1Bars.LowPrices[i];
-                    bool stop = e.Signal.Direction == TradeDirection.Buy ? low <= e.StructuralStop : high >= e.StructuralStop;
-                    bool target = e.Signal.Direction == TradeDirection.Buy ? high >= e.CanonicalTarget : low <= e.CanonicalTarget;
-                    if (stop) { V71FinalizeExpansionShadow(e, i, "STOP", -1.0); continue; }
-                    if (target) { V71FinalizeExpansionShadow(e, i, "TARGET", Math.Max(0, e.TargetR)); continue; }
+                    double high = _m1Bars.HighPrices[i], low = _m1Bars.LowPrices[i], close = _m1Bars.ClosePrices[i];
+                    double risk = Math.Max(e.RiskDistance, _symbol.PipSize);
+                    double favR = e.Signal.Direction == TradeDirection.Buy
+                        ? (high - e.EntryAnchor) / risk
+                        : (e.EntryAnchor - low) / risk;
+                    double closeR = e.Signal.Direction == TradeDirection.Buy
+                        ? (close - e.EntryAnchor) / risk
+                        : (e.EntryAnchor - close) / risk;
+
+                    // Completed-bar, fail-closed ordering: only protection that existed before
+                    // this bar can stop the shadow trade on this bar.
+                    double protectionPrice = e.Signal.Direction == TradeDirection.Buy
+                        ? e.EntryAnchor + e.ShadowProtectionR * risk
+                        : e.EntryAnchor - e.ShadowProtectionR * risk;
+                    bool protectedStop = e.Signal.Direction == TradeDirection.Buy
+                        ? low <= protectionPrice
+                        : high >= protectionPrice;
+                    bool target = e.Signal.Direction == TradeDirection.Buy
+                        ? high >= e.CanonicalTarget
+                        : low <= e.CanonicalTarget;
+
+                    if (protectedStop)
+                    {
+                        V71FinalizeExpansionShadow(e, i, "V51_NATIVE_PROXY_PROTECTION", e.ShadowProtectionR);
+                        continue;
+                    }
+                    if (target)
+                    {
+                        V71FinalizeExpansionShadow(e, i, "V51_NATIVE_PROXY_TARGET", Math.Max(0, e.TargetR));
+                        continue;
+                    }
+
+                    if (favR > e.ShadowPeakR) e.ShadowPeakR = favR;
+                    double ageMinutes = Math.Max(0, (utc - e.ArmedUtc.Value).TotalMinutes);
+
+                    if (ageMinutes >= NoMfeMinAgeMinutes &&
+                        e.ShadowPeakR < NoMfeProofR &&
+                        closeR <= -Math.Abs(NoMfeKillR))
+                    {
+                        V71FinalizeExpansionShadow(e, i, "V51_NATIVE_PROXY_NO_MFE", Math.Max(-1.0, closeR));
+                        continue;
+                    }
+
+                    if (e.ShadowPeakR >= BreakEvenTriggerR)
+                        e.ShadowProtectionR = Math.Max(e.ShadowProtectionR, Math.Max(0, BreakEvenLockR));
+
+                    if (e.ShadowPeakR >= TrailTriggerR)
+                    {
+                        double trail = FibonacciStructureTrail(e.Signal.Direction);
+                        if (trail > 0)
+                        {
+                            double trailR = e.Signal.Direction == TradeDirection.Buy
+                                ? (trail - e.EntryAnchor) / risk
+                                : (e.EntryAnchor - trail) / risk;
+                            e.ShadowProtectionR = Math.Max(e.ShadowProtectionR, trailR);
+                        }
+                    }
+
+                    e.ShadowProtectionR = Math.Min(e.ShadowProtectionR, Math.Max(0, e.TargetR));
                     if (e.ShadowBars >= Math.Max(30, V71ExpansionShadowHorizonM1Bars))
-                        V71FinalizeExpansionShadow(e, i, "HORIZON");
+                        V71FinalizeExpansionShadow(e, i, "V51_NATIVE_PROXY_HORIZON");
                 }
             }
 
@@ -2834,7 +2896,7 @@ namespace cAlgo.Robots
             e.ShadowOutcomeR = r;
             e.ShadowFinished = true;
             _v71ExpansionShadowClosed++;
-            Print("[V71-EXP-SHADOW] cid={0} setup={1} family={2} route={3} g={4:F6} prz={5:F6} conf={6:F6} ts={7:F6} pv={8:F6} m1={9:F6} rr={10:F6} reg={11:F6} eff={12:F6} atr={13:F6} ext={14:F6} mtf={15:F6} outcomeR={16:F6} result={17} bars={18}",
+            Print("[V71-EXP-SHADOW] cid={0} setup={1} family={2} route={3} g={4:F6} prz={5:F6} conf={6:F6} ts={7:F6} pv={8:F6} m1={9:F6} rr={10:F6} reg={11:F6} eff={12:F6} atr={13:F6} ext={14:F6} mtf={15:F6} outcomeR={16:F6} result={17} bars={18} label=V51_NATIVE_EXIT_PROXY_COMPLETED_M1",
                 e.CandidateId, e.SetupKey, V71FamilyKey(e.Signal.PatternName), e.Route,
                 VClamp(e.Signal.GeometryQuality), VClamp(e.Signal.PrzConfluence), VClamp(e.Signal.Confidence),
                 VClamp(e.Signal.TimeSymmetry), VClamp(e.Signal.PivotQuality), VClamp(e.ConfirmationScore),
@@ -2959,7 +3021,8 @@ namespace cAlgo.Robots
             var eligible = _v71Expansion.Values
                 .Where(e => e.IsActive && e.State == V71ExpansionState.ARMED && !e.Executed &&
                             e.EdgeLcb > Math.Max(0, V71ExpansionMinEdgeLcbR) && e.NetRR >= MinimumNetRR &&
-                            !_executedSetupKeys.Contains(e.SetupKey))
+                            !_executedSetupKeys.Contains(e.SetupKey) &&
+                            !_v71ExpansionExecutedSetupKeys.Contains(e.SetupKey))
                 .OrderByDescending(e => e.SlotScore)
                 .ThenByDescending(e => e.EdgeLcb)
                 .ToList();
@@ -4460,6 +4523,7 @@ namespace cAlgo.Robots
         public double ConfirmationScore, NetRR, RegimeScore;
         public double EntryAnchor, StructuralStop, CanonicalTarget, RiskDistance, TargetR;
         public double EdgeMean, EdgeLcb, SlotScore, ShadowOutcomeR;
+        public double ShadowPeakR, ShadowProtectionR = -1.0;
         public int ShadowBars;
     }
 
