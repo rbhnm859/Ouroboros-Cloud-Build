@@ -4468,25 +4468,6 @@ namespace cAlgo.Robots
                        c.Route == HarmonicRoute.TRANSITION_REVERSAL;
 
             return false;
-            }
-
-            if (p == "Cypher")
-                return c.Route == HarmonicRoute.TREND_ALIGNED_REVERSAL;
-
-            if (p == "Gartley")
-                return c.Route == HarmonicRoute.TREND_ALIGNED_REVERSAL;
-
-            if (p == "AB=CD")
-            {
-                if (c.Route == HarmonicRoute.TREND_ALIGNED_REVERSAL)
-                    return unknown || subtype == "ABCD_EXACT" || subtype == "ABCD_NEAR_127";
-                if (c.Route == HarmonicRoute.EXHAUSTION_REVERSAL)
-                    return unknown;
-                if (c.Route == HarmonicRoute.TRANSITION_REVERSAL)
-                    return unknown || subtype == "ABCD_EXACT" || subtype == "ABCD_NEAR_127";
-            }
-
-            return false;
         }
 
         private double V71ExpectedSlotMinutes(HarmonicRoute route)
