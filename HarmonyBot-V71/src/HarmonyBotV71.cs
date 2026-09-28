@@ -70,7 +70,7 @@ namespace cAlgo.Robots
         [Parameter("H4 Swing Depth", DefaultValue = 2, MinValue = 2, MaxValue = 6)]
         public int H4SwingDepth { get; set; }
 
-        [Parameter("Portfolio Max Candidates", DefaultValue = 8, MinValue = 2, MaxValue = 12)]
+        [Parameter("Portfolio Max Candidates", DefaultValue = 8, MinValue = 2, MaxValue = 32)]
         public int PortfolioMaxCandidates { get; set; }
 
         [Parameter("Candidate TTL M15 Bars", DefaultValue = 8, MinValue = 2, MaxValue = 24)]
@@ -175,7 +175,7 @@ namespace cAlgo.Robots
         [Parameter("Opportunity Decay Ranking", DefaultValue = true)]
         public bool EnableOpportunityDecayRanking { get; set; }
 
-        [Parameter("Parked Hard Lifetime Minutes", DefaultValue = 180, MinValue = 180, MaxValue = 180)]
+        [Parameter("Parked Hard Lifetime Minutes", DefaultValue = 180, MinValue = 120, MaxValue = 360)]
         public int ParkedHardLifetimeMinutes { get; set; }
 
         [Parameter("Family-Native Conversion", DefaultValue = true)]
@@ -328,6 +328,24 @@ namespace cAlgo.Robots
         [Parameter("V71 Non-Blocking Grid", DefaultValue = false)]
         public bool EnableV71NonBlockingGrid { get; set; }
 
+        [Parameter("V71 Unified Family Route", DefaultValue = false)]
+        public bool EnableV71UnifiedFamilyRoute { get; set; }
+
+        [Parameter("V71 Unified Opportunity Score", DefaultValue = false)]
+        public bool EnableV71UnifiedOpportunityScore { get; set; }
+
+        [Parameter("V71 Auction Scheduler", DefaultValue = false)]
+        public bool EnableV71AuctionScheduler { get; set; }
+
+        [Parameter("V71 Auction Min Minutes", DefaultValue = 1.0, MinValue = 0.0, MaxValue = 5.0)]
+        public double V71AuctionMinMinutes { get; set; }
+
+        [Parameter("V71 Auction Max Minutes", DefaultValue = 4.0, MinValue = 1.0, MaxValue = 10.0)]
+        public double V71AuctionMaxMinutes { get; set; }
+
+        [Parameter("V71 Auction Dominance Margin", DefaultValue = 0.10, MinValue = 0.0, MaxValue = 0.50)]
+        public double V71AuctionDominanceMargin { get; set; }
+
         [Parameter("Min Harmonic Robustness", DefaultValue = 0.56, MinValue = 0.40, MaxValue = 0.80)]
         public double MinHarmonicRobustness { get; set; }
 
@@ -440,6 +458,10 @@ namespace cAlgo.Robots
         private int _v71MinimalRouteFallbacks;
         private int _v71MinimalM1Confirmations;
         private int _v71GridFallbackSingleLegs;
+        private int _v71UnifiedRouteFallbacks;
+        private int _v71UnifiedScoreSelections;
+        private int _v71AuctionDeferrals;
+        private int _v71AuctionSelections;
         private DateTime _v71VirtualSlotReservationUntilUtc = DateTime.MinValue;
         private readonly HashSet<string> _v71ReservationSetupKeys = new HashSet<string>();
         private readonly Dictionary<string, ShadowAlphaObservation> _v69Shadow = new Dictionary<string, ShadowAlphaObservation>();
@@ -672,6 +694,9 @@ namespace cAlgo.Robots
             Print("[V71-MINIMAL-GATE-SUMMARY] signalAdmissions={0} routeFallbacks={1} minimalM1Confirmations={2} gridFallbackSingleLegs={3} minimalMode={4}",
                 _v71MinimalSignalAdmissions, _v71MinimalRouteFallbacks, _v71MinimalM1Confirmations,
                 _v71GridFallbackSingleLegs, EnableV71MinimalFilterRebase);
+            Print("[V71-UNIFIED-AUCTION-SUMMARY] unifiedRouteFallbacks={0} unifiedScoreSelections={1} auctionDeferrals={2} auctionSelections={3} enabledScore={4} enabledAuction={5}",
+                _v71UnifiedRouteFallbacks, _v71UnifiedScoreSelections, _v71AuctionDeferrals, _v71AuctionSelections,
+                EnableV71UnifiedOpportunityScore, EnableV71AuctionScheduler);
         }
 
         protected override void OnBar()
@@ -848,9 +873,11 @@ namespace cAlgo.Robots
                 if (EnableV71MinimalFilterRebase)
                 {
                     record.RegimeScore = RegimeContextScore(signal, record.Conflict, regime);
-                    record.Route = V71MinimalRoute(signal, record.Conflict, regime);
+                    record.Route = EnableV71UnifiedFamilyRoute
+                        ? V71UnifiedRoute(signal, legacyRoute, familyRoute, record.Conflict, regime)
+                        : V71MinimalRoute(signal, record.Conflict, regime);
                     if (legacyRoute == HarmonicRoute.NO_TRADE) _v71MinimalRouteFallbacks++;
-                    Event(record, "V71_MINIMAL_ROUTE_" + record.Route);
+                    Event(record, (EnableV71UnifiedFamilyRoute ? "V71_UNIFIED_ROUTE_" : "V71_MINIMAL_ROUTE_") + record.Route);
                 }
                 else if (EnableV68EvidencePreservingAdmission)
                 {
@@ -1225,9 +1252,11 @@ namespace cAlgo.Robots
                         if (EnableV69EqualFamilyVisibility) V69Visibility(c.FamilyId).GridPlanned++;
                     }
 
-                    c.Rank = EnableV71MinimalFilterRebase && EnableV71SignalPreservingArbitration
+                    c.Rank = EnableV71UnifiedOpportunityScore
+                        ? V71UnifiedScore(c, utc)
+                        : (EnableV71MinimalFilterRebase && EnableV71SignalPreservingArbitration
                         ? V71SignalPreservingScore(c, utc)
-                        : (EnableV71CoreArbitration ? V71AlphaArbitrationScore(c, utc) : CandidateRank(c));
+                        : (EnableV71CoreArbitration ? V71AlphaArbitrationScore(c, utc) : CandidateRank(c)));
                     _alphaPassed++;
                     c.ArmedUtc = utc;
                     if (EnableArmedExecutionGrace)
@@ -1284,16 +1313,20 @@ namespace cAlgo.Robots
 
             if (EnableDiversityScheduler)
                 armedQuery = armedQuery.GroupBy(c => string.IsNullOrWhiteSpace(c.SetupKey) ? c.CandidateId : c.SetupKey)
-                    .Select(g => g.OrderByDescending(c => EnableV71MinimalFilterRebase && EnableV71SignalPreservingArbitration
+                    .Select(g => g.OrderByDescending(c => EnableV71UnifiedOpportunityScore
+                        ? V71UnifiedScore(c, now)
+                        : (EnableV71MinimalFilterRebase && EnableV71SignalPreservingArbitration
                         ? V71SignalPreservingScore(c, now)
-                        : (EnableOpportunityDecayRanking ? OpportunityScore(c, now) : c.Rank)).First());
+                        : (EnableOpportunityDecayRanking ? OpportunityScore(c, now) : c.Rank))).First());
 
             var armed = armedQuery
-                .OrderByDescending(c => EnableV71MinimalFilterRebase && EnableV71SignalPreservingArbitration
+                .OrderByDescending(c => EnableV71UnifiedOpportunityScore
+                    ? V71UnifiedScore(c, now)
+                    : (EnableV71MinimalFilterRebase && EnableV71SignalPreservingArbitration
                     ? V71SignalPreservingScore(c, now)
                     : (EnableV71CoreArbitration ? V71AlphaArbitrationScore(c, now) :
                     (EnableV70OpportunityCostArbitration ? V70OpportunityCostScore(c, now) :
-                    (EnableOpportunityDecayRanking ? OpportunityScore(c, now) : c.Rank))))
+                    (EnableOpportunityDecayRanking ? OpportunityScore(c, now) : c.Rank)))))
                 .ToList();
             if (armed.Count == 0) return;
 
@@ -1319,7 +1352,20 @@ namespace cAlgo.Robots
                 _v71SelectiveBackfillBypasses++;
             }
 
+            if (EnableV71AuctionScheduler && !V71AuctionReady(armed, now))
+                return;
+
             var winner = armed[0];
+            if (EnableV71UnifiedOpportunityScore)
+            {
+                _v71UnifiedScoreSelections++;
+                Event(winner, "V71_UNIFIED_WINNER_SCORE_" + V71UnifiedScore(winner, now).ToString("F4", CultureInfo.InvariantCulture));
+            }
+            if (EnableV71AuctionScheduler)
+            {
+                _v71AuctionSelections++;
+                Event(winner, "V71_AUCTION_WINNER");
+            }
             if (v71ReservationActive)
                 Event(winner, "V71_SELECTIVE_BACKFILL_RESERVATION_BYPASS");
             if (EnableV70OpportunityCostArbitration)
@@ -1450,7 +1496,9 @@ namespace cAlgo.Robots
         {
             foreach (var c in _candidates.Values
                 .Where(x => x.IsActive && (x.State == CandidateState.PARKED || x.State == CandidateState.SLOT_BLOCKED))
-                .OrderByDescending(x => EnableOpportunityDecayRanking ? OpportunityScore(x, now) : x.Rank)
+                .OrderByDescending(x => EnableV71UnifiedOpportunityScore
+                    ? V71UnifiedScore(x, now)
+                    : (EnableOpportunityDecayRanking ? OpportunityScore(x, now) : x.Rank))
                 .ToList())
             {
                 Transition(c, CandidateState.REVALIDATING, "SLOT_RELEASE_REVALIDATION");
@@ -1464,7 +1512,7 @@ namespace cAlgo.Robots
                 }
                 _parkedRevalidated++;
                 CountPipeline(c.Signal.PatternName).Revalidated++;
-                c.Rank = CandidateRank(c);
+                c.Rank = EnableV71UnifiedOpportunityScore ? V71UnifiedScore(c, now) : CandidateRank(c);
                 Transition(c, CandidateState.EXECUTABLE, "PARKED_REVALIDATED");
             }
         }
@@ -4835,6 +4883,140 @@ namespace cAlgo.Robots
             }
 
             return TryBuildFibonacciGridPlan(c);
+        }
+
+        // V71 Unified Harmonic Auction Rebase.
+        // All inputs are pre-entry/current-state only.  Historical calibration evidence enters
+        // solely as a bounded soft family/route prior; it cannot create a trade or override safety.
+        private HarmonicRoute V71UnifiedRoute(PatternSignal s, HarmonicRoute legacyRoute, HarmonicRoute familyRoute, MtfConflict conflict, RegimeSnapshot regime)
+        {
+            if (familyRoute != HarmonicRoute.NO_TRADE) return familyRoute;
+            if (legacyRoute != HarmonicRoute.NO_TRADE) return legacyRoute;
+
+            _v71UnifiedRouteFallbacks++;
+            if (regime != null && regime.Transition) return HarmonicRoute.TRANSITION_REVERSAL;
+            if (conflict == MtfConflict.CONFLICT || (regime != null && regime.ExtensionAtr >= 1.25))
+                return HarmonicRoute.EXHAUSTION_REVERSAL;
+            return HarmonicRoute.TREND_ALIGNED_REVERSAL;
+        }
+
+        private double V71FamilyRoutePrior(CandidateRecord c)
+        {
+            if (c == null || c.Signal == null) return 0;
+            string p = c.Signal.PatternName ?? "";
+            string st = c.Signal.HarmonicSubtype ?? "";
+            HarmonicRoute r = c.Route;
+            double prior = 0;
+
+            if (p == "Cypher" && r == HarmonicRoute.TREND_ALIGNED_REVERSAL) prior = .80;
+            else if (p == "Rat" && c.LegacyRoute == HarmonicRoute.NO_TRADE) prior = .60;
+            else if (p == "Rat" && r == HarmonicRoute.TREND_ALIGNED_REVERSAL) prior = .35;
+            else if (p == "Rat" && r == HarmonicRoute.EXHAUSTION_REVERSAL) prior = -.45;
+            else if (p == "AB=CD" && r == HarmonicRoute.EXHAUSTION_REVERSAL) prior = .35;
+            else if (p == "AB=CD" && r == HarmonicRoute.TREND_ALIGNED_REVERSAL) prior = .30;
+            else if (p == "AB=CD" && r == HarmonicRoute.TRANSITION_REVERSAL) prior = -.20;
+            else if (p == "Gartley" && r == HarmonicRoute.TREND_ALIGNED_REVERSAL) prior = .18;
+            else if (p == "Shark" && c.LegacyRoute == HarmonicRoute.NO_TRADE) prior = .10;
+            else if (p == "Shark" && r == HarmonicRoute.TREND_ALIGNED_REVERSAL) prior = -.10;
+            else if (p == "Shark" && r == HarmonicRoute.EXHAUSTION_REVERSAL) prior = -.55;
+            else if (p == "5-0" && c.LegacyRoute == HarmonicRoute.NO_TRADE) prior = .08;
+            else if (p == "5-0" && r == HarmonicRoute.TREND_ALIGNED_REVERSAL) prior = -.15;
+            else if (p == "5-0" && r == HarmonicRoute.EXHAUSTION_REVERSAL) prior = -.10;
+            else if (p == "Deep Gartley") prior = -.45;
+            else if (p == "Deep Crab") prior = -.35;
+            else if (p == "Butterfly") prior = -.25;
+
+            if (p == "AB=CD")
+            {
+                if (st == "ABCD_EXACT") prior += .10;
+                else if (st == "ABCD_NEAR_127") prior += .03;
+                else if (st == "ABCD_LEGACY_BROAD") prior -= .18;
+            }
+            return Math.Max(-1.0, Math.Min(1.0, prior));
+        }
+
+        private double V71MtfSoftScore(MtfConflict c)
+        {
+            return c == MtfConflict.ALIGNED ? 1.00 :
+                   c == MtfConflict.SUPPORTED ? .85 :
+                   c == MtfConflict.TRANSITION ? .70 :
+                   c == MtfConflict.NEUTRAL ? .55 : .25;
+        }
+
+        private double V71RegimeSoftScore(CandidateRecord c)
+        {
+            if (c == null || c.Regime == null) return 0;
+            double atrFit = 1.0 - Math.Min(1.0, Math.Abs(c.Regime.AtrRatio - 1.0));
+            double ext = Math.Min(1.0, Math.Max(0, c.Regime.ExtensionAtr / 2.0));
+            double trend = Math.Min(1.0, Math.Max(0, c.Regime.TrendStrength));
+            return VClamp(.35 * VClamp(c.RegimeScore) + .25 * VClamp(c.Regime.Efficiency) +
+                          .20 * atrFit + .10 * ext + .10 * trend);
+        }
+
+        private double V71UnifiedScore(CandidateRecord c, DateTime now)
+        {
+            if (c == null || c.Signal == null) return -999;
+            double geometry = VClamp(c.Signal.GeometryQuality);
+            double prz = VClamp(c.Signal.PrzConfluence);
+            double confidence = VClamp(c.Signal.Confidence);
+            double symmetry = VClamp(c.Signal.TimeSymmetry);
+            double pivot = VClamp(c.Signal.PivotQuality);
+            double confirm = VClamp(c.ConfirmationScore);
+            double rr = VClamp(c.NetRR / 3.0);
+            double mtf = V71MtfSoftScore(c.Conflict);
+            double regime = V71RegimeSoftScore(c);
+            double prior = V71FamilyRoutePrior(c);
+            double completion = VClamp(V67AbcdConfluenceScore(c.Signal));
+
+            double score =
+                .18 * geometry +
+                .18 * prz +
+                .08 * confidence +
+                .05 * symmetry +
+                .03 * pivot +
+                .16 * confirm +
+                .12 * rr +
+                .06 * mtf +
+                .06 * regime +
+                .05 * completion +
+                .07 * prior;
+
+            double expectedMinutes = c.Route == HarmonicRoute.TREND_ALIGNED_REVERSAL ? 90.0 :
+                                     c.Route == HarmonicRoute.EXHAUSTION_REVERSAL ? 120.0 : 75.0;
+            double ageMinutes = Math.Max(0, (now - c.DetectedUtc).TotalMinutes);
+            double agePenalty = Math.Min(.06, ageMinutes / 240.0 * .06);
+            double spreadPenalty = Math.Min(.05, CurrentSpreadPips() / Math.Max(1.0, MaxSpreadPips) * .05);
+            double occupancyPenalty = .04 * Math.Min(1.0, expectedMinutes / 120.0);
+            return score - agePenalty - spreadPenalty - occupancyPenalty;
+        }
+
+        private bool V71AuctionReady(List<CandidateRecord> armed, DateTime now)
+        {
+            if (!EnableV71AuctionScheduler || armed == null || armed.Count == 0) return true;
+            var times = armed.Where(x => x.ArmedUtc.HasValue).Select(x => x.ArmedUtc.Value).ToList();
+            if (times.Count == 0) return true;
+
+            double ageMinutes = Math.Max(0, (now - times.Min()).TotalMinutes);
+            double minWait = Math.Max(0, V71AuctionMinMinutes);
+            double maxWait = Math.Max(minWait, V71AuctionMaxMinutes);
+
+            if (ageMinutes + 1e-9 < minWait)
+            {
+                _v71AuctionDeferrals++;
+                return false;
+            }
+
+            if (armed.Count > 1 && ageMinutes + 1e-9 < maxWait)
+            {
+                double top = V71UnifiedScore(armed[0], now);
+                double second = V71UnifiedScore(armed[1], now);
+                if (top - second < Math.Max(0, V71AuctionDominanceMargin))
+                {
+                    _v71AuctionDeferrals++;
+                    return false;
+                }
+            }
+            return true;
         }
 
         // V71 Final Structural Rebase:

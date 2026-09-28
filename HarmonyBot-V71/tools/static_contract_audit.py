@@ -47,9 +47,15 @@ checks={
  "nonblocking_grid":"V71BuildPostSelectionExecutionPlan" in s and "V71_GRID_NONBLOCKING_SINGLE_LEG_FALLBACK" in s,
  "single_leg_fallback_risk_bound":"V71BuildSingleLegExecutionPlan" in s and "plan.WorstCaseRisk > plan.BasketRiskAmount + 1e-8" in s,
  "signal_preserving_arbitration":"EnableV71SignalPreservingArbitration" in s and "V71SignalPreservingScore" in s,
- "minimal_no_future":all(x not in between("private bool V71MinimalSignalIntegrityPass","// V71 Final Structural Rebase:") for x in ["OutcomeR","MfeR","MaeR","ShadowAlphaObservation","_v69Shadow"])
+ "minimal_no_future":all(x not in between("private bool V71MinimalSignalIntegrityPass","// V71 Final Structural Rebase:") for x in ["OutcomeR","MfeR","MaeR","ShadowAlphaObservation","_v69Shadow"]),
+ "unified_family_route":"EnableV71UnifiedFamilyRoute" in s and "V71UnifiedRoute" in s,
+ "unified_score":"EnableV71UnifiedOpportunityScore" in s and "V71UnifiedScore" in s and "V71FamilyRoutePrior" in s,
+ "unified_score_no_future":all(x not in between("private double V71FamilyRoutePrior","// V71 Final Structural Rebase:") for x in ["OutcomeR","MfeR","MaeR","ShadowAlphaObservation","_v69Shadow"]),
+ "auction_scheduler":"EnableV71AuctionScheduler" in s and "V71AuctionReady" in s and "V71_AUCTION_WINNER" in s,
+ "auction_no_future":all(x not in between("private bool V71AuctionReady","// V71 Final Structural Rebase:") for x in ["OutcomeR","MfeR","MaeR","ShadowAlphaObservation","_v69Shadow"]),
+ "supply_capacity_ceiling":'[Parameter("Portfolio Max Candidates", DefaultValue = 8, MinValue = 2, MaxValue = 32)]' in s and '[Parameter("Parked Hard Lifetime Minutes", DefaultValue = 180, MinValue = 120, MaxValue = 360)]' in s
 }
-out={"version":"HarmonyBot V71","audit":"minimal_gate_signal_preservation_fail_closed","source_sha256":hashlib.sha256(p.read_bytes()).hexdigest(),"checks":checks,"pass":all(checks.values())}
+out={"version":"HarmonyBot V71","audit":"unified_harmonic_auction_fail_closed","source_sha256":hashlib.sha256(p.read_bytes()).hexdigest(),"checks":checks,"pass":all(checks.values())}
 pathlib.Path("V71_STATIC_CONTRACT_AUDIT.json").write_text(json.dumps(out,indent=2))
 print(json.dumps(out,indent=2))
 raise SystemExit(0 if out["pass"] else 2)
