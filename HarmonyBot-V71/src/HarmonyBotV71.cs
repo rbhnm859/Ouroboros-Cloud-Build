@@ -10,8 +10,9 @@ namespace cAlgo.Robots
     [Robot(TimeZone = TimeZones.UTC, AccessRights = AccessRights.None)]
     public class HarmonyBotV71 : Robot
     {
-        private const string Version = "HarmonyBot V71 — Selective Causal Alpha Reconstruction & Family-Native Grid Amplifier";
+        private const string Version = "HarmonyBot V71 — Protected Champion Core & Incremental Cross-Fit Expansion";
         private const string BotPrefix = "HB71";
+        private const string V51TrustedParent = "1b670a0f43ba8ecaa637febfdacf605b1b146f01";
 
         [Parameter("Symbol", DefaultValue = "XAUUSD")]
         public new string SymbolName { get; set; }
@@ -70,7 +71,7 @@ namespace cAlgo.Robots
         [Parameter("H4 Swing Depth", DefaultValue = 2, MinValue = 2, MaxValue = 6)]
         public int H4SwingDepth { get; set; }
 
-        [Parameter("Portfolio Max Candidates", DefaultValue = 8, MinValue = 2, MaxValue = 32)]
+        [Parameter("Portfolio Max Candidates", DefaultValue = 8, MinValue = 2, MaxValue = 12)]
         public int PortfolioMaxCandidates { get; set; }
 
         [Parameter("Candidate TTL M15 Bars", DefaultValue = 8, MinValue = 2, MaxValue = 24)]
@@ -175,7 +176,7 @@ namespace cAlgo.Robots
         [Parameter("Opportunity Decay Ranking", DefaultValue = true)]
         public bool EnableOpportunityDecayRanking { get; set; }
 
-        [Parameter("Parked Hard Lifetime Minutes", DefaultValue = 180, MinValue = 120, MaxValue = 360)]
+        [Parameter("Parked Hard Lifetime Minutes", DefaultValue = 180, MinValue = 180, MaxValue = 180)]
         public int ParkedHardLifetimeMinutes { get; set; }
 
         [Parameter("Family-Native Conversion", DefaultValue = true)]
@@ -208,143 +209,41 @@ namespace cAlgo.Robots
         [Parameter("Entry Anchor Forensics", DefaultValue = true)]
         public bool EnableEntryAnchorForensics { get; set; }
 
-        [Parameter("Family Identity Reconstruction", DefaultValue = false)]
-        public bool EnableFamilyIdentityReconstruction { get; set; }
+        [Parameter("V71 Expansion Shadow", DefaultValue = false)]
+        public bool EnableV71ExpansionShadow { get; set; }
 
-        [Parameter("Bounded Pivot Graph", DefaultValue = false)]
-        public bool EnableBoundedPivotGraph { get; set; }
+        [Parameter("V71 Expansion Execution", DefaultValue = false)]
+        public bool EnableV71ExpansionExecution { get; set; }
 
-        [Parameter("Max Micro Pivot Skips", DefaultValue = 2, MinValue = 0, MaxValue = 2)]
-        public int MaxMicroPivotSkips { get; set; }
+        [Parameter("V71 Expansion Grid", DefaultValue = false)]
+        public bool EnableV71ExpansionGrid { get; set; }
 
-        [Parameter("Family Detection Quota", DefaultValue = 4, MinValue = 1, MaxValue = 8)]
-        public int FamilyDetectionQuota { get; set; }
+        [Parameter("V71 Expansion Adaptive Risk", DefaultValue = false)]
+        public bool EnableV71ExpansionAdaptiveRisk { get; set; }
 
-        [Parameter("Family Projected PRZ", DefaultValue = false)]
-        public bool EnableFamilyNativeProjectedPrz { get; set; }
+        [Parameter("V71 Expansion Risk %", DefaultValue = 1.0, MinValue = 0.1, MaxValue = 5.0)]
+        public double V71ExpansionRiskPercent { get; set; }
 
-        [Parameter("Detector Truth Ledger", DefaultValue = true)]
-        public bool EnableDetectorTruthLedger { get; set; }
+        [Parameter("V71 Expansion Max Candidates", DefaultValue = 24, MinValue = 8, MaxValue = 32)]
+        public int V71ExpansionMaxCandidates { get; set; }
 
-        [Parameter("V67 Family Trade Contracts", DefaultValue = false)]
-        public bool EnableV67FamilyTradeContracts { get; set; }
+        [Parameter("V71 Expansion TTL M15", DefaultValue = 16, MinValue = 4, MaxValue = 32)]
+        public int V71ExpansionTtlM15Bars { get; set; }
 
-        [Parameter("V67 Family Detector Frontier", DefaultValue = false)]
-        public bool EnableV67FamilyDetectorFrontier { get; set; }
+        [Parameter("V71 Expansion Shadow Horizon M1", DefaultValue = 180, MinValue = 30, MaxValue = 720)]
+        public int V71ExpansionShadowHorizonM1Bars { get; set; }
 
-        [Parameter("V67 Family-Native Grid", DefaultValue = false)]
-        public bool EnableV67FamilyNativeGrid { get; set; }
+        [Parameter("V71 Edge Model Spec", DefaultValue = "")]
+        public string V71EdgeModelSpec { get; set; }
 
-        [Parameter("V67 Evidence Route Guard", DefaultValue = false)]
-        public bool EnableV67EvidenceRouteGuard { get; set; }
+        [Parameter("V71 Family Route Prior Spec", DefaultValue = "")]
+        public string V71FamilyRoutePriorSpec { get; set; }
 
-        [Parameter("V67 Controlled Expansion", DefaultValue = false)]
-        public bool EnableV67ControlledExpansion { get; set; }
+        [Parameter("V71 Edge LCB Margin", DefaultValue = 0.0, MinValue = 0.0, MaxValue = 2.0)]
+        public double V71EdgeLcbMargin { get; set; }
 
-        [Parameter("V68 Canonical Identity", DefaultValue = true)]
-        public bool EnableV68CanonicalIdentity { get; set; }
-
-        [Parameter("V68 Identity Fail Closed", DefaultValue = false)]
-        public bool EnableV68CanonicalIdentityFailClosed { get; set; }
-
-        [Parameter("V68 Evidence-Preserving Admission", DefaultValue = false)]
-        public bool EnableV68EvidencePreservingAdmission { get; set; }
-
-        [Parameter("V68 Family Expansion Challenger", DefaultValue = false)]
-        public bool EnableV68FamilyExpansion { get; set; }
-
-        [Parameter("V68 Grid Challenger", DefaultValue = false)]
-        public bool EnableV68GridChallenger { get; set; }
-
-        [Parameter("V69 Equal Family Visibility", DefaultValue = true)]
-        public bool EnableV69EqualFamilyVisibility { get; set; }
-
-        [Parameter("V69 Shadow Alpha Census", DefaultValue = true)]
-        public bool EnableV69ShadowAlphaCensus { get; set; }
-
-        [Parameter("V69 Shadow Horizon M1 Bars", DefaultValue = 180, MinValue = 30, MaxValue = 720)]
-        public int V69ShadowHorizonM1Bars { get; set; }
-
-        [Parameter("V70 Hard-Veto Rationalization", DefaultValue = false)]
-        public bool EnableV70HardVetoRationalization { get; set; }
-
-        [Parameter("V70 Family-Route Admission", DefaultValue = false)]
-        public bool EnableV70FamilyRouteAdmission { get; set; }
-
-        [Parameter("V70 Opportunity-Cost Arbitration", DefaultValue = false)]
-        public bool EnableV70OpportunityCostArbitration { get; set; }
-
-        [Parameter("V70 Protected Positive Lanes", DefaultValue = true)]
-        public bool EnableV70ProtectedPositiveLanes { get; set; }
-
-        [Parameter("V70 Timing Max Wait M1 Bars", DefaultValue = 12, MinValue = 3, MaxValue = 30)]
-        public int V70TimingMaxWaitM1Bars { get; set; }
-
-        [Parameter("V71 Selective Lane Suppression", DefaultValue = false)]
-        public bool EnableV71SelectiveLaneSuppression { get; set; }
-
-        [Parameter("V71 Selective Alpha Recall", DefaultValue = false)]
-        public bool EnableV71SelectiveRecall { get; set; }
-
-        [Parameter("V71 Family-Native Grid Amplifier", DefaultValue = false)]
-        public bool EnableV71FamilyNativeGridAmplifier { get; set; }
-
-        [Parameter("V71 No-Backfill Reservation", DefaultValue = false)]
-        public bool EnableV71NoBackfillReservation { get; set; }
-
-        [Parameter("V71 Family Regime Survival", DefaultValue = false)]
-        public bool EnableV71RegimeSurvival { get; set; }
-
-        [Parameter("V71 Selective Backfill Admission", DefaultValue = false)]
-        public bool EnableV71SelectiveBackfill { get; set; }
-
-        [Parameter("V71 Adaptive Risk Scaling", DefaultValue = false)]
-        public bool EnableV71AdaptiveRiskScaling { get; set; }
-
-        [Parameter("V71 Canonical Capital Spine", DefaultValue = false)]
-        public bool EnableV71CanonicalCapitalSpine { get; set; }
-
-        [Parameter("V71 Post-Selection Grid Isolation", DefaultValue = false)]
-        public bool EnableV71PostSelectionGridIsolation { get; set; }
-
-        [Parameter("V71 Core Arbitration", DefaultValue = false)]
-        public bool EnableV71CoreArbitration { get; set; }
-
-        [Parameter("V71 Challenger Reserve", DefaultValue = false)]
-        public bool EnableV71ChallengerReserve { get; set; }
-
-        [Parameter("V71 Cross-Regime Survival V2", DefaultValue = false)]
-        public bool EnableV71CrossRegimeSurvivalV2 { get; set; }
-
-        [Parameter("V71 Minimal Filter Rebase", DefaultValue = false)]
-        public bool EnableV71MinimalFilterRebase { get; set; }
-
-        [Parameter("V71 Signal-Preserving Arbitration", DefaultValue = false)]
-        public bool EnableV71SignalPreservingArbitration { get; set; }
-
-        [Parameter("V71 Force Single-Leg Control", DefaultValue = false)]
-        public bool EnableV71ForceSingleLegExecution { get; set; }
-
-        [Parameter("V71 Non-Blocking Grid", DefaultValue = false)]
-        public bool EnableV71NonBlockingGrid { get; set; }
-
-        [Parameter("V71 Unified Family Route", DefaultValue = false)]
-        public bool EnableV71UnifiedFamilyRoute { get; set; }
-
-        [Parameter("V71 Unified Opportunity Score", DefaultValue = false)]
-        public bool EnableV71UnifiedOpportunityScore { get; set; }
-
-        [Parameter("V71 Auction Scheduler", DefaultValue = false)]
-        public bool EnableV71AuctionScheduler { get; set; }
-
-        [Parameter("V71 Auction Min Minutes", DefaultValue = 1.0, MinValue = 0.0, MaxValue = 5.0)]
-        public double V71AuctionMinMinutes { get; set; }
-
-        [Parameter("V71 Auction Max Minutes", DefaultValue = 4.0, MinValue = 1.0, MaxValue = 10.0)]
-        public double V71AuctionMaxMinutes { get; set; }
-
-        [Parameter("V71 Auction Dominance Margin", DefaultValue = 0.10, MinValue = 0.0, MaxValue = 0.50)]
-        public double V71AuctionDominanceMargin { get; set; }
+        [Parameter("V71 Model ID", DefaultValue = "NONE")]
+        public string V71ModelId { get; set; }
 
         [Parameter("Min Harmonic Robustness", DefaultValue = 0.56, MinValue = 0.40, MaxValue = 0.80)]
         public double MinHarmonicRobustness { get; set; }
@@ -387,7 +286,7 @@ namespace cAlgo.Robots
         private readonly Dictionary<string, PipelineCounter> _pipeline = new Dictionary<string, PipelineCounter>();
         private readonly Dictionary<string, FibonacciBasket> _baskets = new Dictionary<string, FibonacciBasket>();
         private long _basketSeq;
-        private int _gridRiskPlanRejects;
+        private int _gridRiskViolations;
         private int _duplicateGridLegs;
         private int _orphanPendingOrders;
         private int _stopWideningViolations = 0;
@@ -435,43 +334,23 @@ namespace cAlgo.Robots
         private int _opportunityDecayRejected;
         private int _missedPositiveSetups;
         private int _avoidedNegativeSetups;
-        private int _canonicalFamilyIdentityViolations;
-        private readonly Dictionary<CanonicalFamilyId, FamilyVisibilityCounter> _v69FamilyVisibility = new Dictionary<CanonicalFamilyId, FamilyVisibilityCounter>();
-        private readonly Dictionary<string, int> _v69TerminalReasons = new Dictionary<string, int>();
-        private readonly Dictionary<string, FilterEvidenceCounter> _v70FilterEvidence = new Dictionary<string, FilterEvidenceCounter>();
-        private int _v70ProtectedAdmissions;
-        private int _v70ChallengerAdmissions;
-        private int _v70HardVetoObservations;
-        private int _v70TimingDeferrals;
-        private int _v70ArbitrationSelections;
-        private int _v71SuppressedLegacyLanes;
-        private int _v71SelectiveQualityRecalls;
-        private int _v71SelectiveRouteRecalls;
-        private int _v71GridAmplifiedPlans;
-        private int _v71NoBackfillReservations;
-        private int _v71NoBackfillBlocks;
-        private int _v71RegimeSurvivalRejects;
-        private int _v71SelectiveBackfillAdmissions;
-        private int _v71SelectiveBackfillBypasses;
-        private int _v71AdaptiveRiskPlans;
-        private int _v71MinimalSignalAdmissions;
-        private int _v71MinimalRouteFallbacks;
-        private int _v71MinimalM1Confirmations;
-        private int _v71GridFallbackSingleLegs;
-        private int _v71UnifiedRouteFallbacks;
-        private int _v71UnifiedScoreSelections;
-        private int _v71AuctionDeferrals;
-        private int _v71AuctionSelections;
-        private DateTime _v71VirtualSlotReservationUntilUtc = DateTime.MinValue;
-        private readonly HashSet<string> _v71ReservationSetupKeys = new HashSet<string>();
-        private readonly Dictionary<string, ShadowAlphaObservation> _v69Shadow = new Dictionary<string, ShadowAlphaObservation>();
-        private readonly HashSet<string> _v69ShadowStarted = new HashSet<string>();
 
         private readonly Dictionary<string, int> _familyContractPass = new Dictionary<string, int>();
         private readonly Dictionary<string, int> _familyContractWindowReject = new Dictionary<string, int>();
         private readonly Dictionary<string, int> _gridPlanRejectReasons = new Dictionary<string, int>();
-        private readonly Dictionary<string, int> _detectorTruth = new Dictionary<string, int>();
-        private readonly Dictionary<string, FamilyTradeContract> _familyTradeContracts = new Dictionary<string, FamilyTradeContract>(StringComparer.OrdinalIgnoreCase);
+
+        private readonly Dictionary<string, V71ExpansionCandidate> _v71Expansion = new Dictionary<string, V71ExpansionCandidate>();
+        private readonly Dictionary<string, double> _v71EdgeWeights = new Dictionary<string, double>();
+        private readonly Dictionary<string, double> _v71FamilyRoutePriors = new Dictionary<string, double>();
+        private bool _v71ModelReady;
+        private int _v71ExpansionDetected;
+        private int _v71ExpansionArmed;
+        private int _v71ExpansionExecuted;
+        private int _v71ExpansionCoreBlocked;
+        private int _v71ExpansionModelRejected;
+        private int _v71ExpansionGridFallback;
+        private int _v71ExpansionShadowClosed;
+        private int _v71ExpansionRiskScaled;
 
         private DateTime _lastM15Closed = DateTime.MinValue;
         private DateTime _lastM1Closed = DateTime.MinValue;
@@ -491,7 +370,7 @@ namespace cAlgo.Robots
             _symbol = Symbols.GetSymbol(SymbolName);
             if (_symbol == null)
             {
-                Print("[V71-FATAL] SYMBOL_NOT_FOUND {0}", SymbolName);
+                Print("[V51-FATAL] SYMBOL_NOT_FOUND {0}", SymbolName);
                 Stop();
                 return;
             }
@@ -503,7 +382,7 @@ namespace cAlgo.Robots
 
             if (!BarsObjectsReady())
             {
-                Print("[V71-FATAL] TIMEFRAME_OBJECT_LOAD_FAILED");
+                Print("[V51-FATAL] TIMEFRAME_OBJECT_LOAD_FAILED");
                 Stop();
                 return;
             }
@@ -514,14 +393,14 @@ namespace cAlgo.Robots
             WarmupBars(_m1Bars, 120, "M1");
 
             if (!BarsReady())
-                Print("[V71-WARMUP-PENDING] H4={0} H1={1} M15={2} M1={3}",
+                Print("[V51-WARMUP-PENDING] H4={0} H1={1} M15={2} M1={3}",
                     Count(_h4Bars), Count(_h1Bars), Count(_m15Bars), Count(_m1Bars));
 
             _londonTz = ResolveTimeZone("Europe/London", "GMT Standard Time");
             _newYorkTz = ResolveTimeZone("America/New_York", "Eastern Standard Time");
             if (_londonTz == null || _newYorkTz == null)
             {
-                Print("[V71-FATAL] DST_TIMEZONE_UNAVAILABLE");
+                Print("[V51-FATAL] DST_TIMEZONE_UNAVAILABLE");
                 Stop();
                 return;
             }
@@ -535,9 +414,7 @@ namespace cAlgo.Robots
             }
 
             BuildPatternProfiles();
-            BuildV67FamilyTradeContracts();
-            InitializeV69FamilyVisibility();
-            if (EnableV67FamilyNativeGrid && EnableV68GridChallenger) ApplyV67FamilyGridContracts();
+            V71ParseEdgeModel();
             _initialEquity = Account.Equity;
             _initialCapitalEligible = _initialEquity + 1e-8 >= MinimumSupportedEquity;
             _equityPeak = Account.Equity;
@@ -549,55 +426,40 @@ namespace cAlgo.Robots
 
             PrintBrokerCapabilityProfile();
 
-            Print("[V71-START] version={0} symbol={1} H4={2} H1={3} M15={4} M1={5} profiles={6}",
+            Print("[V51-START] version={0} symbol={1} H4={2} H1={3} M15={4} M1={5} profiles={6}",
                 Version, SymbolName, Count(_h4Bars), Count(_h1Bars), Count(_m15Bars), Count(_m1Bars), _profiles.Count);
-            Print("[V71-TIMEFRAME-AUDIT] primaryPattern=M15 execution=M1 macro=H4 intermediate=H1 allCompletedBars=true");
-            Print("[V71-SESSION-AUDIT] london={0} newYork={1} dstAware=true", _londonTz.Id, _newYorkTz.Id);
-            Print("[V71-ALPHA-CONFIG] qualityObservation={0} legacyRegime={1} legacyEnhancedM1={2} capitalFeasibility={3} transitionVeto={4} exhaustionVeto={5} routeM1Veto={6}",
+            Print("[V51-TIMEFRAME-AUDIT] primaryPattern=M15 execution=M1 macro=H4 intermediate=H1 allCompletedBars=true");
+            Print("[V51-SESSION-AUDIT] london={0} newYork={1} dstAware=true", _londonTz.Id, _newYorkTz.Id);
+            Print("[V51-ALPHA-CONFIG] qualityObservation={0} legacyRegime={1} legacyEnhancedM1={2} capitalFeasibility={3} transitionVeto={4} exhaustionVeto={5} routeM1Veto={6}",
                 EnableHarmonicRobustnessGate, EnableRegimeContextGate, EnableEnhancedM1Confirmation, EnableCapitalFeasibilityGate,
                 EnableTransitionStateVeto, EnableExhaustionEvidenceVeto, EnableRouteSpecificM1Veto);
-            Print("[V71-FREQUENCY-CONFIG] deferredRetention={0} agingPriority={1} ageBoost={2:F3} structuredRecall={3} recallGeometry={4:F3} recallPrz={5:F3} recallConfidence={6:F3}",
+            Print("[V51-FREQUENCY-CONFIG] deferredRetention={0} agingPriority={1} ageBoost={2:F3} structuredRecall={3} recallGeometry={4:F3} recallPrz={5:F3} recallConfidence={6:F3}",
                 EnableDeferredCandidateRetention, EnableFrequencyAgingPriority, CandidateAgeRankBoost, EnableStructuredRecallExpansion,
                 RecallMinGeometry, RecallMinPrz, RecallMinConfidence);
-            Print("[V71-RESTORED-KERNEL] canonicalSetup={0} canonicalStandard={1} independentPivotGraph={2} transitionProof={3} m1Rescue={4} rescueBars={5} diversityScheduler={6} executionClock=M1 projectedD=false",
+            Print("[V51-RESTORED-KERNEL] canonicalSetup={0} canonicalStandard={1} independentPivotGraph={2} transitionProof={3} m1Rescue={4} rescueBars={5} diversityScheduler={6} executionClock=M1 projectedD=false",
                 EnableCanonicalSetupIdentity, EnableCanonicalStandardCoordinates, EnableIndependentPivotGraph,
                 EnableTransitionProofGate, EnableM1RescueLane, M1RescueMaxBars, EnableDiversityScheduler);
-            Print("[V71-CONVERSION-ARCH] scaleRouteAdmission={0} temporalRescue={1} armedGrace={2} graceMinutes={3} preExecutionRevalidation={4}",
+            Print("[V51-CONVERSION-ARCH] scaleRouteAdmission={0} temporalRescue={1} armedGrace={2} graceMinutes={3} preExecutionRevalidation={4}",
                 EnableScaleRouteAdmission, EnableM1TemporalRescue, EnableArmedExecutionGrace, ArmedGraceMinutes,
                 EnablePreExecutionGridRevalidation);
-            Print("[V71-FAMILY-NATIVE] conversion={0} observation={1} principle=PATTERN_IDENTITY_NEQ_EXECUTION_IDENTITY", EnableFamilyNativeConversion, EnableFamilyNativeObservation);
-            Print("[V71-COMPLETION-CONTRACT] canonicalContracts={0} familyCompletion={1} windowBars={2} provenLane=ABCD_SHARK_CYPHER_FROZEN",
+            Print("[V51-FAMILY-NATIVE] conversion={0} observation={1} principle=PATTERN_IDENTITY_NEQ_EXECUTION_IDENTITY", EnableFamilyNativeConversion, EnableFamilyNativeObservation);
+            Print("[V51-COMPLETION-CONTRACT] canonicalContracts={0} familyCompletion={1} windowBars={2} provenLane=ABCD_SHARK_CYPHER_FROZEN",
                 EnableCanonicalFamilyContracts, EnableFamilyCompletionContract, FamilyConfirmationWindowBars);
-            Print("[V71-STRUCTURAL-GRID-CONTRACT] gridSpanV2={0} structuralInvalidationV2={1} rule=PRZ_LEGALITY_PLUS_RISK_RR_NOT_LEGACY_XA_MINSPAN",
+            Print("[V51-STRUCTURAL-GRID-CONTRACT] gridSpanV2={0} structuralInvalidationV2={1} rule=PRZ_LEGALITY_PLUS_RISK_RR_NOT_LEGACY_XA_MINSPAN",
                 EnableGridSpanSemanticV2, EnableStructuralInvalidationV2);
-            Print("[V71-MATH-GEOMETRY] jointGeometry={0} executionCorridor={1} entryAnchorForensics={2} rule=FAMILY_NATIVE_GEOMETRY_WITHOUT_RISK_RELAXATION",
+            Print("[V51-MATH-GEOMETRY] jointGeometry={0} executionCorridor={1} entryAnchorForensics={2} rule=FAMILY_NATIVE_GEOMETRY_WITHOUT_RISK_RELAXATION",
                 EnableFamilyNativeJointGeometry, EnableFamilyNativeExecutionCorridor, EnableEntryAnchorForensics);
-            Print("[V71-DETECTOR-ARCH] identityReconstruction={0} boundedPivotGraph={1} maxMicroSkips={2} familyQuota={3} projectedPrz={4} truthLedger={5} rule=DETECT_MANY_EXECUTE_ONE",
-                EnableFamilyIdentityReconstruction, EnableBoundedPivotGraph, MaxMicroPivotSkips, FamilyDetectionQuota,
-                EnableFamilyNativeProjectedPrz, EnableDetectorTruthLedger);
-            Print("[V71-THROUGHPUT-ARCH] persistentQueue={0} serialHandoff={1} nativeM1={2} nativeBars={3} decayRanking={4} hardLifetimeMinutes={5} alphaKernel=V46_SCALE_CONVERSION_FROZEN",
+            Print("[V51-THROUGHPUT-ARCH] persistentQueue={0} serialHandoff={1} nativeM1={2} nativeBars={3} decayRanking={4} hardLifetimeMinutes={5} alphaKernel=V46_SCALE_CONVERSION_FROZEN",
                 EnablePersistentArmedQueue, EnableEventDrivenSerialHandoff, EnablePatternNativeM1Expansion,
                 PatternNativeM1MaxBars, EnableOpportunityDecayRanking, ParkedHardLifetimeMinutes);
-            Print("[V71-ADMISSION-ARCH] hardVetoRationalization={0} familyRouteAdmission={1} opportunityCostArbitration={2} protectedPositiveLanes={3} timingMaxBars={4} safetyVeto=STRUCTURE_RISK_RR_MARGIN_SESSION_SPREAD_BROKER_DUPLICATE",
-                EnableV70HardVetoRationalization, EnableV70FamilyRouteAdmission, EnableV70OpportunityCostArbitration,
-                EnableV70ProtectedPositiveLanes, V70TimingMaxWaitM1Bars);
-            Print("[V71-SELECTIVE-ARCH] laneSuppression={0} selectiveRecall={1} familyNativeGridAmplifier={2} noBackfillReservation={3} regimeSurvival={4} controlSpine=V69_V70A_EXACT noBlanketRelaxation=true gridRole=FAMILY_NATIVE_PROFIT_AMPLIFIER_NOT_FILTER",
-                EnableV71SelectiveLaneSuppression, EnableV71SelectiveRecall, EnableV71FamilyNativeGridAmplifier,
-                EnableV71NoBackfillReservation, EnableV71RegimeSurvival);
-            Print("[V71-FAMILY-TRADE-CONTRACTS] enabled={0} detectorFrontier={1} familyGrid={2} evidenceGuard={3} controlledExpansion={4} contracts={5} principle=FAMILY_IDENTITY_ROUTE_CONFIRMATION_GRID_SEPARATED",
-                EnableV67FamilyTradeContracts, EnableV67FamilyDetectorFrontier, EnableV67FamilyNativeGrid,
-                EnableV67EvidenceRouteGuard, EnableV67ControlledExpansion, _familyTradeContracts.Count);
-            foreach (var kv in _familyTradeContracts.OrderBy(x => x.Key))
-            {
-                var fc = kv.Value;
-                Print("[V71-FAMILY-POLICY] pattern={0} role={1} routes=T{2}/E{3}/X{4} confirm={5} gridLegs={6} runner={7} expiryBars={8}",
-                    fc.Name, fc.Role, fc.AllowTrend, fc.AllowExhaustion, fc.AllowTransition, fc.ConfirmationModel,
-                    fc.MaximumGridLegs, fc.RunnerEligible, fc.ExpiryM15Bars);
-            }
+            Print("[V71-PROTECTED-CORE] trustedParent={0} expansionShadow={1} expansionExecution={2} expansionGrid={3} expansionAdaptiveRisk={4} expansionRiskCap={5:F2} model={6} modelReady={7}",
+                V51TrustedParent, EnableV71ExpansionShadow, EnableV71ExpansionExecution, EnableV71ExpansionGrid,
+                EnableV71ExpansionAdaptiveRisk, Math.Min(5.0, V71ExpansionRiskPercent), V71ModelId, _v71ModelReady);
         }
 
         protected override void OnStop()
         {
+            V71FinalizeExpansionShadows();
             CancelAllOwnPending("BOT_STOP");
             EnsureServerProtection();
             Positions.Closed -= OnPositionClosed;
@@ -606,67 +468,43 @@ namespace cAlgo.Robots
             foreach (var kv in _pipeline.OrderBy(k => k.Key))
             {
                 var x = kv.Value;
-                Print("[V71-PIPELINE] pattern={0} detected={1} validated={2} routed={3} prz={4} confirming={5} nativeTemporalPass={6} armed={7} slotBlocked={8} parked={9} revalidated={10} revalidationRejected={11} basketPlanned={12} leg0={13} leg1={14} leg2={15} leg3={16} basketClosed={17} executed={18} expired={19} rejected={20} invalidated={21}",
+                Print("[V51-PIPELINE] pattern={0} detected={1} validated={2} routed={3} prz={4} confirming={5} nativeTemporalPass={6} armed={7} slotBlocked={8} parked={9} revalidated={10} revalidationRejected={11} basketPlanned={12} leg0={13} leg1={14} leg2={15} leg3={16} basketClosed={17} executed={18} expired={19} rejected={20} invalidated={21}",
                     kv.Key, x.Detected, x.Validated, x.Routed, x.PrzWaiting, x.Confirming, x.NativeTemporalPass, x.Armed,
                     x.SlotBlocked, x.Parked, x.Revalidated, x.RevalidationRejected, x.BasketPlanned,
                     x.Leg0Executed, x.Leg1Filled, x.Leg2Filled, x.Leg3Filled, x.BasketClosed, x.Executed, x.Expired, x.Rejected, x.Invalidated);
-            }
-            FlushV69ShadowAtStop();
-            if (EnableV69EqualFamilyVisibility)
-            {
-                foreach (var id in V69CanonicalFamilies())
-                {
-                    var f = V69Visibility(id);
-                    Print("[V71-FAMILY-FUNNEL] familyId={0} topology={1} geometryMatched={2} ageRejected={3} selected={4} candidates={5} qualityPass={6} qualityReject={7} routePass={8} routeReject={9} przTouch={10} confirmationPass={11} gridPlanned={12} basketPlanned={13} executed={14} closed={15} rejected={16} expired={17} invalidated={18} shadowStarted={19} shadowResolved={20}",
-                        id, f.TopologyAttempts, f.GeometryMatched, f.AgeRejected, f.Selected, f.CandidateCreated,
-                        f.QualityPassed, f.QualityRejected, f.RoutePassed, f.RouteRejected, f.PrzTouched, f.ConfirmationPassed,
-                        f.GridPlanned, f.BasketPlanned, f.Executed, f.Closed, f.Rejected, f.Expired, f.Invalidated,
-                        f.ShadowStarted, f.ShadowResolved);
-                }
-                foreach (var kv in _v69TerminalReasons.OrderBy(x => x.Key))
-                    Print("[V71-FAMILY-TERMINAL] key={0} count={1}", kv.Key, kv.Value);
             }
             if (EnableEntryAnchorForensics)
             {
                 foreach (var c in _candidates.Values.Where(x => x.Signal != null && x.CompletionAnchorPrice > 0).OrderBy(x => x.CandidateId))
                 {
-                    Print("[V71-ENTRY-ANCHOR-FORENSICS] cid={0} setup={1} pattern={2} route={3} scale={4} completion={5} confirm={6} retest={7} completionMfeR={8:F3} completionMaeR={9:F3} confirmMfeR={10:F3} confirmMaeR={11:F3} retestMfeR={12:F3} retestMaeR={13:F3}",
+                    Print("[V51-ENTRY-ANCHOR-FORENSICS] cid={0} setup={1} pattern={2} route={3} scale={4} completion={5} confirm={6} retest={7} completionMfeR={8:F3} completionMaeR={9:F3} confirmMfeR={10:F3} confirmMaeR={11:F3} retestMfeR={12:F3} retestMaeR={13:F3}",
                         c.CandidateId, c.SetupKey, c.Signal.PatternName, c.Route, c.Signal.PivotScale,
                         c.CompletionAnchorPrice, c.NativeConfirmAnchorPrice, c.NativeRetestAnchorPrice,
                         c.CompletionAnchorMfeR, c.CompletionAnchorMaeR, c.NativeConfirmMfeR, c.NativeConfirmMaeR,
                         c.NativeRetestMfeR, c.NativeRetestMaeR);
                 }
             }
-            if (EnableDetectorTruthLedger)
-            {
-                foreach (var kv in _detectorTruth.OrderBy(x => x.Key))
-                {
-                    int sep = kv.Key.IndexOf("::", StringComparison.Ordinal);
-                    string pattern = sep >= 0 ? kv.Key.Substring(0, sep) : "UNKNOWN";
-                    string stage = sep >= 0 ? kv.Key.Substring(sep + 2) : kv.Key;
-                    Print("[V71-DETECTOR-TRUTH] pattern={0} stage={1} count={2}", pattern, stage, kv.Value);
-                }
-            }
-            Print("[V71-SUMMARY] candidates={0} baskets={1} openLedgers={2} executionErrors={3} gridRiskPlanRejects={4} duplicateGridLegs={5} orphanPendingOrders={6} stopWideningViolations={7} gapThroughInvalidations={8} gapThroughSurvivors={9} unprotectedSurvivors={10} postFillProtectionFailures={11} actualBasketRiskViolations={12} executionStateViolations={13} virtualGridFills={14} microModeBaskets={15} capitalRejectedBaskets={16} marginRiskViolations={17}",
-                _candidateSeq, _baskets.Count, _positions.Count, _executionErrors, _gridRiskPlanRejects, _duplicateGridLegs, _orphanPendingOrders, _stopWideningViolations,
+            Print("[V51-SUMMARY] candidates={0} baskets={1} openLedgers={2} executionErrors={3} gridRiskViolations={4} duplicateGridLegs={5} orphanPendingOrders={6} stopWideningViolations={7} gapThroughInvalidations={8} gapThroughSurvivors={9} unprotectedSurvivors={10} postFillProtectionFailures={11} actualBasketRiskViolations={12} executionStateViolations={13} virtualGridFills={14} microModeBaskets={15} capitalRejectedBaskets={16} marginRiskViolations={17}",
+                _candidateSeq, _baskets.Count, _positions.Count, _executionErrors, _gridRiskViolations, _duplicateGridLegs, _orphanPendingOrders, _stopWideningViolations,
                 _gapThroughInvalidations, _gapThroughSurvivors, _unprotectedSurvivors, _postFillProtectionFailures, _actualBasketRiskViolations, _executionStateViolations,
                 _virtualGridFills, _microModeBaskets, _capitalRejectedBaskets, _marginRiskViolations);
-            Print("[V71-ALPHA-SUMMARY] qualityRejected={0} regimeRejected={1} confirmationRejected={2} capitalInfeasible={3} alphaPassed={4}",
+            Print("[V51-ALPHA-SUMMARY] qualityRejected={0} regimeRejected={1} confirmationRejected={2} capitalInfeasible={3} alphaPassed={4}",
                 _alphaQualityRejected, _regimeRejected, _confirmationRejected, _capitalInfeasibleCandidates, _alphaPassed);
-            Print("[V71-IDENTITY-SUMMARY] canonicalFamilyViolations={0} failClosed={1} canonicalIdentity={2} evidencePreserving={3} familyExpansion={4} gridChallenger={5}",
-                _canonicalFamilyIdentityViolations, EnableV68CanonicalIdentityFailClosed, EnableV68CanonicalIdentity,
-                EnableV68EvidencePreservingAdmission, EnableV68FamilyExpansion, EnableV68GridChallenger);
-            Print("[V71-FREQUENCY-SUMMARY] schedulerDeferred={0} schedulerRecoveredExecutions={1} structuredRecallAdmitted={2} activeDeferred={3}",
+            Print("[V71-EXPANSION-SUMMARY] detected={0} armed={1} executed={2} coreBlocked={3} modelRejected={4} gridFallback={5} shadowClosed={6} riskScaled={7} active={8} model={9}",
+                _v71ExpansionDetected, _v71ExpansionArmed, _v71ExpansionExecuted, _v71ExpansionCoreBlocked,
+                _v71ExpansionModelRejected, _v71ExpansionGridFallback, _v71ExpansionShadowClosed,
+                _v71ExpansionRiskScaled, _v71Expansion.Values.Count(x => x.IsActive), V71ModelId);
+            Print("[V51-FREQUENCY-SUMMARY] schedulerDeferred={0} schedulerRecoveredExecutions={1} structuredRecallAdmitted={2} activeDeferred={3}",
                 _schedulerDeferred, _schedulerRecoveredExecutions, _structuredRecallAdmitted, _deferredCandidates.Count);
-            Print("[V71-INDEPENDENT-SETUP-SUMMARY] duplicateSuppressed={0} uniqueExecuted={1} rescueAdmissions={2} transitionProofRejected={3} independentScaleCandidates={4}",
+            Print("[V51-INDEPENDENT-SETUP-SUMMARY] duplicateSuppressed={0} uniqueExecuted={1} rescueAdmissions={2} transitionProofRejected={3} independentScaleCandidates={4}",
                 _canonicalDuplicateSuppressed, _executedSetupKeys.Count, _m1RescueAdmissions, _transitionProofRejected, _independentScaleCandidates);
-            Print("[V71-CONVERSION-SUMMARY] scaleRouteRejected={0} temporalRescueAdmissions={1} armedGraceExtended={2} preExecutionRevalidationRejected={3}",
+            Print("[V51-CONVERSION-SUMMARY] scaleRouteRejected={0} temporalRescueAdmissions={1} armedGraceExtended={2} preExecutionRevalidationRejected={3}",
                 _scaleRouteRejected, _temporalRescueAdmissions, _armedGraceExtended, _preExecutionRevalidationRejected);
             double avgWait = _slotWaitMinutes.Count > 0 ? _slotWaitMinutes.Average() : 0;
             double medWait = Percentile(_slotWaitMinutes, .50);
             double p90Wait = Percentile(_slotWaitMinutes, .90);
             double avgOccupancy = _basketOccupancyMinutes.Count > 0 ? _basketOccupancyMinutes.Average() : 0;
-            Print("[V71-THROUGHPUT-SUMMARY] slotBlocked={0} parked={1} revalidated={2} revalidationRejected={3} recoveredExecutions={4} nativeTemporalPass={5} hardLifetimeExpired={6} decayRejected={7} avgSlotWaitMin={8:F2} medianSlotWaitMin={9:F2} p90SlotWaitMin={10:F2} avgBasketOccupancyMin={11:F2} missedPositive={12} avoidedNegative={13}",
+            Print("[V51-THROUGHPUT-SUMMARY] slotBlocked={0} parked={1} revalidated={2} revalidationRejected={3} recoveredExecutions={4} nativeTemporalPass={5} hardLifetimeExpired={6} decayRejected={7} avgSlotWaitMin={8:F2} medianSlotWaitMin={9:F2} p90SlotWaitMin={10:F2} avgBasketOccupancyMin={11:F2} missedPositive={12} avoidedNegative={13}",
                 _slotBlocked, _parkedCount, _parkedRevalidated, _parkedRevalidationRejected, _parkedRecoveredExecutions,
                 _nativeTemporalPass, _hardLifetimeExpired, _opportunityDecayRejected, avgWait, medWait, p90Wait, avgOccupancy,
                 _missedPositiveSetups, _avoidedNegativeSetups);
@@ -674,29 +512,12 @@ namespace cAlgo.Robots
             {
                 int pass = _familyContractPass.ContainsKey(p) ? _familyContractPass[p] : 0;
                 int reject = _familyContractWindowReject.ContainsKey(p) ? _familyContractWindowReject[p] : 0;
-                Print("[V71-FAMILY-CONTRACT-SUMMARY] pattern={0} pass={1} windowReject={2}", p, pass, reject);
+                Print("[V51-FAMILY-CONTRACT-SUMMARY] pattern={0} pass={1} windowReject={2}", p, pass, reject);
             }
             foreach (var kv in _gridPlanRejectReasons.OrderBy(k => k.Key))
-                Print("[V71-GRID-REJECT-SUMMARY] reason={0} count={1}", kv.Key, kv.Value);
+                Print("[V51-GRID-REJECT-SUMMARY] reason={0} count={1}", kv.Key, kv.Value);
             foreach (var kv in _executionErrorReasons.OrderBy(k => k.Key))
-                Print("[V71-EXECUTION-ERROR-SUMMARY] code={0} count={1}", kv.Key, kv.Value);
-            foreach (var kv in _v70FilterEvidence.OrderBy(k => k.Key))
-                Print("[V71-FILTER-EVIDENCE] filter={0} observed={1} pass={2} blocked={3} convertedToObservation={4}",
-                    kv.Key, kv.Value.Observed, kv.Value.Passed, kv.Value.Blocked, kv.Value.ConvertedToObservation);
-            Print("[V71-ADMISSION-SUMMARY] protectedAdmissions={0} challengerAdmissions={1} hardVetoObservations={2} timingDeferrals={3} arbitrationSelections={4}",
-                _v70ProtectedAdmissions, _v70ChallengerAdmissions, _v70HardVetoObservations, _v70TimingDeferrals, _v70ArbitrationSelections);
-            Print("[V71-SELECTIVE-SUMMARY] suppressedLegacyLanes={0} selectiveQualityRecalls={1} selectiveRouteRecalls={2} gridAmplifiedPlans={3}",
-                _v71SuppressedLegacyLanes, _v71SelectiveQualityRecalls, _v71SelectiveRouteRecalls, _v71GridAmplifiedPlans);
-            Print("[V71-PORTFOLIO-SUMMARY] noBackfillReservations={0} noBackfillBlocks={1} regimeSurvivalRejects={2} selectiveBackfillAdmissions={3} selectiveBackfillBypasses={4} adaptiveRiskPlans={5} basketRiskCeilingPct={6:F2}",
-                _v71NoBackfillReservations, _v71NoBackfillBlocks, _v71RegimeSurvivalRejects,
-                _v71SelectiveBackfillAdmissions, _v71SelectiveBackfillBypasses, _v71AdaptiveRiskPlans,
-                Math.Min(5.0, Math.Max(.10, BasketRiskPercent)));
-            Print("[V71-MINIMAL-GATE-SUMMARY] signalAdmissions={0} routeFallbacks={1} minimalM1Confirmations={2} gridFallbackSingleLegs={3} minimalMode={4}",
-                _v71MinimalSignalAdmissions, _v71MinimalRouteFallbacks, _v71MinimalM1Confirmations,
-                _v71GridFallbackSingleLegs, EnableV71MinimalFilterRebase);
-            Print("[V71-UNIFIED-AUCTION-SUMMARY] unifiedRouteFallbacks={0} unifiedScoreSelections={1} auctionDeferrals={2} auctionSelections={3} enabledScore={4} enabledAuction={5}",
-                _v71UnifiedRouteFallbacks, _v71UnifiedScoreSelections, _v71AuctionDeferrals, _v71AuctionSelections,
-                EnableV71UnifiedOpportunityScore, EnableV71AuctionScheduler);
+                Print("[V51-EXECUTION-ERROR-SUMMARY] code={0} count={1}", kv.Key, kv.Value);
         }
 
         protected override void OnBar()
@@ -746,48 +567,34 @@ namespace cAlgo.Robots
             var regime = BuildRegimeSnapshot();
             var detected = DetectPatternCandidates(_m15Bars, i, M15SwingDepth, M15SwingLookback, PortfolioMaxCandidates, "M15");
 
+            if (EnableV71ExpansionShadow || EnableV71ExpansionExecution)
+            {
+                var expansionDetected = DetectPatternCandidates(_m15Bars, i, M15SwingDepth, M15SwingLookback,
+                    Math.Max(8, Math.Min(32, V71ExpansionMaxCandidates)), "M15");
+                foreach (var expansionSignal in expansionDetected)
+                    V71TrackExpansionSignal(expansionSignal, h4State, h1State, regime);
+            }
+
             foreach (var signal in detected)
             {
-                if (EnableV69EqualFamilyVisibility)
-                {
-                    if (signal.FamilyId == CanonicalFamilyId.Unknown) signal.FamilyId = CanonicalFamilyFromName(signal.PatternName);
-                    V69Visibility(signal.FamilyId).Selected++;
-                }
-                if (EnableV68CanonicalIdentity)
-                {
-                    signal.FamilyId = CanonicalFamilyFromName(signal.PatternName);
-                    if (signal.FamilyId == CanonicalFamilyId.Unknown)
-                    {
-                        _canonicalFamilyIdentityViolations++;
-                        Print("[V71-CANONICAL-FAMILY-VIOLATION] pattern={0} tf={1} scale={2}", signal.PatternName ?? "", signal.Timeframe ?? "", signal.PivotScale);
-                        if (EnableV68CanonicalIdentityFailClosed)
-                        {
-                            DetectorTruth(signal.PatternName, "V68_CANONICAL_IDENTITY_FAIL_CLOSED");
-                            continue;
-                        }
-                    }
-                }
                 string setupKey = BuildSetupGeometryKey(signal);
-                string identityKey = EnableFamilyIdentityReconstruction ? BuildFamilyHypothesisKey(signal) : setupKey;
                 if (EnableCanonicalSetupIdentity)
                 {
                     if (_executedSetupKeys.Contains(setupKey))
                     {
                         _canonicalDuplicateSuppressed++;
-                        DetectorTruth(signal.PatternName, "UNDERLYING_ALREADY_EXECUTED");
                         continue;
                     }
                     string owner;
-                    if (_activeSetupOwners.TryGetValue(identityKey, out owner))
+                    if (_activeSetupOwners.TryGetValue(setupKey, out owner))
                     {
                         CandidateRecord existing;
                         if (_candidates.TryGetValue(owner, out existing) && existing.IsActive)
                         {
                             _canonicalDuplicateSuppressed++;
-                            DetectorTruth(signal.PatternName, "FAMILY_HYPOTHESIS_DUPLICATE_SUPPRESSED");
                             continue;
                         }
-                        _activeSetupOwners.Remove(identityKey);
+                        _activeSetupOwners.Remove(setupKey);
                     }
                 }
 
@@ -798,62 +605,24 @@ namespace cAlgo.Robots
                 {
                     CandidateId = id,
                     SetupKey = setupKey,
-                    IdentityKey = identityKey,
-                    CanonicalSetupId = BuildCanonicalSetupId(setupKey),
-                    FamilyId = signal.FamilyId,
                     Signal = signal,
                     State = CandidateState.DETECTED,
                     DetectedUtc = Server.Time.ToUniversalTime(),
-                    ExpiryUtc = Server.Time.ToUniversalTime().AddMinutes(15.0 * ((EnableV67FamilyTradeContracts && !EnableV68EvidencePreservingAdmission) ? V67FamilyExpiryBars(signal) : Math.Max(2, Math.Min(CandidateTtlM15Bars, signal.Profile.MaxAgeM15Bars)))),
+                    ExpiryUtc = Server.Time.ToUniversalTime().AddMinutes(15.0 * Math.Max(2, Math.Min(CandidateTtlM15Bars, signal.Profile.MaxAgeM15Bars))),
                     LastReason = "PATTERN_DETECTED"
                 };
                 _candidates[id] = record;
-                if (EnableV69EqualFamilyVisibility) V69Visibility(record.FamilyId).CandidateCreated++;
-                if (EnableCanonicalSetupIdentity) _activeSetupOwners[identityKey] = id;
+                if (EnableCanonicalSetupIdentity) _activeSetupOwners[setupKey] = id;
                 CountPipeline(signal.PatternName).Detected++;
                 Ledger(record, CandidateState.DETECTED, "PATTERN_DETECTED");
 
-                bool legacyQualityPass =
-                    signal.GeometryQuality >= Math.Max(MinGeometryQuality, signal.Profile.MinGeometry) &&
-                    signal.PrzConfluence >= Math.Max(MinPrzConfluence, signal.Profile.MinPrz);
-                bool familyQualityPass = EnableV67FamilyTradeContracts ? V67FamilyQualityPass(signal) : legacyQualityPass;
-                record.LegacyQualityPassed = legacyQualityPass;
-
-                bool admissionQualityPass;
-                if (EnableV71MinimalFilterRebase)
+                if (signal.GeometryQuality < Math.Max(MinGeometryQuality, signal.Profile.MinGeometry) ||
+                    signal.PrzConfluence < Math.Max(MinPrzConfluence, signal.Profile.MinPrz))
                 {
-                    admissionQualityPass = V71MinimalSignalIntegrityPass(signal);
-                    if (admissionQualityPass)
-                    {
-                        _v71MinimalSignalAdmissions++;
-                        Event(record, "V71_MINIMAL_SIGNAL_INTEGRITY_PASS");
-                    }
-                }
-                else
-                {
-                    admissionQualityPass = EnableV68EvidencePreservingAdmission
-                        ? (legacyQualityPass || (EnableV68FamilyExpansion && familyQualityPass))
-                        : familyQualityPass;
-                    if (!admissionQualityPass && EnableV71SelectiveRecall && V71SelectiveQualityRecall(record))
-                    {
-                        admissionQualityPass = true;
-                        record.V71SelectiveRecallLane = true;
-                        _v71SelectiveQualityRecalls++;
-                        Event(record, "V71_SELECTIVE_QUALITY_RECALL");
-                    }
-                }
-
-                V70ObserveFilter("QUALITY", admissionQualityPass, !EnableV71MinimalFilterRebase && EnableV70HardVetoRationalization && !admissionQualityPass);
-                if (!admissionQualityPass)
-                {
-                    if (EnableV69EqualFamilyVisibility) V69Visibility(record.FamilyId).QualityRejected++;
-                    Reject(record, EnableV71MinimalFilterRebase ? "V71_MINIMAL_SIGNAL_INTEGRITY" :
-                        (EnableV68EvidencePreservingAdmission ? "V68_EVIDENCE_PRESERVING_QUALITY" :
-                        (EnableV67FamilyTradeContracts ? "V67_FAMILY_QUALITY" : "PATTERN_QUALITY")));
+                    Reject(record, "PATTERN_QUALITY");
                     continue;
                 }
 
-                if (EnableV69EqualFamilyVisibility) V69Visibility(record.FamilyId).QualityPassed++;
                 record.AlphaQualityScore = HarmonicRobustnessScore(signal);
                 if (EnableHarmonicRobustnessGate && !HarmonicRobustnessEligible(signal, record.AlphaQualityScore))
                 {
@@ -866,106 +635,11 @@ namespace cAlgo.Robots
 
                 record.Conflict = ClassifyMtfConflict(signal.Direction, h4State, h1State);
                 record.Regime = regime;
-                HarmonicRoute legacyRoute = RouteSignal(signal, record.Conflict, regime);
-                HarmonicRoute familyRoute = EnableV67FamilyTradeContracts ? RouteSignalFamilyNativeV67(signal, record.Conflict, regime) : legacyRoute;
-                record.LegacyRoute = legacyRoute;
+                record.RegimeScore = RegimeContextScore(signal, record.Conflict, regime);
+                record.Route = RouteSignal(signal, record.Conflict, regime);
 
-                if (EnableV71MinimalFilterRebase)
+                if (record.Route == HarmonicRoute.NO_TRADE)
                 {
-                    record.RegimeScore = RegimeContextScore(signal, record.Conflict, regime);
-                    record.Route = EnableV71UnifiedFamilyRoute
-                        ? V71UnifiedRoute(signal, legacyRoute, familyRoute, record.Conflict, regime)
-                        : V71MinimalRoute(signal, record.Conflict, regime);
-                    if (legacyRoute == HarmonicRoute.NO_TRADE) _v71MinimalRouteFallbacks++;
-                    Event(record, (EnableV71UnifiedFamilyRoute ? "V71_UNIFIED_ROUTE_" : "V71_MINIMAL_ROUTE_") + record.Route);
-                }
-                else if (EnableV68EvidencePreservingAdmission)
-                {
-                    record.RegimeScore = RegimeContextScore(signal, record.Conflict, regime);
-                    record.Route = legacyRoute != HarmonicRoute.NO_TRADE
-                        ? legacyRoute
-                        : (EnableV68FamilyExpansion ? familyRoute : HarmonicRoute.NO_TRADE);
-                }
-                else
-                {
-                    record.RegimeScore = EnableV67FamilyTradeContracts ? V67FamilyRegimeScore(signal, record.Conflict, regime) : RegimeContextScore(signal, record.Conflict, regime);
-                    record.Route = familyRoute;
-                }
-
-                if (!EnableV71MinimalFilterRebase && EnableV70FamilyRouteAdmission)
-                {
-                    HarmonicRoute reconstructed = V70FamilyRouteAdmission(record, legacyRoute, familyRoute);
-                    if (reconstructed != HarmonicRoute.NO_TRADE)
-                        record.Route = reconstructed;
-                }
-
-                if (!EnableV71MinimalFilterRebase && EnableV71SelectiveRecall && record.Route == HarmonicRoute.NO_TRADE)
-                {
-                    HarmonicRoute selective = V71SelectiveRecallRoute(record);
-                    if (selective != HarmonicRoute.NO_TRADE)
-                    {
-                        record.Route = selective;
-                        record.V71SelectiveRecallLane = true;
-                        _v71SelectiveRouteRecalls++;
-                        Event(record, "V71_SELECTIVE_ROUTE_RECALL_" + selective);
-                    }
-                }
-
-                if (!EnableV71MinimalFilterRebase && EnableV71CanonicalCapitalSpine)
-                {
-                    bool coreSpine = V71CanonicalCapitalSpineEligible(record);
-                    bool challenger = V71CanonicalChallengerEligible(record);
-                    if (!coreSpine && !challenger)
-                    {
-                        Reject(record, "V71_NOT_CANONICAL_CAPITAL_SPINE");
-                        continue;
-                    }
-                    if (!V71CrossRegimeSurvivalPass(record))
-                    {
-                        Reject(record, "V71_CROSS_REGIME_SURVIVAL_VETO");
-                        continue;
-                    }
-                    Event(record, coreSpine ? "V71_CANONICAL_CORE_SPINE" : "V71_CANONICAL_CHALLENGER_RESERVE");
-                }
-                else if (!EnableV71MinimalFilterRebase && EnableV71SelectiveLaneSuppression && V71ShouldSuppressLegacyLane(record))
-                {
-                    if (V71SelectiveBackfillAdmissionEligible(record))
-                    {
-                        _v71SelectiveBackfillAdmissions++;
-                        Event(record, "V71_SELECTIVE_BACKFILL_ADMISSION");
-                    }
-                    else
-                    {
-                        _v71SuppressedLegacyLanes++;
-                        V71ReserveSuppressedSlot(record);
-                        Reject(record, "V71_CALIBRATION_NEGATIVE_LEGACY_LANE");
-                        continue;
-                    }
-                }
-
-                if (!EnableV71MinimalFilterRebase && !EnableV71CanonicalCapitalSpine && !V71RegimeSurvivalEligible(record))
-                {
-                    _v71RegimeSurvivalRejects++;
-                    V71ReserveSuppressedSlot(record);
-                    Reject(record, "V71_FAMILY_REGIME_SURVIVAL_VETO");
-                    continue;
-                }
-
-                bool routePass = record.Route != HarmonicRoute.NO_TRADE;
-                V70ObserveFilter("ROUTE", routePass, EnableV70HardVetoRationalization && !routePass);
-                if (!routePass && EnableV70HardVetoRationalization)
-                {
-                    record.Route = V70FallbackEvidenceRoute(record);
-                    routePass = record.Route != HarmonicRoute.NO_TRADE;
-                    if (routePass)
-                    {
-                        _v70HardVetoObservations++;
-                        Event(record, "V70_ROUTER_NO_TRADE_CONVERTED_TO_EVIDENCE_ROUTE_" + record.Route);
-                    }
-                }
-                if (!routePass)
-                {
-                    if (EnableV69EqualFamilyVisibility) V69Visibility(record.FamilyId).RouteRejected++;
                     if (EnableRegimeContextGate) _regimeRejected++;
                     Reject(record, "ROUTER_NO_TRADE");
                     continue;
@@ -974,24 +648,15 @@ namespace cAlgo.Robots
                 // V47 expands only genuinely independent secondary-scale setups.
                 // V45 DEV showed secondary-scale AB=CD exhaustion positive in A/B/C,
                 // while secondary-scale trend-aligned AB=CD was negative overall.
-                if (!EnableV71MinimalFilterRebase && (!EnableV67FamilyTradeContracts || EnableV68EvidencePreservingAdmission) && EnableScaleRouteAdmission && signal.PivotScale != M15SwingDepth &&
-                    signal.PatternName == "AB=CD" &&
-                    (EnableV68EvidencePreservingAdmission ? record.LegacyRoute : record.Route) != HarmonicRoute.EXHAUSTION_REVERSAL)
+                if (EnableScaleRouteAdmission && signal.PivotScale != M15SwingDepth &&
+                    signal.PatternName == "AB=CD" && record.Route != HarmonicRoute.EXHAUSTION_REVERSAL)
                 {
-                    V70ObserveFilter("SECONDARY_SCALE_ABCD", false, EnableV70HardVetoRationalization);
-                    if (!EnableV70HardVetoRationalization)
-                    {
-                        _scaleRouteRejected++;
-                        Reject(record, "SECONDARY_SCALE_ABCD_ROUTE_REJECT");
-                        continue;
-                    }
-                    _v70HardVetoObservations++;
-                    Event(record, "V70_SECONDARY_SCALE_ABCD_OBSERVATION_NOT_VETO");
+                    _scaleRouteRejected++;
+                    Reject(record, "SECONDARY_SCALE_ABCD_ROUTE_REJECT");
+                    continue;
                 }
 
-                if (EnableV69EqualFamilyVisibility) V69Visibility(record.FamilyId).RoutePassed++;
-
-                if (!EnableV71MinimalFilterRebase && EnableCapitalFeasibilityGate)
+                if (EnableCapitalFeasibilityGate)
                 {
                     double minL0Risk, minL0Margin;
                     record.CapitalFeasible = CapitalFeasibilityEligible(record, out minL0Risk, out minL0Margin);
@@ -1006,7 +671,7 @@ namespace cAlgo.Robots
                 }
                 else record.CapitalFeasible = true;
 
-                Print("[V71-ALPHA-CANDIDATE] cid={0} pattern={1} quality={2:F3} regime={3:F3} conflict={4} route={5} adxH1={6:F2} adxH4={7:F2} adxSlope={8:F2} atrPct={9:F3} efficiency={10:F3} capitalFeasible={11} minL0Risk={12:F4}",
+                Print("[V51-ALPHA-CANDIDATE] cid={0} pattern={1} quality={2:F3} regime={3:F3} conflict={4} route={5} adxH1={6:F2} adxH4={7:F2} adxSlope={8:F2} atrPct={9:F3} efficiency={10:F3} capitalFeasible={11} minL0Risk={12:F4}",
                     record.CandidateId, signal.PatternName, record.AlphaQualityScore, record.RegimeScore, record.Conflict, record.Route,
                     regime.AdxH1, regime.AdxH4, regime.AdxH1Slope, regime.AtrPercentile, regime.Efficiency,
                     record.CapitalFeasible, record.CapitalMinL0Risk);
@@ -1028,7 +693,9 @@ namespace cAlgo.Robots
             if (t <= _lastM1Closed) return;
             _lastM1Closed = t;
             DateTime utc = DateTime.SpecifyKind(t, DateTimeKind.Utc);
-            UpdateV69ShadowAlphaCensus(i, utc);
+
+            if (EnableV71ExpansionShadow || EnableV71ExpansionExecution)
+                V71ProcessExpansionM1(i, utc);
 
             foreach (var c in _candidates.Values.Where(x => x.IsActive).ToList())
             {
@@ -1071,7 +738,6 @@ namespace cAlgo.Robots
                     if (BarTouchesPrz(i, c.Signal))
                     {
                         c.PrzTouchUtc = utc;
-                        if (EnableV69EqualFamilyVisibility) V69Visibility(c.FamilyId).PrzTouched++;
                         if (EnableEntryAnchorForensics && c.CompletionAnchorPrice <= 0)
                             c.CompletionAnchorPrice = c.Signal.D.Price;
                         Transition(c, CandidateState.CONFIRMING, "PRZ_RETEST");
@@ -1087,60 +753,32 @@ namespace cAlgo.Robots
                     double legacyScore = M1ConfirmationScore(i, c.Signal);
                     c.ConfirmationScore = legacyScore;
                     double legacyRequired = c.Route == HarmonicRoute.EXHAUSTION_REVERSAL ? 0.75 : 0.60;
-                    bool legacyConfirmationPass = legacyScore >= legacyRequired;
-                    c.LegacyConfirmationPassed = legacyConfirmationPass;
-                    double minimalScore = 0;
-                    bool minimalConfirmationPass = EnableV71MinimalFilterRebase && V71MinimalM1ConfirmationPass(i, c, out minimalScore);
-                    if (minimalConfirmationPass)
-                    {
-                        c.ConfirmationScore = Math.Max(c.ConfirmationScore, minimalScore);
-                        _v71MinimalM1Confirmations++;
-                        Event(c, "V71_MINIMAL_M1_EXECUTION_CONFIRMATION_" + minimalScore.ToString("F2", CultureInfo.InvariantCulture));
-                    }
-                    bool familyContractLane = !EnableV71MinimalFilterRebase &&
-                                              (EnableV67FamilyTradeContracts || (EnableFamilyCompletionContract && IsFamilyCompletionLane(c.Signal.PatternName)));
-                    bool familyEvidencePass = false;
-                    bool confirmationPass = EnableV71MinimalFilterRebase ? minimalConfirmationPass : legacyConfirmationPass;
+                    bool familyContractLane = EnableFamilyCompletionContract && IsFamilyCompletionLane(c.Signal.PatternName);
+                    bool confirmationPass = false;
 
                     if (familyContractLane)
                     {
                         c.FamilyConfirmationBarsObserved++;
                         double familyScore;
-                        familyEvidencePass = EnableV67FamilyTradeContracts
-                            ? UpdateV67FamilyContractEvidence(i, c, out familyScore)
-                            : UpdateFamilyCompletionEvidence(i, c, out familyScore);
+                        confirmationPass = UpdateFamilyCompletionEvidence(i, c, out familyScore);
                         c.ConfirmationScore = Math.Max(c.ConfirmationScore, familyScore);
                         if (EnableEntryAnchorForensics && c.FamilyRetest && c.NativeRetestAnchorPrice <= 0)
                             c.NativeRetestAnchorPrice = _m1Bars.ClosePrices[i];
-                        if (familyEvidencePass)
+                        if (confirmationPass)
                         {
                             IncrementCounter(_familyContractPass, c.Signal.PatternName);
-                            Event(c, (EnableV67FamilyTradeContracts ? "V68_FAMILY_EVIDENCE_PASS_" : "FAMILY_COMPLETION_CONTRACT_PASS_") + familyScore.ToString("F2", CultureInfo.InvariantCulture));
+                            Event(c, "FAMILY_COMPLETION_CONTRACT_PASS_" + familyScore.ToString("F2", CultureInfo.InvariantCulture));
                         }
-
-                        if (EnableV68EvidencePreservingAdmission)
+                        else if (c.FamilyConfirmationBarsObserved >= Math.Max(6, FamilyConfirmationWindowBars))
                         {
-                            confirmationPass = legacyConfirmationPass || (EnableV68FamilyExpansion && familyEvidencePass);
-                            if (!familyEvidencePass && c.FamilyConfirmationBarsObserved >= (EnableV67FamilyTradeContracts ? V67FamilyConfirmationWindow(c.Signal) : Math.Max(6, FamilyConfirmationWindowBars)))
-                            {
-                                IncrementCounter(_familyContractWindowReject, c.Signal.PatternName);
-                                Event(c, "V68_FAMILY_EVIDENCE_WINDOW_EXHAUSTED_OBSERVATION_ONLY");
-                            }
-                        }
-                        else
-                        {
-                            confirmationPass = familyEvidencePass;
-                            if (!confirmationPass && c.FamilyConfirmationBarsObserved >= (EnableV67FamilyTradeContracts ? V67FamilyConfirmationWindow(c.Signal) : Math.Max(6, FamilyConfirmationWindowBars)))
-                            {
-                                IncrementCounter(_familyContractWindowReject, c.Signal.PatternName);
-                                Reject(c, EnableV67FamilyTradeContracts ? "V67_FAMILY_CONFIRMATION_WINDOW_EXHAUSTED" : "FAMILY_COMPLETION_WINDOW_EXHAUSTED");
-                                continue;
-                            }
+                            IncrementCounter(_familyContractWindowReject, c.Signal.PatternName);
+                            Reject(c, "FAMILY_COMPLETION_WINDOW_EXHAUSTED");
+                            continue;
                         }
                     }
+                    else confirmationPass = legacyScore >= legacyRequired;
 
-                    bool preserveLegacyExecutionLane = EnableV68EvidencePreservingAdmission;
-                    if (!confirmationPass && (preserveLegacyExecutionLane || !familyContractLane) && EnablePatternNativeM1Expansion)
+                    if (!familyContractLane && !confirmationPass && EnablePatternNativeM1Expansion)
                     {
                         c.NativeM1BarsObserved++;
                         double nativeScore;
@@ -1187,76 +825,27 @@ namespace cAlgo.Robots
 
                     if (!confirmationPass)
                     {
-                        c.V70TimingBarsObserved++;
-                        if (EnableV70HardVetoRationalization)
-                        {
-                            _v70TimingDeferrals++;
-                            V70ObserveFilter("M1_CONFIRMATION", false, true);
-                            Event(c, "V70_TIMING_DEFER_" + c.V70TimingBarsObserved + "_SCORE_" + legacyScore.ToString("F2", CultureInfo.InvariantCulture));
-                            if (c.V70TimingBarsObserved < Math.Max(3, V70TimingMaxWaitM1Bars))
-                                continue;
-                            if (!V70MinimumExecutionEvidencePass(i, c))
-                            {
-                                Event(c, "V70_TIMING_WINDOW_EXHAUSTED_NO_MIN_EVIDENCE");
-                                continue;
-                            }
-                            confirmationPass = true;
-                            c.ConfirmationScore = Math.Max(c.ConfirmationScore, V70MinimumExecutionEvidenceScore(i, c));
-                            Event(c, "V70_MIN_EXECUTION_EVIDENCE_PASS");
-                        }
-                        else
-                        {
-                            Event(c, "CONFIRMATION_PENDING_" + legacyScore.ToString("F2", CultureInfo.InvariantCulture));
-                            continue;
-                        }
+                        Event(c, "LEGACY_CONFIRMATION_FAILED_" + legacyScore.ToString("F2", CultureInfo.InvariantCulture));
+                        continue;
                     }
-                    else V70ObserveFilter("M1_CONFIRMATION", true, false);
 
                     if (EnableEntryAnchorForensics && c.NativeConfirmAnchorPrice <= 0)
                         c.NativeConfirmAnchorPrice = _m1Bars.ClosePrices[i];
 
-                    bool routeEvidencePass = EnableV71MinimalFilterRebase ? true :
-                        (EnableV68EvidencePreservingAdmission
-                        ? RouteSpecificM1EvidencePass(i, c.Signal, c.Route)
-                        : (EnableV67FamilyTradeContracts ? V67FamilyRouteEvidencePass(i, c) : RouteSpecificM1EvidencePass(i, c.Signal, c.Route)));
-                    V70ObserveFilter("ROUTE_M1_EVIDENCE", routeEvidencePass, EnableV70HardVetoRationalization && !routeEvidencePass);
-                    if (EnableRouteSpecificM1Veto && !routeEvidencePass && !EnableV70HardVetoRationalization)
+                    if (EnableRouteSpecificM1Veto && !RouteSpecificM1EvidencePass(i, c.Signal, c.Route))
                     {
                         _confirmationRejected++;
-                        Event(c, EnableV68EvidencePreservingAdmission ? "V68_ROUTE_EVIDENCE_PENDING" : "ROUTE_SPECIFIC_M1_VETO");
+                        Event(c, "ROUTE_SPECIFIC_M1_VETO");
                         continue;
                     }
-                    if (EnableRouteSpecificM1Veto && !routeEvidencePass && EnableV70HardVetoRationalization)
+
+                    if (!TryBuildFibonacciGridPlan(c))
                     {
-                        _v70HardVetoObservations++;
-                        Event(c, "V70_ROUTE_M1_EVIDENCE_OBSERVATION_NOT_VETO");
+                        Reject(c, "FIB_GRID_PLAN_REJECTED");
+                        continue;
                     }
 
-                    if (EnableV69EqualFamilyVisibility) V69Visibility(c.FamilyId).ConfirmationPassed++;
-                    if (EnableV71PostSelectionGridIsolation)
-                    {
-                        c.GridPlan = null;
-                        if (!V71PrepareAlphaOnlyCandidate(c))
-                        {
-                            Reject(c, "V71_ALPHA_ONLY_RR_OR_GEOMETRY_REJECTED");
-                            continue;
-                        }
-                    }
-                    else
-                    {
-                        if (!TryBuildFibonacciGridPlan(c))
-                        {
-                            Reject(c, "FIB_GRID_PLAN_REJECTED");
-                            continue;
-                        }
-                        if (EnableV69EqualFamilyVisibility) V69Visibility(c.FamilyId).GridPlanned++;
-                    }
-
-                    c.Rank = EnableV71UnifiedOpportunityScore
-                        ? V71UnifiedScore(c, utc)
-                        : (EnableV71MinimalFilterRebase && EnableV71SignalPreservingArbitration
-                        ? V71SignalPreservingScore(c, utc)
-                        : (EnableV71CoreArbitration ? V71AlphaArbitrationScore(c, utc) : CandidateRank(c)));
+                    c.Rank = CandidateRank(c);
                     _alphaPassed++;
                     c.ArmedUtc = utc;
                     if (EnableArmedExecutionGrace)
@@ -1291,8 +880,6 @@ namespace cAlgo.Robots
                 return;
             }
 
-            bool v71ReservationActive = V71VirtualSlotReserved(now);
-
             if (!IsInstitutionalSession(now) || !SpreadValid())
             {
                 if (EnablePersistentArmedQueue) SweepParkedHardValidity(now);
@@ -1307,93 +894,25 @@ namespace cAlgo.Robots
                 : new[] { CandidateState.ARMED };
 
             var armedQuery = _candidates.Values
-                .Where(c => executableStates.Contains(c.State) && c.IsActive &&
-                            (c.GridPlan != null || EnableV71PostSelectionGridIsolation) &&
+                .Where(c => executableStates.Contains(c.State) && c.IsActive && c.GridPlan != null &&
                             (!EnableCanonicalSetupIdentity || !_executedSetupKeys.Contains(c.SetupKey)));
 
             if (EnableDiversityScheduler)
                 armedQuery = armedQuery.GroupBy(c => string.IsNullOrWhiteSpace(c.SetupKey) ? c.CandidateId : c.SetupKey)
-                    .Select(g => g.OrderByDescending(c => EnableV71UnifiedOpportunityScore
-                        ? V71UnifiedScore(c, now)
-                        : (EnableV71MinimalFilterRebase && EnableV71SignalPreservingArbitration
-                        ? V71SignalPreservingScore(c, now)
-                        : (EnableOpportunityDecayRanking ? OpportunityScore(c, now) : c.Rank))).First());
+                    .Select(g => g.OrderByDescending(c => EnableOpportunityDecayRanking ? OpportunityScore(c, now) : c.Rank).First());
 
             var armed = armedQuery
-                .OrderByDescending(c => EnableV71UnifiedOpportunityScore
-                    ? V71UnifiedScore(c, now)
-                    : (EnableV71MinimalFilterRebase && EnableV71SignalPreservingArbitration
-                    ? V71SignalPreservingScore(c, now)
-                    : (EnableV71CoreArbitration ? V71AlphaArbitrationScore(c, now) :
-                    (EnableV70OpportunityCostArbitration ? V70OpportunityCostScore(c, now) :
-                    (EnableOpportunityDecayRanking ? OpportunityScore(c, now) : c.Rank)))))
+                .OrderByDescending(c => EnableOpportunityDecayRanking ? OpportunityScore(c, now) : c.Rank)
                 .ToList();
-            if (armed.Count == 0) return;
-
-            if (!EnableV71MinimalFilterRebase && EnableV71CoreArbitration)
+            if (armed.Count == 0)
             {
-                var core = armed.Where(V71CanonicalCapitalSpineEligible).ToList();
-                if (core.Count > 0)
-                    armed = core;
-                else if (!EnableV71ChallengerReserve)
-                    return;
-            }
-
-            if (v71ReservationActive && !EnableV71CanonicalCapitalSpine)
-            {
-                var selectiveBackfills = armed.Where(V71SelectiveBackfillExecutionEligible).ToList();
-                if (selectiveBackfills.Count == 0)
-                {
-                    _v71NoBackfillBlocks++;
-                    if (EnablePersistentArmedQueue) ParkArmedCandidates(now);
-                    return;
-                }
-                armed = selectiveBackfills;
-                _v71SelectiveBackfillBypasses++;
-            }
-
-            if (EnableV71AuctionScheduler && !V71AuctionReady(armed, now))
+                V71TryExecuteExpansion(now);
                 return;
+            }
 
             var winner = armed[0];
-            if (EnableV71UnifiedOpportunityScore)
-            {
-                _v71UnifiedScoreSelections++;
-                Event(winner, "V71_UNIFIED_WINNER_SCORE_" + V71UnifiedScore(winner, now).ToString("F4", CultureInfo.InvariantCulture));
-            }
-            if (EnableV71AuctionScheduler)
-            {
-                _v71AuctionSelections++;
-                Event(winner, "V71_AUCTION_WINNER");
-            }
-            if (v71ReservationActive)
-                Event(winner, "V71_SELECTIVE_BACKFILL_RESERVATION_BYPASS");
-            if (EnableV70OpportunityCostArbitration)
-            {
-                _v70ArbitrationSelections++;
-                Event(winner, "V70_OPPORTUNITY_COST_WINNER_SCORE_" + V70OpportunityCostScore(winner, now).ToString("F4", CultureInfo.InvariantCulture));
-            }
 
-            if (EnableV71PostSelectionGridIsolation)
-            {
-                if (!HardThesisValid(winner, now, true, out string v71Reason) || !V71PrepareAlphaOnlyCandidate(winner))
-                {
-                    Reject(winner, "V71_POST_SELECTION_ALPHA_REVALIDATION_" + v71Reason);
-                    return;
-                }
-                winner.GridPlan = null;
-                bool executionPlanBuilt = EnableV71MinimalFilterRebase
-                    ? V71BuildPostSelectionExecutionPlan(winner)
-                    : TryBuildFibonacciGridPlan(winner);
-                if (!executionPlanBuilt)
-                {
-                    Reject(winner, EnableV71MinimalFilterRebase ? "V71_MINIMAL_EXECUTION_PLAN_REJECTED" : "V71_POST_SELECTION_GRID_REJECTED");
-                    return;
-                }
-                if (EnableV69EqualFamilyVisibility) V69Visibility(winner.FamilyId).GridPlanned++;
-                Event(winner, "V71_ALPHA_WINNER_FROZEN_BEFORE_GRID");
-            }
-            else if (EnablePreExecutionGridRevalidation || (EnablePersistentArmedQueue && winner.WasParked))
+            if (EnablePreExecutionGridRevalidation || (EnablePersistentArmedQueue && winner.WasParked))
             {
                 winner.GridPlan = null;
                 Transition(winner, CandidateState.REVALIDATING, "PRE_EXECUTION_REVALIDATION");
@@ -1496,9 +1015,7 @@ namespace cAlgo.Robots
         {
             foreach (var c in _candidates.Values
                 .Where(x => x.IsActive && (x.State == CandidateState.PARKED || x.State == CandidateState.SLOT_BLOCKED))
-                .OrderByDescending(x => EnableV71UnifiedOpportunityScore
-                    ? V71UnifiedScore(x, now)
-                    : (EnableOpportunityDecayRanking ? OpportunityScore(x, now) : x.Rank))
+                .OrderByDescending(x => EnableOpportunityDecayRanking ? OpportunityScore(x, now) : x.Rank)
                 .ToList())
             {
                 Transition(c, CandidateState.REVALIDATING, "SLOT_RELEASE_REVALIDATION");
@@ -1512,7 +1029,7 @@ namespace cAlgo.Robots
                 }
                 _parkedRevalidated++;
                 CountPipeline(c.Signal.PatternName).Revalidated++;
-                c.Rank = EnableV71UnifiedOpportunityScore ? V71UnifiedScore(c, now) : CandidateRank(c);
+                c.Rank = CandidateRank(c);
                 Transition(c, CandidateState.EXECUTABLE, "PARKED_REVALIDATED");
             }
         }
@@ -1525,12 +1042,6 @@ namespace cAlgo.Robots
                 return false;
             }
             c.GridPlan = null;
-            if (EnableV71MinimalFilterRebase)
-            {
-                if (!V71PrepareAlphaOnlyCandidate(c)) return false;
-                if (finalCheck && !SpreadValid()) return false;
-                return true;
-            }
             if (!TryBuildFibonacciGridPlan(c)) return false;
             if (c.NetRR < MinimumNetRR) return false;
             if (c.GridPlan == null || c.GridPlan.WorstCaseRisk > c.GridPlan.BasketRiskAmount + 1e-8) return false;
@@ -1552,8 +1063,7 @@ namespace cAlgo.Robots
             if (c.Signal.Direction == TradeDirection.Sell && px <= c.Signal.CanonicalTarget1) { reason = "TARGET_ALREADY_REACHED"; return false; }
             var h4 = GetActiveHarmonicState(_h4Bars, H4SwingDepth, 220, 3);
             var h1 = GetActiveHarmonicState(_h1Bars, H1SwingDepth, 260, 4);
-            if (!EnableV71MinimalFilterRebase &&
-                ClassifyMtfConflict(c.Signal.Direction, h4, h1) == MtfConflict.CONFLICT &&
+            if (ClassifyMtfConflict(c.Signal.Direction, h4, h1) == MtfConflict.CONFLICT &&
                 c.Route != HarmonicRoute.EXHAUSTION_REVERSAL) { reason = "MTF_HARD_CONFLICT"; return false; }
             if (_dailyLocked || PeakDrawdownExceeded()) { reason = "RISK_LOCK"; return false; }
             if (!SpreadValid()) { reason = "SPREAD_INVALID"; return false; }
@@ -1641,7 +1151,7 @@ namespace cAlgo.Robots
             bool avoidedNegative = c.ShadowMaeR >= 1.0 && c.ShadowMaeR > c.ShadowMfeR;
             if (missedPositive) _missedPositiveSetups++;
             if (avoidedNegative) _avoidedNegativeSetups++;
-            Print("[V71-OPPORTUNITY-LOSS] cid={0} setup={1} pattern={2} route={3} scale={4} reason={5} shadowMfeR={6:F3} shadowMaeR={7:F3} missedPositive={8} avoidedNegative={9}",
+            Print("[V51-OPPORTUNITY-LOSS] cid={0} setup={1} pattern={2} route={3} scale={4} reason={5} shadowMfeR={6:F3} shadowMaeR={7:F3} missedPositive={8} avoidedNegative={9}",
                 c.CandidateId, c.SetupKey, c.Signal.PatternName, c.Route, c.Signal.PivotScale, reason,
                 c.ShadowMfeR, c.ShadowMaeR, missedPositive, avoidedNegative);
         }
@@ -1654,34 +1164,6 @@ namespace cAlgo.Robots
             int lo = (int)Math.Floor(pos), hi = (int)Math.Ceiling(pos);
             if (lo == hi) return x[lo];
             return x[lo] + (x[hi] - x[lo]) * (pos - lo);
-        }
-
-        private bool V71TryGetGridTemplate(CandidateRecord c, out double[] fractions, out double[] weights)
-        {
-            fractions = c != null && c.Signal != null && c.Signal.Profile != null ? c.Signal.Profile.GridFractions : new double[0];
-            weights = c != null && c.Signal != null && c.Signal.Profile != null ? c.Signal.Profile.GridRiskWeights : new double[0];
-            if (c == null || c.Signal == null) return false;
-
-            string p = c.Signal.PatternName ?? "";
-            string subtype = c.Signal.HarmonicSubtype ?? "";
-
-            // Calibration matched-trade evidence supported Grid only in these exact lanes.
-            // Grid is a profit-amplification execution template, never an admission filter.
-            if (p == "Rat" && subtype == "Rat" && c.Route == HarmonicRoute.TREND_ALIGNED_REVERSAL)
-            {
-                fractions = new[] { 0.0, .236, .382, .618 };
-                weights = new[] { .40, .30, .20, .10 };
-                return true;
-            }
-
-            if (p == "Shark" && subtype == "Shark" && c.Route == HarmonicRoute.TREND_ALIGNED_REVERSAL)
-            {
-                fractions = new[] { 0.0, .236, .382 };
-                weights = new[] { .50, .30, .20 };
-                return true;
-            }
-
-            return false;
         }
 
         private bool GridPlanReject(CandidateRecord c, string reason)
@@ -1715,32 +1197,22 @@ namespace cAlgo.Robots
             if (!EnableGridSpanSemanticV2 && (spanXa < p.MinimumGridSpanXa || spanXa > p.MaximumGridSpanXa)) return GridPlanReject(c, "LEGACY_XA_SPAN");
             if (EnableGridSpanSemanticV2 && (!double.IsFinite(spanXa) || spanXa <= 0)) return GridPlanReject(c, "INVALID_RISK_XA");
 
-            double[] gridFractions = p.GridFractions;
-            double[] gridWeights = p.GridRiskWeights;
-            bool v71Amplified = EnableV71FamilyNativeGridAmplifier && V71TryGetGridTemplate(c, out gridFractions, out gridWeights);
             int routeMax = c.Route == HarmonicRoute.TREND_ALIGNED_REVERSAL ? 4 :
                            c.Route == HarmonicRoute.EXHAUSTION_REVERSAL ? 2 :
                            c.Route == HarmonicRoute.TRANSITION_REVERSAL ? (c.Regime != null && c.Regime.Efficiency >= .28 ? 3 : 2) : 0;
-            int familyMax = v71Amplified ? gridFractions.Length : p.MaximumGridLegs;
-            int maxLegs = Math.Min(Math.Min(routeMax, familyMax), gridFractions.Length);
+            int maxLegs = Math.Min(Math.Min(routeMax, p.MaximumGridLegs), p.GridFractions.Length);
             if (maxLegs <= 0) return GridPlanReject(c, "ROUTE_LEGS");
-
-            double effectiveBasketRiskPercent = V71EffectiveBasketRiskPercent(c);
-            if (EnableV71AdaptiveRiskScaling && effectiveBasketRiskPercent > 1.000001)
-                _v71AdaptiveRiskPlans++;
 
             var plan = new FibonacciGridPlan
             {
                 CandidateId = c.CandidateId,
                 Pattern = c.Signal.PatternName,
-                CanonicalSetupId = c.CanonicalSetupId,
-                FamilyId = c.FamilyId,
                 Direction = c.Signal.Direction,
                 Route = c.Route,
                 EntryAnchor = anchor,
                 StructuralStop = stop,
                 GridDistance = executionUnit,
-                BasketRiskAmount = Account.Equity * effectiveBasketRiskPercent / 100.0,
+                BasketRiskAmount = Account.Equity * V71CandidateRiskPercent(c) / 100.0,
                 CreatedUtc = Server.Time.ToUniversalTime(),
                 ExpirationUtc = MinDate(c.ExpiryUtc, Server.Time.ToUniversalTime().AddMinutes(p.PendingTtlMinutes)),
                 MicroCapitalMode = AdaptiveCapitalMode && Account.Equity <= MicroCapitalThreshold
@@ -1753,12 +1225,12 @@ namespace cAlgo.Robots
 
             for (int leg = 0; leg < maxLegs; leg++)
             {
-                double fraction = gridFractions[leg];
+                double fraction = p.GridFractions[leg];
                 if (fraction < -1e-9 || fraction > .6180001) continue;
                 double price = c.Signal.Direction == TradeDirection.Buy ? anchor - fraction * executionUnit : anchor + fraction * executionUnit;
                 if (price < legalLow || price > legalHigh) continue;
 
-                double riskWeight = leg < gridWeights.Length ? gridWeights[leg] : 0;
+                double riskWeight = leg < p.GridRiskWeights.Length ? p.GridRiskWeights[leg] : 0;
                 double slPips = PriceToPips(Math.Abs(price - stop));
                 if (slPips < MinStopLossPips || riskWeight <= 0) continue;
 
@@ -1809,20 +1281,13 @@ namespace cAlgo.Robots
             c.GridPlan = plan;
             c.SelectedTarget = target;
             c.NetRR = netRr;
-            if (v71Amplified)
-            {
-                _v71GridAmplifiedPlans++;
-                Event(c, "V71_FAMILY_NATIVE_GRID_AMPLIFIED");
-                Print("[V71-GRID-AMPLIFIER] cid={0} pattern={1} route={2} legs={3} riskBudget={4:F2} netRR={5:F3}",
-                    c.CandidateId, c.Signal.PatternName, c.Route, maxLegs, plan.BasketRiskAmount, netRr);
-            }
 
-            Print("[V71-GRID-PLAN] cid={0} pattern={1} route={2} logicalLegs={3} physicalDepth={4} micro={5} anchor={6} weighted={7} virtualWeighted={8} stop={9} target={10} budget={11:F2} worst={12:F2} margin={13:F2} netRR={14:F3}",
+            Print("[V51-GRID-PLAN] cid={0} pattern={1} route={2} logicalLegs={3} physicalDepth={4} micro={5} anchor={6} weighted={7} virtualWeighted={8} stop={9} target={10} budget={11:F2} worst={12:F2} margin={13:F2} netRR={14:F3}",
                 c.CandidateId, c.Signal.PatternName, c.Route, plan.LogicalLegCount, plan.PhysicalDepth, plan.MicroCapitalMode,
                 anchor, plan.ExpectedWeightedEntry, plan.VirtualWeightedEntry, stop, target, plan.BasketRiskAmount,
                 plan.WorstCaseRisk, plan.EstimatedPhysicalMargin, plan.ExpectedNetRR);
             foreach (var leg in plan.Legs)
-                Print("[V71-GRID-LEG-PLAN] cid={0} leg=L{1} fraction={2:F3} price={3} weight={4:F6} physical={5} volume={6} budget={7:F2} risk={8:F2} minBrokerRisk={9:F2} state={10}",
+                Print("[V51-GRID-LEG-PLAN] cid={0} leg=L{1} fraction={2:F3} price={3} weight={4:F6} physical={5} volume={6} budget={7:F2} risk={8:F2} minBrokerRisk={9:F2} state={10}",
                     c.CandidateId, leg.Index, leg.Fraction, leg.PlannedPrice, leg.RiskWeight, leg.Physical, leg.Volume,
                     leg.RiskBudget, leg.PlannedRisk, leg.MinBrokerRisk, leg.State);
 
@@ -1929,7 +1394,10 @@ namespace cAlgo.Robots
 
         private int EstimateRiskOnlyPhysicalDepth(FibonacciGridPlan plan, double equity)
         {
-            double budget = equity * BasketRiskPercent / 100.0;
+            double effectivePct = Account.Equity > 0 && plan.BasketRiskAmount > 0
+                ? Math.Min(5.0, Math.Max(.1, plan.BasketRiskAmount / Account.Equity * 100.0))
+                : Math.Min(5.0, Math.Max(.1, BasketRiskPercent));
+            double budget = equity * effectivePct / 100.0;
             if (budget <= 0) return 0;
             for (int depth = plan.Legs.Count; depth >= 1; depth--)
             {
@@ -1956,7 +1424,7 @@ namespace cAlgo.Robots
             double[] equities = { 100, 150, 200, 300, 500, 1000 };
             string matrix = string.Join(",", equities.Select(e =>
                 e.ToString("F0", CultureInfo.InvariantCulture) + ":" + EstimateRiskOnlyPhysicalDepth(plan, e)));
-            Print("[V71-CAPITAL-COMPAT] cid={0} logicalLegs={1} riskOnlyPhysicalDepths={2}", plan.CandidateId, plan.LogicalLegCount, matrix);
+            Print("[V51-CAPITAL-COMPAT] cid={0} logicalLegs={1} riskOnlyPhysicalDepths={2}", plan.CandidateId, plan.LogicalLegCount, matrix);
         }
 
         private void ExecuteFibonacciGridPlan(CandidateRecord c)
@@ -1966,7 +1434,7 @@ namespace cAlgo.Robots
             if (Account.FreeMargin < plan.BasketRiskAmount * MinFreeMarginRiskMultiple) { Reject(c, "MARGIN_HEADROOM"); return; }
             if (plan.WorstCaseRisk > plan.BasketRiskAmount + 1e-8)
             {
-                _gridRiskPlanRejects++;
+                _gridRiskViolations++;
                 Reject(c, "WORST_CASE_BASKET_RISK");
                 return;
             }
@@ -1978,8 +1446,6 @@ namespace cAlgo.Robots
                 BasketId = basketId,
                 CandidateId = c.CandidateId,
                 Pattern = c.Signal.PatternName,
-                CanonicalSetupId = c.CanonicalSetupId,
-                FamilyId = c.FamilyId,
                 Direction = c.Signal.Direction,
                 Route = c.Route,
                 State = FibonacciBasketState.PLANNED,
@@ -1996,7 +1462,6 @@ namespace cAlgo.Robots
                 IsActive = true
             };
             _baskets[basketId] = basket;
-            if (EnableV69EqualFamilyVisibility) V69Visibility(c.FamilyId).BasketPlanned++;
             CountPipeline(c.Signal.PatternName).BasketPlanned++;
             BasketEvent(basket, "BASKET_PLANNED");
 
@@ -2035,7 +1500,7 @@ namespace cAlgo.Robots
             double l0Worst = volume * _symbol.PipValue * (slPips + ModeledCostPips());
             if (otherWorst + l0Worst > plan.BasketRiskAmount + 1e-8)
             {
-                _gridRiskPlanRejects++;
+                _gridRiskViolations++;
                 basket.State = FibonacciBasketState.RISK_REJECTED;
                 basket.IsActive = false;
                 Reject(c, "L0_SLIPPAGE_RISK_RECHECK");
@@ -2044,7 +1509,7 @@ namespace cAlgo.Robots
 
             TransitionLegState(basket, l0, GridLegState.SUBMITTING, "L0_SUBMITTING");
             TradeType tt = c.Signal.Direction == TradeDirection.Buy ? TradeType.Buy : TradeType.Sell;
-            var tr = ExecuteMarketOrder(tt, SymbolName, volume, l0Label, slPips, tpPips, GridComment(basket, 0));
+            var tr = ExecuteMarketOrder(tt, SymbolName, volume, l0Label, slPips, tpPips);
             if (tr == null || !tr.IsSuccessful || tr.Position == null)
             {
                 string code = "L0_ORDER_" + (tr == null ? "NULL" : tr.Error.ToString());
@@ -2095,12 +1560,9 @@ namespace cAlgo.Robots
             if (EnableCanonicalSetupIdentity && !string.IsNullOrWhiteSpace(c.SetupKey))
             {
                 _executedSetupKeys.Add(c.SetupKey);
-                _activeSetupOwners.Remove(string.IsNullOrWhiteSpace(c.IdentityKey) ? c.SetupKey : c.IdentityKey);
-                foreach (var other in _candidates.Values.Where(x => x.CandidateId != c.CandidateId && x.IsActive && x.SetupKey == c.SetupKey).ToList())
-                    Reject(other, "UNDERLYING_GEOMETRY_EXECUTED_BY_" + c.Signal.PatternName);
+                _activeSetupOwners.Remove(c.SetupKey);
             }
             CountPipeline(c.Signal.PatternName).Executed++;
-            if (EnableV69EqualFamilyVisibility) V69Visibility(c.FamilyId).Executed++;
 
             foreach (var leg in plan.Legs.Where(x => x.Index > 0))
             {
@@ -2357,8 +1819,6 @@ namespace cAlgo.Robots
                 PositionId = p.Id,
                 CandidateId = basket.CandidateId,
                 PatternName = basket.Pattern,
-                CanonicalSetupId = basket.CanonicalSetupId,
-                FamilyId = basket.FamilyId,
                 Route = basket.Route,
                 Direction = basket.Direction,
                 EntryUtc = p.EntryTime.ToUniversalTime(),
@@ -2440,7 +1900,7 @@ namespace cAlgo.Robots
                 if ((r == null || !r.IsSuccessful) && PendingOrderStillExists(o.Id))
                     RecordExecutionError("STOP_CANCEL_FAILED_" + (r == null ? "NULL" : r.Error.ToString()), "order=" + o.Id + ";reason=" + reason);
             }
-            Print("[V71-PENDING-CANCEL-ALL] reason={0}", reason);
+            Print("[V51-PENDING-CANCEL-ALL] reason={0}", reason);
         }
 
         private void CloseBasketPositions(FibonacciBasket basket, string reason)
@@ -2633,7 +2093,7 @@ namespace cAlgo.Robots
             if (_postFillValidated.Contains(p.Id)) return;
             if (!_postFillInProgress.Add(p.Id))
             {
-                Print("[V71-POST-FILL-DEDUPE] pos={0} source={1}", p.Id, source);
+                Print("[V51-POST-FILL-DEDUPE] pos={0} source={1}", p.Id, source);
                 return;
             }
 
@@ -2675,7 +2135,7 @@ namespace cAlgo.Robots
             {
                 _executionStateViolations++;
                 basket.ExitOverride = "LATE_FILL_AFTER_TERMINAL_STATE_" + leg.State;
-                Print("[V71-STATE-VIOLATION] basket={0} leg=L{1} prior={2} next=FILLED_UNVERIFIED reason=LATE_FILL_AFTER_TERMINAL_STATE",
+                Print("[V51-STATE-VIOLATION] basket={0} leg=L{1} prior={2} next=FILLED_UNVERIFIED reason=LATE_FILL_AFTER_TERMINAL_STATE",
                     basket.BasketId, leg.Index, leg.State);
                 CancelBasketPending(basket, basket.ExitOverride);
                 FailClosePosition(p, basket, basket.ExitOverride);
@@ -2738,7 +2198,7 @@ namespace cAlgo.Robots
 
             _postFillValidated.Add(p.Id);
             TransitionLegState(basket, leg, GridLegState.PROTECTED, "POST_FILL_PROTECTED");
-            Print("[V71-POST-FILL-AUDIT] basket={0} leg=L{1} pos={2} source={3} entry={4} stop={5} target={6} actualWorst={7:F4} budget={8:F4} protected=true",
+            Print("[V51-POST-FILL-AUDIT] basket={0} leg=L{1} pos={2} source={3} entry={4} stop={5} target={6} actualWorst={7:F4} budget={8:F4} protected=true",
                 basket.BasketId, leg.Index, p.Id, source, p.EntryPrice, basket.StructuralStop, basket.CanonicalTarget, actualWorst, basket.InitialBasketRisk);
         }
 
@@ -2908,7 +2368,7 @@ namespace cAlgo.Robots
             if (!allowed)
             {
                 _executionStateViolations++;
-                Print("[V71-STATE-VIOLATION] basket={0} leg=L{1} prior={2} next={3} reason={4}", basket == null ? "" : basket.BasketId, leg.Index, prior, next, reason);
+                Print("[V51-STATE-VIOLATION] basket={0} leg=L{1} prior={2} next={3} reason={4}", basket == null ? "" : basket.BasketId, leg.Index, prior, next, reason);
             }
             leg.State = next;
             if (basket != null) BasketEvent(basket, "LEG_STATE_L" + leg.Index + "_" + prior + "_TO_" + next + "_" + reason);
@@ -2919,7 +2379,7 @@ namespace cAlgo.Robots
             double min = _symbol.VolumeInUnitsMin;
             double marginBuy = EstimatedMargin(TradeDirection.Buy, min);
             double marginSell = EstimatedMargin(TradeDirection.Sell, min);
-            Print("[V71-BROKER-PROFILE] symbol={0} equity={1:F2} freeMargin={2:F2} minVolume={3} step={4} maxVolume={5} pipValue={6} tickValue={7} minSL={8} minTP={9} minDistanceType={10} minMarginBuy={11:F2} minMarginSell={12:F2} minimumSupportedEquity={13:F2} adaptiveCapital={14} microThreshold={15:F2} initialCapitalEligible={16}",
+            Print("[V51-BROKER-PROFILE] symbol={0} equity={1:F2} freeMargin={2:F2} minVolume={3} step={4} maxVolume={5} pipValue={6} tickValue={7} minSL={8} minTP={9} minDistanceType={10} minMarginBuy={11:F2} minMarginSell={12:F2} minimumSupportedEquity={13:F2} adaptiveCapital={14} microThreshold={15:F2} initialCapitalEligible={16}",
                 SymbolName, Account.Equity, Account.FreeMargin, _symbol.VolumeInUnitsMin, _symbol.VolumeInUnitsStep, _symbol.VolumeInUnitsMax,
                 _symbol.PipValue, _symbol.TickValue, _symbol.MinStopLossDistance, _symbol.MinTakeProfitDistance, _symbol.MinDistanceType,
                 marginBuy, marginSell, MinimumSupportedEquity, AdaptiveCapitalMode, MicroCapitalThreshold, _initialCapitalEligible);
@@ -2940,7 +2400,7 @@ namespace cAlgo.Robots
             PositionLedger l;
             if (!_positions.TryGetValue(p.Id, out l))
             {
-                Print("[V71-LEG-CLOSED] pos={0} basket=UNKNOWN net={1:F2} reason={2}", p.Id, p.NetProfit, args.Reason);
+                Print("[V51-LEG-CLOSED] pos={0} basket=UNKNOWN net={1:F2} reason={2}", p.Id, p.NetProfit, args.Reason);
                 return;
             }
 
@@ -2950,7 +2410,7 @@ namespace cAlgo.Robots
                 basket.RealizedNet += p.NetProfit;
                 basket.ClosedLegs++;
                 double legRealizedR = l.InitialRiskPips > 0 ? p.Pips / l.InitialRiskPips : 0;
-                Print("[V71-LEG-CLOSED] basket={0} cid={1} leg=L{2} pos={3} pattern={4} route={5} dir={6} mfeR={7:F3} maeR={8:F3} realizedR={9:F3} net={10:F2} reason={11}",
+                Print("[V51-LEG-CLOSED] basket={0} cid={1} leg=L{2} pos={3} pattern={4} route={5} dir={6} mfeR={7:F3} maeR={8:F3} realizedR={9:F3} net={10:F2} reason={11}",
                     basket.BasketId, basket.CandidateId, l.LegIndex, p.Id, basket.Pattern, basket.Route, basket.Direction,
                     l.PeakR, l.MaxAdverseR, legRealizedR, p.NetProfit, args.Reason);
 
@@ -2976,7 +2436,6 @@ namespace cAlgo.Robots
 
             double realizedR = basket.InitialBasketRisk > 0 ? basket.RealizedNet / basket.InitialBasketRisk : 0;
             CountPipeline(basket.Pattern).BasketClosed++;
-            if (EnableV69EqualFamilyVisibility) V69Visibility(basket.FamilyId).Closed++;
             BasketEvent(basket, "BASKET_CLOSED_" + reason);
 
             double entryImprovementPips = basket.AverageEntry > 0
@@ -2984,14 +2443,14 @@ namespace cAlgo.Robots
                 : 0;
             string setupKey = basket.Candidate != null ? basket.Candidate.SetupKey : "";
             string subtype = basket.Candidate != null && basket.Candidate.Signal != null ? basket.Candidate.Signal.HarmonicSubtype : basket.Pattern;
-            Print("[V71-BASKET-CLOSED] basket={0} cid={1} setup={2} pattern={3} subtype={4} route={5} dir={6} plannedLegs={7} filledLegs={8} anchor={9} avgEntry={10} entryImprovePips={11:F3} stop={12} target={13} initialRisk={14:F2} worstRisk={15:F2} mfeR={16:F3} maeR={17:F3} realizedR={18:F3} net={19:F2} reason={20}",
+            Print("[V51-BASKET-CLOSED] basket={0} cid={1} setup={2} pattern={3} subtype={4} route={5} dir={6} plannedLegs={7} filledLegs={8} anchor={9} avgEntry={10} entryImprovePips={11:F3} stop={12} target={13} initialRisk={14:F2} worstRisk={15:F2} mfeR={16:F3} maeR={17:F3} realizedR={18:F3} net={19:F2} reason={20}",
                 basket.BasketId, basket.CandidateId, setupKey, basket.Pattern, subtype, basket.Route, basket.Direction, basket.Plan.Legs.Count, basket.FilledLegs,
                 basket.EntryAnchor, basket.AverageEntry, entryImprovementPips, basket.StructuralStop, basket.CanonicalTarget,
                 basket.InitialBasketRisk, basket.PlannedWorstCaseRisk, basket.PeakR, basket.MaxAdverseR, realizedR, basket.RealizedNet, reason);
 
             double occupancyMin = Math.Max(0, (Server.Time.ToUniversalTime() - basket.CreatedUtc).TotalMinutes);
             _basketOccupancyMinutes.Add(occupancyMin);
-            Print("[V71-SLOT-OCCUPANCY] basket={0} cid={1} pattern={2} route={3} occupancyMinutes={4:F2} realizedR={5:F3} net={6:F2}",
+            Print("[V51-SLOT-OCCUPANCY] basket={0} cid={1} pattern={2} route={3} occupancyMinutes={4:F2} realizedR={5:F3} net={6:F2}",
                 basket.BasketId, basket.CandidateId, basket.Pattern, basket.Route, occupancyMin, realizedR, basket.RealizedNet);
 
             if (EnableEventDrivenSerialHandoff)
@@ -3023,10 +2482,8 @@ namespace cAlgo.Robots
 
         private string GridComment(FibonacciBasket basket, int legIndex)
         {
-            // Broker history is the authoritative attribution surface. Keep this compact and machine-stable
-            // so canonical identity survives even when stdout telemetry is incomplete.
-            return "fid=" + basket.FamilyId + ";sid=" + (basket.CanonicalSetupId ?? "") +
-                   ";route=" + basket.Route + ";leg=L" + legIndex;
+            return "cid=" + basket.CandidateId + ";basket=" + basket.BasketId + ";leg=L" + legIndex +
+                   ";pattern=" + basket.Pattern + ";tf=M15;route=" + basket.Route;
         }
 
         private string LabelBasketId(string label)
@@ -3047,12 +2504,477 @@ namespace cAlgo.Robots
 
         private void BasketEvent(FibonacciBasket basket, string reason)
         {
-            Print("[V71-BASKET-EVENT] basket={0} cid={1} canonicalSetup={2} familyId={3} pattern={4} route={5} state={6} reason={7}",
-                basket.BasketId, basket.CandidateId, basket.CanonicalSetupId ?? "", basket.FamilyId,
-                basket.Pattern, basket.Route, basket.State, reason);
+            Print("[V51-BASKET-EVENT] basket={0} cid={1} pattern={2} route={3} state={4} reason={5}",
+                basket.BasketId, basket.CandidateId, basket.Pattern, basket.Route, basket.State, reason);
         }
 
         private DateTime MinDate(DateTime a, DateTime b) { return a <= b ? a : b; }
+
+        // ---------------- V71 protected-core incremental expansion ----------------
+
+        private void V71ParseEdgeModel()
+        {
+            _v71EdgeWeights.Clear();
+            _v71FamilyRoutePriors.Clear();
+            _v71ModelReady = false;
+
+            if (!string.IsNullOrWhiteSpace(V71EdgeModelSpec))
+            {
+                foreach (var part in V71EdgeModelSpec.Split(new[] { ';' }, StringSplitOptions.RemoveEmptyEntries))
+                {
+                    var kv = part.Split(new[] { ':' }, 2);
+                    double v;
+                    if (kv.Length == 2 && double.TryParse(kv[1], NumberStyles.Float, CultureInfo.InvariantCulture, out v))
+                        _v71EdgeWeights[kv[0]] = v;
+                }
+            }
+
+            if (!string.IsNullOrWhiteSpace(V71FamilyRoutePriorSpec))
+            {
+                foreach (var part in V71FamilyRoutePriorSpec.Split(new[] { ';' }, StringSplitOptions.RemoveEmptyEntries))
+                {
+                    var kv = part.Split(':');
+                    double v;
+                    if (kv.Length == 3 && double.TryParse(kv[2], NumberStyles.Float, CultureInfo.InvariantCulture, out v))
+                        _v71FamilyRoutePriors[kv[0] + ":" + kv[1]] = Math.Max(-1.0, Math.Min(1.0, v));
+                }
+            }
+
+            _v71ModelReady = _v71EdgeWeights.ContainsKey("i") &&
+                             _v71EdgeWeights.ContainsKey("g") &&
+                             _v71EdgeWeights.ContainsKey("prz") &&
+                             _v71EdgeWeights.ContainsKey("m1") &&
+                             _v71EdgeWeights.ContainsKey("rr");
+        }
+
+        private double V71W(string key)
+        {
+            double v;
+            return _v71EdgeWeights.TryGetValue(key, out v) ? v : 0.0;
+        }
+
+        private string V71FamilyKey(string pattern)
+        {
+            if (pattern == "AB=CD") return "ABCD";
+            if (pattern == "5-0") return "FiveZero";
+            return (pattern ?? "UNKNOWN").Replace(" ", "").Replace("-", "");
+        }
+
+        private string V71RouteKey(HarmonicRoute route)
+        {
+            return route == HarmonicRoute.TREND_ALIGNED_REVERSAL ? "T" :
+                   route == HarmonicRoute.EXHAUSTION_REVERSAL ? "E" :
+                   route == HarmonicRoute.TRANSITION_REVERSAL ? "X" : "N";
+        }
+
+        private double V71FamilyRoutePrior(V71ExpansionCandidate e)
+        {
+            if (e == null || e.Signal == null) return 0;
+            double v;
+            string key = V71FamilyKey(e.Signal.PatternName) + ":" + V71RouteKey(e.Route);
+            return _v71FamilyRoutePriors.TryGetValue(key, out v) ? v : 0.0;
+        }
+
+        private double V71MtfScore(MtfConflict c)
+        {
+            return c == MtfConflict.ALIGNED ? 1.0 :
+                   c == MtfConflict.SUPPORTED ? .85 :
+                   c == MtfConflict.TRANSITION ? .65 :
+                   c == MtfConflict.NEUTRAL ? .55 : .25;
+        }
+
+        private HarmonicRoute V71ExpansionRoute(PatternSignal s, MtfConflict conflict, RegimeSnapshot r)
+        {
+            if (r != null && (r.Transition || conflict == MtfConflict.TRANSITION))
+                return HarmonicRoute.TRANSITION_REVERSAL;
+            bool opposed = r != null && r.TrendDirection != TradeDirection.Neutral && r.TrendDirection != s.Direction;
+            if (opposed && r.ExtensionAtr >= 1.0)
+                return HarmonicRoute.EXHAUSTION_REVERSAL;
+            return HarmonicRoute.TREND_ALIGNED_REVERSAL;
+        }
+
+        private bool V71ExpansionIntegrity(PatternSignal s)
+        {
+            if (s == null || s.Profile == null) return false;
+            if (string.IsNullOrWhiteSpace(s.PatternName)) return false;
+            if (!double.IsFinite(s.GeometryQuality) || !double.IsFinite(s.PrzConfluence) ||
+                !double.IsFinite(s.Confidence) || !double.IsFinite(s.StructuralInvalidation))
+                return false;
+            if (s.StructuralInvalidation <= 0 || s.PrzHigh <= s.PrzLow) return false;
+            return true;
+        }
+
+        private void V71TrackExpansionSignal(PatternSignal s, HarmonicState h4, HarmonicState h1, RegimeSnapshot regime)
+        {
+            if (!V71ExpansionIntegrity(s)) return;
+            string setup = BuildSetupGeometryKey(s);
+            if (_executedSetupKeys.Contains(setup)) return;
+            string id = V71FamilyKey(s.PatternName) + "|" + setup;
+            if (_v71Expansion.ContainsKey(id)) return;
+
+            var conflict = ClassifyMtfConflict(s.Direction, h4, h1);
+            var e = new V71ExpansionCandidate
+            {
+                CandidateId = "V71EXP-" + Math.Abs(id.GetHashCode()).ToString("X8", CultureInfo.InvariantCulture) + "-" +
+                              s.CompletionTime.ToString("yyyyMMddHHmm", CultureInfo.InvariantCulture),
+                IdentityKey = id,
+                SetupKey = setup,
+                Signal = s,
+                Conflict = conflict,
+                Regime = regime,
+                Route = V71ExpansionRoute(s, conflict, regime),
+                DetectedUtc = Server.Time.ToUniversalTime(),
+                ExpiryUtc = Server.Time.ToUniversalTime().AddMinutes(15.0 * Math.Max(4, Math.Min(32, V71ExpansionTtlM15Bars))),
+                State = V71ExpansionState.WAIT_PRZ,
+                IsActive = true
+            };
+            _v71Expansion[id] = e;
+            _v71ExpansionDetected++;
+            Print("[V71-EXP-DETECTED] cid={0} setup={1} family={2} subtype={3} route={4} conflict={5} g={6:F4} prz={7:F4} conf={8:F4}",
+                e.CandidateId, e.SetupKey, V71FamilyKey(s.PatternName), s.HarmonicSubtype ?? s.PatternName,
+                e.Route, e.Conflict, s.GeometryQuality, s.PrzConfluence, s.Confidence);
+        }
+
+        private bool V71ExpansionM1Confirmation(int i, V71ExpansionCandidate e, out double score)
+        {
+            score = 0;
+            if (e == null || e.Signal == null || i <= 0 || i >= _m1Bars.Count) return false;
+            double open = _m1Bars.OpenPrices[i], close = _m1Bars.ClosePrices[i], prev = _m1Bars.ClosePrices[i - 1];
+            bool directional = e.Signal.Direction == TradeDirection.Buy
+                ? (close > open || close > prev)
+                : (close < open || close < prev);
+            bool structurallyAlive = e.Signal.Direction == TradeDirection.Buy
+                ? close > e.Signal.StructuralInvalidation
+                : close < e.Signal.StructuralInvalidation;
+            score = M1ConfirmationScore(i, e.Signal);
+            return directional && structurallyAlive && score >= .50;
+        }
+
+        private double V71AtrFit(RegimeSnapshot r)
+        {
+            if (r == null) return .5;
+            return VClamp(1.0 - Math.Abs(r.AtrRatio - 1.0));
+        }
+
+        private double V71ExpectedEdge(V71ExpansionCandidate e)
+        {
+            if (!_v71ModelReady || e == null || e.Signal == null) return -999;
+            double rr = VClamp(e.NetRR / 4.0);
+            double reg = VClamp(e.RegimeScore);
+            double eff = e.Regime == null ? 0 : VClamp(e.Regime.Efficiency);
+            double ext = e.Regime == null ? 0 : VClamp(e.Regime.ExtensionAtr / 2.0);
+            double mtf = V71MtfScore(e.Conflict);
+            double prior = V71FamilyRoutePrior(e);
+            return V71W("i") +
+                   V71W("g") * VClamp(e.Signal.GeometryQuality) +
+                   V71W("prz") * VClamp(e.Signal.PrzConfluence) +
+                   V71W("conf") * VClamp(e.Signal.Confidence) +
+                   V71W("ts") * VClamp(e.Signal.TimeSymmetry) +
+                   V71W("pv") * VClamp(e.Signal.PivotQuality) +
+                   V71W("m1") * VClamp(e.ConfirmationScore) +
+                   V71W("rr") * rr +
+                   V71W("reg") * reg +
+                   V71W("eff") * eff +
+                   V71W("atr") * V71AtrFit(e.Regime) +
+                   V71W("ext") * ext +
+                   V71W("mtf") * mtf +
+                   V71W("prior") * prior;
+        }
+
+        private double V71ExpectedSlotHours(HarmonicRoute route)
+        {
+            return route == HarmonicRoute.TREND_ALIGNED_REVERSAL ? 1.50 :
+                   route == HarmonicRoute.EXHAUSTION_REVERSAL ? 2.00 :
+                   route == HarmonicRoute.TRANSITION_REVERSAL ? 1.25 : 2.00;
+        }
+
+        private void V71ArmExpansion(int i, DateTime utc, V71ExpansionCandidate e, double confirmationScore)
+        {
+            double entry = e.Signal.Direction == TradeDirection.Buy ? _symbol.Ask : _symbol.Bid;
+            double stop = e.Signal.StructuralInvalidation;
+            if ((e.Signal.Direction == TradeDirection.Buy && stop >= entry) ||
+                (e.Signal.Direction == TradeDirection.Sell && stop <= entry))
+            {
+                e.IsActive = false; e.State = V71ExpansionState.INVALIDATED; return;
+            }
+            if (PriceToPips(Math.Abs(entry - stop)) < MinStopLossPips)
+            {
+                e.IsActive = false; e.State = V71ExpansionState.REJECTED; return;
+            }
+
+            double target, netRr;
+            if (!SelectCanonicalBasketTarget(e.Signal, entry, stop, out target, out netRr) || netRr < MinimumNetRR)
+            {
+                e.IsActive = false; e.State = V71ExpansionState.REJECTED; return;
+            }
+
+            e.EntryAnchor = entry;
+            e.StructuralStop = stop;
+            e.CanonicalTarget = target;
+            e.RiskDistance = Math.Abs(entry - stop);
+            e.TargetR = e.RiskDistance > 0 ? Math.Abs(target - entry) / e.RiskDistance : netRr;
+            e.NetRR = netRr;
+            e.ConfirmationScore = confirmationScore;
+            e.RegimeScore = RegimeContextScore(e.Signal, e.Conflict, e.Regime);
+            e.ArmedUtc = utc;
+            e.State = V71ExpansionState.ARMED;
+            e.ShadowStarted = true;
+            e.EdgeMean = V71ExpectedEdge(e);
+            e.EdgeLcb = e.EdgeMean - Math.Max(0, V71EdgeLcbMargin);
+            e.SlotScore = e.EdgeLcb / Math.Max(.50, V71ExpectedSlotHours(e.Route));
+            _v71ExpansionArmed++;
+
+            Print("[V71-EXP-ARM] cid={0} setup={1} family={2} route={3} model={4} g={5:F5} prz={6:F5} conf={7:F5} ts={8:F5} pv={9:F5} m1={10:F5} rr={11:F5} reg={12:F5} eff={13:F5} atr={14:F5} ext={15:F5} mtf={16:F5} prior={17:F5} edge={18:F5} lcb={19:F5} slotScore={20:F5}",
+                e.CandidateId, e.SetupKey, V71FamilyKey(e.Signal.PatternName), e.Route, V71ModelId,
+                VClamp(e.Signal.GeometryQuality), VClamp(e.Signal.PrzConfluence), VClamp(e.Signal.Confidence),
+                VClamp(e.Signal.TimeSymmetry), VClamp(e.Signal.PivotQuality), VClamp(e.ConfirmationScore),
+                VClamp(e.NetRR / 4.0), VClamp(e.RegimeScore),
+                e.Regime == null ? 0 : VClamp(e.Regime.Efficiency), V71AtrFit(e.Regime),
+                e.Regime == null ? 0 : VClamp(e.Regime.ExtensionAtr / 2.0), V71MtfScore(e.Conflict),
+                V71FamilyRoutePrior(e), e.EdgeMean, e.EdgeLcb, e.SlotScore);
+        }
+
+        private void V71ProcessExpansionM1(int i, DateTime utc)
+        {
+            foreach (var e in _v71Expansion.Values.Where(x => x.IsActive).ToList())
+            {
+                if (utc >= e.ExpiryUtc)
+                {
+                    if (e.ShadowStarted && !e.ShadowFinished) V71FinalizeExpansionShadow(e, i, "TTL");
+                    e.IsActive = false;
+                    e.State = V71ExpansionState.EXPIRED;
+                    continue;
+                }
+
+                if (!e.ShadowStarted && PatternInvalidatedBeforeEntry(e.Signal))
+                {
+                    e.IsActive = false;
+                    e.State = V71ExpansionState.INVALIDATED;
+                    continue;
+                }
+
+                if (e.State == V71ExpansionState.WAIT_PRZ)
+                {
+                    if (BarTouchesPrz(i, e.Signal))
+                    {
+                        e.PrzTouchUtc = utc;
+                        e.State = V71ExpansionState.CONFIRMING;
+                    }
+                    continue;
+                }
+
+                if (e.State == V71ExpansionState.CONFIRMING)
+                {
+                    if (!e.PrzTouchUtc.HasValue || utc <= e.PrzTouchUtc.Value) continue;
+                    double score;
+                    if (V71ExpansionM1Confirmation(i, e, out score))
+                        V71ArmExpansion(i, utc, e, score);
+                    continue;
+                }
+
+                if (e.State == V71ExpansionState.ARMED && e.ShadowStarted && !e.ShadowFinished)
+                {
+                    if (!e.ArmedUtc.HasValue || utc <= e.ArmedUtc.Value) continue;
+                    e.ShadowBars++;
+                    double high = _m1Bars.HighPrices[i], low = _m1Bars.LowPrices[i];
+                    bool stop = e.Signal.Direction == TradeDirection.Buy ? low <= e.StructuralStop : high >= e.StructuralStop;
+                    bool target = e.Signal.Direction == TradeDirection.Buy ? high >= e.CanonicalTarget : low <= e.CanonicalTarget;
+                    if (stop) { V71FinalizeExpansionShadow(e, i, "STOP", -1.0); continue; }
+                    if (target) { V71FinalizeExpansionShadow(e, i, "TARGET", Math.Max(0, e.TargetR)); continue; }
+                    if (e.ShadowBars >= Math.Max(30, V71ExpansionShadowHorizonM1Bars))
+                        V71FinalizeExpansionShadow(e, i, "HORIZON");
+                }
+            }
+
+            if (_v71Expansion.Count > 12000)
+            {
+                foreach (var k in _v71Expansion.Where(kv => !kv.Value.IsActive && kv.Value.ShadowFinished)
+                    .OrderBy(kv => kv.Value.DetectedUtc).Take(_v71Expansion.Count - 9000).Select(kv => kv.Key).ToList())
+                    _v71Expansion.Remove(k);
+            }
+        }
+
+        private void V71FinalizeExpansionShadow(V71ExpansionCandidate e, int i, string result, double? forcedR = null)
+        {
+            if (e == null || e.ShadowFinished || !e.ShadowStarted || e.RiskDistance <= 0) return;
+            double r;
+            if (forcedR.HasValue) r = forcedR.Value;
+            else
+            {
+                double close = i >= 0 && i < _m1Bars.Count ? _m1Bars.ClosePrices[i] :
+                               (e.Signal.Direction == TradeDirection.Buy ? _symbol.Bid : _symbol.Ask);
+                double move = e.Signal.Direction == TradeDirection.Buy ? close - e.EntryAnchor : e.EntryAnchor - close;
+                r = move / e.RiskDistance;
+                r = Math.Max(-1.0, Math.Min(Math.Max(0, e.TargetR), r));
+            }
+
+            e.ShadowOutcomeR = r;
+            e.ShadowFinished = true;
+            _v71ExpansionShadowClosed++;
+            Print("[V71-EXP-SHADOW] cid={0} setup={1} family={2} route={3} g={4:F6} prz={5:F6} conf={6:F6} ts={7:F6} pv={8:F6} m1={9:F6} rr={10:F6} reg={11:F6} eff={12:F6} atr={13:F6} ext={14:F6} mtf={15:F6} outcomeR={16:F6} result={17} bars={18}",
+                e.CandidateId, e.SetupKey, V71FamilyKey(e.Signal.PatternName), e.Route,
+                VClamp(e.Signal.GeometryQuality), VClamp(e.Signal.PrzConfluence), VClamp(e.Signal.Confidence),
+                VClamp(e.Signal.TimeSymmetry), VClamp(e.Signal.PivotQuality), VClamp(e.ConfirmationScore),
+                VClamp(e.NetRR / 4.0), VClamp(e.RegimeScore),
+                e.Regime == null ? 0 : VClamp(e.Regime.Efficiency), V71AtrFit(e.Regime),
+                e.Regime == null ? 0 : VClamp(e.Regime.ExtensionAtr / 2.0), V71MtfScore(e.Conflict),
+                r, result, e.ShadowBars);
+        }
+
+        private void V71FinalizeExpansionShadows()
+        {
+            int i = LastClosedIndex(_m1Bars);
+            foreach (var e in _v71Expansion.Values.Where(x => x.ShadowStarted && !x.ShadowFinished).ToList())
+                V71FinalizeExpansionShadow(e, i, "BACKTEST_END");
+        }
+
+        private bool V71CoreHasActiveThesis()
+        {
+            return _candidates.Values.Any(x => x.IsActive);
+        }
+
+        private double V71ExpansionRiskFor(V71ExpansionCandidate e)
+        {
+            double cap = Math.Min(5.0, Math.Max(.10, V71ExpansionRiskPercent));
+            if (!EnableV71ExpansionAdaptiveRisk) return Math.Min(1.0, cap);
+            double r = 1.0;
+            if (e != null && e.EdgeLcb >= .15) r = 2.0;
+            if (e != null && e.EdgeLcb >= .30) r = 3.0;
+            if (e != null && e.EdgeLcb >= .50) r = 5.0;
+            r = Math.Min(cap, r);
+            if (r > 1.000001) _v71ExpansionRiskScaled++;
+            return r;
+        }
+
+        private double V71CandidateRiskPercent(CandidateRecord c)
+        {
+            if (c != null && c.V71Expansion)
+                return Math.Min(5.0, Math.Max(.10, c.V71RiskPercent));
+            return Math.Min(5.0, Math.Max(.10, BasketRiskPercent));
+        }
+
+        private bool V71BuildExpansionSingleLeg(CandidateRecord c)
+        {
+            if (c == null || c.Signal == null || c.Signal.Profile == null) return false;
+            double anchor = c.Signal.Direction == TradeDirection.Buy ? _symbol.Ask : _symbol.Bid;
+            double stop = c.Signal.StructuralInvalidation;
+            double distance = Math.Abs(anchor - stop);
+            if (PriceToPips(distance) < MinStopLossPips) return false;
+
+            double target, netRr;
+            if (!SelectCanonicalBasketTarget(c.Signal, anchor, stop, out target, out netRr) || netRr < MinimumNetRR)
+                return false;
+
+            var plan = new FibonacciGridPlan
+            {
+                CandidateId = c.CandidateId,
+                Pattern = c.Signal.PatternName,
+                Direction = c.Signal.Direction,
+                Route = c.Route,
+                EntryAnchor = anchor,
+                StructuralStop = stop,
+                GridDistance = distance,
+                BasketRiskAmount = Account.Equity * V71CandidateRiskPercent(c) / 100.0,
+                CreatedUtc = Server.Time.ToUniversalTime(),
+                ExpirationUtc = MinDate(c.ExpiryUtc, Server.Time.ToUniversalTime().AddMinutes(Math.Max(15, c.Signal.Profile.PendingTtlMinutes))),
+                MicroCapitalMode = AdaptiveCapitalMode && Account.Equity <= MicroCapitalThreshold,
+                CanonicalTarget = target,
+                ExpectedNetRR = netRr,
+                ExpectedWeightedEntry = anchor,
+                VirtualWeightedEntry = anchor
+            };
+            if (plan.BasketRiskAmount <= 0) return false;
+
+            double slPips = PriceToPips(distance);
+            double minRisk = _symbol.VolumeInUnitsMin * _symbol.PipValue * (slPips + ModeledCostPips());
+            plan.Legs.Add(new FibonacciGridLeg
+            {
+                Index = 0, Fraction = 0, PlannedPrice = anchor, RiskWeight = 1.0,
+                RiskBudget = plan.BasketRiskAmount, MinBrokerRisk = minRisk,
+                Volume = 0, PlannedRisk = 0, ModeledCost = 0, Physical = false,
+                State = GridLegState.VIRTUAL_ONLY
+            });
+            plan.LogicalLegCount = 1;
+            if (!ConfigureCapitalExecution(plan)) return false;
+            if (plan.Legs.Count == 0 || !plan.Legs[0].Physical || plan.WorstCaseRisk > plan.BasketRiskAmount + 1e-8) return false;
+
+            c.GridPlan = plan;
+            c.SelectedTarget = target;
+            c.NetRR = netRr;
+            return true;
+        }
+
+        private void V71TryExecuteExpansion(DateTime now)
+        {
+            if (!EnableV71ExpansionExecution || !_v71ModelReady) return;
+            if (V71CoreHasActiveThesis()) { _v71ExpansionCoreBlocked++; return; }
+            if (OwnPositions().Any() || OwnPendingOrders().Any() || _baskets.Values.Any(b => b.IsActive)) return;
+            if (!IsInstitutionalSession(now) || !SpreadValid()) return;
+
+            var eligible = _v71Expansion.Values
+                .Where(e => e.IsActive && e.State == V71ExpansionState.ARMED && !e.Executed &&
+                            e.EdgeLcb > 0 && e.NetRR >= MinimumNetRR &&
+                            !_executedSetupKeys.Contains(e.SetupKey))
+                .OrderByDescending(e => e.SlotScore)
+                .ThenByDescending(e => e.EdgeLcb)
+                .ToList();
+            if (eligible.Count == 0)
+            {
+                if (_v71Expansion.Values.Any(e => e.IsActive && e.State == V71ExpansionState.ARMED && e.EdgeLcb <= 0))
+                    _v71ExpansionModelRejected++;
+                return;
+            }
+
+            var e = eligible[0];
+            double riskPct = V71ExpansionRiskFor(e);
+            var c = new CandidateRecord
+            {
+                CandidateId = e.CandidateId,
+                SetupKey = e.SetupKey,
+                Signal = e.Signal,
+                State = CandidateState.EXECUTABLE,
+                IsActive = true,
+                DetectedUtc = e.DetectedUtc,
+                ExpiryUtc = e.ExpiryUtc,
+                PrzTouchUtc = e.PrzTouchUtc,
+                Conflict = e.Conflict,
+                Route = e.Route,
+                Regime = e.Regime,
+                ConfirmationScore = e.ConfirmationScore,
+                NetRR = e.NetRR,
+                SelectedTarget = e.CanonicalTarget,
+                V71Expansion = true,
+                V71RiskPercent = riskPct
+            };
+
+            bool built = false;
+            if (EnableV71ExpansionGrid)
+            {
+                built = TryBuildFibonacciGridPlan(c);
+                if (!built)
+                {
+                    c.GridPlan = null;
+                    _v71ExpansionGridFallback++;
+                    built = V71BuildExpansionSingleLeg(c);
+                }
+            }
+            else built = V71BuildExpansionSingleLeg(c);
+
+            if (!built || c.GridPlan == null || c.NetRR < MinimumNetRR) return;
+
+            Print("[V71-EXP-EXECUTE] cid={0} setup={1} family={2} route={3} model={4} edge={5:F5} lcb={6:F5} slotScore={7:F5} riskPct={8:F2} grid={9}",
+                e.CandidateId, e.SetupKey, V71FamilyKey(e.Signal.PatternName), e.Route, V71ModelId,
+                e.EdgeMean, e.EdgeLcb, e.SlotScore, riskPct, EnableV71ExpansionGrid);
+
+            ExecuteFibonacciGridPlan(c);
+            if (c.State == CandidateState.EXECUTED)
+            {
+                e.Executed = true;
+                e.IsActive = false;
+                e.State = V71ExpansionState.EXECUTED;
+                _v71ExpansionExecuted++;
+            }
+        }
 
         // ---------------- Harmonic engine ----------------
 
@@ -3071,98 +2993,39 @@ namespace cAlgo.Robots
             {
                 var pivots = BuildConfirmedPivots(bars, endIndex, lookback, scale);
                 if (pivots.Count < 5) continue;
-                int start = Math.Max(0, pivots.Count - (EnableFamilyIdentityReconstruction ? 28 : 36));
 
-                IEnumerable<PivotSequence> sequences;
-                if (EnableFamilyIdentityReconstruction && EnableBoundedPivotGraph && string.Equals(timeframe, "M15", StringComparison.OrdinalIgnoreCase))
-                    sequences = EnumerateBoundedPivotSequences(pivots, start, Math.Max(0, Math.Min(2, MaxMicroPivotSkips)));
-                else
-                    sequences = Enumerable.Range(start, Math.Max(0, pivots.Count - 4 - start))
-                        .Select(k => new PivotSequence { X = pivots[k], A = pivots[k + 1], B = pivots[k + 2], C = pivots[k + 3], D = pivots[k + 4] });
-
-                foreach (var seq in sequences)
+                int start = Math.Max(0, pivots.Count - 36);
+                for (int i = start; i <= pivots.Count - 5; i++)
                 {
+                    var x = pivots[i];
+                    var a = pivots[i + 1];
+                    var b = pivots[i + 2];
+                    var c = pivots[i + 3];
+                    var d = pivots[i + 4];
+
                     foreach (var profile in _profiles)
                     {
-                        DetectorTruth(profile.Name, "TOPOLOGY_ATTEMPT");
-                        if (EnableV69EqualFamilyVisibility) V69Visibility(CanonicalFamilyFromName(profile.Name)).TopologyAttempts++;
                         PatternSignal sig;
-                        if (!TryMatchProfile(profile, seq.X, seq.A, seq.B, seq.C, seq.D, atr, bars.OpenTimes[seq.D.Index], timeframe, scale, out sig))
+                        if (!TryMatchProfile(profile, x, a, b, c, d, atr, bars.OpenTimes[d.Index], timeframe, scale, out sig))
                             continue;
-                        sig.FamilyId = CanonicalFamilyFromName(sig.PatternName);
-                        if (EnableV69EqualFamilyVisibility) V69Visibility(sig.FamilyId).GeometryMatched++;
-                        if (endIndex - seq.D.Index > Math.Max(2, profile.MaxAgeM15Bars))
-                        {
-                            DetectorTruth(profile.Name, "AGE_REJECT");
-                            if (EnableV69EqualFamilyVisibility) V69Visibility(sig.FamilyId).AgeRejected++;
-                            continue;
-                        }
+                        if (endIndex - d.Index > Math.Max(2, profile.MaxAgeM15Bars)) continue;
                         if (scale != depth) _independentScaleCandidates++;
                         result.Add(sig);
                     }
                 }
             }
 
-            if (!EnableFamilyIdentityReconstruction)
-            {
-                var ordered = result.OrderByDescending(x => x.Confidence).ThenByDescending(x => x.GeometryQuality);
-                if (EnableCanonicalSetupIdentity)
-                    ordered = ordered.GroupBy(BuildSetupGeometryKey)
-                        .Select(g => g.OrderByDescending(x => x.Confidence).ThenByDescending(x => x.GeometryQuality).First())
-                        .OrderByDescending(x => x.Confidence).ThenByDescending(x => x.GeometryQuality);
+            var ordered = result.OrderByDescending(x => x.Confidence).ThenByDescending(x => x.GeometryQuality);
+            if (EnableCanonicalSetupIdentity)
+                ordered = ordered.GroupBy(BuildSetupGeometryKey)
+                    .Select(g => g.OrderByDescending(x => x.Confidence).ThenByDescending(x => x.GeometryQuality).First())
+                    .OrderByDescending(x => x.Confidence).ThenByDescending(x => x.GeometryQuality);
 
-                return ordered
-                    .GroupBy(x => x.PatternName + "|" + x.Direction + "|" + x.CompletionTime.ToString("O") + "|" + x.PivotScale)
-                    .Select(g => g.First())
-                    .Take(Math.Max(1, maxCandidates))
-                    .ToList();
-            }
-
-            var hypotheses = result
-                .GroupBy(BuildFamilyHypothesisKey)
-                .Select(g => g.OrderByDescending(x => x.Confidence).ThenByDescending(x => x.GeometryQuality).First())
+            return ordered
+                .GroupBy(x => x.PatternName + "|" + x.Direction + "|" + x.CompletionTime.ToString("O") + "|" + x.PivotScale)
+                .Select(g => g.First())
+                .Take(Math.Max(1, maxCandidates))
                 .ToList();
-
-            if (EnableV67FamilyDetectorFrontier)
-            {
-                // V67 deliberately removes per-family trading quotas. Supply is ranked by family-native
-                // identity quality and economic-role evidence, while canonical setup dedupe still prevents
-                // multiple executions of the same underlying thesis.
-                var frontier = hypotheses
-                    .OrderByDescending(V67FamilyDetectionPriority)
-                    .ThenByDescending(x => x.Confidence)
-                    .ThenByDescending(x => x.GeometryQuality)
-                    .Take(Math.Max(48, maxCandidates * 6))
-                    .ToList();
-                foreach (var x in frontier) DetectorTruth(x.PatternName, "V67_FAMILY_FRONTIER_SELECTED");
-                return frontier;
-            }
-
-            int quota = Math.Max(1, FamilyDetectionQuota);
-            var fair = hypotheses
-                .GroupBy(x => x.PatternName)
-                .SelectMany(g => g.OrderByDescending(x => x.Confidence).ThenByDescending(x => x.GeometryQuality).Take(quota))
-                .OrderByDescending(x => x.Confidence).ThenByDescending(x => x.GeometryQuality)
-                .Take(Math.Max(maxCandidates, _profiles.Count * quota))
-                .ToList();
-
-            foreach (var x in fair) DetectorTruth(x.PatternName, "FAMILY_QUOTA_SELECTED");
-            return fair;
-        }
-
-        private IEnumerable<PivotSequence> EnumerateBoundedPivotSequences(List<PivotPoint> pivots, int start, int maxTotalSkips)
-        {
-            int n = pivots.Count;
-            for (int ix = start; ix <= n - 5; ix++)
-            for (int ia = ix + 1; ia <= Math.Min(n - 4, ix + 3); ia++)
-            for (int ib = ia + 1; ib <= Math.Min(n - 3, ia + 3); ib++)
-            for (int ic = ib + 1; ic <= Math.Min(n - 2, ib + 3); ic++)
-            for (int id = ic + 1; id <= Math.Min(n - 1, ic + 3); id++)
-            {
-                int skips = (ia - ix - 1) + (ib - ia - 1) + (ic - ib - 1) + (id - ic - 1);
-                if (skips > maxTotalSkips) continue;
-                yield return new PivotSequence { X = pivots[ix], A = pivots[ia], B = pivots[ib], C = pivots[ic], D = pivots[id] };
-            }
         }
 
         private HarmonicState GetActiveHarmonicState(Bars bars, int depth, int lookback, int maxAge)
@@ -3179,22 +3042,9 @@ namespace cAlgo.Robots
             double atr, DateTime completion, string timeframe, int pivotScale, out PatternSignal signal)
         {
             signal = null;
-            bool bullish, bearish;
-            if (EnableFamilyIdentityReconstruction)
-            {
-                if (!TryFamilyTopology(p, x, a, b, c, d, out bullish, out bearish))
-                {
-                    DetectorTruth(p.Name, "TOPOLOGY_REJECT");
-                    return false;
-                }
-                DetectorTruth(p.Name, "TOPOLOGY_MATCH");
-            }
-            else
-            {
-                bullish = a.Price > x.Price && b.Price < a.Price && c.Price > b.Price && d.Price < c.Price;
-                bearish = a.Price < x.Price && b.Price > a.Price && c.Price < b.Price && d.Price > c.Price;
-                if (!bullish && !bearish) return false;
-            }
+            bool bullish = a.Price > x.Price && b.Price < a.Price && c.Price > b.Price && d.Price < c.Price;
+            bool bearish = a.Price < x.Price && b.Price > a.Price && c.Price < b.Price && d.Price > c.Price;
+            if (!bullish && !bearish) return false;
 
             double xa = Math.Abs(a.Price - x.Price);
             double ab = Math.Abs(b.Price - a.Price);
@@ -3204,12 +3054,7 @@ namespace cAlgo.Robots
             double xd = Math.Abs(d.Price - x.Price);
             double xc = Math.Abs(c.Price - x.Price);
             if (xa <= 0 || ab <= 0 || bc <= 0 || cd <= 0 || atr <= 0) return false;
-            double legFloorAtr = EnableFamilyIdentityReconstruction ? FamilyLegFloorAtr(p) : .45;
-            if (Math.Min(Math.Min(xa, ab), Math.Min(bc, cd)) < atr * legFloorAtr)
-            {
-                DetectorTruth(p.Name, "LEG_SCALE_PRECHECK_REJECT");
-                return false;
-            }
+            if (Math.Min(Math.Min(xa, ab), Math.Min(bc, cd)) < atr * 0.45) return false;
 
             double xab = ab / xa;
             double abc = bc / ab;
@@ -3234,18 +3079,9 @@ namespace cAlgo.Robots
                           InRange(bcd, p.BcdMin, p.BcdMax) && InRange(xad, p.XadMin, p.XadMax);
 
             if (ratioOk && EnableCanonicalFamilyContracts && p.Mode == PatternMode.STANDARD)
-            {
-                bool componentOk = StandardFamilyAbcdCompatible(p.Name, abcd);
-                if (!EnableFamilyIdentityReconstruction) ratioOk = componentOk;
-                else if (!componentOk) DetectorTruth(p.Name, "ABCD_COMPONENT_SHADOW_MISMATCH");
-            }
+                ratioOk = StandardFamilyAbcdCompatible(p.Name, abcd);
 
-            if (!ratioOk)
-            {
-                DetectorTruth(p.Name, "RATIO_IDENTITY_REJECT");
-                return false;
-            }
-            DetectorTruth(p.Name, "RATIO_IDENTITY_PASS");
+            if (!ratioOk) return false;
 
             double legacyGeometry = p.Mode == PatternMode.STANDARD
                 ? (RatioScore(xab, Mid(p.XabMin, p.XabMax)) + RatioScore(abc, Mid(p.AbcMin, p.AbcMax)) +
@@ -3262,14 +3098,8 @@ namespace cAlgo.Robots
             double timeSym = (Symmetry(t1, t2) + Symmetry(t2, t3) + Symmetry(t3, t4)) / 3.0;
             double pivotQuality = VClamp(Math.Min(Math.Min(xa, ab), Math.Min(bc, cd)) / (atr * 2.0));
 
-            double projectionSpread = 0;
-            double expectedD = EnableFamilyIdentityReconstruction && EnableFamilyNativeProjectedPrz
-                ? FamilyProjectedPrzCenter(p, x, a, b, c, d, bullish, out projectionSpread)
-                : d.Price;
-            if (!(EnableFamilyIdentityReconstruction && EnableFamilyNativeProjectedPrz)) projectionSpread = 0;
-            double przHalf = Math.Max(atr * p.PrzWidthAtr, projectionSpread);
-            if (EnableFamilyIdentityReconstruction && EnableFamilyNativeProjectedPrz)
-                przHalf = Math.Max(przHalf, Math.Abs(d.Price - expectedD) + atr * .05);
+            double expectedD = bullish ? d.Price : d.Price;
+            double przHalf = atr * p.PrzWidthAtr;
             // V48 family-native PRZ width: do not change pattern identity ratios; only execution geometry.
             if (EnableFamilyNativeConversion)
             {
@@ -3317,102 +3147,7 @@ namespace cAlgo.Robots
                 CompletionTime = DateTime.SpecifyKind(completion, DateTimeKind.Utc),
                 Timeframe = timeframe
             };
-            DetectorTruth(p.Name, "FAMILY_HYPOTHESIS_CREATED");
             return true;
-        }
-
-        private void DetectorTruth(string pattern, string stage)
-        {
-            if (!EnableDetectorTruthLedger) return;
-            if (string.IsNullOrWhiteSpace(pattern)) pattern = "UNKNOWN";
-            if (string.IsNullOrWhiteSpace(stage)) stage = "UNKNOWN";
-            string key = pattern + "::" + stage;
-            int n;
-            _detectorTruth.TryGetValue(key, out n);
-            _detectorTruth[key] = n + 1;
-        }
-
-        private double FamilyLegFloorAtr(PatternProfile p)
-        {
-            if (p == null) return .45;
-            if (p.Mode == PatternMode.ABCD) return .35;
-            if (p.Mode == PatternMode.STANDARD)
-            {
-                if (p.Name == "Gartley" || p.Name == "Bat" || p.Name == "Deep Gartley" || p.Name == "Rat") return .25;
-                return .30;
-            }
-            return .30;
-        }
-
-        private bool TryFamilyTopology(PatternProfile p, PivotPoint x, PivotPoint a, PivotPoint b, PivotPoint c, PivotPoint d,
-            out bool bullish, out bool bearish)
-        {
-            bullish = false; bearish = false;
-            if (p == null) return false;
-
-            if (p.Mode == PatternMode.SHARK || p.Mode == PatternMode.FIVEZERO)
-            {
-                bullish = a.IsHigh && !b.IsHigh && c.IsHigh && !d.IsHigh;
-                bearish = !a.IsHigh && b.IsHigh && !c.IsHigh && d.IsHigh;
-                return bullish || bearish;
-            }
-
-            bullish = !x.IsHigh && a.IsHigh && !b.IsHigh && c.IsHigh && !d.IsHigh;
-            bearish = x.IsHigh && !a.IsHigh && b.IsHigh && !c.IsHigh && d.IsHigh;
-            if (!bullish && !bearish)
-            {
-                bullish = a.Price > x.Price && b.Price < a.Price && c.Price > b.Price && d.Price < c.Price;
-                bearish = a.Price < x.Price && b.Price > a.Price && c.Price < b.Price && d.Price > c.Price;
-            }
-            return bullish || bearish;
-        }
-
-        private double NearestAbcdProjection(string pattern, double observed)
-        {
-            double[] centers;
-            if (pattern == "Alt Bat") centers = new[] { 1.618 };
-            else if (pattern == "Crab") centers = new[] { 1.27, 1.618 };
-            else if (pattern == "Deep Crab") centers = new[] { 1.0, 1.27 };
-            else if (pattern == "Butterfly") centers = new[] { 1.0, 1.27, 1.618 };
-            else if (pattern == "Gartley" || pattern == "Bat") centers = new[] { 1.0, 1.27 };
-            else centers = new[] { 1.0, 1.27, 1.618 };
-            return centers.OrderBy(v => Math.Abs(v - observed)).First();
-        }
-
-        private double FamilyProjectedPrzCenter(PatternProfile p, PivotPoint x, PivotPoint a, PivotPoint b, PivotPoint c, PivotPoint d,
-            bool bullish, out double halfSpread)
-        {
-            double xa = Math.Max(Math.Abs(a.Price - x.Price), _symbol.PipSize);
-            double ab = Math.Max(Math.Abs(b.Price - a.Price), _symbol.PipSize);
-            double bc = Math.Max(Math.Abs(c.Price - b.Price), _symbol.PipSize);
-            double observedAbcd = Math.Abs(d.Price - c.Price) / ab;
-            double sign = bullish ? -1.0 : 1.0;
-            var projections = new List<double>();
-
-            if (p.Mode == PatternMode.STANDARD)
-            {
-                projections.Add(a.Price + sign * Mid(p.XadMin, p.XadMax) * xa);
-                projections.Add(c.Price + sign * Mid(p.BcdMin, p.BcdMax) * bc);
-                projections.Add(c.Price + sign * NearestAbcdProjection(p.Name, observedAbcd) * ab);
-            }
-            else if (p.Mode == PatternMode.ABCD)
-                projections.Add(c.Price + sign * NearestAbcdProjection("AB=CD", observedAbcd) * ab);
-            else if (p.Mode == PatternMode.CYPHER)
-                projections.Add(c.Price + sign * .80 * Math.Max(Math.Abs(c.Price - x.Price), _symbol.PipSize));
-            else if (p.Mode == PatternMode.SHARK)
-            {
-                projections.Add(a.Price + sign * Mid(p.XadMin, p.XadMax) * xa);
-                projections.Add(c.Price + sign * Mid(p.BcdMin, p.BcdMax) * bc);
-            }
-            else
-                projections.Add(c.Price + sign * Mid(p.BcdMin, p.BcdMax) * bc);
-
-            projections.Add(d.Price);
-            projections.Sort();
-            double center = projections.Count % 2 == 1 ? projections[projections.Count / 2]
-                : .5 * (projections[projections.Count / 2 - 1] + projections[projections.Count / 2]);
-            halfSpread = Math.Max(_symbol.PipSize, .5 * (projections.Last() - projections.First()));
-            return center;
         }
 
         private double RangeCoordinate(double value, double lo, double hi)
@@ -3767,7 +3502,7 @@ namespace cAlgo.Robots
                 if (baseRoute != HarmonicRoute.NO_TRADE)
                 {
                     _structuredRecallAdmitted++;
-                    Print("[V71-RECALL-ADMIT] pattern={0} direction={1} route={2} conflict={3} geometry={4:F3} prz={5:F3} confidence={6:F3} efficiency={7:F3} atrRatio={8:F3} extensionAtr={9:F3}",
+                    Print("[V51-RECALL-ADMIT] pattern={0} direction={1} route={2} conflict={3} geometry={4:F3} prz={5:F3} confidence={6:F3} efficiency={7:F3} atrRatio={8:F3} extensionAtr={9:F3}",
                         s.PatternName, s.Direction, baseRoute, conflict, s.GeometryQuality, s.PrzConfluence, s.Confidence,
                         r.Efficiency, r.AtrRatio, r.ExtensionAtr);
                 }
@@ -3781,7 +3516,7 @@ namespace cAlgo.Robots
                 if (!actualStructuralTransition)
                 {
                     _transitionProofRejected++;
-                    Print("[V71-TRANSITION-PROOF-REJECT] pattern={0} conflict={1} transition={2} adxSlope={3:F2}",
+                    Print("[V51-TRANSITION-PROOF-REJECT] pattern={0} conflict={1} transition={2} adxSlope={3:F2}",
                         s.PatternName, conflict, r.Transition, r.AdxH1Slope);
                     return HarmonicRoute.NO_TRADE;
                 }
@@ -3794,7 +3529,7 @@ namespace cAlgo.Robots
                 if (!(actualStateDisagreement && trendNotStrengthening))
                 {
                     _regimeRejected++;
-                    Print("[V71-ROUTE-VETO] type=TRANSITION_STATE conflict={0} transition={1} adxSlope={2:F2}",
+                    Print("[V51-ROUTE-VETO] type=TRANSITION_STATE conflict={0} transition={1} adxSlope={2:F2}",
                         conflict, r.Transition, r.AdxH1Slope);
                     return HarmonicRoute.NO_TRADE;
                 }
@@ -3807,336 +3542,13 @@ namespace cAlgo.Robots
                 if (!(structurallyExtended && trendNotStrengthening))
                 {
                     _regimeRejected++;
-                    Print("[V71-ROUTE-VETO] type=EXHAUSTION_EVIDENCE extensionAtr={0:F3} adxSlope={1:F2}",
+                    Print("[V51-ROUTE-VETO] type=EXHAUSTION_EVIDENCE extensionAtr={0:F3} adxSlope={1:F2}",
                         r.ExtensionAtr, r.AdxH1Slope);
                     return HarmonicRoute.NO_TRADE;
                 }
             }
 
             return baseRoute;
-        }
-
-
-        private void BuildV67FamilyTradeContracts()
-        {
-            _familyTradeContracts.Clear();
-            // Contract thresholds are preregistered from V52 detector/economic evidence. They do not
-            // use future bars, MFE/MAE or trade outcomes at runtime.
-            AddV67FamilyContract("Gartley", "RETRACEMENT", true, false, false, "RECLAIM_REJECTION_BOS",
-                .53, .53, .55, .14, 1.75, 1.30, 6, .010, false,
-                new[] { 0.0, .236, .382, .618 }, new[] { .40, .30, .20, .10 });
-            AddV67FamilyContract("Bat", "DEEP_RETRACEMENT", true, false, true, "REJECTION_RECLAIM_DISPLACEMENT",
-                .50, .50, .54, .13, 1.75, 1.30, 6, .020, false,
-                new[] { 0.0, .236, .382, .618 }, new[] { .42, .30, .18, .10 });
-            AddV67FamilyContract("Alt Bat", "EXTENSION", false, true, true, "SWEEP_FAILED_EXTENSION_BOS",
-                .52, .52, .56, .12, 1.80, 1.15, 7, .025, false,
-                new[] { 0.0, .236, .382 }, new[] { .50, .30, .20 });
-            AddV67FamilyContract("Butterfly", "EXTENSION", false, true, true, "SWEEP_RECLAIM_BOS",
-                .54, .54, .58, .12, 1.80, 1.15, 7, .025, false,
-                new[] { 0.0, .236, .382 }, new[] { .55, .30, .15 });
-            AddV67FamilyContract("Crab", "EXTREME_EXTENSION", false, true, true, "SWEEP_FAILED_EXTENSION_DISPLACEMENT",
-                .55, .55, .60, .10, 1.85, 1.10, 7, .030, false,
-                new[] { 0.0, .236 }, new[] { .65, .35 });
-            AddV67FamilyContract("Deep Crab", "EXTREME_EXTENSION", false, true, true, "SWEEP_PRZ_BOS",
-                .55, .55, .60, .10, 1.85, 1.10, 7, .030, false,
-                new[] { 0.0, .236 }, new[] { .65, .35 });
-            AddV67FamilyContract("Deep Gartley", "DEEP_RETRACEMENT", true, false, true, "FAILED_EXTENSION_RECLAIM_BOS",
-                .52, .52, .55, .13, 1.75, 1.30, 7, .020, false,
-                new[] { 0.0, .236, .382 }, new[] { .50, .30, .20 });
-            AddV67FamilyContract("Rat", "RETRACEMENT", true, false, false, "REJECTION_RECLAIM_BOS_DISPLACEMENT",
-                .58, .58, .60, .15, 1.75, 1.25, 6, .080, true,
-                new[] { 0.0, .236, .382 }, new[] { .50, .30, .20 });
-            AddV67FamilyContract("Cypher", "XC_RETRACE", true, true, false, "REJECTION_RECLAIM_BOS_DISPLACEMENT",
-                .58, .58, .60, .14, 1.80, 1.20, 6, .050, true,
-                new[] { 0.0, .236, .382 }, new[] { .50, .30, .20 });
-            AddV67FamilyContract("Shark", "TERMINAL_EXTENSION", true, true, false, "FAILED_EXTENSION_REJECTION_BOS",
-                .58, .58, .60, .12, 1.85, 1.10, 6, .100, true,
-                new[] { 0.0, .236 }, new[] { .65, .35 });
-            AddV67FamilyContract("5-0", "TRANSITION_REVERSAL", false, false, true, "FAILED_EXTENSION_BOS_RETEST_DIRECTIONAL",
-                .60, .60, .62, .10, 1.80, 1.20, 7, .000, false,
-                new[] { 0.0, .236 }, new[] { .65, .35 });
-            AddV67FamilyContract("AB=CD", "COMPLETION_PRIMITIVE", true, false, false, "DECELERATION_FAILED_EXTENSION_DIRECTIONAL_BOS",
-                .58, .58, .60, .14, 1.75, 1.25, 6, .040, false,
-                new[] { 0.0, .236 }, new[] { .70, .30 });
-        }
-
-        private void AddV67FamilyContract(string name, string role, bool trend, bool exhaustion, bool transition,
-            string confirmationModel, double minGeometry, double minPrz, double minConfidence, double minEfficiency,
-            double maxAtrRatio, double exhaustionExtensionAtr, int confirmationBars, double detectorPriorityBoost,
-            bool runnerEligible, double[] gridFractions, double[] gridWeights)
-        {
-            _familyTradeContracts[name] = new FamilyTradeContract
-            {
-                Name = name, Role = role, AllowTrend = trend, AllowExhaustion = exhaustion, AllowTransition = transition,
-                ConfirmationModel = confirmationModel, MinGeometry = minGeometry, MinPrz = minPrz,
-                MinConfidence = minConfidence, MinEfficiency = minEfficiency, MaxAtrRatio = maxAtrRatio,
-                ExhaustionExtensionAtr = exhaustionExtensionAtr, ConfirmationWindowBars = confirmationBars,
-                DetectorPriorityBoost = detectorPriorityBoost, RunnerEligible = runnerEligible,
-                ExpiryM15Bars = confirmationBars + 2, MaximumGridLegs = gridFractions == null ? 1 : gridFractions.Length,
-                GridFractions = gridFractions ?? new[] { 0.0 }, GridRiskWeights = gridWeights ?? new[] { 1.0 }
-            };
-        }
-
-        private FamilyTradeContract V67Contract(string pattern)
-        {
-            FamilyTradeContract c;
-            return pattern != null && _familyTradeContracts.TryGetValue(pattern, out c) ? c : null;
-        }
-
-        private int V67FamilyExpiryBars(PatternSignal s)
-        {
-            var c = s == null ? null : V67Contract(s.PatternName);
-            return Math.Max(2, Math.Min(CandidateTtlM15Bars, c == null ? s.Profile.MaxAgeM15Bars : c.ExpiryM15Bars));
-        }
-
-        private int V67FamilyConfirmationWindow(PatternSignal s)
-        {
-            var c = s == null ? null : V67Contract(s.PatternName);
-            return Math.Max(4, c == null ? FamilyConfirmationWindowBars : c.ConfirmationWindowBars);
-        }
-
-        private bool V67FamilyQualityPass(PatternSignal s)
-        {
-            if (s == null) return false;
-            var c = V67Contract(s.PatternName);
-            if (c == null)
-                return s.GeometryQuality >= Math.Max(MinGeometryQuality, s.Profile.MinGeometry) &&
-                       s.PrzConfluence >= Math.Max(MinPrzConfluence, s.Profile.MinPrz);
-            double confFloor = c.MinConfidence;
-            if (EnableV67ControlledExpansion && s.PatternName == "AB=CD" && s.HarmonicSubtype == "ABCD_NEAR_127")
-                return s.GeometryQuality >= .72 && s.PrzConfluence >= .72 && s.Confidence >= .68;
-            return s.GeometryQuality >= c.MinGeometry && s.PrzConfluence >= c.MinPrz && s.Confidence >= confFloor;
-        }
-
-        private bool V67AbcdStandaloneEligible(PatternSignal s)
-        {
-            if (s == null || s.PatternName != "AB=CD") return true;
-            if (s.HarmonicSubtype == "ABCD_EXACT") return true;
-            if (EnableV67ControlledExpansion && s.HarmonicSubtype == "ABCD_NEAR_127" &&
-                s.GeometryQuality >= .72 && s.PrzConfluence >= .72 && s.Confidence >= .68)
-                return true;
-            return false;
-        }
-
-        private double V67AbcdConfluenceScore(PatternSignal s)
-        {
-            if (s == null) return 0;
-            if (s.PatternName == "AB=CD")
-                return s.HarmonicSubtype == "ABCD_EXACT" ? 1.0 : s.HarmonicSubtype == "ABCD_NEAR_127" ? .75 : .25;
-            double d1 = Math.Abs(s.AbCd - 1.0);
-            double d2 = Math.Abs(s.AbCd - 1.272);
-            double d3 = Math.Abs(s.AbCd - 1.618);
-            double best = Math.Min(d1 / .20, Math.Min(d2 / .22, d3 / .25));
-            return VClamp(1.0 - best);
-        }
-
-        private double V67FamilyDetectionPriority(PatternSignal s)
-        {
-            if (s == null) return 0;
-            var c = V67Contract(s.PatternName);
-            double boost = c == null ? 0 : c.DetectorPriorityBoost;
-            double baseScore = .45 * s.Confidence + .30 * s.GeometryQuality + .15 * s.PrzConfluence + .10 * V67AbcdConfluenceScore(s);
-            if (s.PatternName == "AB=CD" && s.HarmonicSubtype == "ABCD_LEGACY_BROAD") baseScore -= .30;
-            if (s.PatternName == "AB=CD" && s.HarmonicSubtype == "ABCD_EXACT") baseScore += .08;
-            return baseScore + boost;
-        }
-
-        private double V67FamilyRegimeScore(PatternSignal s, MtfConflict conflict, RegimeSnapshot r)
-        {
-            if (s == null || r == null) return 0;
-            var c = V67Contract(s.PatternName);
-            double mtf = conflict == MtfConflict.ALIGNED ? 1.0 :
-                         conflict == MtfConflict.SUPPORTED ? .85 :
-                         conflict == MtfConflict.TRANSITION ? .65 :
-                         conflict == MtfConflict.NEUTRAL ? .60 : .20;
-            double direction = r.TrendDirection == s.Direction ? 1.0 :
-                               r.TrendDirection == TradeDirection.Neutral ? .65 : .45;
-            double efficiencyFit = c == null || c.MinEfficiency <= 0 ? r.Efficiency : VClamp(r.Efficiency / Math.Max(c.MinEfficiency * 2.0, .01));
-            double volFit = c == null ? 1.0 : VClamp(1.0 - Math.Max(0, r.AtrRatio - c.MaxAtrRatio) / Math.Max(.25, c.MaxAtrRatio));
-            return VClamp(.30 * mtf + .25 * direction + .20 * efficiencyFit + .15 * volFit + .10 * V67AbcdConfluenceScore(s));
-        }
-
-        private HarmonicRoute RouteSignalFamilyNativeV67(PatternSignal s, MtfConflict conflict, RegimeSnapshot r)
-        {
-            if (s == null || r == null) return HarmonicRoute.NO_TRADE;
-            var c = V67Contract(s.PatternName);
-            if (c == null) return RouteSignal(s, conflict, r);
-            if (!V67FamilyQualityPass(s)) return HarmonicRoute.NO_TRADE;
-            if (s.PatternName == "AB=CD" && !V67AbcdStandaloneEligible(s))
-            {
-                DetectorTruth(s.PatternName, "V67_ABCD_CONFLUENCE_ONLY");
-                return HarmonicRoute.NO_TRADE;
-            }
-            if (conflict == MtfConflict.CONFLICT && s.PatternName != "Shark") return HarmonicRoute.NO_TRADE;
-            if (r.AtrRatio < .45 || r.AtrRatio > c.MaxAtrRatio) return HarmonicRoute.NO_TRADE;
-
-            bool aligned = r.TrendDirection == s.Direction &&
-                           (conflict == MtfConflict.ALIGNED || conflict == MtfConflict.SUPPORTED || conflict == MtfConflict.NEUTRAL);
-            bool opposed = r.TrendDirection != TradeDirection.Neutral && r.TrendDirection != s.Direction;
-            bool transition = r.Transition || conflict == MtfConflict.TRANSITION || r.TrendDirection == TradeDirection.Neutral;
-            bool trendOk = c.AllowTrend && aligned && r.Efficiency >= c.MinEfficiency;
-            bool exhaustOk = c.AllowExhaustion && opposed && r.ExtensionAtr >= c.ExhaustionExtensionAtr && r.AdxH1Slope <= .75;
-            bool transitionOk = c.AllowTransition && transition && r.AdxH1Slope <= 1.25;
-
-            // Evidence guard removes V52's identified negative cohorts without changing detector identity:
-            // Rat exhaustion, Gartley exhaustion, 5-0 trend/exhaustion, and AB=CD exhaustion/broad standalone.
-            if (EnableV67EvidenceRouteGuard)
-            {
-                if (s.PatternName == "Rat" && exhaustOk) exhaustOk = false;
-                if (s.PatternName == "Gartley" && exhaustOk) exhaustOk = false;
-                if (s.PatternName == "5-0") { trendOk = false; exhaustOk = false; }
-                if (s.PatternName == "AB=CD") exhaustOk = false;
-            }
-
-            if (s.PatternName == "Shark" || s.PatternName == "Cypher")
-            {
-                if (trendOk) return HarmonicRoute.TREND_ALIGNED_REVERSAL;
-                if (exhaustOk) return HarmonicRoute.EXHAUSTION_REVERSAL;
-            }
-            else if (c.Role.Contains("EXTENSION"))
-            {
-                if (exhaustOk) return HarmonicRoute.EXHAUSTION_REVERSAL;
-                if (transitionOk) return HarmonicRoute.TRANSITION_REVERSAL;
-                if (trendOk) return HarmonicRoute.TREND_ALIGNED_REVERSAL;
-            }
-            else
-            {
-                if (trendOk) return HarmonicRoute.TREND_ALIGNED_REVERSAL;
-                if (transitionOk) return HarmonicRoute.TRANSITION_REVERSAL;
-                if (exhaustOk) return HarmonicRoute.EXHAUSTION_REVERSAL;
-            }
-
-            if (EnableV67ControlledExpansion)
-            {
-                bool high = s.GeometryQuality >= .72 && s.PrzConfluence >= .72 && s.Confidence >= .68;
-                if (high && s.PatternName == "AB=CD" && s.HarmonicSubtype == "ABCD_NEAR_127")
-                {
-                    if (aligned) return HarmonicRoute.TREND_ALIGNED_REVERSAL;
-                    if (transition) return HarmonicRoute.TRANSITION_REVERSAL;
-                }
-                if (high && s.PatternName == "5-0" && opposed && r.ExtensionAtr >= 1.50 && r.AdxH1Slope <= 0)
-                    return HarmonicRoute.EXHAUSTION_REVERSAL;
-            }
-            return HarmonicRoute.NO_TRADE;
-        }
-
-        private bool UpdateV67FamilyContractEvidence(int i, CandidateRecord c, out double score)
-        {
-            score = 0;
-            if (i < 3 || i >= _m1Bars.Count || c == null || c.Signal == null) return false;
-            var s = c.Signal;
-            double o = _m1Bars.OpenPrices[i], cl = _m1Bars.ClosePrices[i], h = _m1Bars.HighPrices[i], l = _m1Bars.LowPrices[i];
-            double pc = _m1Bars.ClosePrices[i - 1], ph = _m1Bars.HighPrices[i - 1], pl = _m1Bars.LowPrices[i - 1];
-            double body = Math.Max(Math.Abs(cl - o), _symbol.PipSize);
-            double prevBody = Math.Max(Math.Abs(_m1Bars.ClosePrices[i - 1] - _m1Bars.OpenPrices[i - 1]), _symbol.PipSize);
-            double atr = Atr(_m1Bars, 14, i);
-            bool buy = s.Direction == TradeDirection.Buy;
-            bool directional = buy ? cl > o : cl < o;
-            bool reclaim = buy ? cl > s.PrzLow && cl >= pc : cl < s.PrzHigh && cl <= pc;
-            bool bos = buy ? cl > ph : cl < pl;
-            bool rejection = buy ? Math.Max(0, Math.Min(o, cl) - l) >= body * .45 : Math.Max(0, h - Math.Max(o, cl)) >= body * .45;
-            bool sweep = buy ? l < pl : h > ph;
-            bool failedExtension = buy ? l < pl && cl > pl : h > ph && cl < ph;
-            bool insidePrz = cl >= Math.Min(s.PrzLow, s.PrzHigh) && cl <= Math.Max(s.PrzLow, s.PrzHigh);
-            bool displacement = atr > 0 && body >= atr * .28;
-            bool deceleration = body <= prevBody * .85;
-            bool retest = insidePrz || Math.Abs(cl - (s.PrzLow + s.PrzHigh) * .5) <= Math.Max(atr * .25, _symbol.PipSize);
-
-            c.FamilyDirectional |= directional; c.FamilyReclaim |= reclaim; c.FamilyBos |= bos;
-            c.FamilyRejection |= rejection; c.FamilySweep |= sweep; c.FamilyFailedExtension |= failedExtension;
-            c.FamilyInsidePrz |= insidePrz; c.FamilyDisplacement |= displacement; c.FamilyRetest |= retest;
-            c.FamilyDeceleration |= deceleration;
-
-            switch (s.PatternName)
-            {
-                case "Gartley":
-                    score = (c.FamilyReclaim ? .35 : 0) + (c.FamilyRejection ? .30 : 0) + (c.FamilyBos ? .25 : 0) + (c.FamilyDirectional ? .10 : 0);
-                    return c.FamilyReclaim && c.FamilyRejection && c.FamilyBos && score >= .80;
-                case "Bat":
-                    score = (c.FamilyRejection ? .30 : 0) + (c.FamilyReclaim ? .30 : 0) + (c.FamilyDisplacement ? .25 : 0) + (c.FamilyDirectional ? .15 : 0);
-                    return c.FamilyRejection && c.FamilyReclaim && c.FamilyDisplacement && score >= .80;
-                case "Deep Gartley":
-                    score = (c.FamilyFailedExtension ? .30 : 0) + (c.FamilyReclaim ? .30 : 0) + (c.FamilyBos ? .25 : 0) + (c.FamilyDirectional ? .15 : 0);
-                    return c.FamilyFailedExtension && c.FamilyReclaim && c.FamilyBos && score >= .80;
-                case "Rat":
-                    score = (c.FamilyRejection ? .25 : 0) + (c.FamilyReclaim ? .25 : 0) + (c.FamilyBos ? .25 : 0) + (c.FamilyDisplacement ? .25 : 0);
-                    return c.FamilyRejection && c.FamilyReclaim && c.FamilyBos && c.FamilyDisplacement && score >= .90;
-                case "Alt Bat":
-                    score = (c.FamilySweep ? .25 : 0) + (c.FamilyFailedExtension ? .30 : 0) + (c.FamilyBos ? .25 : 0) + (c.FamilyDisplacement ? .20 : 0);
-                    return c.FamilySweep && c.FamilyFailedExtension && c.FamilyBos && score >= .80;
-                case "Butterfly":
-                    score = (c.FamilySweep ? .20 : 0) + (c.FamilyFailedExtension ? .25 : 0) + (c.FamilyReclaim ? .25 : 0) + (c.FamilyBos ? .20 : 0) + (c.FamilyDisplacement ? .10 : 0);
-                    return c.FamilySweep && c.FamilyFailedExtension && c.FamilyReclaim && c.FamilyBos && score >= .85;
-                case "Crab":
-                    score = (c.FamilySweep ? .30 : 0) + (c.FamilyFailedExtension ? .30 : 0) + (c.FamilyDisplacement ? .25 : 0) + (c.FamilyRejection ? .15 : 0);
-                    return c.FamilySweep && c.FamilyFailedExtension && c.FamilyDisplacement && score >= .85;
-                case "Deep Crab":
-                    score = (c.FamilySweep ? .25 : 0) + (c.FamilyFailedExtension ? .25 : 0) + (c.FamilyInsidePrz ? .20 : 0) + (c.FamilyBos ? .20 : 0) + (c.FamilyDisplacement ? .10 : 0);
-                    return c.FamilySweep && c.FamilyFailedExtension && c.FamilyInsidePrz && c.FamilyBos && score >= .85;
-                case "Cypher":
-                    score = (c.FamilyRejection ? .25 : 0) + (c.FamilyReclaim ? .30 : 0) + (c.FamilyBos ? .25 : 0) + (c.FamilyDisplacement ? .20 : 0);
-                    return c.FamilyRejection && c.FamilyReclaim && c.FamilyBos && score >= .80;
-                case "Shark":
-                    score = (c.FamilyFailedExtension ? .30 : 0) + (c.FamilyRejection ? .25 : 0) + (c.FamilyBos ? .30 : 0) + (c.FamilyDirectional ? .15 : 0);
-                    return c.FamilyFailedExtension && c.FamilyRejection && c.FamilyBos && score >= .85;
-                case "5-0":
-                    score = (c.FamilyFailedExtension ? .25 : 0) + (c.FamilyBos ? .30 : 0) + (c.FamilyRetest ? .25 : 0) + (c.FamilyDirectional ? .20 : 0);
-                    return c.FamilyFailedExtension && c.FamilyBos && c.FamilyRetest && c.FamilyDirectional && score >= .90;
-                case "AB=CD":
-                    if (!V67AbcdStandaloneEligible(s)) return false;
-                    score = (c.FamilyDeceleration ? .20 : 0) + (c.FamilyFailedExtension ? .25 : 0) + (c.FamilyDirectional ? .20 : 0) + (c.FamilyBos ? .25 : 0) + .10 * V67AbcdConfluenceScore(s);
-                    return c.FamilyDeceleration && c.FamilyFailedExtension && c.FamilyDirectional && c.FamilyBos && score >= .85;
-            }
-            return false;
-        }
-
-        private bool V67FamilyRouteEvidencePass(int i, CandidateRecord c)
-        {
-            if (c == null || c.Signal == null) return false;
-            if (!V67AbcdStandaloneEligible(c.Signal)) return false;
-            var fc = V67Contract(c.Signal.PatternName);
-            if (fc == null) return RouteSpecificM1EvidencePass(i, c.Signal, c.Route);
-            if (c.Route == HarmonicRoute.TREND_ALIGNED_REVERSAL)
-                return c.FamilyReclaim && (c.FamilyBos || c.FamilyDisplacement);
-            if (c.Route == HarmonicRoute.EXHAUSTION_REVERSAL)
-                return c.FamilyFailedExtension && (c.FamilyRejection || c.FamilySweep);
-            if (c.Route == HarmonicRoute.TRANSITION_REVERSAL)
-                return c.FamilyBos && (c.FamilyRetest || c.FamilyReclaim);
-            return false;
-        }
-
-        private double V67FamilyNativeCandidateRank(CandidateRecord c)
-        {
-            var fc = c == null || c.Signal == null ? null : V67Contract(c.Signal.PatternName);
-            if (c == null || c.Signal == null || fc == null) return 0;
-            double routeFit = c.Route == HarmonicRoute.TREND_ALIGNED_REVERSAL ? (fc.AllowTrend ? 1.0 : .20) :
-                              c.Route == HarmonicRoute.EXHAUSTION_REVERSAL ? (fc.AllowExhaustion ? 1.0 : .20) :
-                              c.Route == HarmonicRoute.TRANSITION_REVERSAL ? (fc.AllowTransition ? 1.0 : .20) : 0;
-            double rr = VClamp(c.NetRR / 3.5);
-            double confirmation = VClamp(c.ConfirmationScore);
-            double ageMinutes = Math.Max(0, (Server.Time.ToUniversalTime() - c.DetectedUtc).TotalMinutes);
-            double expiryMinutes = Math.Max(15, (c.ExpiryUtc - c.DetectedUtc).TotalMinutes);
-            double agePenalty = .08 * VClamp(ageMinutes / expiryMinutes);
-            double score = .22 * c.Signal.GeometryQuality + .16 * c.Signal.PrzConfluence + .16 * c.Signal.Confidence +
-                           .14 * confirmation + .12 * routeFit + .10 * rr + .10 * V67AbcdConfluenceScore(c.Signal) +
-                           fc.DetectorPriorityBoost - agePenalty;
-            if (c.Signal.PatternName == "AB=CD" && c.Signal.HarmonicSubtype == "ABCD_LEGACY_BROAD") score -= .35;
-            return score;
-        }
-
-        private void ApplyV67FamilyGridContracts()
-        {
-            foreach (var p in _profiles)
-            {
-                var c = V67Contract(p.Name);
-                if (c == null) continue;
-                p.GridEnabled = true;
-                p.GridFractions = c.GridFractions.ToArray();
-                p.GridRiskWeights = c.GridRiskWeights.ToArray();
-                p.MaximumGridLegs = c.MaximumGridLegs;
-                // Grid remains preplanned before first fill; these values control only execution geometry.
-                p.PendingTtlMinutes = Math.Min(p.PendingTtlMinutes > 0 ? p.PendingTtlMinutes : 90, c.ExpiryM15Bars * 15);
-            }
         }
 
         private double HarmonicRobustnessScore(PatternSignal s)
@@ -4555,699 +3967,8 @@ namespace cAlgo.Robots
             return (directional ? .20 : 0) + (reclaim ? .20 : 0) + (bos ? .30 : 0) + (rejection ? .15 : 0) + (failedExtension ? .15 : 0);
         }
 
-        private void V70ObserveFilter(string filter, bool pass, bool convertedToObservation)
-        {
-            if (string.IsNullOrWhiteSpace(filter)) filter = "UNKNOWN";
-            FilterEvidenceCounter x;
-            if (!_v70FilterEvidence.TryGetValue(filter, out x))
-            {
-                x = new FilterEvidenceCounter();
-                _v70FilterEvidence[filter] = x;
-            }
-            x.Observed++;
-            if (pass) x.Passed++; else x.Blocked++;
-            if (convertedToObservation) x.ConvertedToObservation++;
-        }
-
-        private bool V70IsProtectedPositiveFamily(string pattern)
-        {
-            return EnableV70ProtectedPositiveLanes && (pattern == "Rat" || pattern == "Shark");
-        }
-
-        private HarmonicRoute V70FallbackEvidenceRoute(CandidateRecord c)
-        {
-            if (c == null || c.Signal == null || c.Regime == null) return HarmonicRoute.NO_TRADE;
-            var r = c.Regime;
-            bool aligned = r.TrendDirection == c.Signal.Direction;
-            bool opposed = r.TrendDirection != TradeDirection.Neutral && r.TrendDirection != c.Signal.Direction;
-            if (aligned) return HarmonicRoute.TREND_ALIGNED_REVERSAL;
-            if (opposed && r.ExtensionAtr >= 1.0) return HarmonicRoute.EXHAUSTION_REVERSAL;
-            return HarmonicRoute.TRANSITION_REVERSAL;
-        }
-
-        private HarmonicRoute V70FamilyRouteAdmission(CandidateRecord c, HarmonicRoute legacyRoute, HarmonicRoute familyRoute)
-        {
-            if (c == null || c.Signal == null || c.Regime == null) return HarmonicRoute.NO_TRADE;
-            string p = c.Signal.PatternName ?? "";
-            if (V70IsProtectedPositiveFamily(p))
-            {
-                c.V70ProtectedLane = true;
-                c.V70AdmissionReason = "PROTECTED_" + p;
-                c.V70AdmissionScore = 1.0;
-                if (legacyRoute != HarmonicRoute.NO_TRADE)
-                {
-                    _v70ProtectedAdmissions++;
-                    return legacyRoute;
-                }
-                return familyRoute;
-            }
-
-            double g = c.Signal.GeometryQuality, prz = c.Signal.PrzConfluence, conf = c.Signal.Confidence;
-            var r = c.Regime;
-            bool aligned = r.TrendDirection == c.Signal.Direction &&
-                           c.Conflict != MtfConflict.CONFLICT;
-            bool opposed = r.TrendDirection != TradeDirection.Neutral && r.TrendDirection != c.Signal.Direction;
-            bool transition = r.Transition || c.Conflict == MtfConflict.TRANSITION || r.TrendDirection == TradeDirection.Neutral;
-            HarmonicRoute route = HarmonicRoute.NO_TRADE;
-            double score = .34 * g + .28 * prz + .18 * conf + .10 * VClamp(r.Efficiency) + .10 * VClamp(1.0 - Math.Abs(r.AtrPercentile - .55));
-
-            if (p == "Cypher")
-            {
-                if (g >= .58 && prz >= .55 && conf >= .55)
-                {
-                    if (aligned && r.Efficiency >= .18) route = HarmonicRoute.TREND_ALIGNED_REVERSAL;
-                    else if (transition) route = HarmonicRoute.TRANSITION_REVERSAL;
-                }
-            }
-            else if (p == "5-0")
-            {
-                if (g >= .58 && prz >= .55 && conf >= .55 && r.ExtensionAtr >= 1.10)
-                {
-                    if (opposed) route = HarmonicRoute.EXHAUSTION_REVERSAL;
-                    else if (transition && r.AdxH1Slope <= 1.25) route = HarmonicRoute.TRANSITION_REVERSAL;
-                }
-            }
-            else if (p == "AB=CD")
-            {
-                bool identityOk = c.Signal.HarmonicSubtype == "ABCD_EXACT" || c.Signal.HarmonicSubtype == "ABCD_NEAR_127";
-                if (identityOk && g >= .60 && prz >= .58 && conf >= .58)
-                {
-                    if (aligned && r.Efficiency >= .20) route = HarmonicRoute.TREND_ALIGNED_REVERSAL;
-                    else if (transition) route = HarmonicRoute.TRANSITION_REVERSAL;
-                    else if (opposed && r.ExtensionAtr >= 1.35 && r.AdxH1Slope <= .75) route = HarmonicRoute.EXHAUSTION_REVERSAL;
-                }
-            }
-            else
-            {
-                route = legacyRoute != HarmonicRoute.NO_TRADE ? legacyRoute : familyRoute;
-            }
-
-            c.V70AdmissionScore = score;
-            if (route != HarmonicRoute.NO_TRADE && (p == "Cypher" || p == "5-0" || p == "AB=CD"))
-            {
-                c.V70ChallengerLane = true;
-                c.V70AdmissionReason = "FAMILY_ROUTE_CHALLENGER_" + p + "_" + route;
-                _v70ChallengerAdmissions++;
-                Event(c, "V70_FAMILY_ROUTE_ADMISSION_" + p + "_" + route + "_SCORE_" + score.ToString("F3", CultureInfo.InvariantCulture));
-            }
-            return route;
-        }
-
-        private bool V71SubtypeUnknown(CandidateRecord c)
-        {
-            if (c == null || c.Signal == null) return false;
-            string subtype = c.Signal.HarmonicSubtype ?? "";
-            return string.IsNullOrWhiteSpace(subtype) || subtype == "UNKNOWN";
-        }
-
-        // Burned 2021-2023 calibration-only capital portfolio.
-        // The first V71 DEV exposure proved that coarse family suppression can backfill MaxActiveBasket=1
-        // with worse replacement trades.  This gate therefore admits only family/route/subtype lanes
-        // that had positive calibration contribution; it never reads future bars or outcomes.
-        private bool V71EvidenceQualifiedCapitalLane(CandidateRecord c)
-        {
-            if (c == null || c.Signal == null) return false;
-            string p = c.Signal.PatternName ?? "";
-            string subtype = c.Signal.HarmonicSubtype ?? "";
-            bool unknown = V71SubtypeUnknown(c);
-
-            // Burned 2021-2023 cohort reconstruction only; DEV/Validation/Fresh are not consulted.
-            // Rat trend survived every calibration year. Legacy-unknown AB=CD trend/exhaustion
-            // supplied the strongest persistent completion cohort. Other families stay observable.
-            if (p == "Rat")
-                return c.Route == HarmonicRoute.TREND_ALIGNED_REVERSAL;
-
-            // Preserve subtype-aware preregistration while keeping non-selected families fail-closed.
-            if (p == "Shark" && subtype == "Shark")
-                return false;
-
-            if (p == "AB=CD" && unknown)
-                return c.Route == HarmonicRoute.TREND_ALIGNED_REVERSAL ||
-                       c.Route == HarmonicRoute.EXHAUSTION_REVERSAL ||
-                       c.Route == HarmonicRoute.TRANSITION_REVERSAL;
-
-            if (p == "AB=CD" && (subtype == "ABCD_EXACT" || subtype == "ABCD_NEAR_127"))
-                return false;
-
-            return false;
-        }
-
-        private double V71ExpectedSlotMinutes(HarmonicRoute route)
-        {
-            return route == HarmonicRoute.TREND_ALIGNED_REVERSAL ? 90.0 :
-                   route == HarmonicRoute.EXHAUSTION_REVERSAL ? 120.0 :
-                   route == HarmonicRoute.TRANSITION_REVERSAL ? 75.0 : 0.0;
-        }
-
-        private void V71ReserveSuppressedSlot(CandidateRecord c)
-        {
-            if (!EnableV71NoBackfillReservation || c == null || c.Signal == null) return;
-            if (c.LegacyRoute == HarmonicRoute.NO_TRADE || !c.LegacyQualityPassed) return;
-            string key = string.IsNullOrWhiteSpace(c.SetupKey) ? c.CandidateId : c.SetupKey;
-            if (_v71ReservationSetupKeys.Contains(key)) return;
-            DateTime now = Server.Time.ToUniversalTime();
-            if (_v71VirtualSlotReservationUntilUtc > now) return;
-            double minutes = V71ExpectedSlotMinutes(c.LegacyRoute);
-            if (minutes <= 0) return;
-            _v71ReservationSetupKeys.Add(key);
-            _v71VirtualSlotReservationUntilUtc = now.AddMinutes(minutes);
-            _v71NoBackfillReservations++;
-            Event(c, "V71_NO_BACKFILL_RESERVATION_" + minutes.ToString("F0", CultureInfo.InvariantCulture) + "M");
-        }
-
-        private bool V71VirtualSlotReserved(DateTime now)
-        {
-            return EnableV71NoBackfillReservation && _v71VirtualSlotReservationUntilUtc > now;
-        }
-
-        private bool V71RegimeSurvivalEligible(CandidateRecord c)
-        {
-            if (!EnableV71RegimeSurvival || c == null || c.Signal == null || c.Regime == null) return true;
-            string p = c.Signal.PatternName ?? "";
-            string subtype = c.Signal.HarmonicSubtype ?? "";
-
-            if (p == "Rat" && subtype == "Rat" && c.Route == HarmonicRoute.TREND_ALIGNED_REVERSAL)
-                return c.RegimeScore >= .60;
-
-            if (p == "Shark" && subtype == "Shark" && c.Route == HarmonicRoute.TREND_ALIGNED_REVERSAL)
-                return c.RegimeScore >= .66;
-
-            if (p == "AB=CD" && V71SubtypeUnknown(c) && c.Route == HarmonicRoute.TREND_ALIGNED_REVERSAL)
-                return false;
-
-            return true;
-        }
-
-        // V71 Minimal-Gate Signal Preservation Rebase.
-        // Hard vetoes are limited to canonical identity/integrity, structural invalidation,
-        // minimum net RR, session/spread, single-basket, and risk/margin legality.
-        // Regime, MTF conflict, confirmation strength and family history are soft ranking inputs.
-        private bool V71MinimalSignalIntegrityPass(PatternSignal s)
-        {
-            if (s == null || s.Profile == null) return false;
-            if (CanonicalFamilyFromName(s.PatternName) == CanonicalFamilyId.Unknown) return false;
-            if (!double.IsFinite(s.GeometryQuality) || !double.IsFinite(s.PrzConfluence) ||
-                !double.IsFinite(s.StructuralInvalidation) || !double.IsFinite(s.CanonicalTarget1))
-                return false;
-            if (s.StructuralInvalidation <= 0 || s.CanonicalTarget1 <= 0) return false;
-            return s.GeometryQuality >= MinGeometryQuality &&
-                   s.PrzConfluence >= MinPrzConfluence;
-        }
-
-        private HarmonicRoute V71MinimalRoute(PatternSignal s, MtfConflict conflict, RegimeSnapshot regime)
-        {
-            if (regime != null && regime.Transition)
-                return HarmonicRoute.TRANSITION_REVERSAL;
-            if (conflict == MtfConflict.CONFLICT)
-                return HarmonicRoute.EXHAUSTION_REVERSAL;
-            return HarmonicRoute.TREND_ALIGNED_REVERSAL;
-        }
-
-        private bool V71MinimalM1ConfirmationPass(int i, CandidateRecord c, out double score)
-        {
-            score = 0;
-            if (c == null || c.Signal == null || i <= 0 || i >= _m1Bars.Count) return false;
-            double open = _m1Bars.OpenPrices[i];
-            double close = _m1Bars.ClosePrices[i];
-            double prev = _m1Bars.ClosePrices[i - 1];
-            double high = _m1Bars.HighPrices[i];
-            double low = _m1Bars.LowPrices[i];
-            double range = Math.Max(high - low, _symbol.PipSize);
-            double bodyFrac = Math.Min(1.0, Math.Abs(close - open) / range);
-            bool directional = c.Signal.Direction == TradeDirection.Buy
-                ? (close > open || close > prev)
-                : (close < open || close < prev);
-            bool structurallyAlive = c.Signal.Direction == TradeDirection.Buy
-                ? close > c.Signal.StructuralInvalidation
-                : close < c.Signal.StructuralInvalidation;
-            score = .45 + (directional ? .30 : 0) + .15 * bodyFrac +
-                    .10 * VClamp(c.RegimeScore);
-            return directional && structurallyAlive;
-        }
-
-        private double V71SignalPreservingScore(CandidateRecord c, DateTime now)
-        {
-            if (c == null || c.Signal == null) return -999;
-            double quality =
-                .23 * VClamp(c.Signal.GeometryQuality) +
-                .20 * VClamp(c.Signal.PrzConfluence) +
-                .12 * VClamp(c.Signal.Confidence) +
-                .05 * VClamp(c.Signal.TimeSymmetry) +
-                .04 * VClamp(c.Signal.PivotQuality);
-            double execution =
-                .18 * VClamp(c.ConfirmationScore) +
-                .08 * VClamp(c.RegimeScore) +
-                .10 * VClamp(c.NetRR / 3.0);
-            double conflictPenalty = c.Conflict == MtfConflict.CONFLICT ? .08 : 0;
-            double ageMinutes = Math.Max(0, (now - c.DetectedUtc).TotalMinutes);
-            double agePenalty = Math.Min(.08, ageMinutes / 240.0 * .08);
-            double spreadPenalty = Math.Min(.06, CurrentSpreadPips() / Math.Max(1.0, MaxSpreadPips) * .06);
-            return quality + execution - conflictPenalty - agePenalty - spreadPenalty;
-        }
-
-        private bool V71BuildSingleLegExecutionPlan(CandidateRecord c)
-        {
-            if (c == null || c.Signal == null || c.Signal.Profile == null) return false;
-            double anchor = c.Signal.Direction == TradeDirection.Buy ? _symbol.Ask : _symbol.Bid;
-            double stop = c.Signal.StructuralInvalidation;
-            double distance = c.Signal.Direction == TradeDirection.Buy ? anchor - stop : stop - anchor;
-            if (distance <= PipsToPrice(MinStopLossPips)) return false;
-
-            double target, netRr;
-            if (!SelectCanonicalBasketTarget(c.Signal, anchor, stop, out target, out netRr) || netRr < MinimumNetRR)
-                return false;
-
-            double effectiveRiskPct = V71EffectiveBasketRiskPercent(c);
-            var plan = new FibonacciGridPlan
-            {
-                CandidateId = c.CandidateId,
-                Pattern = c.Signal.PatternName,
-                CanonicalSetupId = c.CanonicalSetupId,
-                FamilyId = c.FamilyId,
-                Direction = c.Signal.Direction,
-                Route = c.Route,
-                EntryAnchor = anchor,
-                StructuralStop = stop,
-                GridDistance = distance,
-                BasketRiskAmount = Account.Equity * effectiveRiskPct / 100.0,
-                CreatedUtc = Server.Time.ToUniversalTime(),
-                ExpirationUtc = MinDate(c.ExpiryUtc, Server.Time.ToUniversalTime().AddMinutes(Math.Max(15, c.Signal.Profile.PendingTtlMinutes))),
-                MicroCapitalMode = AdaptiveCapitalMode && Account.Equity <= MicroCapitalThreshold,
-                CanonicalTarget = target,
-                ExpectedNetRR = netRr,
-                ExpectedWeightedEntry = anchor,
-                VirtualWeightedEntry = anchor
-            };
-            if (plan.BasketRiskAmount <= 0) return false;
-
-            double slPips = PriceToPips(Math.Abs(anchor - stop));
-            double minRisk = _symbol.VolumeInUnitsMin * _symbol.PipValue * (slPips + ModeledCostPips());
-            plan.Legs.Add(new FibonacciGridLeg
-            {
-                Index = 0,
-                Fraction = 0,
-                PlannedPrice = anchor,
-                RiskWeight = 1.0,
-                RiskBudget = plan.BasketRiskAmount,
-                MinBrokerRisk = minRisk,
-                Volume = 0,
-                PlannedRisk = 0,
-                ModeledCost = 0,
-                Physical = false,
-                State = GridLegState.VIRTUAL_ONLY
-            });
-            plan.LogicalLegCount = 1;
-            if (!ConfigureCapitalExecution(plan)) return false;
-            if (plan.Legs.Count == 0 || !plan.Legs[0].Physical || plan.WorstCaseRisk > plan.BasketRiskAmount + 1e-8) return false;
-
-            c.GridPlan = plan;
-            c.SelectedTarget = target;
-            c.NetRR = netRr;
-            return true;
-        }
-
-        private bool V71BuildPostSelectionExecutionPlan(CandidateRecord c)
-        {
-            if (EnableV71ForceSingleLegExecution)
-                return V71BuildSingleLegExecutionPlan(c);
-
-            if (EnableV71NonBlockingGrid)
-            {
-                c.GridPlan = null;
-                if (TryBuildFibonacciGridPlan(c))
-                    return true;
-                c.GridPlan = null;
-                _v71GridFallbackSingleLegs++;
-                Event(c, "V71_GRID_NONBLOCKING_SINGLE_LEG_FALLBACK");
-                return V71BuildSingleLegExecutionPlan(c);
-            }
-
-            return TryBuildFibonacciGridPlan(c);
-        }
-
-        // V71 Unified Harmonic Auction Rebase.
-        // All inputs are pre-entry/current-state only.  Historical calibration evidence enters
-        // solely as a bounded soft family/route prior; it cannot create a trade or override safety.
-        private HarmonicRoute V71UnifiedRoute(PatternSignal s, HarmonicRoute legacyRoute, HarmonicRoute familyRoute, MtfConflict conflict, RegimeSnapshot regime)
-        {
-            if (familyRoute != HarmonicRoute.NO_TRADE) return familyRoute;
-            if (legacyRoute != HarmonicRoute.NO_TRADE) return legacyRoute;
-
-            _v71UnifiedRouteFallbacks++;
-            if (regime != null && regime.Transition) return HarmonicRoute.TRANSITION_REVERSAL;
-            if (conflict == MtfConflict.CONFLICT || (regime != null && regime.ExtensionAtr >= 1.25))
-                return HarmonicRoute.EXHAUSTION_REVERSAL;
-            return HarmonicRoute.TREND_ALIGNED_REVERSAL;
-        }
-
-        private double V71FamilyRoutePrior(CandidateRecord c)
-        {
-            if (c == null || c.Signal == null) return 0;
-            string p = c.Signal.PatternName ?? "";
-            string st = c.Signal.HarmonicSubtype ?? "";
-            HarmonicRoute r = c.Route;
-            double prior = 0;
-
-            if (p == "Cypher" && r == HarmonicRoute.TREND_ALIGNED_REVERSAL) prior = .80;
-            else if (p == "Rat" && c.LegacyRoute == HarmonicRoute.NO_TRADE) prior = .60;
-            else if (p == "Rat" && r == HarmonicRoute.TREND_ALIGNED_REVERSAL) prior = .35;
-            else if (p == "Rat" && r == HarmonicRoute.EXHAUSTION_REVERSAL) prior = -.45;
-            else if (p == "AB=CD" && r == HarmonicRoute.EXHAUSTION_REVERSAL) prior = .35;
-            else if (p == "AB=CD" && r == HarmonicRoute.TREND_ALIGNED_REVERSAL) prior = .30;
-            else if (p == "AB=CD" && r == HarmonicRoute.TRANSITION_REVERSAL) prior = -.20;
-            else if (p == "Gartley" && r == HarmonicRoute.TREND_ALIGNED_REVERSAL) prior = .18;
-            else if (p == "Shark" && c.LegacyRoute == HarmonicRoute.NO_TRADE) prior = .10;
-            else if (p == "Shark" && r == HarmonicRoute.TREND_ALIGNED_REVERSAL) prior = -.10;
-            else if (p == "Shark" && r == HarmonicRoute.EXHAUSTION_REVERSAL) prior = -.55;
-            else if (p == "5-0" && c.LegacyRoute == HarmonicRoute.NO_TRADE) prior = .08;
-            else if (p == "5-0" && r == HarmonicRoute.TREND_ALIGNED_REVERSAL) prior = -.15;
-            else if (p == "5-0" && r == HarmonicRoute.EXHAUSTION_REVERSAL) prior = -.10;
-            else if (p == "Deep Gartley") prior = -.45;
-            else if (p == "Deep Crab") prior = -.35;
-            else if (p == "Butterfly") prior = -.25;
-
-            if (p == "AB=CD")
-            {
-                if (st == "ABCD_EXACT") prior += .10;
-                else if (st == "ABCD_NEAR_127") prior += .03;
-                else if (st == "ABCD_LEGACY_BROAD") prior -= .18;
-            }
-            return Math.Max(-1.0, Math.Min(1.0, prior));
-        }
-
-        private double V71MtfSoftScore(MtfConflict c)
-        {
-            return c == MtfConflict.ALIGNED ? 1.00 :
-                   c == MtfConflict.SUPPORTED ? .85 :
-                   c == MtfConflict.TRANSITION ? .70 :
-                   c == MtfConflict.NEUTRAL ? .55 : .25;
-        }
-
-        private double V71RegimeSoftScore(CandidateRecord c)
-        {
-            if (c == null || c.Regime == null) return 0;
-            double atrFit = 1.0 - Math.Min(1.0, Math.Abs(c.Regime.AtrRatio - 1.0));
-            double ext = Math.Min(1.0, Math.Max(0, c.Regime.ExtensionAtr / 2.0));
-            double trend = Math.Min(1.0, Math.Max(0, c.Regime.TrendStrength));
-            return VClamp(.35 * VClamp(c.RegimeScore) + .25 * VClamp(c.Regime.Efficiency) +
-                          .20 * atrFit + .10 * ext + .10 * trend);
-        }
-
-        private double V71UnifiedScore(CandidateRecord c, DateTime now)
-        {
-            if (c == null || c.Signal == null) return -999;
-            double geometry = VClamp(c.Signal.GeometryQuality);
-            double prz = VClamp(c.Signal.PrzConfluence);
-            double confidence = VClamp(c.Signal.Confidence);
-            double symmetry = VClamp(c.Signal.TimeSymmetry);
-            double pivot = VClamp(c.Signal.PivotQuality);
-            double confirm = VClamp(c.ConfirmationScore);
-            double rr = VClamp(c.NetRR / 3.0);
-            double mtf = V71MtfSoftScore(c.Conflict);
-            double regime = V71RegimeSoftScore(c);
-            double prior = V71FamilyRoutePrior(c);
-            double completion = VClamp(V67AbcdConfluenceScore(c.Signal));
-
-            double score =
-                .18 * geometry +
-                .18 * prz +
-                .08 * confidence +
-                .05 * symmetry +
-                .03 * pivot +
-                .16 * confirm +
-                .12 * rr +
-                .06 * mtf +
-                .06 * regime +
-                .05 * completion +
-                .07 * prior;
-
-            double expectedMinutes = c.Route == HarmonicRoute.TREND_ALIGNED_REVERSAL ? 90.0 :
-                                     c.Route == HarmonicRoute.EXHAUSTION_REVERSAL ? 120.0 : 75.0;
-            double ageMinutes = Math.Max(0, (now - c.DetectedUtc).TotalMinutes);
-            double agePenalty = Math.Min(.06, ageMinutes / 240.0 * .06);
-            double spreadPenalty = Math.Min(.05, CurrentSpreadPips() / Math.Max(1.0, MaxSpreadPips) * .05);
-            double occupancyPenalty = .04 * Math.Min(1.0, expectedMinutes / 120.0);
-            return score - agePenalty - spreadPenalty - occupancyPenalty;
-        }
-
-        private bool V71AuctionReady(List<CandidateRecord> armed, DateTime now)
-        {
-            if (!EnableV71AuctionScheduler || armed == null || armed.Count == 0) return true;
-            var times = armed.Where(x => x.ArmedUtc.HasValue).Select(x => x.ArmedUtc.Value).ToList();
-            if (times.Count == 0) return true;
-
-            double ageMinutes = Math.Max(0, (now - times.Min()).TotalMinutes);
-            double minWait = Math.Max(0, V71AuctionMinMinutes);
-            double maxWait = Math.Max(minWait, V71AuctionMaxMinutes);
-
-            if (ageMinutes + 1e-9 < minWait)
-            {
-                _v71AuctionDeferrals++;
-                return false;
-            }
-
-            if (armed.Count > 1 && ageMinutes + 1e-9 < maxWait)
-            {
-                double top = V71UnifiedScore(armed[0], now);
-                double second = V71UnifiedScore(armed[1], now);
-                if (top - second < Math.Max(0, V71AuctionDominanceMargin))
-                {
-                    _v71AuctionDeferrals++;
-                    return false;
-                }
-            }
-            return true;
-        }
-
-        // V71 Final Structural Rebase:
-        // Capital starts from the Carney-canonical, cross-year stable family/route spine.
-        // Burned 2021-2023 A-control evidence for these exact lanes:
-        // Rat Trend, Shark Trend, Gartley Trend, 5-0 Exhaustion, AB=CD Exact Exhaustion.
-        // The policy is static at runtime and never reads realized/future outcomes.
-        private bool V71CanonicalCapitalSpineEligible(CandidateRecord c)
-        {
-            if (c == null || c.Signal == null) return false;
-            string p = c.Signal.PatternName ?? "";
-            string subtype = c.Signal.HarmonicSubtype ?? "";
-
-            if (p == "Rat" && subtype == "Rat")
-                return c.Route == HarmonicRoute.TREND_ALIGNED_REVERSAL;
-            if (p == "Shark" && subtype == "Shark")
-                return c.Route == HarmonicRoute.TREND_ALIGNED_REVERSAL;
-            if (p == "Gartley" && subtype == "Gartley")
-                return c.Route == HarmonicRoute.TREND_ALIGNED_REVERSAL;
-            if (p == "5-0" && subtype == "5-0")
-                return c.Route == HarmonicRoute.EXHAUSTION_REVERSAL;
-            if (p == "AB=CD" && subtype == "ABCD_EXACT")
-                return c.Route == HarmonicRoute.EXHAUSTION_REVERSAL;
-            return false;
-        }
-
-        // Challenger reserve is deliberately small.  It cannot displace an available core-spine
-        // thesis and requires strong Carney geometry/PRZ plus pre-entry regime evidence.
-        private bool V71CanonicalChallengerEligible(CandidateRecord c)
-        {
-            if (!EnableV71ChallengerReserve || c == null || c.Signal == null || c.Regime == null) return false;
-            string p = c.Signal.PatternName ?? "";
-            string subtype = c.Signal.HarmonicSubtype ?? "";
-            bool identity =
-                (p == "AB=CD" && subtype == "ABCD_EXACT" && c.Route == HarmonicRoute.TREND_ALIGNED_REVERSAL) ||
-                (p == "Cypher" && subtype == "Cypher" && c.Route == HarmonicRoute.TREND_ALIGNED_REVERSAL);
-            if (!identity) return false;
-            if (c.Conflict == MtfConflict.CONFLICT) return false;
-            return c.Signal.GeometryQuality >= .82 &&
-                   c.Signal.PrzConfluence >= .78 &&
-                   c.Signal.Confidence >= .75 &&
-                   c.RegimeScore >= .68 &&
-                   c.Regime.Efficiency >= .18;
-        }
-
-        private bool V71CrossRegimeSurvivalPass(CandidateRecord c)
-        {
-            if (!EnableV71CrossRegimeSurvivalV2 || c == null || c.Signal == null || c.Regime == null) return true;
-            string p = c.Signal.PatternName ?? "";
-            string subtype = c.Signal.HarmonicSubtype ?? "";
-
-            if (V71CanonicalChallengerEligible(c))
-                return c.RegimeScore >= .68 && c.Regime.Efficiency >= .18;
-
-            if (p == "Rat" && subtype == "Rat" && c.Route == HarmonicRoute.TREND_ALIGNED_REVERSAL)
-                return c.Conflict != MtfConflict.CONFLICT && c.RegimeScore >= .45;
-            if (p == "Shark" && subtype == "Shark" && c.Route == HarmonicRoute.TREND_ALIGNED_REVERSAL)
-                return c.Conflict != MtfConflict.CONFLICT && c.RegimeScore >= .55 && c.Regime.Efficiency >= .12;
-            if (p == "Gartley" && subtype == "Gartley" && c.Route == HarmonicRoute.TREND_ALIGNED_REVERSAL)
-                return c.Conflict != MtfConflict.CONFLICT && c.RegimeScore >= .45;
-            if (p == "5-0" && subtype == "5-0" && c.Route == HarmonicRoute.EXHAUSTION_REVERSAL)
-                return c.Regime.ExtensionAtr >= 1.00 && c.RegimeScore >= .45;
-            if (p == "AB=CD" && subtype == "ABCD_EXACT" && c.Route == HarmonicRoute.EXHAUSTION_REVERSAL)
-                return c.Regime.ExtensionAtr >= .90 && c.RegimeScore >= .45;
-            return false;
-        }
-
-        // Alpha feasibility is evaluated before Grid exists.  Grid therefore cannot alter the
-        // candidate set, ranking or admission decision.
-        private bool V71PrepareAlphaOnlyCandidate(CandidateRecord c)
-        {
-            if (c == null || c.Signal == null) return false;
-            double entry = c.Signal.Direction == TradeDirection.Buy ? _symbol.Ask : _symbol.Bid;
-            double stop = c.Signal.StructuralInvalidation;
-            if ((c.Signal.Direction == TradeDirection.Buy && stop >= entry) ||
-                (c.Signal.Direction == TradeDirection.Sell && stop <= entry))
-                return false;
-            if (PriceToPips(Math.Abs(entry - stop)) < MinStopLossPips) return false;
-
-            double target, netRr;
-            if (!SelectCanonicalBasketTarget(c.Signal, entry, stop, out target, out netRr))
-                return false;
-            if (netRr < MinimumNetRR) return false;
-
-            c.SelectedTarget = target;
-            c.NetRR = netRr;
-            return true;
-        }
-
-        private double V71AlphaArbitrationScore(CandidateRecord c, DateTime now)
-        {
-            if (c == null || c.Signal == null || c.Regime == null) return -999;
-            double canonical = V71CanonicalCapitalSpineEligible(c) ? 1.0 : .55;
-            double q = .26 * c.Signal.GeometryQuality +
-                       .22 * c.Signal.PrzConfluence +
-                       .14 * c.Signal.Confidence +
-                       .14 * VClamp(c.RegimeScore) +
-                       .14 * VClamp(c.ConfirmationScore) +
-                       .10 * VClamp(c.NetRR / 3.0);
-            double expectedMinutes = c.Route == HarmonicRoute.TREND_ALIGNED_REVERSAL ? 90.0 :
-                                     c.Route == HarmonicRoute.EXHAUSTION_REVERSAL ? 120.0 : 75.0;
-            double age = Math.Max(0, (now - c.DetectedUtc).TotalMinutes);
-            double agePenalty = Math.Min(.12, age / 240.0 * .12);
-            double spreadPenalty = Math.Min(.10, CurrentSpreadPips() / Math.Max(1.0, MaxSpreadPips) * .10);
-            return canonical + q / Math.Max(.75, expectedMinutes / 90.0) - agePenalty - spreadPenalty;
-        }
-
-        private bool V71SelectiveBackfillAdmissionEligible(CandidateRecord c)
-        {
-            if (!EnableV71SelectiveBackfill || c == null || c.Signal == null || c.Regime == null) return false;
-            if (c.Route == HarmonicRoute.NO_TRADE) return false;
-            if (c.Conflict == MtfConflict.CONFLICT && c.Route != HarmonicRoute.EXHAUSTION_REVERSAL) return false;
-            string subtype = c.Signal.HarmonicSubtype ?? "";
-            if (subtype == "ABCD_LEGACY_BROAD") return false;
-
-            bool carneyQuality = c.Signal.GeometryQuality >= .72 &&
-                                 c.Signal.PrzConfluence >= .72 &&
-                                 c.Signal.Confidence >= .68;
-            if (!carneyQuality || c.RegimeScore < .60) return false;
-
-            if (c.Route == HarmonicRoute.TREND_ALIGNED_REVERSAL)
-                return c.RegimeScore >= .64 && c.Regime.Efficiency >= .18;
-            if (c.Route == HarmonicRoute.EXHAUSTION_REVERSAL)
-                return c.Regime.ExtensionAtr >= 1.15;
-            if (c.Route == HarmonicRoute.TRANSITION_REVERSAL)
-                return c.Regime.Transition && c.Regime.Efficiency >= .22;
-            return false;
-        }
-
-        private bool V71SelectiveBackfillExecutionEligible(CandidateRecord c)
-        {
-            return V71SelectiveBackfillAdmissionEligible(c) &&
-                   c.ConfirmationScore >= .60 &&
-                   c.NetRR >= MinimumNetRR;
-        }
-
-        private double V71EffectiveBasketRiskPercent(CandidateRecord c)
-        {
-            double hardCap = Math.Min(5.0, Math.Max(.10, BasketRiskPercent));
-            if (!EnableV71AdaptiveRiskScaling || c == null || c.Signal == null)
-                return hardCap;
-
-            double q = .28 * c.Signal.GeometryQuality +
-                       .24 * c.Signal.PrzConfluence +
-                       .14 * c.Signal.Confidence +
-                       .18 * VClamp(c.RegimeScore) +
-                       .16 * VClamp(c.ConfirmationScore);
-
-            double allocated = 1.0;
-            if (q >= .78) allocated = 2.0;
-            if (q >= .86 && c.Conflict == MtfConflict.ALIGNED) allocated = 3.0;
-            if (q >= .92 && c.RegimeScore >= .75 && c.ConfirmationScore >= .75) allocated = 5.0;
-            return Math.Min(hardCap, allocated);
-        }
-
-        private bool V71SelectiveQualityRecall(CandidateRecord c)
-        {
-            if (c == null || c.Signal == null) return false;
-            string p = c.Signal.PatternName ?? "";
-            if (p != "AB=CD") return false;
-            string subtype = c.Signal.HarmonicSubtype ?? "";
-            bool identityOk = subtype == "ABCD_EXACT" || subtype == "ABCD_NEAR_127";
-            return identityOk &&
-                   c.Signal.GeometryQuality >= .60 &&
-                   c.Signal.PrzConfluence >= .58 &&
-                   c.Signal.Confidence >= .58;
-        }
-
-        private bool V71ShouldSuppressLegacyLane(CandidateRecord c)
-        {
-            if (c == null || c.Signal == null) return true;
-            return !V71EvidenceQualifiedCapitalLane(c);
-        }
-
-        private HarmonicRoute V71SelectiveRecallRoute(CandidateRecord c)
-        {
-            if (c == null || c.Signal == null || c.Regime == null) return HarmonicRoute.NO_TRADE;
-            if ((c.Signal.PatternName ?? "") != "AB=CD" || !c.V71SelectiveRecallLane)
-                return HarmonicRoute.NO_TRADE;
-
-            string subtype = c.Signal.HarmonicSubtype ?? "";
-            bool identityOk = subtype == "ABCD_EXACT" || subtype == "ABCD_NEAR_127";
-            bool transition = c.Regime.Transition ||
-                              c.Conflict == MtfConflict.TRANSITION ||
-                              c.Regime.TrendDirection == TradeDirection.Neutral;
-            if (identityOk && transition &&
-                c.Signal.GeometryQuality >= .60 &&
-                c.Signal.PrzConfluence >= .58 &&
-                c.Signal.Confidence >= .58)
-                return HarmonicRoute.TRANSITION_REVERSAL;
-
-            return HarmonicRoute.NO_TRADE;
-        }
-
-        private double V70MinimumExecutionEvidenceScore(int i, CandidateRecord c)
-        {
-            if (c == null || c.Signal == null || i < 2 || i >= _m1Bars.Count) return 0;
-            double o=_m1Bars.OpenPrices[i], cl=_m1Bars.ClosePrices[i], h=_m1Bars.HighPrices[i], l=_m1Bars.LowPrices[i];
-            double ph=_m1Bars.HighPrices[i-1], pl=_m1Bars.LowPrices[i-1];
-            double body=Math.Max(Math.Abs(cl-o),_symbol.PipSize);
-            bool buy=c.Signal.Direction==TradeDirection.Buy;
-            bool directional=buy?cl>o:cl<o;
-            bool reclaim=buy?cl>c.Signal.PrzLow:cl<c.Signal.PrzHigh;
-            bool rejection=buy?Math.Max(0,Math.Min(o,cl)-l)>=body*.35:Math.Max(0,h-Math.Max(o,cl))>=body*.35;
-            bool bos=buy?cl>ph:cl<pl;
-            return (directional?.20:0)+(reclaim?.30:0)+(rejection?.25:0)+(bos?.25:0);
-        }
-
-        private bool V70MinimumExecutionEvidencePass(int i, CandidateRecord c)
-        {
-            return V70MinimumExecutionEvidenceScore(i,c) >= .55;
-        }
-
-        private double V70OpportunityCostScore(CandidateRecord c, DateTime now)
-        {
-            if (c == null || c.Signal == null) return -999;
-            double quality=.30*c.Signal.GeometryQuality+.24*c.Signal.PrzConfluence+.16*c.Signal.Confidence+.15*c.ConfirmationScore+.15*VClamp(c.NetRR/3.0);
-            if (c.V70ProtectedLane) quality += .08;
-            if (c.V70ChallengerLane) quality += .03 * VClamp(c.V70AdmissionScore);
-            double expectedMinutes = c.Route == HarmonicRoute.TREND_ALIGNED_REVERSAL ? 90.0 :
-                                     c.Route == HarmonicRoute.EXHAUSTION_REVERSAL ? 120.0 : 75.0;
-            double age=Math.Max(0,(now-c.DetectedUtc).TotalMinutes);
-            double agePenalty=Math.Min(.25,age/240.0*.25);
-            double spreadPenalty=Math.Min(.20,CurrentSpreadPips()/Math.Max(1.0,MaxSpreadPips)*.20);
-            double marginPenalty=c.GridPlan!=null && Account.FreeMargin>0?Math.Min(.20,c.GridPlan.EstimatedPhysicalMargin/Math.Max(1.0,Account.FreeMargin)*.20):0;
-            return quality/Math.Max(.5,expectedMinutes/60.0)-agePenalty-spreadPenalty-marginPenalty;
-        }
-
         private double CandidateRank(CandidateRecord c)
         {
-            if (EnableV67FamilyTradeContracts && !EnableV68EvidencePreservingAdmission) return V67FamilyNativeCandidateRank(c);
             double mtf = c.Conflict == MtfConflict.ALIGNED ? 1.0 :
                          c.Conflict == MtfConflict.SUPPORTED ? .85 :
                          c.Conflict == MtfConflict.TRANSITION ? .70 :
@@ -5372,7 +4093,7 @@ namespace cAlgo.Robots
             int n;
             _executionErrorReasons.TryGetValue(code, out n);
             _executionErrorReasons[code] = n + 1;
-            Print("[V71-EXECUTION-ERROR] code={0} detail={1}", code, detail ?? "");
+            Print("[V51-EXECUTION-ERROR] code={0} detail={1}", code, detail ?? "");
         }
 
         private bool PendingOrderStillExists(long id)
@@ -5422,174 +4143,10 @@ namespace cAlgo.Robots
                    px(s.X.Price) + "|" + px(s.A.Price) + "|" + px(s.B.Price) + "|" + px(s.C.Price) + "|" + px(s.D.Price);
         }
 
-        private string BuildFamilyHypothesisKey(PatternSignal s)
-        {
-            if (s == null) return "INVALID";
-            return BuildSetupGeometryKey(s) + "|" + (s.PatternName ?? "UNKNOWN") + "|" + s.PivotScale.ToString(CultureInfo.InvariantCulture);
-        }
-
-        private CanonicalFamilyId CanonicalFamilyFromName(string pattern)
-        {
-            switch ((pattern ?? "").Trim())
-            {
-                case "Gartley": return CanonicalFamilyId.Gartley;
-                case "Bat": return CanonicalFamilyId.Bat;
-                case "Alt Bat": return CanonicalFamilyId.AltBat;
-                case "Butterfly": return CanonicalFamilyId.Butterfly;
-                case "Crab": return CanonicalFamilyId.Crab;
-                case "Deep Crab": return CanonicalFamilyId.DeepCrab;
-                case "Deep Gartley": return CanonicalFamilyId.DeepGartley;
-                case "Rat": return CanonicalFamilyId.Rat;
-                case "Cypher": return CanonicalFamilyId.Cypher;
-                case "Shark": return CanonicalFamilyId.Shark;
-                case "5-0": return CanonicalFamilyId.FiveZero;
-                case "AB=CD": return CanonicalFamilyId.ABCD;
-                default: return CanonicalFamilyId.Unknown;
-            }
-        }
-
-        private string CanonicalFamilyLabel(CanonicalFamilyId id)
-        {
-            switch (id)
-            {
-                case CanonicalFamilyId.AltBat: return "Alt Bat";
-                case CanonicalFamilyId.DeepCrab: return "Deep Crab";
-                case CanonicalFamilyId.DeepGartley: return "Deep Gartley";
-                case CanonicalFamilyId.FiveZero: return "5-0";
-                case CanonicalFamilyId.ABCD: return "AB=CD";
-                case CanonicalFamilyId.Unknown: return "UNKNOWN";
-                default: return id.ToString();
-            }
-        }
-
-        private string BuildCanonicalSetupId(string setupKey)
-        {
-            unchecked
-            {
-                const ulong offset = 14695981039346656037UL;
-                const ulong prime = 1099511628211UL;
-                ulong hash = offset;
-                string value = setupKey ?? "";
-                for (int i = 0; i < value.Length; i++)
-                {
-                    hash ^= value[i];
-                    hash *= prime;
-                }
-                return hash.ToString("X16", CultureInfo.InvariantCulture);
-            }
-        }
-
-        private IEnumerable<CanonicalFamilyId> V69CanonicalFamilies()
-        {
-            return new[] { CanonicalFamilyId.Gartley, CanonicalFamilyId.Bat, CanonicalFamilyId.AltBat, CanonicalFamilyId.Butterfly,
-                CanonicalFamilyId.Crab, CanonicalFamilyId.DeepCrab, CanonicalFamilyId.DeepGartley, CanonicalFamilyId.Rat,
-                CanonicalFamilyId.Cypher, CanonicalFamilyId.Shark, CanonicalFamilyId.FiveZero, CanonicalFamilyId.ABCD };
-        }
-
-        private void InitializeV69FamilyVisibility()
-        {
-            foreach (var id in V69CanonicalFamilies()) if (!_v69FamilyVisibility.ContainsKey(id)) _v69FamilyVisibility[id] = new FamilyVisibilityCounter();
-        }
-
-        private FamilyVisibilityCounter V69Visibility(CanonicalFamilyId id)
-        {
-            FamilyVisibilityCounter x;
-            if (!_v69FamilyVisibility.TryGetValue(id, out x))
-            {
-                x = new FamilyVisibilityCounter();
-                _v69FamilyVisibility[id] = x;
-            }
-            return x;
-        }
-
-        private void V69RecordTerminal(CandidateRecord c, string state, string reason)
-        {
-            if (!EnableV69EqualFamilyVisibility || c == null || c.Signal == null) return;
-            string key = c.FamilyId + "|" + state + "|" + (string.IsNullOrWhiteSpace(reason) ? "UNKNOWN" : reason);
-            int n; _v69TerminalReasons.TryGetValue(key, out n); _v69TerminalReasons[key] = n + 1;
-        }
-
-        private void TryStartV69Shadow(CandidateRecord c, string reason)
-        {
-            if (!EnableV69ShadowAlphaCensus || c == null || c.Signal == null || c.State == CandidateState.EXECUTED) return;
-            if (c.FamilyId == CanonicalFamilyId.Unknown) return;
-            string setup = string.IsNullOrWhiteSpace(c.CanonicalSetupId) ? c.SetupKey : c.CanonicalSetupId;
-            if (string.IsNullOrWhiteSpace(setup)) return;
-            string key = setup + "|" + c.FamilyId + "|" + c.Route + "|" + (reason ?? "UNKNOWN");
-            if (_v69ShadowStarted.Contains(key)) return;
-
-            int i = LastClosedIndex(_m1Bars);
-            double entry = i >= 0 && i < _m1Bars.Count ? _m1Bars.ClosePrices[i] : c.Signal.D.Price;
-            double stop = c.Signal.StructuralInvalidation;
-            if (!GeometryValid(c.Signal.Direction, entry, stop, c.Signal.CanonicalTarget1) &&
-                !GeometryValid(c.Signal.Direction, entry, stop, c.Signal.CanonicalTarget2)) return;
-            double target, targetR;
-            if (!SelectCanonicalBasketTarget(c.Signal, entry, stop, out target, out targetR)) return;
-            double risk = Math.Abs(entry - stop);
-            if (!double.IsFinite(risk) || risk <= _symbol.PipSize) return;
-
-            DateTime now = Server.Time.ToUniversalTime();
-            var o = new ShadowAlphaObservation
-            {
-                Key = key, CandidateId = c.CandidateId, CanonicalSetupId = setup, FamilyId = c.FamilyId,
-                Route = c.Route, Direction = c.Signal.Direction, TerminalReason = reason ?? "UNKNOWN",
-                StartedUtc = now, ExpiryUtc = now.AddMinutes(Math.Max(30, V69ShadowHorizonM1Bars)),
-                Entry = entry, Stop = stop, Target = target, RiskDistance = risk, TargetR = targetR, Active = true
-            };
-            _v69ShadowStarted.Add(key); _v69Shadow[key] = o;
-            V69Visibility(c.FamilyId).ShadowStarted++;
-            Print("[V71-SHADOW-START] familyId={0} setup={1} cid={2} route={3} reason={4} entry={5} stop={6} target={7} targetR={8:F3}",
-                o.FamilyId, o.CanonicalSetupId, o.CandidateId, o.Route, o.TerminalReason, o.Entry, o.Stop, o.Target, o.TargetR);
-        }
-
-        private void UpdateV69ShadowAlphaCensus(int i, DateTime utc)
-        {
-            if (!EnableV69ShadowAlphaCensus || i < 0 || i >= _m1Bars.Count) return;
-            double hi = _m1Bars.HighPrices[i], lo = _m1Bars.LowPrices[i], close = _m1Bars.ClosePrices[i];
-            foreach (var o in _v69Shadow.Values.Where(x => x.Active).ToList())
-            {
-                if (utc <= o.StartedUtc) continue;
-                double fav = o.Direction == TradeDirection.Buy ? (hi - o.Entry) / o.RiskDistance : (o.Entry - lo) / o.RiskDistance;
-                double adv = o.Direction == TradeDirection.Buy ? (o.Entry - lo) / o.RiskDistance : (hi - o.Entry) / o.RiskDistance;
-                o.MfeR = Math.Max(o.MfeR, fav); o.MaeR = Math.Max(o.MaeR, adv);
-                bool stopHit = o.Direction == TradeDirection.Buy ? lo <= o.Stop : hi >= o.Stop;
-                bool targetHit = o.Direction == TradeDirection.Buy ? hi >= o.Target : lo <= o.Target;
-                if (stopHit && targetHit) { ResolveV69Shadow(o, -1.0, "AMBIGUOUS_BOTH_STOP_FIRST"); continue; }
-                if (stopHit) { ResolveV69Shadow(o, -1.0, "STOP"); continue; }
-                if (targetHit) { ResolveV69Shadow(o, o.TargetR, "TARGET"); continue; }
-                if (utc >= o.ExpiryUtc)
-                {
-                    double mtm = o.Direction == TradeDirection.Buy ? (close - o.Entry) / o.RiskDistance : (o.Entry - close) / o.RiskDistance;
-                    ResolveV69Shadow(o, mtm, "HORIZON_MTM");
-                }
-            }
-        }
-
-        private void ResolveV69Shadow(ShadowAlphaObservation o, double outcomeR, string result)
-        {
-            if (o == null || !o.Active) return;
-            o.Active = false; o.OutcomeR = outcomeR; o.Result = result;
-            V69Visibility(o.FamilyId).ShadowResolved++;
-            Print("[V71-SHADOW-OUTCOME] familyId={0} setup={1} cid={2} route={3} terminalReason={4} result={5} outcomeR={6:F3} mfeR={7:F3} maeR={8:F3} targetR={9:F3}",
-                o.FamilyId, o.CanonicalSetupId, o.CandidateId, o.Route, o.TerminalReason, o.Result, o.OutcomeR, o.MfeR, o.MaeR, o.TargetR);
-        }
-
-        private void FlushV69ShadowAtStop()
-        {
-            if (!EnableV69ShadowAlphaCensus) return;
-            int i = LastClosedIndex(_m1Bars);
-            double close = i >= 0 && i < _m1Bars.Count ? _m1Bars.ClosePrices[i] : 0;
-            foreach (var o in _v69Shadow.Values.Where(x => x.Active).ToList())
-            {
-                double mtm = close > 0 ? (o.Direction == TradeDirection.Buy ? (close - o.Entry) / o.RiskDistance : (o.Entry - close) / o.RiskDistance) : 0;
-                ResolveV69Shadow(o, mtm, "END_OF_TEST_MTM");
-            }
-        }
-
         private string NewCandidateId(PatternSignal s)
         {
             _candidateSeq++;
-            return "V70-" + _candidateSeq.ToString("D8", CultureInfo.InvariantCulture) + "-" +
+            return "V47-" + _candidateSeq.ToString("D8", CultureInfo.InvariantCulture) + "-" +
                    s.PatternName.Replace(" ", "") + "-" + s.Direction + "-" + s.CompletionTime.ToString("yyyyMMddHHmm", CultureInfo.InvariantCulture);
         }
 
@@ -5603,53 +4160,43 @@ namespace cAlgo.Robots
 
         private void Reject(CandidateRecord c, string reason)
         {
-            V69RecordTerminal(c, "REJECTED", reason);
-            if (EnableV69ShadowAlphaCensus) TryStartV69Shadow(c, reason);
             c.State = CandidateState.REJECTED;
             c.IsActive = false;
             if (c != null) _parkedCandidateIds.Remove(c.CandidateId);
-            if (EnableCanonicalSetupIdentity && c != null && !string.IsNullOrWhiteSpace(c.SetupKey)) _activeSetupOwners.Remove(string.IsNullOrWhiteSpace(c.IdentityKey) ? c.SetupKey : c.IdentityKey);
+            if (EnableCanonicalSetupIdentity && c != null && !string.IsNullOrWhiteSpace(c.SetupKey)) _activeSetupOwners.Remove(c.SetupKey);
             c.LastReason = reason;
             CountPipeline(c.Signal.PatternName).Rejected++;
-            if (EnableV69EqualFamilyVisibility) V69Visibility(c.FamilyId).Rejected++;
             Event(c, "REJECTED:" + reason);
         }
 
         private void Expire(CandidateRecord c, string reason)
         {
-            V69RecordTerminal(c, "EXPIRED", reason);
-            if (EnableV69ShadowAlphaCensus) TryStartV69Shadow(c, reason);
             c.State = CandidateState.EXPIRED;
             c.IsActive = false;
             if (c != null) _parkedCandidateIds.Remove(c.CandidateId);
-            if (EnableCanonicalSetupIdentity && c != null && !string.IsNullOrWhiteSpace(c.SetupKey)) _activeSetupOwners.Remove(string.IsNullOrWhiteSpace(c.IdentityKey) ? c.SetupKey : c.IdentityKey);
+            if (EnableCanonicalSetupIdentity && c != null && !string.IsNullOrWhiteSpace(c.SetupKey)) _activeSetupOwners.Remove(c.SetupKey);
             c.LastReason = reason;
             CountPipeline(c.Signal.PatternName).Expired++;
-            if (EnableV69EqualFamilyVisibility) V69Visibility(c.FamilyId).Expired++;
             Event(c, "EXPIRED:" + reason);
         }
 
         private void Invalidate(CandidateRecord c, string reason)
         {
-            V69RecordTerminal(c, "INVALIDATED", reason);
-            if (EnableV69ShadowAlphaCensus) TryStartV69Shadow(c, reason);
             c.State = CandidateState.INVALIDATED;
             c.IsActive = false;
             if (c != null) _parkedCandidateIds.Remove(c.CandidateId);
-            if (EnableCanonicalSetupIdentity && c != null && !string.IsNullOrWhiteSpace(c.SetupKey)) _activeSetupOwners.Remove(string.IsNullOrWhiteSpace(c.IdentityKey) ? c.SetupKey : c.IdentityKey);
+            if (EnableCanonicalSetupIdentity && c != null && !string.IsNullOrWhiteSpace(c.SetupKey)) _activeSetupOwners.Remove(c.SetupKey);
             c.LastReason = reason;
             CountPipeline(c.Signal.PatternName).Invalidated++;
-            if (EnableV69EqualFamilyVisibility) V69Visibility(c.FamilyId).Invalidated++;
             Event(c, "INVALIDATED:" + reason);
         }
 
         private void Ledger(CandidateRecord c, CandidateState state, string reason)
         {
             double wait = c.ParkedUtc.HasValue ? Math.Max(0, (Server.Time.ToUniversalTime() - c.ParkedUtc.Value).TotalMinutes) : 0;
-            Print("[V71-EVENT] cid={0} canonicalSetup={1} familyId={2} pattern={3} subtype={4} scale={5} tf={6} dir={7} state={8} route={9} legacyRoute={10} conflict={11} waitMin={12:F2} reason={13}",
-                c.CandidateId, c.CanonicalSetupId ?? c.SetupKey ?? "", c.FamilyId, c.Signal.PatternName,
-                c.Signal.HarmonicSubtype ?? c.Signal.PatternName, c.Signal.PivotScale, c.Signal.Timeframe, c.Signal.Direction,
-                state, c.Route, c.LegacyRoute, c.Conflict, wait, reason);
+            Print("[V51-EVENT] cid={0} setup={1} pattern={2} subtype={3} scale={4} tf={5} dir={6} state={7} route={8} conflict={9} waitMin={10:F2} reason={11}",
+                c.CandidateId, c.SetupKey ?? "", c.Signal.PatternName, c.Signal.HarmonicSubtype ?? c.Signal.PatternName,
+                c.Signal.PivotScale, c.Signal.Timeframe, c.Signal.Direction, state, c.Route, c.Conflict, wait, reason);
         }
 
         private void Event(CandidateRecord c, string reason)
@@ -5697,11 +4244,11 @@ namespace cAlgo.Robots
                 try { added = bars.LoadMoreHistory(); }
                 catch (Exception ex)
                 {
-                    Print("[V71-WARMUP-ERROR] tf={0} count={1} error={2}", name, bars.Count, ex.Message);
+                    Print("[V51-WARMUP-ERROR] tf={0} count={1} error={2}", name, bars.Count, ex.Message);
                     break;
                 }
                 loops++;
-                Print("[V71-WARMUP] tf={0} added={1} count={2}", name, added, bars.Count);
+                Print("[V51-WARMUP] tf={0} added={1} count={2}", name, added, bars.Count);
                 if (added <= 0) break;
             }
         }
@@ -5790,25 +4337,11 @@ namespace cAlgo.Robots
     }
 
     public enum TradeDirection { Neutral, Buy, Sell }
-    public enum CanonicalFamilyId { Unknown, Gartley, Bat, AltBat, Butterfly, Crab, DeepCrab, DeepGartley, Rat, Cypher, Shark, FiveZero, ABCD }
     public enum HarmonicState { Neutral, Bullish, Bearish }
     public enum MtfConflict { NEUTRAL, ALIGNED, SUPPORTED, TRANSITION, CONFLICT }
     public enum HarmonicRoute { NO_TRADE, TREND_ALIGNED_REVERSAL, EXHAUSTION_REVERSAL, TRANSITION_REVERSAL }
     public enum CandidateState { DETECTED, VALIDATED, ROUTED, WAIT_PRZ, CONFIRMING, ARMED, SLOT_BLOCKED, PARKED, REVALIDATING, EXECUTABLE, EXECUTED, EXPIRED, REJECTED, INVALIDATED }
     public enum PatternMode { STANDARD, ABCD, CYPHER, SHARK, FIVEZERO }
-
-
-    public sealed class FamilyTradeContract
-    {
-        public string Name;
-        public string Role;
-        public string ConfirmationModel;
-        public bool AllowTrend, AllowExhaustion, AllowTransition, RunnerEligible;
-        public double MinGeometry, MinPrz, MinConfidence, MinEfficiency, MaxAtrRatio, ExhaustionExtensionAtr, DetectorPriorityBoost;
-        public int ConfirmationWindowBars, ExpiryM15Bars, MaximumGridLegs;
-        public double[] GridFractions = new double[0];
-        public double[] GridRiskWeights = new double[0];
-    }
 
     public sealed class PatternProfile
     {
@@ -5828,11 +4361,6 @@ namespace cAlgo.Robots
         public string CanonicalTargetPolicy;
     }
 
-    public sealed class PivotSequence
-    {
-        public PivotPoint X, A, B, C, D;
-    }
-
     public sealed class PivotPoint
     {
         public int Index;
@@ -5843,7 +4371,6 @@ namespace cAlgo.Robots
     public sealed class PatternSignal
     {
         public string PatternName;
-        public CanonicalFamilyId FamilyId;
         public PatternProfile Profile;
         public TradeDirection Direction;
         public PivotPoint X, A, B, C, D;
@@ -5871,13 +4398,29 @@ namespace cAlgo.Robots
         public double TrendStrength;
     }
 
+    public enum V71ExpansionState { WAIT_PRZ, CONFIRMING, ARMED, EXECUTED, EXPIRED, REJECTED, INVALIDATED }
+
+    public sealed class V71ExpansionCandidate
+    {
+        public string CandidateId, IdentityKey, SetupKey;
+        public PatternSignal Signal;
+        public MtfConflict Conflict;
+        public HarmonicRoute Route;
+        public RegimeSnapshot Regime;
+        public V71ExpansionState State;
+        public bool IsActive, Executed, ShadowStarted, ShadowFinished;
+        public DateTime DetectedUtc, ExpiryUtc;
+        public DateTime? PrzTouchUtc, ArmedUtc;
+        public double ConfirmationScore, NetRR, RegimeScore;
+        public double EntryAnchor, StructuralStop, CanonicalTarget, RiskDistance, TargetR;
+        public double EdgeMean, EdgeLcb, SlotScore, ShadowOutcomeR;
+        public int ShadowBars;
+    }
+
     public sealed class CandidateRecord
     {
         public string CandidateId;
         public string SetupKey;
-        public string IdentityKey;
-        public string CanonicalSetupId;
-        public CanonicalFamilyId FamilyId;
         public PatternSignal Signal;
         public CandidateState State;
         public bool IsActive = true;
@@ -5885,15 +4428,6 @@ namespace cAlgo.Robots
         public DateTime? PrzTouchUtc;
         public MtfConflict Conflict = MtfConflict.NEUTRAL;
         public HarmonicRoute Route = HarmonicRoute.NO_TRADE;
-        public HarmonicRoute LegacyRoute = HarmonicRoute.NO_TRADE;
-        public bool LegacyQualityPassed;
-        public bool LegacyConfirmationPassed;
-        public bool V70ProtectedLane;
-        public bool V70ChallengerLane;
-        public int V70TimingBarsObserved;
-        public double V70AdmissionScore;
-        public string V70AdmissionReason;
-        public bool V71SelectiveRecallLane;
         public RegimeSnapshot Regime;
         public double ConfirmationScore, NetRR, SelectedTarget, Rank;
         public double AlphaQualityScore, RegimeScore, CapitalMinL0Risk, CapitalMinL0Margin;
@@ -5904,12 +4438,14 @@ namespace cAlgo.Robots
         public int NativeM1BarsObserved, NativeStage;
         public int FamilyConfirmationBarsObserved;
         public bool FamilyDirectional, FamilyReclaim, FamilyBos, FamilyRejection, FamilySweep,
-                    FamilyFailedExtension, FamilyInsidePrz, FamilyDisplacement, FamilyRetest, FamilyDeceleration;
+                    FamilyFailedExtension, FamilyInsidePrz, FamilyDisplacement, FamilyRetest;
         public double OriginalRank, OriginalGeometry, OriginalPrzConfluence, OriginalM1Evidence, OriginalEntryAnchor, ShadowRiskDistance, ShadowMfeR, ShadowMaeR;
         public double CompletionAnchorPrice, NativeConfirmAnchorPrice, NativeRetestAnchorPrice;
         public double CompletionAnchorMfeR, CompletionAnchorMaeR, NativeConfirmMfeR, NativeConfirmMaeR, NativeRetestMfeR, NativeRetestMaeR;
         public bool TemporalDirectional, TemporalReclaim, TemporalBos1, TemporalBos2, TemporalRejection, TemporalFailedExtension, TemporalDisplacement;
         public bool CapitalFeasible;
+        public bool V71Expansion;
+        public double V71RiskPercent = 1.0;
         public FibonacciGridPlan GridPlan;
         public long PositionId;
         public string LastReason;
@@ -5920,8 +4456,6 @@ namespace cAlgo.Robots
         public long PositionId;
         public string CandidateId;
         public string PatternName;
-        public CanonicalFamilyId FamilyId;
-        public string CanonicalSetupId;
         public HarmonicRoute Route;
         public TradeDirection Direction;
         public DateTime EntryUtc;
@@ -5948,8 +4482,7 @@ namespace cAlgo.Robots
 
     public sealed class FibonacciGridPlan
     {
-        public string CandidateId, BasketId, Pattern, CanonicalSetupId;
-        public CanonicalFamilyId FamilyId;
+        public string CandidateId, BasketId, Pattern;
         public TradeDirection Direction;
         public HarmonicRoute Route;
         public DateTime CreatedUtc, ExpirationUtc;
@@ -5962,8 +4495,7 @@ namespace cAlgo.Robots
 
     public sealed class FibonacciBasket
     {
-        public string BasketId, CandidateId, Pattern, CanonicalSetupId, ExitOverride, ExitReason;
-        public CanonicalFamilyId FamilyId;
+        public string BasketId, CandidateId, Pattern, ExitOverride, ExitReason;
         public TradeDirection Direction;
         public HarmonicRoute Route;
         public FibonacciBasketState State;
@@ -5974,29 +4506,6 @@ namespace cAlgo.Robots
         public bool IsActive;
         public FibonacciGridPlan Plan;
         public CandidateRecord Candidate;
-    }
-
-    public sealed class FilterEvidenceCounter
-    {
-        public long Observed, Passed, Blocked, ConvertedToObservation;
-    }
-
-    public sealed class FamilyVisibilityCounter
-    {
-        public long TopologyAttempts, GeometryMatched, AgeRejected, Selected, CandidateCreated, QualityPassed, QualityRejected,
-                    RoutePassed, RouteRejected, PrzTouched, ConfirmationPassed, GridPlanned, BasketPlanned, Executed, Closed,
-                    Rejected, Expired, Invalidated, ShadowStarted, ShadowResolved;
-    }
-
-    public sealed class ShadowAlphaObservation
-    {
-        public string Key, CandidateId, CanonicalSetupId, TerminalReason, Result;
-        public CanonicalFamilyId FamilyId;
-        public HarmonicRoute Route;
-        public TradeDirection Direction;
-        public DateTime StartedUtc, ExpiryUtc;
-        public double Entry, Stop, Target, RiskDistance, TargetR, MfeR, MaeR, OutcomeR;
-        public bool Active;
     }
 
     public sealed class PipelineCounter

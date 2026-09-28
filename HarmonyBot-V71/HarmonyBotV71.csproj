@@ -3,7 +3,7 @@
     <TargetFramework>net6.0</TargetFramework>
     <ImplicitUsings>disable</ImplicitUsings>
     <Nullable>disable</Nullable>
-    <AlgoName>HarmonyBot_V71_Selective_Causal_Alpha_Reconstruction_Grid_Amplifier</AlgoName>
+    <AlgoName>HarmonyBot_V71_Protected_Champion_Core_Incremental_Alpha</AlgoName>
     <AlgoBuild>true</AlgoBuild>
     <AlgoPublish>false</AlgoPublish>
     <IncludeSource>false</IncludeSource>

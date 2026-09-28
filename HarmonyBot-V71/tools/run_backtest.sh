@@ -1,28 +1,40 @@
 #!/usr/bin/env bash
 set -euo pipefail
-ROOT="${GITHUB_WORKSPACE:-$PWD}"
-BASE="$ROOT/control/HarmonyBot-V52/tools/run_backtest.sh"
-test -s "$BASE"
-TMP="$(mktemp)"
-trap 'rm -f "$TMP"' EXIT
-python3 - "$BASE" "$TMP" <<'PY'
-import pathlib,sys
-src=pathlib.Path(sys.argv[1]).read_text()
-src=src.replace("HarmonyBot_V52_Family_Identity_Detection_Graph_Reconstruction_RC.algo",
-                "HarmonyBot_V71_Selective_Causal_Alpha_Reconstruction_Grid_Amplifier.algo")
-src=src.replace('--BasketRiskPercent=1.0','--BasketRiskPercent="${RISKCAP:-1.0}"')
-src=src.replace('--MicroCapitalThreshold=500 --MaxDrawdownPercent=10 --DailyLossLimitPercent=3',
-                '--MicroCapitalThreshold=500 --MaxDrawdownPercent="${MAXDD:-10}" --DailyLossLimitPercent=3')
-src=src.replace('--PortfolioMaxCandidates=12','--PortfolioMaxCandidates="${PORTMAX:-12}"')
-src=src.replace('--CandidateTtlM15Bars=12','--CandidateTtlM15Bars="${CANDTTL:-12}"')
-needle='--EnableFamilyNativeProjectedPrz="$PRJPRZ" --EnableDetectorTruthLedger="$DTRUTH"'
-inject=needle + ' --EnableV67FamilyTradeContracts="${V67CONTRACTS:-false}" --EnableV67FamilyDetectorFrontier="${V67FRONTIER:-false}" --EnableV67FamilyNativeGrid="${V67FGRID:-false}" --EnableV67EvidenceRouteGuard="${V67EVIDENCE:-false}" --EnableV67ControlledExpansion="${V67EXPAND:-false}" --EnableV68CanonicalIdentity="${V68IDENT:-true}" --EnableV68CanonicalIdentityFailClosed="${V68IDFAIL:-false}" --EnableV68EvidencePreservingAdmission="${V68PRESERVE:-false}" --EnableV68FamilyExpansion="${V68EXPAND:-false}" --EnableV68GridChallenger="${V68GRID:-false}" --EnableV69EqualFamilyVisibility="${V69VIS:-true}" --EnableV69ShadowAlphaCensus="${V69SHADOW:-true}" --V69ShadowHorizonM1Bars="${V69HORIZON:-180}" --EnableV70HardVetoRationalization="${V70HARD:-false}" --EnableV70FamilyRouteAdmission="${V70FAM:-false}" --EnableV70OpportunityCostArbitration="${V70ARB:-false}" --EnableV70ProtectedPositiveLanes="${V70PROTECT:-true}" --V70TimingMaxWaitM1Bars="${V70WAIT:-12}" --EnableV71SelectiveLaneSuppression="${V71SUPPRESS:-false}" --EnableV71SelectiveRecall="${V71RECALL:-false}" --EnableV71FamilyNativeGridAmplifier="${V71GRID:-false}" --EnableV71NoBackfillReservation="${V71NOBACKFILL:-false}" --EnableV71RegimeSurvival="${V71REGIME:-false}" --EnableV71SelectiveBackfill="${V71BACKFILL:-false}" --EnableV71AdaptiveRiskScaling="${V71ADAPRISK:-false}" --EnableV71CanonicalCapitalSpine="${V71SPINE:-false}" --EnableV71PostSelectionGridIsolation="${V71POSTGRID:-false}" --EnableV71CoreArbitration="${V71COREARB:-false}" --EnableV71ChallengerReserve="${V71CHALLENGER:-false}" --EnableV71CrossRegimeSurvivalV2="${V71SURVIVAL2:-false}" --EnableV71MinimalFilterRebase="${V71MINIMAL:-false}" --EnableV71SignalPreservingArbitration="${V71SIGARB:-false}" --EnableV71ForceSingleLegExecution="${V71SINGLE:-false}" --EnableV71NonBlockingGrid="${V71NONBLOCKGRID:-false}" --EnableV71UnifiedFamilyRoute="${V71UROUTE:-false}" --EnableV71UnifiedOpportunityScore="${V71USCORE:-false}" --EnableV71AuctionScheduler="${V71AUCTION:-false}" --V71AuctionMinMinutes="${V71AUCMIN:-1.0}" --V71AuctionMaxMinutes="${V71AUCMAX:-4.0}" --V71AuctionDominanceMargin="${V71AUCMARGIN:-0.10}"'
-if needle not in src: raise SystemExit("V52 runner injection anchor missing")
-src=src.replace(needle,inject)
-flush='then DONE=1; break; fi'
-if flush in src:
-    src=src.replace(flush,'then DONE=1; sleep "${REPORT_FLUSH_GRACE_SECONDS:-8}"; break; fi',1)
-pathlib.Path(sys.argv[2]).write_text(src)
+: "${CTRADER_PASSWORD:?}"; : "${CTRADER_CTID:?}"; : "${CTRADER_ACCOUNT:?}"
+: "${RUN_NAME:?}"; : "${START_DATE:?}"; : "${END_DATE:?}"; : "${EVAL_DATE:?}"
+BALANCE="${BALANCE:-10000}"
+ALGO="${ALGO:-seal/algo/HarmonyBot_V71_Protected_Champion_Core_Incremental_Alpha.algo}"
+IMAGE="${CTRADER_IMAGE:-ghcr.io/spotware/ctrader-console:5.9.11}"
+BACKTEST_TIMEOUT_SECONDS="${BACKTEST_TIMEOUT_SECONDS:-2700}"
+mkdir -p seal/{reports,logs,data}
+if [ ! -s seal/ctrader.pwd ]; then printf '%s' "$CTRADER_PASSWORD" > seal/ctrader.pwd; chmod 600 seal/ctrader.pwd; fi
+docker image inspect "$IMAGE" >/dev/null 2>&1 || docker pull "$IMAGE" >/dev/null
+if [ ! -s seal/accounts.json ]; then
+ docker run --rm -v "$PWD/seal:/work" "$IMAGE" accounts --ctid="$CTRADER_CTID" --pwd-file=/work/seal/ctrader.pwd > seal/accounts.json
+fi
+ACCT=$(python3 - <<'PY'
+import json,os
+a=json.load(open('seal/accounts.json',encoding='utf-8-sig')); e=os.environ['CTRADER_ACCOUNT'].strip()
+m=next((x for x in a if str(x.get('Number',''))==e or str(x.get('Id',''))==e),None)
+if not m or m.get('Broker','').lower()!='fxpro' or m.get('Live') is not False or m.get('DepositCurrency')!='USD' or int(m.get('Leverage',0))!=500:
+ raise SystemExit('FxPro demo USD 1:500 mismatch')
+print(m['Number'])
 PY
-chmod +x "$TMP"
-exec "$TMP"
+)
+CNAME="v71-$(echo "$RUN_NAME"|tr '[:upper:]_' '[:lower:]-')-${GITHUB_RUN_ID:-local}"
+docker run --name "$CNAME" -v "$PWD/seal:/work" "$IMAGE" backtest "/work/${ALGO#seal/}"  --ctid="$CTRADER_CTID" --pwd-file=/work/ctrader.pwd --account="$ACCT" --symbol=XAUUSD --period=m1  --start="$START_DATE" --end="$END_DATE" --balance="$BALANCE" --data-mode=m1 --data-dir=/work/data --commission=35 --spread=1  --SymbolName=XAUUSD --TradingEnabled=true --BasketRiskPercent=1.0 --AdaptiveCapitalMode=true --MinimumSupportedEquity=100  --MicroCapitalThreshold=500 --MaxDrawdownPercent=10 --DailyLossLimitPercent=3 --MaxSpreadPips=60 --RoundTurnCommissionPips=0.5  --SlippageStressPips=0.3 --MinimumNetRR=2.0 --MinStopLossPips=10 --MinFreeMarginRiskMultiple=5  --M15SwingDepth=3 --M15SwingLookback=320 --H1SwingDepth=3 --H4SwingDepth=2 --PortfolioMaxCandidates=12 --CandidateTtlM15Bars=12  --MinGeometryQuality=0.55 --MinPrzConfluence=0.55 --EnableHarmonicRobustnessGate=false --EnableRegimeContextGate=false  --EnableEnhancedM1Confirmation=false --EnableCapitalFeasibilityGate=false --EnableTransitionStateVeto=false  --EnableExhaustionEvidenceVeto=true --EnableRouteSpecificM1Veto=false  --EnableDeferredCandidateRetention=true --EnableFrequencyAgingPriority=true --CandidateAgeRankBoost=0.08  --EnableStructuredRecallExpansion=true --RecallMinGeometry=0.72 --RecallMinPrz=0.72 --RecallMinConfidence=0.68  --EnableCanonicalSetupIdentity=true --EnableCanonicalStandardCoordinates=true --EnableIndependentPivotGraph=true  --EnableTransitionProofGate=true --EnableM1RescueLane=false --M1RescueMaxBars=3 --EnableDiversityScheduler=true  --EnableScaleRouteAdmission=true --EnableM1TemporalRescue=false --EnableArmedExecutionGrace=false --ArmedGraceMinutes=90  --EnablePreExecutionGridRevalidation=false --EnablePersistentArmedQueue=false --EnableEventDrivenSerialHandoff=false  --EnablePatternNativeM1Expansion=false --PatternNativeM1MaxBars=4 --EnableOpportunityDecayRanking=false --ParkedHardLifetimeMinutes=180  --EnableFamilyNativeConversion=false --EnableFamilyNativeObservation=true --EnableCanonicalFamilyContracts=true  --EnableFamilyCompletionContract=true --FamilyConfirmationWindowBars=6 --EnableGridSpanSemanticV2=true  --EnableStructuralInvalidationV2=true --EnableFamilyNativeJointGeometry=true --EnableFamilyNativeExecutionCorridor=true  --EnableEntryAnchorForensics=true  --EnableV71ExpansionShadow="${EXPSHADOW:-false}" --EnableV71ExpansionExecution="${EXPEXEC:-false}"  --EnableV71ExpansionGrid="${EXPGRID:-false}" --EnableV71ExpansionAdaptiveRisk="${EXPADAPRISK:-false}"  --V71ExpansionRiskPercent="${EXPRISK:-1.0}" --V71ExpansionMaxCandidates=24 --V71ExpansionTtlM15Bars=16  --V71ExpansionShadowHorizonM1Bars=180 --V71EdgeModelSpec="${EDGE_MODEL_SPEC:-}"  --V71FamilyRoutePriorSpec="${EDGE_PRIOR_SPEC:-}" --V71EdgeLcbMargin="${EDGE_LCB_MARGIN:-0}" --V71ModelId="${EDGE_MODEL_ID:-NONE}"  --GridCancelMfeR=0.50 --NoMfeProofR=0.15 --NoMfeKillR=0.80 --NoMfeMinAgeMinutes=3  --BreakEvenTriggerR=1.0 --BreakEvenLockR=0.10 --TrailTriggerR=1.50 --TrailDistanceR=0.75  --EvaluationStartUtcIso="$EVAL_DATE" --report="/work/reports/$RUN_NAME.html" --report-json="/work/reports/$RUN_NAME.json" --exit-on-stop  > "seal/logs/$RUN_NAME.log" 2>&1 &
+PID=$!; DONE=0
+for ((i=0;i<BACKTEST_TIMEOUT_SECONDS;i+=5)); do
+ if test -s "seal/reports/$RUN_NAME.json" && python3 - <<PY
+import json
+m=json.load(open("seal/reports/$RUN_NAME.json",encoding="utf-8-sig")).get("main",{})
+raise SystemExit(0 if "endingEquity" in m and "netProfit" in m else 1)
+PY
+ then DONE=1; sleep "${REPORT_FLUSH_GRACE_SECONDS:-8}"; break; fi
+ if ! kill -0 "$PID" 2>/dev/null; then break; fi
+ sleep 5
+done
+docker stop --time 3 "$CNAME" >/dev/null 2>&1 || true
+docker rm -f "$CNAME" >/dev/null 2>&1 || true
+wait "$PID" 2>/dev/null || true
+test "$DONE" = 1 || { tail -400 "seal/logs/$RUN_NAME.log" || true; exit 20; }
