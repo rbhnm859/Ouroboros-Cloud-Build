@@ -10,7 +10,7 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: harmonybot-v71-selective-causal-alpha-reconstruction-grid-amplifier
+  group: harmonybot-v71-protected-champion-core-incremental-alpha
   cancel-in-progress: true
 
 permissions:
