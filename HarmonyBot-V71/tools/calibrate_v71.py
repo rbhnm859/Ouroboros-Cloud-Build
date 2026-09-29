@@ -39,8 +39,16 @@ def core_preserved(v):
  return True
 def exp_rows(v): return [r for w in W for r in R[(v,w)]["expansion_basket_outcomes"]]
 def exp_windows_positive(v): return sum(R[(v,w)]["expansion_metrics"]["net"]>0 for w in W)
+def material_breakthrough(z):
+ x={"net_25pct":z["net"]>=1.25*V51["net"],
+    "pf_10pct":z["pf"]>=1.10*V51["pf"],
+    "expectancy_10pct":z["expectancy"]>=1.10*V51["expectancy"],
+    "win_rate_plus_5pp":z["win_rate"]>=V51["win_rate"]+.05,
+    "dd_minus_15pct":z["max_dd_pct"]<=.85*V51["max_dd_pct"]}
+ return x,sum(bool(v) for v in x.values())>=2
 def floor(z):
- return z["positive_windows"]==3 and z["net"]>V51["net"] and z["pf"]>V51["pf"] and z["expectancy"]>V51["expectancy"] and z["win_rate"]>=V51["win_rate"] and z["frequency"]>=60 and z["max_dd_pct"]<=V51["max_dd_pct"] and z["engineering_clean"]
+ br,brpass=material_breakthrough(z)
+ return z["positive_windows"]==3 and z["net"]>V51["net"] and z["pf"]>V51["pf"] and z["expectancy"]>V51["expectancy"] and z["win_rate"]>=V51["win_rate"] and z["frequency"]>=60 and z["max_dd_pct"]<=V51["max_dd_pct"] and z["engineering_clean"] and brpass
 def expansion_good(v):
  e=exp_rows(v); return len(e)>0 and sum(r["net"] for r in e)>0 and pf(e)>=1.50 and exp_windows_positive(v)==3
 def delta(v,a):
@@ -51,6 +59,7 @@ if model_gate:
  for v in CAP:
   A[v]=aggregate({w:R[(v,w)] for w in W}); A[v]["core_preserved"]=core_preserved(v)
   e=exp_rows(v); A[v]["expansion_metrics"]={"baskets":len(e),"net":sum(r["net"] for r in e),"pf":pf(e),"positive_windows":exp_windows_positive(v)}
+  A[v]["material_breakthrough"],A[v]["material_breakthrough_pass"]=material_breakthrough(A[v])
  M={"B-A":delta(CAP[0],BASE),"C-B":delta(CAP[1],CAP[0]),"C-A":delta(CAP[1],BASE)}
  B=core_preserved(CAP[0]) and floor(A[CAP[0]]) and expansion_good(CAP[0]) and M["B-A"]["delta_net"]>0 and M["B-A"]["delta_pf"]>=0 and M["B-A"]["delta_expectancy"]>=0 and M["B-A"]["positive_delta_windows"]==3
  C=core_preserved(CAP[1]) and floor(A[CAP[1]]) and expansion_good(CAP[1]) and M["C-A"]["delta_net"]>0 and M["C-A"]["delta_pf"]>=0 and M["C-A"]["delta_expectancy"]>=0 and M["C-A"]["positive_delta_windows"]==3 and A[CAP[1]]["net"]>A[CAP[0]]["net"] and A[CAP[1]]["pf"]>=A[CAP[0]]["pf"] and A[CAP[1]]["expectancy"]>=A[CAP[0]]["expectancy"]
@@ -59,7 +68,7 @@ if model_gate:
 freeze={"version":"HarmonyBot V71","architecture":"IMMUTABLE_V51_CHAMPION_KERNEL_PLUS_FAIL_CLOSED_INCREMENTAL_EXPANSION",
  "trusted_v51_parent":"1b670a0f43ba8ecaa637febfdacf605b1b146f01","control_mode":"DIRECT_TRUSTED_V51_BINARY_REFERENCE","windows":W,
  "v51_reference_direct_kernel":True,"edge_model_crossfit_gate":model_gate,"edge_model_manifest":model,"v51_floor":V51,"variants":A,"marginal":M,
- "gates":{"B_protected_xfit_single":B,"C_protected_xfit_grid":C},"candidate":candidate,
+ "gates":{"B_protected_xfit_single":B,"C_protected_xfit_grid":C},"breakthrough_rule":"PARETO_NON_REGRESSION_PLUS_AT_LEAST_2_OF_NET25_PF10_EXP10_WR5PP_DD15","candidate":candidate,
  "candidate_selection_source":"BURNED_2021_2023_ONLY__3OF3_TEMPORAL_LCB_REQUIRED_BEFORE_CAPITAL",
  "risk_for_alpha_qualification_pct":1.0,"validation_used":False,"fresh_used":False,
  "decision":"CALIBRATION_CANDIDATE_FROZEN" if candidate else ("CROSSFIT_FAIL_CLOSED_HOLD" if not model_gate else "CALIBRATION_HOLD")}
