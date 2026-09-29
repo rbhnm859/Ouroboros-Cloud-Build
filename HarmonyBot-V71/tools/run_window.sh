@@ -13,6 +13,16 @@ case "$VAR" in
 esac
 
 C="$PWD/control"; W="$C/HarmonyBot-V71/window-$VAR-$WIN"; O="$C/HarmonyBot-V71/output-$VAR-$WIN"
+CUSTODY_MANIFEST="$C/HarmonyBot-V71/final/V71_BURNED_CALIBRATION_CUSTODY.json"
+if [[ -z "${V71_EXPECTED_DATA_SHA256:-}" && -s "$CUSTODY_MANIFEST" ]]; then
+ V71_EXPECTED_DATA_SHA256=$(python3 - "$CUSTODY_MANIFEST" "$WIN" <<'PY'
+import json,sys
+d=json.load(open(sys.argv[1]))
+print(d.get("windows",{}).get(sys.argv[2],{}).get("sha256",""))
+PY
+ )
+ export V71_EXPECTED_DATA_SHA256
+fi
 rm -rf "$O" "$W"; mkdir -p "$W/seal/algo" "$W/seal/data" "$O/raw-logs"
 DATA_SEED="${V71_DATA_SEED_DIR:-}"
 if [ -n "$DATA_SEED" ]; then
