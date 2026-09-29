@@ -17,7 +17,7 @@ checks={
  "core_risk_isolated":"V71CandidateRiskPercent" in s and "c.V71Expansion" in s,
  "crossfit_model_runtime":"V71EdgeModelSpec" in s and "V71ExpectedEdge" in s and "EdgeLcb" in s,
  "edge_no_future":all(x not in edge for x in ["ShadowOutcomeR","Mfe","Mae","future","OutcomeR"]),
- "expansion_only_positive_lcb":"e.EdgeLcb > Math.Max(0, V71ExpansionMinEdgeLcbR)" in execblk,
+ "expansion_only_positive_lcb":"e.EdgeLcb > 0" in execblk and "V71CapitalQualificationScore(e) > V71ExpansionMinEdgeLcbR" in execblk,
  "core_preemption":"V71PreemptExpansionForCore" in s and "V51_CORE_PREEMPT" in s and "CORE_PREEMPT" in s,
  "same_setup_expansion_blocked":"_activeSetupOwners.ContainsKey(setup)" in s,
  "fixed_edge_lcb_threshold":'[Parameter("V71 Expansion Min Edge LCB R", DefaultValue = 0.015' in s,
