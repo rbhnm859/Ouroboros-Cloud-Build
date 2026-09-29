@@ -25,16 +25,33 @@ def agg(v):
   "_rows":rows}
 A={v:agg(v) for v in V}
 replay={}
+replay_evidence={}
 for w in W:
  a=R[(V[0],w)]; r=REF[w]
- replay[w]=a["baskets"]==r["baskets"] and abs(a["net"]-r["net"])<=.02 and abs(a["pf"]-r["pf"])<=1e-9
+ report_exact=(a.get("canonical_report_sha256") and a.get("canonical_report_sha256")==r.get("canonical_report_sha256"))
+ pipeline_exact=(a.get("core_pipeline_sha256") and a.get("core_pipeline_sha256")==r.get("core_pipeline_sha256"))
+ replay[w]=bool(report_exact and pipeline_exact)
+ replay_evidence[w]={"canonical_report_exact":bool(report_exact),"core_pipeline_exact":bool(pipeline_exact),
+                     "a_report_sha256":a.get("canonical_report_sha256"),"reference_report_sha256":r.get("canonical_report_sha256"),
+                     "a_pipeline_sha256":a.get("core_pipeline_sha256"),"reference_pipeline_sha256":r.get("core_pipeline_sha256")}
 replay_gate=all(replay.values())
 
 def sig(rows):
  return {(r["setup"],r["pattern"],r["route"]) for r in rows}
+def core_fp(x):
+ z=x.get("core_execution_fingerprint")
+ if z and z.get("executed") is not None and z.get("fnv64"):
+  return (int(z["executed"]),str(z["fnv64"]).upper())
+ return None
 core_sig={w:sig(R[(V[0],w)]["core_basket_outcomes"]) for w in W}
 def core_preserved(v):
- return all(sig(R[(v,w)]["core_basket_outcomes"])==core_sig[w] for w in W)
+ for w in W:
+  a=core_fp(R[(V[0],w)]); z=core_fp(R[(v,w)])
+  if a is not None and z is not None:
+   if z != a: return False
+  elif sig(R[(v,w)]["core_basket_outcomes"]) != core_sig[w]:
+   return False
+ return True
 def exp_rows(v): return [r for w in W for r in R[(v,w)]["expansion_basket_outcomes"]]
 def exp_windows_positive(v): return sum(R[(v,w)]["expansion_metrics"]["net"]>0 for w in W)
 def floor(z):
@@ -57,7 +74,7 @@ for v in V:
  A[v].pop("_rows",None)
 freeze={"version":"HarmonyBot V71","architecture":"PROTECTED_V51_CORE_PLUS_CROSSFIT_INCREMENTAL_EXPANSION",
  "trusted_v51_parent":"1b670a0f43ba8ecaa637febfdacf605b1b146f01","windows":W,
- "v51_reference_replay":replay,"v51_reference_replay_gate":replay_gate,"edge_model_crossfit_gate":model_gate,
+ "v51_reference_replay":replay,"v51_reference_replay_evidence":replay_evidence,"v51_reference_replay_gate":replay_gate,"edge_model_crossfit_gate":model_gate,
  "edge_model_manifest":model,"v51_floor":V51,"variants":A,"marginal":M,
  "gates":{"B_protected_xfit_single":B,"C_protected_xfit_grid":C,"D_risk5_research_only":D},
  "candidate":candidate,"candidate_selection_source":"BURNED_2021_2023_CROSSFIT_ONLY",
