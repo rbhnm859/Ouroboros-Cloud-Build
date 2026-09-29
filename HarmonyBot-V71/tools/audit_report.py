@@ -70,7 +70,7 @@ clean_keys=["execution_errors","grid_risk_violations","duplicate_grid_legs","orp
 "unprotected_survivors","post_fill_protection_failures","actual_basket_risk_violations","execution_state_violations","margin_risk_violations"]
 clean=bool(m) and all(c[k]==0 for k in clean_keys)
 
-srx=re.compile(r"\\[V71-EXP-SHADOW\\]\\s+cid=(\\S+)\\s+setup=(\\S+)\\s+family=(\\S+)\\s+role=(\\S+)\\s+route=(\\S+)\\s+coreOverlap=(True|False)\\s+capitalEligible=(True|False)\\s+g=([-0-9.]+)\\s+prz=([-0-9.]+)\\s+conf=([-0-9.]+)\\s+ts=([-0-9.]+)\\s+pv=([-0-9.]+)\\s+m1=([-0-9.]+)\\s+rr=([-0-9.]+)\\s+reg=([-0-9.]+)\\s+eff=([-0-9.]+)\\s+atr=([-0-9.]+)\\s+ext=([-0-9.]+)\\s+mtf=([-0-9.]+)\\s+atp=([-0-9.]+)\\s+adx1=([-0-9.]+)\\s+adx4=([-0-9.]+)\\s+adxs=([-0-9.]+)\\s+trend=([-0-9.]+)\\s+spr=([-0-9.]+)\\s+ses=([-0-9.]+)\\s+przc=([-0-9.]+)\\s+trans=([-0-9.]+)\\s+survival=([-0-9.]+)\\s+structuralR=([-0-9.]+)\\s+nativeR=([-0-9.]+)\\s+nativeResult=(\\S+)\\s+pathState=(-?\\d+)\\s+pathUsable=(True|False)\\s+mfeR=([-0-9.]+)\\s+maeR=([-0-9.]+)\\s+t05=(-?\\d+)\\s+t1=(-?\\d+)\\s+t2=(-?\\d+)\\s+tstop=(-?\\d+)\\s+tmfe=(-?\\d+)\\s+givebackR=([-0-9.]+)\\s+result=(\\S+)\\s+bars=(\\d+)")
+srx=re.compile(r"\[V71-EXP-SHADOW\]\s+cid=(\S+)\s+setup=(\S+)\s+family=(\S+)\s+role=(\S+)\s+route=(\S+)\s+coreOverlap=(True|False)\s+capitalEligible=(True|False)\s+g=([-0-9.]+)\s+prz=([-0-9.]+)\s+conf=([-0-9.]+)\s+ts=([-0-9.]+)\s+pv=([-0-9.]+)\s+m1=([-0-9.]+)\s+rr=([-0-9.]+)\s+reg=([-0-9.]+)\s+eff=([-0-9.]+)\s+atr=([-0-9.]+)\s+ext=([-0-9.]+)\s+mtf=([-0-9.]+)\s+atp=([-0-9.]+)\s+adx1=([-0-9.]+)\s+adx4=([-0-9.]+)\s+adxs=([-0-9.]+)\s+trend=([-0-9.]+)\s+spr=([-0-9.]+)\s+ses=([-0-9.]+)\s+przc=([-0-9.]+)\s+trans=([-0-9.]+)\s+survival=([-0-9.]+)\s+structuralR=([-0-9.]+)\s+nativeR=([-0-9.]+)\s+nativeResult=(\S+)\s+pathState=(-?\d+)\s+pathUsable=(True|False)\s+mfeR=([-0-9.]+)\s+maeR=([-0-9.]+)\s+t05=(-?\d+)\s+t1=(-?\d+)\s+t2=(-?\d+)\s+tstop=(-?\d+)\s+tmfe=(-?\d+)\s+givebackR=([-0-9.]+)\s+result=(\S+)\s+bars=(\d+)")
 shadow=[]
 for q in srx.finditer(t):
  shadow.append({"cid":q.group(1),"setup":q.group(2),"family":q.group(3),"role":q.group(4),"route":q.group(5),
@@ -87,7 +87,7 @@ for q in srx.finditer(t):
  "result":q.group(43),"bars":int(q.group(44))})
 
 family_census={}
-for fam,tracked,armed,overlap,closed in re.findall(r"\\[V71-FAMILY-CENSUS\\]\\s+family=(\\S+)\\s+tracked=(\\d+)\\s+armed=(\\d+)\\s+coreOverlap=(\\d+)\\s+shadowClosed=(\\d+)",t):
+for fam,tracked,armed,overlap,closed in re.findall(r"\[V71-FAMILY-CENSUS\]\s+family=(\S+)\s+tracked=(\d+)\s+armed=(\d+)\s+coreOverlap=(\d+)\s+shadowClosed=(\d+)",t):
  family_census[fam]={"tracked":int(tracked),"armed":int(armed),"core_overlap":int(overlap),"shadow_closed":int(closed)}
 
 es=re.findall(r"\[V71-EXPANSION-SUMMARY\].*?detected=(\d+)\s+armed=(\d+)\s+executed=(\d+)\s+coreBlocked=(\d+)\s+modelRejected=(\d+)\s+gridFallback=(\d+)\s+shadowClosed=(\d+)\s+riskScaled=(\d+)\s+active=(\d+)\s+model=(\S+)",t)
