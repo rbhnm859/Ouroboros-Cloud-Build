@@ -3153,6 +3153,12 @@ namespace cAlgo.Robots
             return true;
         }
 
+        private double V71CapitalQualificationScore(V71ExpansionCandidate e)
+        {
+            if (e == null) return double.NegativeInfinity;
+            return V71W("slot_gate") > .5 ? e.SlotScore : e.EdgeLcb;
+        }
+
         private void V71TryExecuteExpansion(DateTime now)
         {
             if (!EnableV71ExpansionExecution || !_v71ModelReady) return;
@@ -3162,7 +3168,7 @@ namespace cAlgo.Robots
 
             var eligible = _v71Expansion.Values
                 .Where(e => e.IsActive && e.State == V71ExpansionState.ARMED && !e.Executed &&
-                            e.SupportEligible && e.EdgeLcb > Math.Max(0, V71ExpansionMinEdgeLcbR) && e.NetRR >= MinimumNetRR &&
+                            e.SupportEligible && V71CapitalQualificationScore(e) > V71ExpansionMinEdgeLcbR && e.NetRR >= MinimumNetRR &&
                             !_executedSetupKeys.Contains(e.SetupKey) &&
                             !_v71ExpansionExecutedSetupKeys.Contains(e.SetupKey))
                 .OrderByDescending(e => e.SlotScore)
@@ -3171,7 +3177,7 @@ namespace cAlgo.Robots
             if (eligible.Count == 0)
             {
                 if (_v71Expansion.Values.Any(e => e.IsActive && e.State == V71ExpansionState.ARMED &&
-                    (!e.SupportEligible || e.EdgeLcb <= Math.Max(0, V71ExpansionMinEdgeLcbR))))
+                    (!e.SupportEligible || V71CapitalQualificationScore(e) <= V71ExpansionMinEdgeLcbR)))
                     _v71ExpansionModelRejected++;
                 return;
             }
