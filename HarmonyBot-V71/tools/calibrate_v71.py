@@ -31,10 +31,12 @@ for w in W:
  a=R[(V[0],w)]; r=REF[w]
  report_exact=bool(a.get("canonical_report_sha256") and a.get("canonical_report_sha256")==r.get("canonical_report_sha256"))
  pipe_exact=bool(a.get("core_pipeline_sha256") and a.get("core_pipeline_sha256")==r.get("core_pipeline_sha256"))
- replay[w]=report_exact and pipe_exact
- replay_evidence[w]={"canonical_report_exact":report_exact,"core_pipeline_exact":pipe_exact,
+ data_exact=bool(a.get("data_snapshot_sha256") and a.get("data_snapshot_sha256")==r.get("data_snapshot_sha256"))
+ replay[w]=report_exact and pipe_exact and data_exact
+ replay_evidence[w]={"canonical_report_exact":report_exact,"core_pipeline_exact":pipe_exact,"data_snapshot_exact":data_exact,
   "a_report_sha256":a.get("canonical_report_sha256"),"reference_report_sha256":r.get("canonical_report_sha256"),
-  "a_pipeline_sha256":a.get("core_pipeline_sha256"),"reference_pipeline_sha256":r.get("core_pipeline_sha256")}
+  "a_pipeline_sha256":a.get("core_pipeline_sha256"),"reference_pipeline_sha256":r.get("core_pipeline_sha256"),
+  "a_data_snapshot_sha256":a.get("data_snapshot_sha256"),"reference_data_snapshot_sha256":r.get("data_snapshot_sha256")}
 replay_gate=all(replay.values())
 
 def sig(rows): return {(r["setup"],r["pattern"],r["route"]) for r in rows}
@@ -44,6 +46,7 @@ def fp(x):
 core_sig={w:sig(R[(V[0],w)]["core_basket_outcomes"]) for w in W}
 def core_preserved(v):
  for w in W:
+  if not R[(V[0],w)].get("data_snapshot_sha256") or R[(V[0],w)].get("data_snapshot_sha256")!=R[(v,w)].get("data_snapshot_sha256"): return False
   a,z=fp(R[(V[0],w)]),fp(R[(v,w)])
   if a is not None and z is not None:
    if a!=z:return False
