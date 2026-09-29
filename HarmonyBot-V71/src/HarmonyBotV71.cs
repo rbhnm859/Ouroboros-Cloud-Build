@@ -2715,7 +2715,7 @@ namespace cAlgo.Robots
             var conflict = ClassifyMtfConflict(s.Direction, h4, h1);
             var e = new V71ExpansionCandidate
             {
-                CandidateId = "V71EXP-" + Math.Abs(id.GetHashCode()).ToString("X8", CultureInfo.InvariantCulture) + "-" +
+                CandidateId = "V71EXP-" + V71StableHash32(id).ToString("X8", CultureInfo.InvariantCulture) + "-" +
                               s.CompletionTime.ToString("yyyyMMddHHmm", CultureInfo.InvariantCulture),
                 IdentityKey = id,
                 SetupKey = setup,
@@ -2733,6 +2733,36 @@ namespace cAlgo.Robots
             Print("[V71-EXP-DETECTED] cid={0} setup={1} family={2} subtype={3} route={4} conflict={5} g={6:F4} prz={7:F4} conf={8:F4}",
                 e.CandidateId, e.SetupKey, V71FamilyKey(s.PatternName), s.HarmonicSubtype ?? s.PatternName,
                 e.Route, e.Conflict, s.GeometryQuality, s.PrzConfluence, s.Confidence);
+        }
+
+        private uint V71StableHash32(string value)
+        {
+            unchecked
+            {
+                uint h = 2166136261u;
+                foreach (char ch in value ?? "")
+                {
+                    h ^= (byte)(ch & 0xFF);
+                    h *= 16777619u;
+                    if (ch > 0xFF)
+                    {
+                        h ^= (byte)((ch >> 8) & 0xFF);
+                        h *= 16777619u;
+                    }
+                }
+                return h;
+            }
+        }
+
+        private void V71RefreshExpansionDecisionContext(V71ExpansionCandidate e)
+        {
+            if (e == null || e.Signal == null) return;
+            var h4 = GetActiveHarmonicState(_h4Bars, H4SwingDepth, 220, 3);
+            var h1 = GetActiveHarmonicState(_h1Bars, H1SwingDepth, 260, 4);
+            var regime = BuildRegimeSnapshot();
+            e.Conflict = ClassifyMtfConflict(e.Signal.Direction, h4, h1);
+            e.Regime = regime;
+            e.Route = V71ExpansionRoute(e.Signal, e.Conflict, regime);
         }
 
         private bool V71ExpansionM1Confirmation(int i, V71ExpansionCandidate e, out double score)
@@ -2955,6 +2985,9 @@ namespace cAlgo.Robots
                     if (!e.PrzTouchUtc.HasValue || utc <= e.PrzTouchUtc.Value) continue;
                     // Expansion is incremental only. A live V51 core thesis owns the slot.
                     if (V71CoreHasActiveThesis()) continue;
+                    // Route/regime features must be frozen at the actual decision bar,
+                    // not inherited from a potentially hours-old detection snapshot.
+                    V71RefreshExpansionDecisionContext(e);
                     double score;
                     if (V71ExpansionM1Confirmation(i, e, out score))
                         V71ArmExpansion(i, utc, e, score);
@@ -3429,12 +3462,24 @@ namespace cAlgo.Robots
             // IMPORTANT: unlike the immutable Core detector, Expansion preserves
             // family identity before census balancing. A Rat and an AB=CD on the
             // same pivots are competing hypotheses, not the same research row.
-            return result
+            var familyNative = result
                 .GroupBy(x => V71FamilyKey(x.PatternName) + "|" + BuildSetupGeometryKey(x) + "|" + x.PivotScale)
                 .Select(g => g.OrderByDescending(x => x.Confidence).ThenByDescending(x => x.GeometryQuality).First())
                 .OrderByDescending(x => x.Confidence)
                 .ThenByDescending(x => x.GeometryQuality)
-                .Take(Math.Max(1, maxCandidates))
+                .ToList();
+
+            if (!EnableV71FamilyBalancedCensus)
+                return familyNative.Take(Math.Max(1, maxCandidates)).ToList();
+
+            // Never apply a global confidence cap before family balancing: that would
+            // recreate the AB=CD starvation bug even though family identity is preserved.
+            int perFamilyPool = Math.Max(8, Math.Min(32, Math.Max(1, maxCandidates)));
+            return familyNative
+                .GroupBy(x => V71FamilyKey(x.PatternName))
+                .SelectMany(g => g.Take(perFamilyPool))
+                .OrderByDescending(x => x.Confidence)
+                .ThenByDescending(x => x.GeometryQuality)
                 .ToList();
         }
 
