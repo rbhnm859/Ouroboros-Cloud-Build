@@ -8,7 +8,12 @@ on:
       - 'HarmonyBot-V71/**'
       - '.github/workflows/harmonybot-v71-selective-causal-alpha-reconstruction-grid-amplifier.yml'
   workflow_dispatch:
-
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'HarmonyBot-V71/**'
+      - '.github/workflows/harmonybot-v71-selective-causal-alpha-reconstruction-grid-amplifier.yml'
 
 concurrency:
   group: harmonybot-v71-protected-champion-core-incremental-alpha
