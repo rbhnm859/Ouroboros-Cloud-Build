@@ -3667,7 +3667,7 @@ namespace cAlgo.Robots
                         foreach (var profile in _profiles)
                         {
                             PatternSignal sig;
-                            if (!TryMatchProfile(profile, x, a, b, cc, d, atr, bars.OpenTimes[d.Index], timeframe, scale, out sig)) continue;
+                            if (!TryMatchProfile(profile, x, a, b, cc, d, atr, bars.OpenTimes[d.Index], timeframe, scale, out sig, false)) continue;
                             if (endIndex - d.Index > Math.Max(2, profile.MaxAgeM15Bars)) continue;
                             result.Add(sig);
                         }
@@ -3675,8 +3675,10 @@ namespace cAlgo.Robots
                 }
             }
 
-            // Full standard-family lattice: expand topology recall without relaxing one
-            // Fibonacci identity bound. This lane is research-only until cross-fit proves Alpha.
+            // Full standard-family lattice: expand topology recall while preserving the
+            // primary Carney family ratios. AB=CD remains completion/confluence
+            // evidence in Expansion and cannot make a primary family unreachable.
+            // This lane remains research-only until cross-fit proves Alpha.
             if (EnableV71FullFamilyPivotLattice && string.Equals(timeframe, "M15", StringComparison.OrdinalIgnoreCase))
             {
                 var std = _profiles.Where(x => x.Mode == PatternMode.STANDARD).ToList();
@@ -3716,11 +3718,10 @@ namespace cAlgo.Robots
                                             if (!InRange(xab, profile.XabMin, profile.XabMax) ||
                                                 !InRange(abc, profile.AbcMin, profile.AbcMax) ||
                                                 !InRange(bcd, profile.BcdMin, profile.BcdMax) ||
-                                                !InRange(xad, profile.XadMin, profile.XadMax) ||
-                                                (EnableCanonicalFamilyContracts && !StandardFamilyAbcdCompatible(profile.Name, abcd)))
+                                                !InRange(xad, profile.XadMin, profile.XadMax))
                                                 continue;
                                             PatternSignal sig;
-                                            if (!TryMatchProfile(profile, x, a, b, cc, d, atr, bars.OpenTimes[d.Index], timeframe, scale, out sig)) continue;
+                                            if (!TryMatchProfile(profile, x, a, b, cc, d, atr, bars.OpenTimes[d.Index], timeframe, scale, out sig, false)) continue;
                                             if (endIndex - d.Index > Math.Max(2, profile.MaxAgeM15Bars)) continue;
                                             result.Add(sig);
                                         }
@@ -3766,7 +3767,7 @@ namespace cAlgo.Robots
         }
 
         private bool TryMatchProfile(PatternProfile p, PivotPoint x, PivotPoint a, PivotPoint b, PivotPoint c, PivotPoint d,
-            double atr, DateTime completion, string timeframe, int pivotScale, out PatternSignal signal)
+            double atr, DateTime completion, string timeframe, int pivotScale, out PatternSignal signal, bool requireHardStandardAbcd = true)
         {
             signal = null;
             bool bullish = a.Price > x.Price && b.Price < a.Price && c.Price > b.Price && d.Price < c.Price;
@@ -3805,7 +3806,7 @@ namespace cAlgo.Robots
                 ratioOk = InRange(xab, p.XabMin, p.XabMax) && InRange(abc, p.AbcMin, p.AbcMax) &&
                           InRange(bcd, p.BcdMin, p.BcdMax) && InRange(xad, p.XadMin, p.XadMax);
 
-            if (ratioOk && EnableCanonicalFamilyContracts && p.Mode == PatternMode.STANDARD)
+            if (ratioOk && requireHardStandardAbcd && EnableCanonicalFamilyContracts && p.Mode == PatternMode.STANDARD)
                 ratioOk = StandardFamilyAbcdCompatible(p.Name, abcd);
 
             if (!ratioOk) return false;
@@ -3815,7 +3816,7 @@ namespace cAlgo.Robots
                    RatioScore(bcd, Mid(p.BcdMin, p.BcdMax)) + RatioScore(xad, Mid(p.XadMin, p.XadMax))) / 4.0
                 : VClamp((RatioScore(abc, Mid(p.AbcMin, p.AbcMax)) + RatioScore(bcd, Mid(p.BcdMin, p.BcdMax))) / 2.0);
             double geometry = EnableFamilyNativeJointGeometry
-                ? FamilyNativeJointGeometryScore(p, xab, abc, bcd, xad, abcd, xac)
+                ? FamilyNativeJointGeometryScore(p, xab, abc, bcd, xad, abcd, xac, requireHardStandardAbcd)
                 : legacyGeometry;
 
             int t1 = Math.Max(1, a.Index - x.Index);
@@ -3825,7 +3826,7 @@ namespace cAlgo.Robots
             double timeSym = (Symmetry(t1, t2) + Symmetry(t2, t3) + Symmetry(t3, t4)) / 3.0;
             double pivotQuality = VClamp(Math.Min(Math.Min(xa, ab), Math.Min(bc, cd)) / (atr * 2.0));
 
-            double expectedD = bullish ? d.Price : d.Price;
+            double expectedD = d.Price;
             double przHalf = atr * p.PrzWidthAtr;
             // V48 family-native PRZ width: do not change pattern identity ratios; only execution geometry.
             if (EnableFamilyNativeConversion)
@@ -3840,7 +3841,36 @@ namespace cAlgo.Robots
             double przLow = expectedD - przHalf;
             double przHigh = expectedD + przHalf;
             double przConfluence = VClamp(1.0 - Math.Abs(xad - Mid(p.XadMin, p.XadMax)) / Math.Max(.15, p.XadMax - p.XadMin + .05));
-            if (p.Mode != PatternMode.STANDARD) przConfluence = VClamp((geometry + timeSym) / 2.0);
+
+            if (!requireHardStandardAbcd && p.Mode == PatternMode.STANDARD)
+            {
+                // Pure projected PRZ for Expansion: derive both primary completion
+                // bands from X/A/B/C before D. The completed D pivot may validate
+                // the projection, but can never define its own expected zone.
+                double xaD1 = bullish ? a.Price - p.XadMin * xa : a.Price + p.XadMin * xa;
+                double xaD2 = bullish ? a.Price - p.XadMax * xa : a.Price + p.XadMax * xa;
+                double bcD1 = bullish ? c.Price - p.BcdMin * bc : c.Price + p.BcdMin * bc;
+                double bcD2 = bullish ? c.Price - p.BcdMax * bc : c.Price + p.BcdMax * bc;
+                double xaLo = Math.Min(xaD1, xaD2), xaHi = Math.Max(xaD1, xaD2);
+                double bcLo = Math.Min(bcD1, bcD2), bcHi = Math.Max(bcD1, bcD2);
+                double coreLo = Math.Max(xaLo, bcLo), coreHi = Math.Min(xaHi, bcHi);
+                if (coreLo > coreHi) return false;
+
+                przLow = coreLo - przHalf;
+                przHigh = coreHi + przHalf;
+                if (d.Price < przLow || d.Price > przHigh) return false;
+
+                double projectedWidth = Math.Max(0.0, coreHi - coreLo);
+                double compression = 1.0 - Math.Min(1.0, projectedWidth / Math.Max(atr * 2.0, 1e-9));
+                double center = (coreLo + coreHi) * .5;
+                double location = 1.0 - Math.Min(1.0, Math.Abs(d.Price - center) /
+                    Math.Max(przHalf + projectedWidth * .5, 1e-9));
+                przConfluence = VClamp(.60 * compression + .40 * location);
+            }
+            else if (p.Mode != PatternMode.STANDARD)
+            {
+                przConfluence = VClamp((geometry + timeSym) / 2.0);
+            }
 
             double invalid = PatternStructuralInvalidation(p, x, a, b, c, d, bullish);
             double nativeBase = cd;
@@ -3895,7 +3925,7 @@ namespace cAlgo.Robots
             return centers.Min(x => Math.Abs(value - x) / Math.Max(.08, x * .08));
         }
 
-        private double FamilyNativeJointGeometryScore(PatternProfile p, double xab, double abc, double bcd, double xad, double abcd, double xac)
+        private double FamilyNativeJointGeometryScore(PatternProfile p, double xab, double abc, double bcd, double xad, double abcd, double xac, bool includeAbcdIdentity = true)
         {
             var z = new List<double>();
             if (p.Mode == PatternMode.STANDARD)
@@ -3904,7 +3934,7 @@ namespace cAlgo.Robots
                 z.Add(RangeCoordinate(abc, p.AbcMin, p.AbcMax));
                 z.Add(RangeCoordinate(bcd, p.BcdMin, p.BcdMax));
                 z.Add(RangeCoordinate(xad, p.XadMin, p.XadMax));
-                z.Add(CanonicalAbcdCoordinate(p.Name, abcd));
+                if (includeAbcdIdentity) z.Add(CanonicalAbcdCoordinate(p.Name, abcd));
             }
             else if (p.Mode == PatternMode.ABCD)
             {
