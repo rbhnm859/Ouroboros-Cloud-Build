@@ -3,6 +3,16 @@ set -euo pipefail
 : "${1:?window}"; : "${2:?start}"; : "${3:?eval}"; : "${4:?end}"; : "${5:?years}"
 WIN="$1"; START="$2"; EVAL="$3"; END="$4"; YEARS="$5"
 C="$PWD/control"; W="$C/HarmonyBot-V71/reference-window-$WIN"; O="$C/HarmonyBot-V71/reference-output-$WIN"
+CUSTODY_MANIFEST="$C/HarmonyBot-V71/final/V71_BURNED_CALIBRATION_CUSTODY.json"
+if [[ -z "${V71_EXPECTED_DATA_SHA256:-}" && -s "$CUSTODY_MANIFEST" ]]; then
+ V71_EXPECTED_DATA_SHA256=$(python3 - "$CUSTODY_MANIFEST" "$WIN" <<'PY'
+import json,sys
+d=json.load(open(sys.argv[1]))
+print(d.get("windows",{}).get(sys.argv[2],{}).get("sha256",""))
+PY
+ )
+ export V71_EXPECTED_DATA_SHA256
+fi
 rm -rf "$O" "$W"; mkdir -p "$W/seal/algo" "$W/seal/data" "$O/raw-logs"
 cp "$C/HarmonyBot-V71/reference/HarmonyBot_V51_Family_Native_Math_Geometry_Economic_Conversion_RC.algo" "$W/seal/algo/"
 
