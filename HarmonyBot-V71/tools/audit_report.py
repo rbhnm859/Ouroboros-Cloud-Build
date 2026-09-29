@@ -90,6 +90,20 @@ family_census={}
 for fam,tracked,armed,overlap,closed in re.findall(r"\[V71\-FAMILY\-CENSUS\]\s+family=(\S+)\s+tracked=(\d+)\s+armed=(\d+)\s+coreOverlap=(\d+)\s+shadowClosed=(\d+)",t):
  family_census[fam]={"tracked":int(tracked),"armed":int(armed),"core_overlap":int(overlap),"shadow_closed":int(closed)}
 
+oracle_census={}
+for fam,expected,matched,missed,recall in re.findall(r"\[V71\-ORACLE\-CENSUS\]\s+family=(\S+)\s+expected=(\d+)\s+matched=(\d+)\s+missed=(\d+)\s+recall=([-0-9.]+)",t):
+ oracle_census[fam]={"expected":int(expected),"matched":int(matched),"missed":int(missed),"recall":float(recall)}
+
+reject_attribution={}
+for fam,reason,count in re.findall(r"\[V71\-EXP\-REJECT\-SUMMARY\]\s+family=(\S+)\s+reason=(\S+)\s+count=(\d+)",t):
+ reject_attribution.setdefault(fam,{})[reason]=int(count)
+
+oracle_summary={"expected":0,"matched":0,"missed":0,"perfect_recall":False}
+om=re.findall(r"\[V71\-ORACLE\-SUMMARY\]\s+expected=(\d+)\s+matched=(\d+)\s+missed=(\d+)\s+perfectRecall=(True|False)",t)
+if om:
+ z=om[-1]
+ oracle_summary={"expected":int(z[0]),"matched":int(z[1]),"missed":int(z[2]),"perfect_recall":z[3]=="True"}
+
 es=re.findall(r"\[V71-EXPANSION-SUMMARY\].*?detected=(\d+)\s+armed=(\d+)\s+executed=(\d+)\s+coreBlocked=(\d+)\s+modelRejected=(\d+)\s+gridFallback=(\d+)\s+shadowClosed=(\d+)\s+riskScaled=(\d+)\s+active=(\d+)\s+model=(\S+)",t)
 exp_summary={"detected":0,"armed":0,"executed":0,"core_blocked":0,"model_rejected":0,"grid_fallback":0,"shadow_closed":0,"risk_scaled":0,"active":0,"model":"NONE"}
 if es:
@@ -107,6 +121,8 @@ out={"variant":a.variant,"window":a.window,"years":a.years,"starting_balance":a.
  "core_execution_fingerprint":core_execution_fingerprint,
  "data_snapshot_sha256":data_snapshot_sha256,
  "core_basket_outcomes":core,"expansion_basket_outcomes":exp,
- "core_metrics":corem,"expansion_metrics":expm,"shadow_outcomes":shadow,"family_census":family_census,"expansion_summary":exp_summary,**c}
+ "core_metrics":corem,"expansion_metrics":expm,"shadow_outcomes":shadow,"family_census":family_census,
+ "oracle_census":oracle_census,"oracle_summary":oracle_summary,"reject_attribution":reject_attribution,
+ "expansion_summary":exp_summary,**c}
 pathlib.Path(a.out).write_text(json.dumps(out,indent=2))
 print(json.dumps({k:out[k] for k in ["variant","window","baskets","net","pf","expectancy","win_rate","frequency","max_dd_pct","engineering_clean"]},indent=2))
