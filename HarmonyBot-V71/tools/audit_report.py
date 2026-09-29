@@ -70,16 +70,25 @@ clean_keys=["execution_errors","grid_risk_violations","duplicate_grid_legs","orp
 "unprotected_survivors","post_fill_protection_failures","actual_basket_risk_violations","execution_state_violations","margin_risk_violations"]
 clean=bool(m) and all(c[k]==0 for k in clean_keys)
 
-srx=re.compile(r"\[V71-EXP-SHADOW\]\s+cid=(\S+)\s+setup=(\S+)\s+family=(\S+)\s+route=(\S+)\s+g=([-0-9.]+)\s+prz=([-0-9.]+)\s+conf=([-0-9.]+)\s+ts=([-0-9.]+)\s+pv=([-0-9.]+)\s+m1=([-0-9.]+)\s+rr=([-0-9.]+)\s+reg=([-0-9.]+)\s+eff=([-0-9.]+)\s+atr=([-0-9.]+)\s+ext=([-0-9.]+)\s+mtf=([-0-9.]+)\s+atp=([-0-9.]+)\s+adx1=([-0-9.]+)\s+adx4=([-0-9.]+)\s+adxs=([-0-9.]+)\s+trend=([-0-9.]+)\s+spr=([-0-9.]+)\s+ses=([-0-9.]+)\s+przc=([-0-9.]+)\s+trans=([-0-9.]+)\s+outcomeR=([-0-9.]+)\s+result=(\S+)\s+bars=(\d+)")
+srx=re.compile(r"\\[V71-EXP-SHADOW\\]\\s+cid=(\\S+)\\s+setup=(\\S+)\\s+family=(\\S+)\\s+role=(\\S+)\\s+route=(\\S+)\\s+coreOverlap=(True|False)\\s+capitalEligible=(True|False)\\s+g=([-0-9.]+)\\s+prz=([-0-9.]+)\\s+conf=([-0-9.]+)\\s+ts=([-0-9.]+)\\s+pv=([-0-9.]+)\\s+m1=([-0-9.]+)\\s+rr=([-0-9.]+)\\s+reg=([-0-9.]+)\\s+eff=([-0-9.]+)\\s+atr=([-0-9.]+)\\s+ext=([-0-9.]+)\\s+mtf=([-0-9.]+)\\s+atp=([-0-9.]+)\\s+adx1=([-0-9.]+)\\s+adx4=([-0-9.]+)\\s+adxs=([-0-9.]+)\\s+trend=([-0-9.]+)\\s+spr=([-0-9.]+)\\s+ses=([-0-9.]+)\\s+przc=([-0-9.]+)\\s+trans=([-0-9.]+)\\s+survival=([-0-9.]+)\\s+structuralR=([-0-9.]+)\\s+nativeR=([-0-9.]+)\\s+nativeResult=(\\S+)\\s+pathState=(-?\\d+)\\s+pathUsable=(True|False)\\s+mfeR=([-0-9.]+)\\s+maeR=([-0-9.]+)\\s+t05=(-?\\d+)\\s+t1=(-?\\d+)\\s+t2=(-?\\d+)\\s+tstop=(-?\\d+)\\s+tmfe=(-?\\d+)\\s+givebackR=([-0-9.]+)\\s+result=(\\S+)\\s+bars=(\\d+)")
 shadow=[]
 for q in srx.finditer(t):
- shadow.append({"cid":q.group(1),"setup":q.group(2),"family":q.group(3),"route":q.group(4),
- "g":float(q.group(5)),"prz":float(q.group(6)),"conf":float(q.group(7)),"ts":float(q.group(8)),"pv":float(q.group(9)),
- "m1":float(q.group(10)),"rr":float(q.group(11)),"reg":float(q.group(12)),"eff":float(q.group(13)),"atr":float(q.group(14)),
- "ext":float(q.group(15)),"mtf":float(q.group(16)),"atp":float(q.group(17)),"adx1":float(q.group(18)),
- "adx4":float(q.group(19)),"adxs":float(q.group(20)),"trend":float(q.group(21)),"spr":float(q.group(22)),
- "ses":float(q.group(23)),"przc":float(q.group(24)),"trans":float(q.group(25)),
- "outcome_r":float(q.group(26)),"result":q.group(27),"bars":int(q.group(28))})
+ shadow.append({"cid":q.group(1),"setup":q.group(2),"family":q.group(3),"role":q.group(4),"route":q.group(5),
+ "core_overlap":q.group(6)=="True","capital_eligible":q.group(7)=="True",
+ "g":float(q.group(8)),"prz":float(q.group(9)),"conf":float(q.group(10)),"ts":float(q.group(11)),"pv":float(q.group(12)),
+ "m1":float(q.group(13)),"rr":float(q.group(14)),"reg":float(q.group(15)),"eff":float(q.group(16)),"atr":float(q.group(17)),
+ "ext":float(q.group(18)),"mtf":float(q.group(19)),"atp":float(q.group(20)),"adx1":float(q.group(21)),
+ "adx4":float(q.group(22)),"adxs":float(q.group(23)),"trend":float(q.group(24)),"spr":float(q.group(25)),
+ "ses":float(q.group(26)),"przc":float(q.group(27)),"trans":float(q.group(28)),"runtime_survival":float(q.group(29)),
+ "outcome_r":float(q.group(30)),"structural_r":float(q.group(30)),"native_outcome_r":float(q.group(31)),"native_result":q.group(32),
+ "path_state":int(q.group(33)),"path_usable":q.group(34)=="True","path_success":1 if int(q.group(33))==1 else 0 if int(q.group(33))==-1 else None,
+ "mfe":float(q.group(35)),"mae":float(q.group(36)),"time_to_05":int(q.group(37)),"time_to_1":int(q.group(38)),
+ "time_to_2":int(q.group(39)),"time_to_stop":int(q.group(40)),"time_to_mfe":int(q.group(41)),"giveback_r":float(q.group(42)),
+ "result":q.group(43),"bars":int(q.group(44))})
+
+family_census={}
+for fam,tracked,armed,overlap,closed in re.findall(r"\\[V71-FAMILY-CENSUS\\]\\s+family=(\\S+)\\s+tracked=(\\d+)\\s+armed=(\\d+)\\s+coreOverlap=(\\d+)\\s+shadowClosed=(\\d+)",t):
+ family_census[fam]={"tracked":int(tracked),"armed":int(armed),"core_overlap":int(overlap),"shadow_closed":int(closed)}
 
 es=re.findall(r"\[V71-EXPANSION-SUMMARY\].*?detected=(\d+)\s+armed=(\d+)\s+executed=(\d+)\s+coreBlocked=(\d+)\s+modelRejected=(\d+)\s+gridFallback=(\d+)\s+shadowClosed=(\d+)\s+riskScaled=(\d+)\s+active=(\d+)\s+model=(\S+)",t)
 exp_summary={"detected":0,"armed":0,"executed":0,"core_blocked":0,"model_rejected":0,"grid_fallback":0,"shadow_closed":0,"risk_scaled":0,"active":0,"model":"NONE"}
@@ -98,6 +107,6 @@ out={"variant":a.variant,"window":a.window,"years":a.years,"starting_balance":a.
  "core_execution_fingerprint":core_execution_fingerprint,
  "data_snapshot_sha256":data_snapshot_sha256,
  "core_basket_outcomes":core,"expansion_basket_outcomes":exp,
- "core_metrics":corem,"expansion_metrics":expm,"shadow_outcomes":shadow,"expansion_summary":exp_summary,**c}
+ "core_metrics":corem,"expansion_metrics":expm,"shadow_outcomes":shadow,"family_census":family_census,"expansion_summary":exp_summary,**c}
 pathlib.Path(a.out).write_text(json.dumps(out,indent=2))
 print(json.dumps({k:out[k] for k in ["variant","window","baskets","net","pf","expectancy","win_rate","frequency","max_dd_pct","engineering_clean"]},indent=2))
