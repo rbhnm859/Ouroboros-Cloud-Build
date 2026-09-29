@@ -87,7 +87,7 @@ for q in srx.finditer(t):
  "result":q.group(43),"bars":int(q.group(44))})
 
 family_census={}
-for fam,tracked,armed,overlap,closed in re.findall(r"\[V71-FAMILY-CENSUS\]\s+family=(\S+)\s+tracked=(\d+)\s+armed=(\d+)\s+coreOverlap=(\d+)\s+shadowClosed=(\d+)",t):
+for fam,tracked,armed,overlap,closed in re.findall(r"\[V71\-FAMILY\-CENSUS\]\s+family=(\S+)\s+tracked=(\d+)\s+armed=(\d+)\s+coreOverlap=(\d+)\s+shadowClosed=(\d+)",t):
  family_census[fam]={"tracked":int(tracked),"armed":int(armed),"core_overlap":int(overlap),"shadow_closed":int(closed)}
 
 es=re.findall(r"\[V71-EXPANSION-SUMMARY\].*?detected=(\d+)\s+armed=(\d+)\s+executed=(\d+)\s+coreBlocked=(\d+)\s+modelRejected=(\d+)\s+gridFallback=(\d+)\s+shadowClosed=(\d+)\s+riskScaled=(\d+)\s+active=(\d+)\s+model=(\S+)",t)
