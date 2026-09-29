@@ -24,6 +24,8 @@ checks={
  "family_balance_before_global_cap":"perFamilyPool" in s and '.GroupBy(x => V71FamilyKey(x.PatternName))' in s and "Never apply a global confidence cap before family balancing" in s,
  "decision_time_regime_refresh":"V71RefreshExpansionDecisionContext(e);" in s and "e.Route = V71ExpansionRoute(e.Signal, e.Conflict, regime);" in s,
  "deterministic_expansion_identity":"V71StableHash32(id)" in s and "private uint V71StableHash32" in s and "GetHashCode()" not in s,
+ "runtime_lane_whitelist":"V71AllowedFamilyRouteSpec" in s and "V71FamilyRouteAllowed(e)" in execblk and "_v71AllowedFamilyRoutes.Count == 0" in s,
+ "sparse_confirmed_pivot_manifold":"V71SparseLegInsideEnvelope" in s and "int[] hops = { 1, 3 };" in s and "TryMatchProfile(profile" in s,
  "fixed_edge_lcb_threshold":'[Parameter("V71 Expansion Min Edge LCB R", DefaultValue = 0.015' in s,
  "completed_m1":"private int LastClosedIndex(Bars b) { return b == null ? -1 : b.Count - 2; }" in s,
  "minimum_rr":'[Parameter("Minimum Net RR", DefaultValue = 2.0' in s,
