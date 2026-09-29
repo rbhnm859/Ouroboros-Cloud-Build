@@ -14,6 +14,20 @@ esac
 
 C="$PWD/control"; W="$C/HarmonyBot-V71/window-$VAR-$WIN"; O="$C/HarmonyBot-V71/output-$VAR-$WIN"
 rm -rf "$O" "$W"; mkdir -p "$W/seal/algo" "$W/seal/data" "$O/raw-logs"
+DATA_SEED="${V71_DATA_SEED_DIR:-}"
+if [ -n "$DATA_SEED" ]; then
+ test -d "$DATA_SEED" || { echo "[V71-DATA-SEED-FAIL] variant=$VAR window=$WIN reason=MISSING_SEED path=$DATA_SEED"; exit 42; }
+ cp -a "$DATA_SEED"/. "$W/seal/data/"
+ DATA_FILES=$(find "$W/seal/data" -type f | wc -l | tr -d " ")
+ test "$DATA_FILES" -gt 0 || { echo "[V71-DATA-SEED-FAIL] variant=$VAR window=$WIN reason=EMPTY_SEED"; exit 43; }
+ DATA_HASH=$(cd "$W/seal/data" && find . -type f -print0 | LC_ALL=C sort -z | xargs -0 sha256sum | sha256sum | cut -d' ' -f1)
+ printf "%s\n" "$DATA_HASH" > "$O/DATA_SNAPSHOT_SHA256.txt"
+ printf "%s\n" "$DATA_FILES" > "$O/DATA_SNAPSHOT_FILE_COUNT.txt"
+ echo "[V71-DATA-SEED] variant=$VAR window=$WIN files=$DATA_FILES sha256=$DATA_HASH"
+else
+ echo "[V71-DATA-SEED-FAIL] variant=$VAR window=$WIN reason=UNSEEDED_GOVERNED_RUN"
+ exit 44
+fi
 cp "$C/HarmonyBot-V71/dist/HarmonyBot_V71_Protected_Champion_Core_Incremental_Alpha.algo" "$W/seal/algo/"
 N="V71-$VAR-$WIN-B10000"
 
@@ -38,4 +52,4 @@ fi
 )
 test -s "$W/seal/logs/$N.log"; test -s "$W/seal/reports/$N.json"
 cp "$W/seal/logs/$N.log" "$O/raw-logs/$N.log"; cp "$W/seal/reports/$N.json" "$O/raw-report.json"
-python3 "$C/HarmonyBot-V71/tools/audit_report.py" --report "$W/seal/reports/$N.json" --log "$W/seal/logs/$N.log"  --out "$O/$VAR-$WIN.json" --window "$WIN" --variant "$VAR" --years "$YEARS" --balance 10000
+python3 "$C/HarmonyBot-V71/tools/audit_report.py" --report "$W/seal/reports/$N.json" --log "$W/seal/logs/$N.log"  --out "$O/$VAR-$WIN.json" --window "$WIN" --variant "$VAR" --years "$YEARS" --balance 10000 --data-snapshot "$O/DATA_SNAPSHOT_SHA256.txt"
