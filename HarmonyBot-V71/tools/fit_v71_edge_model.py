@@ -5,7 +5,7 @@ W=["Y2021","Y2022","Y2023"]
 F=["g","prz","conf","ts","pv","m1","rr","reg","eff","atr","ext","mtf"]
 SF=["g","prz","m1","rr","reg","eff","atr","ext"]
 TH=[0,.025,.05,.075,.10,.125,.15,.20,.25,.30]
-Z=1.645; MIN_N=60; MIN_PF=1.10; PAIR_MIN_PER_TRAIN_WINDOW=8; CAPITAL_EXCLUDED_FAMILIES={"ABCD"}
+Z=1.645; MIN_N=60; MIN_PF=1.10; PAIR_MIN_PER_TRAIN_WINDOW=8; CAPITAL_EXCLUDED_FAMILIES={"ABCD"}; PRIMARY_EXPANSION_FAMILY="Rat"
 rows=[]
 for w in W:
  xs=list(root.rglob(f"SHADOW_PREPASS-{w}.json"))
@@ -76,9 +76,9 @@ def support(data):
  d=[math.sqrt(sum(((float(r[k])-c[k])/s[k])**2 for k in SF)/len(SF)) for r in data]
  return c,s,max(.75,pct(d,.975))
 
-def stable_pairs(data):
+def stable_pairs(data,family=None):
  years=sorted(set(r["window"] for r in data)); out=set()
- pairs=sorted(set((r["family"],r["route"]) for r in data))
+ pairs=sorted(set((r["family"],r["route"]) for r in data if family is None or r["family"]==family))
  for pair in pairs:
   ok=True
   for w in years:
@@ -88,10 +88,24 @@ def stable_pairs(data):
   if ok: out.add(pair)
  return out
 
+def pair_floor(data,pair):
+ years=sorted(set(r["window"] for r in data)); vals=[]
+ for w in years:
+  v=[float(r["outcome_r"]) for r in data if (r["family"],r["route"])==pair and r["window"]==w]
+  if not v:return -999.
+  vals.append(mean(v))
+ return min(vals)
+
 def fit(data,arch):
- i,b,keep=ridge(data); pr=priors(data); c,s,mx=support(data)
+ c,s,mx=support(data)
  slot=[dict(r,slot_log=math.log(max(.5,min(12.,float(r.get("bars",60))/60.)))) for r in data]
  shi,shb,_=ridge(slot,"slot_log",12.,False)
+ if arch=="H0":
+  pairs=stable_pairs(data,PRIMARY_EXPANSION_FAMILY)
+  floors={p:pair_floor(data,p) for p in pairs}
+  return {"arch":arch,"i":0.,"b":[0.]*len(F),"keep":[False]*len(F),"pri":floors,"c":c,"s":s,"support_max":999.,
+          "shi":shi,"shb":shb,"margin":0.,"stable_pairs":pairs}
+ i,b,keep=ridge(data); pr=priors(data)
  pred=[i+sum(b[j]*float(r[k]) for j,k in enumerate(F))+pr.get((r["family"],r["route"]),0.) for r in data]
  resid=[float(r["outcome_r"])-pred[n] for n,r in enumerate(data)]
  margin=max(.03,.10*math.sqrt(mean([x*x for x in resid])))
@@ -99,8 +113,9 @@ def fit(data,arch):
          "shi":shi,"shb":shb,"margin":margin,"stable_pairs":stable_pairs(data)}
 
 def score(r,m):
- edge=m["i"]+sum(m["b"][j]*float(r[k]) for j,k in enumerate(F))+m["pri"].get((r["family"],r["route"]),0.)-m["margin"]
- dist=math.sqrt(sum(((float(r[k])-m["c"][k])/m["s"][k])**2 for k in SF)/len(SF)); ok=dist<=m["support_max"] and (r["family"],r["route"]) in m["stable_pairs"]
+ pair=(r["family"],r["route"])
+ edge=m["i"]+sum(m["b"][j]*float(r[k]) for j,k in enumerate(F))+m["pri"].get(pair,0.)-m["margin"]
+ dist=math.sqrt(sum(((float(r[k])-m["c"][k])/m["s"][k])**2 for k in SF)/len(SF)); ok=dist<=m["support_max"] and pair in m["stable_pairs"]
  hours=1.5 if r["route"]=="TREND_ALIGNED_REVERSAL" else 2. if r["route"]=="EXHAUSTION_REVERSAL" else 1.25
  if m["arch"]=="H3":
   lh=m["shi"]+sum(m["shb"][j]*float(r[k]) for j,k in enumerate(F)); hours=max(.5,min(12.,math.exp(max(-2.,min(3.,lh)))))
@@ -127,9 +142,11 @@ def choose_threshold(train,arch):
   ranked.append((good,wl,mp,mn,-abs(t),t))
  return max(ranked)[-1]
 
+def route_key(x):return "T" if x=="TREND_ALIGNED_REVERSAL" else "E" if x=="EXHAUSTION_REVERSAL" else "X"
 def pspec(p):
- def rk(x):return "T" if x=="TREND_ALIGNED_REVERSAL" else "E" if x=="EXHAUSTION_REVERSAL" else "X"
- return ";".join(f"{f}:{rk(rt)}:{max(-2,min(2,v)):.10f}" for (f,rt),v in sorted(p.items()))
+ return ";".join(f"{f}:{route_key(rt)}:{max(-2,min(2,v)):.10f}" for (f,rt),v in sorted(p.items()))
+def pairspec(pairs):
+ return ";".join(f"{f}:{route_key(rt)}" for f,rt in sorted(pairs))
 def mspec(m):
  a=[f"i:{m['i']:.10f}"]+[f"{k}:{m['b'][j]:.10f}" for j,k in enumerate(F)]+["prior:1.0000000000"]
  for k in SF:a += [f"mc_{k}:{m['c'][k]:.10f}",f"ms_{k}:{m['s'][k]:.10f}"]
@@ -150,18 +167,18 @@ def evaluate(arch):
  return {"folds":folds,"crossfit_gate":all(x["pass"] for x in folds.values()),"folds_passed":sum(x["pass"] for x in folds.values()),
          "worst_fold_lcb_r":min(x["selected_lcb_r"] for x in folds.values()),"min_fold_pf_r":min(x["selected_pf_r"] for x in folds.values()),"models":mods}
 
-C={a:evaluate(a) for a in ["H1","H2","H3"]}
+C={a:evaluate(a) for a in ["H0","H1","H2","H3"]}
 sel=max(C,key=lambda a:(C[a]["crossfit_gate"],C[a]["folds_passed"],C[a]["worst_fold_lcb_r"],C[a]["min_fold_pf_r"]))
 best=C[sel]
 for test,(m,t) in best["models"].items():
  json.dump({"model_id":f"V71-{sel}-XFIT-{test}","architecture":sel,"training_windows":[w for w in W if w!=test],"test_window":test,
-  "spec":mspec(m),"family_prior_spec":pspec(m["pri"]),"lcb_margin":m["margin"],"selection_lcb_r":t,"diagnostic":best["folds"][test]},
+  "spec":mspec(m),"family_prior_spec":pspec(m["pri"]),"allowed_pair_spec":pairspec(m["stable_pairs"]),"lcb_margin":m["margin"],"selection_lcb_r":t,"diagnostic":best["folds"][test]},
   open(out/f"{test}.json","w"),indent=2)
 t=choose_threshold(rows,sel); m=fit(rows,sel)
-full={"model_id":f"V71-{sel}-XFIT-FULL","architecture":sel,"training_windows":W,"spec":mspec(m),"family_prior_spec":pspec(m["pri"]),
+full={"model_id":f"V71-{sel}-XFIT-FULL","architecture":sel,"training_windows":W,"spec":mspec(m),"family_prior_spec":pspec(m["pri"]),"allowed_pair_spec":pairspec(m["stable_pairs"]),
       "lcb_margin":m["margin"],"selection_lcb_r":t,"diagnostic":{"train_n":len(rows),"stable_features":[k for k,z in zip(F,m["keep"]) if z]}}
 json.dump(full,open(out/"FULL.json","w"),indent=2)
-manifest={"architecture":"PREREGISTERED_H1_H2_H3_TEMPORAL_CROSSFIT","rows":len(rows),"challengers":["H1","H2","H3"],
+manifest={"architecture":"PREREGISTERED_H0_RAT_PAIR_PLUS_H1_H2_H3_TEMPORAL_CROSSFIT","rows":len(rows),"challengers":["H0","H1","H2","H3"],"primary_expansion_family":PRIMARY_EXPANSION_FAMILY,
  "capital_alignment":"NON_ABCD_STABLE_FAMILY_ROUTE_AND_EDGE_LCB_GT_0_AND_CAPITAL_SCORE_GT_FROZEN_FLOOR",
  "selected_architecture":sel,"selection_objective":"MAXIMIZE_WORST_TEMPORAL_FOLD_CONSERVATIVE_LCB","features":F,"support_features":SF,
  "min_selected_per_fold":MIN_N,"min_pf_r":MIN_PF,"lcb_z":Z,"pair_min_per_train_window":PAIR_MIN_PER_TRAIN_WINDOW,"capital_excluded_families":sorted(CAPITAL_EXCLUDED_FAMILIES),"raw_rows":len(raw_rows),"capital_rows":len(rows),"folds":best["folds"],"crossfit_gate":best["crossfit_gate"],
