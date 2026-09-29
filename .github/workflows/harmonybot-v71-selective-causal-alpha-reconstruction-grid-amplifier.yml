@@ -39,6 +39,7 @@ jobs:
           bash -n HarmonyBot-V71/tools/run_backtest.sh
           bash -n HarmonyBot-V71/tools/run_window.sh
           bash -n HarmonyBot-V71/tools/run_v51_reference.sh
+          bash -n HarmonyBot-V71/tools/run_v51_backtest_safe.sh
           dotnet restore HarmonyBot-V71/HarmonyBotV71.csproj
           dotnet build HarmonyBot-V71/HarmonyBotV71.csproj -c Release --no-restore --nologo
           mkdir -p HarmonyBot-V71/dist HarmonyBot-V71/reference HarmonyBot-V71/final
