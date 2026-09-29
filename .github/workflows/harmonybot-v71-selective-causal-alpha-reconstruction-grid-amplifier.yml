@@ -58,7 +58,7 @@ jobs:
 
           sha256sum HarmonyBot-V71/src/HarmonyBotV71.cs "$A" HarmonyBot-V71/reference/*.algo > HarmonyBot-V71/final/SHA256SUMS
           printf '%s\n' "$GITHUB_SHA" > HarmonyBot-V71/final/SOURCE_COMMIT.txt
-          python3 -c 'import json,pathlib,os; pathlib.Path("HarmonyBot-V71/final/V71_PREREGISTERED_FREEZE_MANIFEST.json").write_text(json.dumps({"version":"HarmonyBot V71","architecture":"PROTECTED_V51_CORE_PLUS_CROSSFIT_INCREMENTAL_EXPANSION","trusted_v51_parent":"1b670a0f43ba8ecaa637febfdacf605b1b146f01","variants":["A_V51_PROTECTED_CORE","B_PROTECTED_XFIT_SINGLE","C_PROTECTED_XFIT_GRID","D_PROTECTED_XFIT_GRID_RISK5"],"shadow_windows":["Y2021","Y2022","Y2023"],"calibration_windows":["Y2021","Y2022","Y2023"],"promotion_dev_windows":["H2024H2","H2025H1","H2025H2"],"core_risk_pct":1.0,"expansion_risk_ceiling_pct":5.0,"minimum_net_rr":2.0,"max_active_basket":1,"candidate_source":"THREE_FOLD_TEMPORAL_CROSSFIT_BURNED_CALIBRATION_ONLY","expansion_min_edge_lcb_r":0.015,"core_preemption":True,"same_setup_expansion_blocked":True,"expansion_identity_namespace_isolated":True,"reference_full_v51_commercial_env":True,"shadow_label":"V51_NATIVE_EXIT_PROXY_COMPLETED_M1","validation_locked":True,"fresh_locked":True,"v72_auto_promotion_only_after_breakthrough":True,"final_v80_targets":{"return_pct":100,"pf":2.5,"max_dd_pct":10,"win_rate":0.65,"trades_per_year":200,"realized_rr":2.0,"profitable_months":10,"net_pct_initial":100}},indent=2))'
+          python3 -c 'import json,pathlib,os; pathlib.Path("HarmonyBot-V71/final/V71_PREREGISTERED_FREEZE_MANIFEST.json").write_text(json.dumps({"version":"HarmonyBot V71","architecture":"PROTECTED_V51_CORE_PLUS_CROSSFIT_INCREMENTAL_EXPANSION","trusted_v51_parent":"1b670a0f43ba8ecaa637febfdacf605b1b146f01","variants":["A_V51_PROTECTED_CORE","B_PROTECTED_XFIT_SINGLE","C_PROTECTED_XFIT_GRID"],"shadow_windows":["Y2021","Y2022","Y2023"],"calibration_windows":["Y2021","Y2022","Y2023"],"promotion_dev_windows":["H2024H2","H2025H1","H2025H2"],"core_risk_pct":1.0,"alpha_qualification_risk_pct":1.0,"capacity_risk_scaling_deferred":True,"minimum_net_rr":2.0,"max_active_basket":1,"candidate_source":"PREREGISTERED_H1_H2_H3_WORST_FOLD_LCB_BURNED_CALIBRATION_ONLY","expansion_min_edge_lcb_r":0.015,"core_preemption":True,"same_setup_expansion_blocked":True,"expansion_identity_namespace_isolated":True,"reference_full_v51_commercial_env":True,"shadow_label":"V51_NATIVE_EXIT_PROXY_COMPLETED_M1","validation_locked":True,"fresh_locked":True,"v72_auto_promotion_only_after_breakthrough":True,"final_v80_targets":{"return_pct":100,"pf":2.5,"max_dd_pct":10,"win_rate":0.65,"trades_per_year":200,"realized_rr":2.0,"profitable_months":10,"net_pct_initial":100}},indent=2))'
       - uses: actions/upload-artifact@v4
         with:
           name: v71-build
@@ -196,7 +196,7 @@ jobs:
       fail-fast: false
       max-parallel: 8
       matrix:
-        variant: [A_V51_PROTECTED_CORE, B_PROTECTED_XFIT_SINGLE, C_PROTECTED_XFIT_GRID, D_PROTECTED_XFIT_GRID_RISK5]
+        variant: [A_V51_PROTECTED_CORE, B_PROTECTED_XFIT_SINGLE, C_PROTECTED_XFIT_GRID]
         window: [Y2021, Y2022, Y2023]
     steps:
       - uses: actions/checkout@v4
