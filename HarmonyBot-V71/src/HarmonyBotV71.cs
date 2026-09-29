@@ -355,6 +355,11 @@ namespace cAlgo.Robots
         private int _v71ExpansionGridFallback;
         private int _v71ExpansionShadowClosed;
         private int _v71ExpansionRiskScaled;
+        private int _v71ExpansionRiskReserveBlocked;
+        private int _v71ExpansionRiskCapped;
+        private double _v71ExpansionRealizedNet;
+        private ulong _v71CoreExecutionFnv = 14695981039346656037UL;
+        private int _v71CoreExecutionCount;
 
         private DateTime _lastM15Closed = DateTime.MinValue;
         private DateTime _lastM1Closed = DateTime.MinValue;
@@ -500,6 +505,9 @@ namespace cAlgo.Robots
                 _v71ExpansionDetected, _v71ExpansionArmed, _v71ExpansionExecuted, _v71ExpansionCoreBlocked,
                 _v71ExpansionModelRejected, _v71ExpansionGridFallback, _v71ExpansionShadowClosed,
                 _v71ExpansionRiskScaled, _v71Expansion.Values.Count(x => x.IsActive), V71ModelId);
+            Print("[V71-CORE-PRESERVATION] executed={0} fnv64={1:X16}", _v71CoreExecutionCount, _v71CoreExecutionFnv);
+            Print("[V71-PROTECTED-RISK-SUMMARY] expansionNet={0:F2} reserveBlocked={1} riskCapped={2} coreRiskPct={3:F2}",
+                V71ExpansionContributionNet(), _v71ExpansionRiskReserveBlocked, _v71ExpansionRiskCapped, BasketRiskPercent);
             Print("[V51-FREQUENCY-SUMMARY] schedulerDeferred={0} schedulerRecoveredExecutions={1} structuredRecallAdmitted={2} activeDeferred={3}",
                 _schedulerDeferred, _schedulerRecoveredExecutions, _structuredRecallAdmitted, _deferredCandidates.Count);
             Print("[V51-INDEPENDENT-SETUP-SUMMARY] duplicateSuppressed={0} uniqueExecuted={1} rescueAdmissions={2} transitionProofRejected={3} independentScaleCandidates={4}",
@@ -878,14 +886,16 @@ namespace cAlgo.Robots
 
         private void TryScheduleAndExecute()
         {
-            if (!TradingEnabled || _dailyLocked || PeakDrawdownExceeded()) return;
+            if (!TradingEnabled) return;
             if (!_initialCapitalEligible) return;
             DateTime now = Server.Time.ToUniversalTime();
             if (_evaluationStartUtc.HasValue && now < _evaluationStartUtc.Value) return;
 
-            // Expansion is explicitly preemptible. A newly-detected V51 core thesis gets
-            // immediate priority before the MaxActiveBasket=1 busy check.
+            // Core ownership must be asserted before a shared account risk lock can return.
+            // This lets a newly-detected V51 thesis remove an expansion basket immediately;
+            // the normal V51 risk lock still governs whether the core may then execute.
             V71PreemptExpansionForCore(now);
+            if (_dailyLocked || PeakDrawdownExceeded()) return;
 
             bool slotBusy = OwnPositions().Any() || OwnPendingOrders().Any() || _baskets.Values.Any(b => b.IsActive);
             if (slotBusy)
@@ -1571,6 +1581,7 @@ namespace cAlgo.Robots
             CountPipeline(c.Signal.PatternName).Leg0Executed++;
             BasketEvent(basket, "LEG0_EXECUTED");
             Transition(c, CandidateState.EXECUTED, "FIB_GRID_LEG0_FILLED");
+            V71RecordCoreExecution(c);
             if (EnableCanonicalSetupIdentity && !c.V71Expansion && !string.IsNullOrWhiteSpace(c.SetupKey))
             {
                 _executedSetupKeys.Add(c.SetupKey);
@@ -2425,6 +2436,9 @@ namespace cAlgo.Robots
             FibonacciBasket basket = null;
             if (_baskets.TryGetValue(l.BasketId, out basket))
             {
+                if (!string.IsNullOrWhiteSpace(basket.CandidateId) &&
+                    basket.CandidateId.StartsWith("V71EXP-", StringComparison.Ordinal))
+                    _v71ExpansionRealizedNet += p.NetProfit;
                 basket.RealizedNet += p.NetProfit;
                 basket.ClosedLegs++;
                 double legRealizedR = l.InitialRiskPips > 0 ? p.Pips / l.InitialRiskPips : 0;
@@ -2940,15 +2954,93 @@ namespace cAlgo.Robots
             }
         }
 
+        private void V71RecordCoreExecution(CandidateRecord c)
+        {
+            if (c == null || c.V71Expansion || c.Signal == null) return;
+            string token = (c.SetupKey ?? "") + "|" + c.Signal.PatternName + "|" + c.Route + "|" + c.Signal.Direction + ";";
+            unchecked
+            {
+                foreach (char ch in token)
+                {
+                    _v71CoreExecutionFnv ^= (byte)(ch & 0xFF);
+                    _v71CoreExecutionFnv *= 1099511628211UL;
+                    if (ch > 0xFF)
+                    {
+                        _v71CoreExecutionFnv ^= (byte)((ch >> 8) & 0xFF);
+                        _v71CoreExecutionFnv *= 1099511628211UL;
+                    }
+                }
+            }
+            _v71CoreExecutionCount++;
+        }
+
+        private double V71ExpansionContributionNet()
+        {
+            double open = 0;
+            foreach (var p in OwnPositions())
+            {
+                PositionLedger ledger;
+                FibonacciBasket basket;
+                if (!_positions.TryGetValue(p.Id, out ledger) || string.IsNullOrWhiteSpace(ledger.BasketId) ||
+                    !_baskets.TryGetValue(ledger.BasketId, out basket) || string.IsNullOrWhiteSpace(basket.CandidateId) ||
+                    !basket.CandidateId.StartsWith("V71EXP-", StringComparison.Ordinal))
+                    continue;
+                open += p.NetProfit;
+            }
+            return _v71ExpansionRealizedNet + open;
+        }
+
+        private bool V71ExpansionRiskReserveAllows(double riskPct)
+        {
+            double pct = Math.Min(5.0, Math.Max(.10, riskPct));
+            double corePct = Math.Min(5.0, Math.Max(.10, BasketRiskPercent));
+            double plannedRisk = Math.Max(0, Account.Equity) * pct / 100.0;
+            double coreReserve = Math.Max(0, Account.Equity) * corePct / 100.0;
+            double sleeveBudget = Math.Max(0, _initialEquity) * corePct / 100.0;
+            double contribution = V71ExpansionContributionNet();
+
+            // Expansion may spend its own accumulated profit, but it may not create a
+            // cumulative loss larger than one frozen V51 core basket risk unit.
+            if (contribution - plannedRisk < -sleeveBudget - 1e-8)
+            {
+                _v71ExpansionRiskReserveBlocked++;
+                return false;
+            }
+
+            double peakBudget = Math.Max(0, _equityPeak) * Math.Max(0, MaxDrawdownPercent) / 100.0;
+            double peakUsed = Math.Max(0, _equityPeak - Account.Equity);
+            double peakHeadroom = Math.Max(0, peakBudget - peakUsed);
+            double dayBudget = Math.Max(0, _dayStartEquity) * Math.Max(0, DailyLossLimitPercent) / 100.0;
+            double dayUsed = Math.Max(0, _dayStartEquity - Account.Equity);
+            double dayHeadroom = Math.Max(0, dayBudget - dayUsed);
+
+            // Preserve enough causal headroom for the next legal V51 core basket.
+            if (plannedRisk + coreReserve > peakHeadroom + 1e-8 ||
+                plannedRisk + coreReserve > dayHeadroom + 1e-8)
+            {
+                _v71ExpansionRiskReserveBlocked++;
+                return false;
+            }
+            return true;
+        }
+
         private double V71ExpansionRiskFor(V71ExpansionCandidate e)
         {
             double cap = Math.Min(5.0, Math.Max(.10, V71ExpansionRiskPercent));
-            if (!EnableV71ExpansionAdaptiveRisk) return Math.Min(1.0, cap);
-            double r = 1.0;
-            if (e != null && e.EdgeLcb >= .15) r = 2.0;
-            if (e != null && e.EdgeLcb >= .30) r = 3.0;
-            if (e != null && e.EdgeLcb >= .50) r = 5.0;
-            r = Math.Min(cap, r);
+            double requested = 1.0;
+            if (EnableV71ExpansionAdaptiveRisk)
+            {
+                if (e != null && e.EdgeLcb >= .15) requested = 2.0;
+                if (e != null && e.EdgeLcb >= .30) requested = 3.0;
+                if (e != null && e.EdgeLcb >= .50) requested = 5.0;
+            }
+            requested = Math.Min(cap, requested);
+
+            // Protected-Core invariant: expansion capacity research cannot consume more
+            // per basket than the frozen core risk unit before Alpha is qualified.
+            double protectedCap = Math.Min(cap, Math.Min(5.0, Math.Max(.10, BasketRiskPercent)));
+            double r = Math.Min(requested, protectedCap);
+            if (requested > r + 1e-9) _v71ExpansionRiskCapped++;
             if (r > 1.000001) _v71ExpansionRiskScaled++;
             return r;
         }
@@ -3036,6 +3128,7 @@ namespace cAlgo.Robots
 
             var e = eligible[0];
             double riskPct = V71ExpansionRiskFor(e);
+            if (!V71ExpansionRiskReserveAllows(riskPct)) return;
             var c = new CandidateRecord
             {
                 CandidateId = e.CandidateId,
