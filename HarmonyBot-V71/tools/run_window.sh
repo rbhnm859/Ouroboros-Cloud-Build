@@ -26,7 +26,7 @@ if [ "$EXPEXEC" = true ]; then
  eval "$(python3 - "$MF" <<'PY'
 import json,shlex,sys
 m=json.load(open(sys.argv[1]))
-for k,v in [("EDGE_MODEL_SPEC",m["spec"]),("EDGE_PRIOR_SPEC",m["family_prior_spec"]),("EDGE_LCB_MARGIN",str(m["lcb_margin"])),("EDGE_MODEL_ID",m["model_id"])]:
+for k,v in [("EDGE_MODEL_SPEC",m["spec"]),("EDGE_PRIOR_SPEC",m["family_prior_spec"]),("EDGE_LCB_MARGIN",str(m["lcb_margin"])),("EDGE_MODEL_ID",m["model_id"]),("EDGE_MIN_LCB",str(m.get("selection_lcb_r",0.015)))]:
  print(k+"="+shlex.quote(v))
 PY
  )"
