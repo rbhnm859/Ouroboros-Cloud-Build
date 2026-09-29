@@ -6,11 +6,13 @@ F=["g","prz","conf","ts","pv","m1","rr","reg","eff","atr","ext","mtf","atp","adx
 SF=["g","prz","m1","rr","reg","eff","atr","ext","atp","trend","spr","ses","przc","trans"]
 Z=1.645; MIN_N=60; MIN_PF=1.10; CONTEXT_MIN_PER_TRAIN_WINDOW=8; FIXED_SCORE_FLOOR=.015
 CAPITAL_EXCLUDED_FAMILIES={"ABCD"}
-rows=[]; coverage={}
+rows=[]; coverage={}; oracle_coverage={}; reject_coverage={}
 for w in W:
  xs=list(root.rglob(f"SHADOW_PREPASS-{w}.json"))
  if len(xs)!=1: raise SystemExit(f"missing shadow {w}: {len(xs)}")
  doc=json.load(open(xs[0])); coverage[w]=doc.get("family_census",{})
+ oracle_coverage[w]=doc.get("oracle_census",{})
+ reject_coverage[w]=doc.get("reject_attribution",{})
  seen=set()
  for r in doc.get("shadow_outcomes",[]):
   k=(r["setup"],r["family"],r["route"])
@@ -169,7 +171,7 @@ for test in W:
            "stable_survival_features":[k for k,z in zip(F,m["skeep"]) if z]})
  folds[test]=d; models[test]=m
 
-crossfit=all(x["pass"] for x in folds.values())
+alpha_crossfit=all(x["pass"] for x in folds.values())
 for test,m in models.items():
  json.dump({"model_id":f"V71-H4-REGIME-XFIT-{test}","architecture":"H4_REGIME_HIERARCHICAL_DUAL_HEAD",
   "training_windows":[w for w in W if w!=test],"test_window":test,"spec":mspec(m),
@@ -188,13 +190,34 @@ coverage_total=collections.defaultdict(lambda:{"tracked":0,"armed":0,"core_overl
 for w,d in coverage.items():
  for fam,z in d.items():
   for k in coverage_total[fam]: coverage_total[fam][k]+=int(z.get(k,0))
+
+oracle_total=collections.defaultdict(lambda:{"expected":0,"matched":0,"missed":0})
+for w,d in oracle_coverage.items():
+ for fam,z in d.items():
+  oracle_total[fam]["expected"]+=int(z.get("expected",0))
+  oracle_total[fam]["matched"]+=int(z.get("matched",0))
+  oracle_total[fam]["missed"]+=int(z.get("missed",0))
+for fam,z in oracle_total.items():
+ z["recall"]=z["matched"]/z["expected"] if z["expected"] else 1.0
+
+reject_total=collections.defaultdict(lambda:collections.defaultdict(int))
+for w,d in reject_coverage.items():
+ for fam,reasons in d.items():
+  for reason,count in reasons.items(): reject_total[fam][reason]+=int(count)
+reject_total={fam:dict(sorted(z.items())) for fam,z in sorted(reject_total.items())}
+
+expected_families={"Gartley","Bat","AltBat","Butterfly","Crab","DeepCrab","DeepGartley","Rat","Cypher","Shark","FiveZero","ABCD"}
+detector_recall_gate=set(oracle_total)==expected_families and sum(z["expected"] for z in oracle_total.values())>0 and all(z["missed"]==0 for z in oracle_total.values())
+crossfit=alpha_crossfit and detector_recall_gate
 manifest={"architecture":"H4_REGIME_HIERARCHICAL_DUAL_HEAD_PREREGISTERED","rows":len(rows),
  "capital_alignment":"STRUCTURAL_R_X_SURVIVAL_OVER_SLOT_HOURS_WITH_FAMILY_ROUTE_REGIME_WHITELIST",
  "selected_architecture":"H4","selection_objective":"FIXED_FLOOR__3OF3_TEMPORAL_CONSERVATIVE_LCB",
  "features":F,"support_features":SF,"min_selected_per_fold":MIN_N,"min_pf_r":MIN_PF,"lcb_z":Z,
  "context_min_per_train_window":CONTEXT_MIN_PER_TRAIN_WINDOW,"fixed_score_floor":FIXED_SCORE_FLOOR,
  "capital_excluded_families":sorted(CAPITAL_EXCLUDED_FAMILIES),"raw_rows":len(raw_rows),"capital_rows":len(rows),
- "family_census":dict(sorted(coverage_total.items())),"folds":folds,"crossfit_gate":crossfit,
+ "family_census":dict(sorted(coverage_total.items())),"oracle_census":dict(sorted(oracle_total.items())),
+ "reject_attribution":reject_total,"detector_recall_gate":detector_recall_gate,"alpha_crossfit_gate":alpha_crossfit,
+ "folds":folds,"crossfit_gate":crossfit,
  "worst_fold_lcb_r":min(x["selected_lcb_r"] for x in folds.values()),"min_fold_pf_r":min(x["selected_pf_r"] for x in folds.values()),
  "full_model_sha256":hashlib.sha256((out/"FULL.json").read_bytes()).hexdigest()}
 json.dump(manifest,open(out/"MODEL_MANIFEST.json","w"),indent=2)
