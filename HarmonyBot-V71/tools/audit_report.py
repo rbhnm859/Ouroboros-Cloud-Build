@@ -3,7 +3,15 @@ import argparse,json,pathlib,re,statistics,hashlib
 ap=argparse.ArgumentParser()
 for x in ("report","log","out","window","variant"): ap.add_argument("--"+x,required=True)
 ap.add_argument("--years",type=float,required=True); ap.add_argument("--balance",type=float,required=True)
+ap.add_argument("--data-snapshot",default="")
 a=ap.parse_args(); d=json.load(open(a.report,encoding="utf-8-sig")); t=pathlib.Path(a.log).read_text(errors="ignore")
+data_snapshot_sha256=""
+if a.data_snapshot:
+ p=pathlib.Path(a.data_snapshot)
+ if not p.is_file(): raise SystemExit(f"missing data snapshot marker: {p}")
+ data_snapshot_sha256=p.read_text().strip()
+ if not re.fullmatch(r"[0-9a-fA-F]{64}",data_snapshot_sha256): raise SystemExit("invalid data snapshot sha256")
+ data_snapshot_sha256=data_snapshot_sha256.lower()
 
 # Replay identity must come from the completed cTrader execution report, not from
 # best-effort basket-close telemetry. Bot-specific labels/comments are excluded;
@@ -88,6 +96,7 @@ out={"variant":a.variant,"window":a.window,"years":a.years,"starting_balance":a.
  "canonical_report_sha256":report_sha,"canonical_report_history_items":report_history_items,
  "core_pipeline_sha256":pipeline_sha,"core_pipeline_fingerprint_lines":pipeline_fingerprint_lines,
  "core_execution_fingerprint":core_execution_fingerprint,
+ "data_snapshot_sha256":data_snapshot_sha256,
  "core_basket_outcomes":core,"expansion_basket_outcomes":exp,
  "core_metrics":corem,"expansion_metrics":expm,"shadow_outcomes":shadow,"expansion_summary":exp_summary,**c}
 pathlib.Path(a.out).write_text(json.dumps(out,indent=2))
