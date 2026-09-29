@@ -373,6 +373,14 @@ namespace cAlgo.Robots
         private readonly Dictionary<string, int> _v71FamilyArmed = new Dictionary<string, int>();
         private readonly Dictionary<string, int> _v71FamilyCoreOverlap = new Dictionary<string, int>();
         private readonly Dictionary<string, int> _v71FamilyShadowClosed = new Dictionary<string, int>();
+        // Root-cause proof ledger. These counters are Shadow/research only and never
+        // participate in Capital selection or V51 Core decisions.
+        private readonly Dictionary<string, int> _v71ExpansionRejectAttribution = new Dictionary<string, int>();
+        private readonly Dictionary<string, int> _v71OracleExpected = new Dictionary<string, int>();
+        private readonly Dictionary<string, int> _v71OracleMatched = new Dictionary<string, int>();
+        private readonly Dictionary<string, int> _v71OracleMissed = new Dictionary<string, int>();
+        private readonly Dictionary<int, int> _v71OracleLastDIndexByScale = new Dictionary<int, int>();
+        private readonly HashSet<string> _v71OracleSeen = new HashSet<string>(StringComparer.Ordinal);
         private bool _v71ModelReady;
         private int _v71ExpansionDetected;
         private int _v71ExpansionArmed;
@@ -542,7 +550,26 @@ namespace cAlgo.Robots
                 int closed = _v71FamilyShadowClosed.ContainsKey(fam) ? _v71FamilyShadowClosed[fam] : 0;
                 Print("[V71-FAMILY-CENSUS] family={0} tracked={1} armed={2} coreOverlap={3} shadowClosed={4}",
                     fam, tracked, armed, overlap, closed);
+
+                int expected = _v71OracleExpected.ContainsKey(fam) ? _v71OracleExpected[fam] : 0;
+                int matched = _v71OracleMatched.ContainsKey(fam) ? _v71OracleMatched[fam] : 0;
+                int missed = _v71OracleMissed.ContainsKey(fam) ? _v71OracleMissed[fam] : 0;
+                double recall = expected > 0 ? (double)matched / expected : 1.0;
+                Print("[V71-ORACLE-CENSUS] family={0} expected={1} matched={2} missed={3} recall={4:F6}",
+                    fam, expected, matched, missed, recall);
             }
+            foreach (var kv in _v71ExpansionRejectAttribution.OrderBy(x => x.Key))
+            {
+                string[] parts = kv.Key.Split('|');
+                string fam = parts.Length > 0 ? parts[0] : "UNKNOWN";
+                string reason = parts.Length > 1 ? parts[1] : "UNKNOWN";
+                Print("[V71-EXP-REJECT-SUMMARY] family={0} reason={1} count={2}", fam, reason, kv.Value);
+            }
+            int oracleExpected = _v71OracleExpected.Values.Sum();
+            int oracleMatched = _v71OracleMatched.Values.Sum();
+            int oracleMissed = _v71OracleMissed.Values.Sum();
+            Print("[V71-ORACLE-SUMMARY] expected={0} matched={1} missed={2} perfectRecall={3}",
+                oracleExpected, oracleMatched, oracleMissed, oracleMissed == 0);
             Print("[V71-CORE-PRESERVATION] executed={0} fnv64={1:X16}", _v71CoreExecutionCount, _v71CoreExecutionFnv);
             Print("[V71-PROTECTED-RISK-SUMMARY] expansionNet={0:F2} reserveBlocked={1} riskCapped={2} coreRiskPct={3:F2}",
                 V71ExpansionContributionNet(), _v71ExpansionRiskReserveBlocked, _v71ExpansionRiskCapped, BasketRiskPercent);
@@ -3631,6 +3658,286 @@ namespace cAlgo.Robots
             return "ABCD_STANDALONE";
         }
 
+        private void V71CountExpansionReject(string pattern, string reason)
+        {
+            string key = V71FamilyKey(pattern) + "|" + (reason ?? "UNKNOWN");
+            int n;
+            _v71ExpansionRejectAttribution.TryGetValue(key, out n);
+            _v71ExpansionRejectAttribution[key] = n + 1;
+        }
+
+        private bool V71ExpansionPrimaryContractPass(PatternProfile p, PivotPoint x, PivotPoint a, PivotPoint b, PivotPoint c, PivotPoint d,
+            double atr, out string reason)
+        {
+            reason = "PASS";
+            bool bullish = a.Price > x.Price && b.Price < a.Price && c.Price > b.Price && d.Price < c.Price;
+            bool bearish = a.Price < x.Price && b.Price > a.Price && c.Price < b.Price && d.Price > c.Price;
+            if (!bullish && !bearish) { reason = "DIRECTION_FAIL"; return false; }
+
+            double xa = Math.Abs(a.Price - x.Price);
+            double ab = Math.Abs(b.Price - a.Price);
+            double bc = Math.Abs(c.Price - b.Price);
+            double cd = Math.Abs(d.Price - c.Price);
+            if (xa <= 0 || ab <= 0 || bc <= 0 || cd <= 0 || atr <= 0) { reason = "DEGENERATE_LEG"; return false; }
+            if (Math.Min(Math.Min(xa, ab), Math.Min(bc, cd)) < atr * .45) { reason = "LEG_TOO_SMALL"; return false; }
+
+            double xab = ab / xa;
+            double abc = bc / ab;
+            double bcd = cd / bc;
+            double adxa = Math.Abs(d.Price - a.Price) / xa;
+            double xdxa = Math.Abs(d.Price - x.Price) / xa;
+            double xad = EnableCanonicalStandardCoordinates ? adxa : xdxa;
+            double abcd = cd / ab;
+            double xc = Math.Abs(c.Price - x.Price);
+
+            if (p.Mode == PatternMode.STANDARD)
+            {
+                if (!InRange(xab, p.XabMin, p.XabMax)) { reason = "XAB_FAIL"; return false; }
+                if (!InRange(abc, p.AbcMin, p.AbcMax)) { reason = "ABC_FAIL"; return false; }
+                if (!InRange(bcd, p.BcdMin, p.BcdMax)) { reason = "BCD_FAIL"; return false; }
+                if (!InRange(xad, p.XadMin, p.XadMax)) { reason = "XAD_FAIL"; return false; }
+
+                // Expansion PRZ is projected only from pre-D legs.
+                double przHalf = atr * p.PrzWidthAtr;
+                if (EnableFamilyNativeConversion &&
+                    (p.Name == "Crab" || p.Name == "Deep Crab" || p.Name == "Butterfly" || p.Name == "Alt Bat"))
+                    przHalf *= 1.20;
+                else if (EnableFamilyNativeConversion)
+                    przHalf *= .90;
+
+                double xaD1 = bullish ? a.Price - p.XadMin * xa : a.Price + p.XadMin * xa;
+                double xaD2 = bullish ? a.Price - p.XadMax * xa : a.Price + p.XadMax * xa;
+                double bcD1 = bullish ? c.Price - p.BcdMin * bc : c.Price + p.BcdMin * bc;
+                double bcD2 = bullish ? c.Price - p.BcdMax * bc : c.Price + p.BcdMax * bc;
+                double coreLo = Math.Max(Math.Min(xaD1, xaD2), Math.Min(bcD1, bcD2));
+                double coreHi = Math.Min(Math.Max(xaD1, xaD2), Math.Max(bcD1, bcD2));
+                if (coreLo > coreHi) { reason = "PRZ_NO_INTERSECTION"; return false; }
+                if (d.Price < coreLo - przHalf || d.Price > coreHi + przHalf) { reason = "D_OUTSIDE_PROJECTED_PRZ"; return false; }
+                return true;
+            }
+
+            if (p.Mode == PatternMode.ABCD)
+            {
+                if (!InRange(abc, p.AbcMin, p.AbcMax)) { reason = "ABC_FAIL"; return false; }
+                if (!InRange(bcd, p.BcdMin, p.BcdMax)) { reason = "BCD_FAIL"; return false; }
+                if (!InRange(abcd, p.AbcDMin, p.AbcDMax)) { reason = "ABCD_COMPLETION_FAIL"; return false; }
+                return true;
+            }
+
+            if (p.Mode == PatternMode.CYPHER)
+            {
+                if (!InRange(xab, .382, .618)) { reason = "XAB_FAIL"; return false; }
+                double xac = xc / xa;
+                if (!InRange(xac, 1.13, 1.414)) { reason = "XAC_FAIL"; return false; }
+                if (!InRange(cd / Math.Max(xc, 1e-9), .70, .90)) { reason = "CD_XC_FAIL"; return false; }
+                return true;
+            }
+
+            if (p.Mode == PatternMode.SHARK)
+            {
+                if (!InRange(abc, 1.13, 1.618)) { reason = "ABC_FAIL"; return false; }
+                if (!InRange(bcd, 1.13, 2.24)) { reason = "BCD_FAIL"; return false; }
+                if (!InRange(xad, .85, 1.25)) { reason = "XAD_FAIL"; return false; }
+                return true;
+            }
+
+            if (p.Mode == PatternMode.FIVEZERO)
+            {
+                if (!InRange(xab, 1.13, 1.618)) { reason = "XAB_FAIL"; return false; }
+                if (!InRange(abc, 1.618, 2.24)) { reason = "ABC_FAIL"; return false; }
+                if (!InRange(bcd, .45, .65)) { reason = "BCD_FAIL"; return false; }
+                return true;
+            }
+
+            reason = "UNKNOWN_MODE";
+            return false;
+        }
+
+        private List<PivotPoint> V71BuildOraclePivots(Bars bars, int endIndex, int lookback, int depth)
+        {
+            var points = new List<PivotPoint>();
+            if (bars == null || depth < 1) return points;
+            int right = Math.Min(endIndex - depth, bars.Count - 1 - depth);
+            int left = Math.Max(depth, right - lookback);
+            for (int i = left; i <= right; i++)
+            {
+                double hi = bars.HighPrices[i], lo = bars.LowPrices[i];
+                bool peak = true, trough = true;
+                for (int off = 1; off <= depth; off++)
+                {
+                    if (bars.HighPrices[i - off] >= hi || bars.HighPrices[i + off] >= hi) peak = false;
+                    if (bars.LowPrices[i - off] <= lo || bars.LowPrices[i + off] <= lo) trough = false;
+                    if (!peak && !trough) break;
+                }
+                if (peak) points.Add(new PivotPoint { Index = i, Price = hi, IsHigh = true });
+                if (trough) points.Add(new PivotPoint { Index = i, Price = lo, IsHigh = false });
+            }
+
+            points = points.OrderBy(z => z.Index).ToList();
+            var alternating = new List<PivotPoint>();
+            foreach (var p in points)
+            {
+                if (alternating.Count == 0) { alternating.Add(p); continue; }
+                var prior = alternating[alternating.Count - 1];
+                if (prior.IsHigh != p.IsHigh) { alternating.Add(p); continue; }
+                bool moreExtreme = p.IsHigh ? p.Price > prior.Price : p.Price < prior.Price;
+                if (moreExtreme) alternating[alternating.Count - 1] = p;
+            }
+            return alternating;
+        }
+
+        private bool V71OracleLegInsideEnvelope(List<PivotPoint> pivots, int left, int right)
+        {
+            if (pivots == null || left < 0 || right >= pivots.Count || left >= right) return false;
+            double lo = Math.Min(pivots[left].Price, pivots[right].Price);
+            double hi = Math.Max(pivots[left].Price, pivots[right].Price);
+            double eps = Math.Max(_symbol.PipSize, Math.Abs(hi - lo) * 1e-9);
+            for (int k = left + 1; k < right; k++)
+            {
+                double px = pivots[k].Price;
+                if (px < lo - eps || px > hi + eps) return false;
+            }
+            return true;
+        }
+
+        private bool V71OracleContractPass(PatternProfile p, PivotPoint x, PivotPoint a, PivotPoint b, PivotPoint c, PivotPoint d,
+            double atr, out TradeDirection direction)
+        {
+            direction = TradeDirection.Buy;
+            bool bullish = a.Price > x.Price && b.Price < a.Price && c.Price > b.Price && d.Price < c.Price;
+            bool bearish = a.Price < x.Price && b.Price > a.Price && c.Price < b.Price && d.Price > c.Price;
+            if (!bullish && !bearish) return false;
+            direction = bullish ? TradeDirection.Buy : TradeDirection.Sell;
+
+            double xa = Math.Abs(a.Price - x.Price);
+            double ab = Math.Abs(b.Price - a.Price);
+            double bc = Math.Abs(c.Price - b.Price);
+            double cd = Math.Abs(d.Price - c.Price);
+            if (xa <= 0 || ab <= 0 || bc <= 0 || cd <= 0 || atr <= 0) return false;
+            if (Math.Min(Math.Min(xa, ab), Math.Min(bc, cd)) < atr * .45) return false;
+
+            double xab = ab / xa;
+            double abc = bc / ab;
+            double bcd = cd / bc;
+            double adxa = Math.Abs(d.Price - a.Price) / xa;
+            double xdxa = Math.Abs(d.Price - x.Price) / xa;
+            double xad = EnableCanonicalStandardCoordinates ? adxa : xdxa;
+            double abcd = cd / ab;
+            double xc = Math.Abs(c.Price - x.Price);
+
+            if (p.Mode == PatternMode.STANDARD)
+            {
+                if (!InRange(xab, p.XabMin, p.XabMax) || !InRange(abc, p.AbcMin, p.AbcMax) ||
+                    !InRange(bcd, p.BcdMin, p.BcdMax) || !InRange(xad, p.XadMin, p.XadMax)) return false;
+
+                double przHalf = atr * p.PrzWidthAtr;
+                if (EnableFamilyNativeConversion &&
+                    (p.Name == "Crab" || p.Name == "Deep Crab" || p.Name == "Butterfly" || p.Name == "Alt Bat"))
+                    przHalf *= 1.20;
+                else if (EnableFamilyNativeConversion)
+                    przHalf *= .90;
+
+                double xaD1 = bullish ? a.Price - p.XadMin * xa : a.Price + p.XadMin * xa;
+                double xaD2 = bullish ? a.Price - p.XadMax * xa : a.Price + p.XadMax * xa;
+                double bcD1 = bullish ? c.Price - p.BcdMin * bc : c.Price + p.BcdMin * bc;
+                double bcD2 = bullish ? c.Price - p.BcdMax * bc : c.Price + p.BcdMax * bc;
+                double coreLo = Math.Max(Math.Min(xaD1, xaD2), Math.Min(bcD1, bcD2));
+                double coreHi = Math.Min(Math.Max(xaD1, xaD2), Math.Max(bcD1, bcD2));
+                return coreLo <= coreHi && d.Price >= coreLo - przHalf && d.Price <= coreHi + przHalf;
+            }
+
+            if (p.Mode == PatternMode.ABCD)
+                return InRange(abc, p.AbcMin, p.AbcMax) && InRange(bcd, p.BcdMin, p.BcdMax) && InRange(abcd, p.AbcDMin, p.AbcDMax);
+            if (p.Mode == PatternMode.CYPHER)
+                return InRange(xab, .382, .618) && InRange(xc / xa, 1.13, 1.414) && InRange(cd / Math.Max(xc, 1e-9), .70, .90);
+            if (p.Mode == PatternMode.SHARK)
+                return InRange(abc, 1.13, 1.618) && InRange(bcd, 1.13, 2.24) && InRange(xad, .85, 1.25);
+            if (p.Mode == PatternMode.FIVEZERO)
+                return InRange(xab, 1.13, 1.618) && InRange(abc, 1.618, 2.24) && InRange(bcd, .45, .65);
+            return false;
+        }
+
+        private string V71OracleKey(string family, TradeDirection direction, DateTime completion,
+            PivotPoint x, PivotPoint a, PivotPoint b, PivotPoint c, PivotPoint d, int scale)
+        {
+            string px(double v) { return Math.Round(v, _symbol.Digits).ToString("F" + _symbol.Digits, CultureInfo.InvariantCulture); }
+            return V71FamilyKey(family) + "|" + direction + "|" + completion.ToString("yyyyMMddHHmm", CultureInfo.InvariantCulture) + "|" +
+                   px(x.Price) + "|" + px(a.Price) + "|" + px(b.Price) + "|" + px(c.Price) + "|" + px(d.Price) + "|" + scale;
+        }
+
+        private string V71OracleKey(PatternSignal s)
+        {
+            if (s == null) return "INVALID";
+            return V71OracleKey(s.PatternName, s.Direction, s.CompletionTime, s.X, s.A, s.B, s.C, s.D, s.PivotScale);
+        }
+
+        private void V71AuditExpansionDetectorRecall(Bars bars, int endIndex, int lookback, IEnumerable<PatternSignal> production)
+        {
+            if (!EnableV71ExpansionShadow || bars == null || endIndex < 40) return;
+            double atr = Atr(bars, 14, endIndex);
+            if (atr <= 0) return;
+
+            var productionKeys = new HashSet<string>(
+                (production ?? Enumerable.Empty<PatternSignal>()).Where(x => x != null).Select(V71OracleKey),
+                StringComparer.Ordinal);
+
+            foreach (int scale in new[] { 2, 3, 5, 8 })
+            {
+                var pivots = V71BuildOraclePivots(bars, endIndex, lookback, scale);
+                if (pivots.Count < 5) continue;
+                int dPos = pivots.Count - 1;
+                var d = pivots[dPos];
+                if (endIndex - d.Index > 8) continue;
+
+                int prior;
+                if (_v71OracleLastDIndexByScale.TryGetValue(scale, out prior) && prior == d.Index) continue;
+                _v71OracleLastDIndexByScale[scale] = d.Index;
+
+                int c0 = Math.Max(3, dPos - 5);
+                for (int cPos = c0; cPos < dPos; cPos++)
+                {
+                    if (!V71OracleLegInsideEnvelope(pivots, cPos, dPos)) continue;
+                    int b0 = Math.Max(2, cPos - 5);
+                    for (int bPos = b0; bPos < cPos; bPos++)
+                    {
+                        if (!V71OracleLegInsideEnvelope(pivots, bPos, cPos)) continue;
+                        int a0 = Math.Max(1, bPos - 5);
+                        for (int aPos = a0; aPos < bPos; aPos++)
+                        {
+                            if (!V71OracleLegInsideEnvelope(pivots, aPos, bPos)) continue;
+                            int x0 = Math.Max(0, aPos - 5);
+                            for (int xPos = x0; xPos < aPos; xPos++)
+                            {
+                                if (dPos - xPos > 16 || !V71OracleLegInsideEnvelope(pivots, xPos, aPos)) continue;
+                                var x = pivots[xPos]; var a = pivots[aPos]; var b = pivots[bPos]; var cc = pivots[cPos];
+                                foreach (var profile in _profiles)
+                                {
+                                    if (endIndex - d.Index > Math.Max(2, profile.MaxAgeM15Bars)) continue;
+                                    TradeDirection direction;
+                                    if (!V71OracleContractPass(profile, x, a, b, cc, d, atr, out direction)) continue;
+                                    string key = V71OracleKey(profile.Name, direction, bars.OpenTimes[d.Index], x, a, b, cc, d, scale);
+                                    if (!_v71OracleSeen.Add(key)) continue;
+
+                                    string fam = V71FamilyKey(profile.Name);
+                                    IncrementCounter(_v71OracleExpected, fam);
+                                    if (productionKeys.Contains(key))
+                                    {
+                                        IncrementCounter(_v71OracleMatched, fam);
+                                    }
+                                    else
+                                    {
+                                        IncrementCounter(_v71OracleMissed, fam);
+                                        Print("[V71-ORACLE-MISS] family={0} scale={1} dIndex={2} completion={3:O} key={4}",
+                                            fam, scale, d.Index, bars.OpenTimes[d.Index], key);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         private List<PatternSignal> V71DetectExpansionPatternCandidates(Bars bars, int endIndex, int depth, int lookback, int maxCandidates, string timeframe)
         {
             var result = new List<PatternSignal>();
@@ -3642,7 +3949,8 @@ namespace cAlgo.Robots
                 ? new[] { 2, 3, 5 }
                 : new[] { Math.Max(2, depth) };
 
-            // Fast lane: preserve the already verified sparse-manifold behavior.
+            // Fast lane preserves the verified sparse behavior. The complete lattice below
+            // is authoritative for recall and includes every declared family.
             foreach (int scale in baseScales.Distinct())
             {
                 var pivots = BuildConfirmedPivots(bars, endIndex, lookback, scale);
@@ -3675,13 +3983,11 @@ namespace cAlgo.Robots
                 }
             }
 
-            // Full standard-family lattice: expand topology recall while preserving the
-            // primary Carney family ratios. AB=CD remains completion/confluence
-            // evidence in Expansion and cannot make a primary family unreachable.
-            // This lane remains research-only until cross-fit proves Alpha.
+            // Full 12-family lattice. No global top-K is allowed before family identity
+            // and no AB=CD hard-veto may make a primary family unreachable.
             if (EnableV71FullFamilyPivotLattice && string.Equals(timeframe, "M15", StringComparison.OrdinalIgnoreCase))
             {
-                var std = _profiles.Where(x => x.Mode == PatternMode.STANDARD).ToList();
+                var fullFamilies = _profiles.ToList();
                 foreach (int scale in new[] { 2, 3, 5, 8 })
                 {
                     var pivots = BuildConfirmedPivots(bars, endIndex, lookback, scale);
@@ -3707,22 +4013,25 @@ namespace cAlgo.Robots
                                     {
                                         if (dPos - xPos > 16 || !V71SparseLegInsideEnvelope(pivots, xPos, aPos)) continue;
                                         var x = pivots[xPos]; var a = pivots[aPos]; var b = pivots[bPos]; var cc = pivots[cPos];
-                                        double xa = Math.Abs(a.Price - x.Price), ab = Math.Abs(b.Price - a.Price);
-                                        double bc = Math.Abs(cc.Price - b.Price), cd = Math.Abs(d.Price - cc.Price);
-                                        if (xa <= 0 || ab <= 0 || bc <= 0 || cd <= 0 ||
-                                            Math.Min(Math.Min(xa, ab), Math.Min(bc, cd)) < atr * .45) continue;
-                                        double xab = ab / xa, abc = bc / ab, bcd = cd / bc;
-                                        double xad = Math.Abs(d.Price - a.Price) / xa, abcd = cd / ab;
-                                        foreach (var profile in std)
+                                        foreach (var profile in fullFamilies)
                                         {
-                                            if (!InRange(xab, profile.XabMin, profile.XabMax) ||
-                                                !InRange(abc, profile.AbcMin, profile.AbcMax) ||
-                                                !InRange(bcd, profile.BcdMin, profile.BcdMax) ||
-                                                !InRange(xad, profile.XadMin, profile.XadMax))
+                                            string rejectReason;
+                                            if (!V71ExpansionPrimaryContractPass(profile, x, a, b, cc, d, atr, out rejectReason))
+                                            {
+                                                V71CountExpansionReject(profile.Name, rejectReason);
                                                 continue;
+                                            }
                                             PatternSignal sig;
-                                            if (!TryMatchProfile(profile, x, a, b, cc, d, atr, bars.OpenTimes[d.Index], timeframe, scale, out sig, false)) continue;
-                                            if (endIndex - d.Index > Math.Max(2, profile.MaxAgeM15Bars)) continue;
+                                            if (!TryMatchProfile(profile, x, a, b, cc, d, atr, bars.OpenTimes[d.Index], timeframe, scale, out sig, false))
+                                            {
+                                                V71CountExpansionReject(profile.Name, "POST_CONTRACT_MATCH_FAIL");
+                                                continue;
+                                            }
+                                            if (endIndex - d.Index > Math.Max(2, profile.MaxAgeM15Bars))
+                                            {
+                                                V71CountExpansionReject(profile.Name, "AGE_FAIL");
+                                                continue;
+                                            }
                                             result.Add(sig);
                                         }
                                     }
@@ -3741,8 +4050,11 @@ namespace cAlgo.Robots
                 .ThenByDescending(x => x.GeometryQuality)
                 .ToList();
 
-            foreach (var s in familyNative)
-                s.ResearchRole = V71AbcdResearchRole(s, familyNative);
+            foreach (var signal in familyNative)
+                signal.ResearchRole = V71AbcdResearchRole(signal, familyNative);
+
+            // Oracle compares against the pre-quota production detector, never Capital selection.
+            V71AuditExpansionDetectorRecall(bars, endIndex, lookback, familyNative);
 
             if (!EnableV71FamilyBalancedCensus)
                 return familyNative.Take(Math.Max(1, maxCandidates)).ToList();
