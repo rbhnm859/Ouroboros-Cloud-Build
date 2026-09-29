@@ -1,9 +1,38 @@
 #!/usr/bin/env python3
-import argparse,json,pathlib,re,statistics
+import argparse,json,pathlib,re,statistics,hashlib
 ap=argparse.ArgumentParser()
 for x in ("report","log","out","window","variant"): ap.add_argument("--"+x,required=True)
 ap.add_argument("--years",type=float,required=True); ap.add_argument("--balance",type=float,required=True)
 a=ap.parse_args(); d=json.load(open(a.report,encoding="utf-8-sig")); t=pathlib.Path(a.log).read_text(errors="ignore")
+
+# Replay identity must come from the completed cTrader execution report, not from
+# best-effort basket-close telemetry. Bot-specific labels/comments are excluded;
+# all economic fills, times, prices, volumes, PnL, drawdown and trade statistics remain.
+def canonical_report_fingerprint(report):
+ main={k:v for k,v in report.get("main",{}).items() if k not in {"cBotName","embedded","cBotLink","authorNickName","authorLink"}}
+ history=[{k:v for k,v in x.items() if k not in {"label","comment"}} for x in report.get("history",{}).get("items",[])]
+ payload={"main":main,"equity":report.get("equity",{}),"tradeStatistics":report.get("tradeStatistics",{}),
+          "history":history,"entries":report.get("entries",{}),"profitsLosses":report.get("profitsLosses",{}),"roi":report.get("roi",{})}
+ raw=json.dumps(payload,sort_keys=True,separators=(",",":"),ensure_ascii=False).encode()
+ return hashlib.sha256(raw).hexdigest(),len(history)
+
+def core_pipeline_fingerprint(log_text):
+ tags=("[V51-PIPELINE]","[V51-SUMMARY]","[V51-ALPHA-SUMMARY]","[V51-FREQUENCY-SUMMARY]",
+       "[V51-INDEPENDENT-SETUP-SUMMARY]","[V51-CONVERSION-SUMMARY]","[V51-FAMILY-CONTRACT-SUMMARY]",
+       "[V51-GRID-REJECT-SUMMARY]","[V51-EXECUTION-ERROR-SUMMARY]")
+ lines=[]
+ for line in log_text.splitlines():
+  p=line.find("[V51-")
+  if p < 0: continue
+  z=line[p:]
+  if z.startswith(tags): lines.append(z)
+ raw="\n".join(lines).encode()
+ return hashlib.sha256(raw).hexdigest(),len(lines)
+
+report_sha,report_history_items=canonical_report_fingerprint(d)
+pipeline_sha,pipeline_fingerprint_lines=core_pipeline_fingerprint(t)
+core_pres=re.findall(r"\[V71-CORE-PRESERVATION\]\s+executed=(\d+)\s+fnv64=([0-9A-Fa-f]+)",t)
+core_execution_fingerprint={"executed":int(core_pres[-1][0]),"fnv64":core_pres[-1][1].upper()} if core_pres else None
 
 rx=re.compile(r"\[V51-BASKET-CLOSED\].*?cid=(\S+)\s+setup=(\S+)\s+pattern=(.*?)\s+subtype=(\S+)\s+route=(\S+)\s+dir=(\S+).*?mfeR=([-0-9.]+)\s+maeR=([-0-9.]+)\s+realizedR=([-0-9.]+)\s+net=([-0-9.]+)\s+reason=(\S+)")
 rows=[]
@@ -53,6 +82,9 @@ out={"variant":a.variant,"window":a.window,"years":a.years,"starting_balance":a.
  **allm,"frequency":allm["baskets"]/a.years if a.years else 0,
  "max_dd_pct":float(eq.get("maxEquityDrawdownPercent",0) or 0),
  "engineering_clean":clean,"summary_present":bool(m),"basket_outcomes":rows,
+ "canonical_report_sha256":report_sha,"canonical_report_history_items":report_history_items,
+ "core_pipeline_sha256":pipeline_sha,"core_pipeline_fingerprint_lines":pipeline_fingerprint_lines,
+ "core_execution_fingerprint":core_execution_fingerprint,
  "core_basket_outcomes":core,"expansion_basket_outcomes":exp,
  "core_metrics":corem,"expansion_metrics":expm,"shadow_outcomes":shadow,"expansion_summary":exp_summary,**c}
 pathlib.Path(a.out).write_text(json.dumps(out,indent=2))
