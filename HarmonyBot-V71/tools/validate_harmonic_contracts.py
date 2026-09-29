@@ -15,14 +15,18 @@ def between(a, b, text=src):
     return text[i:j]
 
 canonical = between("if (EnableCanonicalFamilyContracts)", "else\n            {")
-num = r"[-+]?(?:\\d+(?:\\.\\d*)?|\\.\\d+)"
-rx = re.compile(
-    r'AddStd\\("([^"]+)",\\s*(' + num + r'),\\s*(' + num + r'),\\s*(' + num + r'),\\s*(' + num + r'),\\s*'
-    r'(' + num + r'),\\s*(' + num + r'),\\s*(' + num + r'),\\s*(' + num + r')'
-)
 profiles = {}
-for m in rx.finditer(canonical):
-    vals = list(map(float, m.groups()[1:]))
+for line in canonical.splitlines():
+    z = line.strip()
+    if not z.startswith('AddStd("'):
+        continue
+    m = re.match(r'AddStd\("([^"]+)",\s*(.*)\);$', z)
+    if not m:
+        raise SystemExit(f"cannot parse canonical profile line: {z}")
+    parts = [x.strip() for x in m.group(2).split(",")]
+    if len(parts) < 8:
+        raise SystemExit(f"not enough ratio fields for {m.group(1)}: {parts}")
+    vals = [float(x) for x in parts[:8]]
     profiles[m.group(1)] = {
         "xab": vals[0:2], "abc": vals[2:4], "bcd": vals[4:6], "xad": vals[6:8]
     }
