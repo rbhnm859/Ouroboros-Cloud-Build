@@ -54,10 +54,17 @@ jobs:
           test -s "$A"
           cp "$A" HarmonyBot-V71/dist/HarmonyBot_V71_Protected_Champion_Core_Incremental_Alpha.algo
 
+          TRUSTED_V51=1b670a0f43ba8ecaa637febfdacf605b1b146f01
+          EXPECTED_V51_SOURCE_BLOB=be800fc0ff2a1ca83282af818abdfb6e945a512f
+          EXPECTED_V51_CSPROJ_BLOB=1e3ee7c2f35076d52183d33a6b095bf54d0fc277
+          test "$(git rev-parse "$TRUSTED_V51:HarmonyBot-V51/src/HarmonyBotV51.cs")" = "$EXPECTED_V51_SOURCE_BLOB"
+          test "$(git rev-parse "$TRUSTED_V51:HarmonyBot-V51/HarmonyBotV51.csproj")" = "$EXPECTED_V51_CSPROJ_BLOB"
+          printf '{"trusted_commit":"%s","source_blob":"%s","csproj_blob":"%s","policy":"IMMUTABLE_MOTHER_FAIL_CLOSED"}\n'             "$TRUSTED_V51" "$EXPECTED_V51_SOURCE_BLOB" "$EXPECTED_V51_CSPROJ_BLOB" > HarmonyBot-V71/final/V51_MOTHER_PIN.json
+
           T=$(mktemp -d)
           mkdir -p "$T/src"
-          git show 1b670a0f43ba8ecaa637febfdacf605b1b146f01:HarmonyBot-V51/HarmonyBotV51.csproj > "$T/HarmonyBotV51.csproj"
-          git show 1b670a0f43ba8ecaa637febfdacf605b1b146f01:HarmonyBot-V51/src/HarmonyBotV51.cs > "$T/src/HarmonyBotV51.cs"
+          git show "$TRUSTED_V51:HarmonyBot-V51/HarmonyBotV51.csproj" > "$T/HarmonyBotV51.csproj"
+          git show "$TRUSTED_V51:HarmonyBot-V51/src/HarmonyBotV51.cs" > "$T/src/HarmonyBotV51.cs"
           dotnet restore "$T/HarmonyBotV51.csproj"
           dotnet build "$T/HarmonyBotV51.csproj" -c Release --no-restore --nologo
           R=$(find "$T/bin/Release" -type f -name '*.algo' | head -1)
