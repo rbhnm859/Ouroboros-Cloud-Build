@@ -4,7 +4,7 @@ root=pathlib.Path(sys.argv[1]); out=pathlib.Path(sys.argv[2]); out.mkdir(parents
 W=["Y2021","Y2022","Y2023"]
 F=["g","prz","conf","ts","pv","m1","rr","reg","eff","atr","ext","mtf"]
 SF=["g","prz","m1","rr","reg","eff","atr","ext"]
-TH=[-.10,-.05,0,.025,.05,.075,.10,.125,.15,.20,.25,.30]
+TH=[0,.025,.05,.075,.10,.125,.15,.20,.25,.30]
 Z=1.645; MIN_N=60; MIN_PF=1.10
 rows=[]
 for w in W:
@@ -92,7 +92,7 @@ def score(r,m):
  return edge,ok,hours,edge/max(.5,hours)
 
 def diag(sc,t,arch):
- use=[r for r,e,ok,h,ss in sc if ok and (ss if arch=="H3" else e)>t]
+ use=[r for r,e,ok,h,ss in sc if ok and e>0 and (ss if arch=="H3" else e)>t]
  v=[float(r["outcome_r"]) for r in use]
  return {"selected_n":len(v),"selected_mean_r":mean(v),"selected_pf_r":pf(v),"selected_lcb_r":lcb(v),
          "selection_floor":t,"pass":len(v)>=MIN_N and mean(v)>0 and pf(v)>=MIN_PF and lcb(v)>0}
@@ -147,6 +147,7 @@ full={"model_id":f"V71-{sel}-XFIT-FULL","architecture":sel,"training_windows":W,
       "lcb_margin":m["margin"],"selection_lcb_r":t,"diagnostic":{"train_n":len(rows),"stable_features":[k for k,z in zip(F,m["keep"]) if z]}}
 json.dump(full,open(out/"FULL.json","w"),indent=2)
 manifest={"architecture":"PREREGISTERED_H1_H2_H3_TEMPORAL_CROSSFIT","rows":len(rows),"challengers":["H1","H2","H3"],
+ "capital_alignment":"EDGE_LCB_GT_0_AND_CAPITAL_SCORE_GT_FROZEN_FLOOR",
  "selected_architecture":sel,"selection_objective":"MAXIMIZE_WORST_TEMPORAL_FOLD_CONSERVATIVE_LCB","features":F,"support_features":SF,
  "min_selected_per_fold":MIN_N,"min_pf_r":MIN_PF,"lcb_z":Z,"folds":best["folds"],"crossfit_gate":best["crossfit_gate"],
  "challenger_summary":{a:{k:v for k,v in C[a].items() if k!="models"} for a in C},
