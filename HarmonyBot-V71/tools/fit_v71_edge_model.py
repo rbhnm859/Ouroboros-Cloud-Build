@@ -2,35 +2,41 @@
 import json,pathlib,sys,math,collections,hashlib
 root=pathlib.Path(sys.argv[1]); out=pathlib.Path(sys.argv[2]); out.mkdir(parents=True,exist_ok=True)
 W=["Y2021","Y2022","Y2023"]
-F=["g","prz","conf","ts","pv","m1","rr","reg","eff","atr","ext","mtf"]
-SF=["g","prz","m1","rr","reg","eff","atr","ext"]
-TH=[0,.025,.05,.075,.10,.125,.15,.20,.25,.30]
-Z=1.645; MIN_N=60; MIN_PF=1.10; PAIR_MIN_PER_TRAIN_WINDOW=8; CAPITAL_EXCLUDED_FAMILIES={"ABCD"}; PRIMARY_EXPANSION_FAMILY="Rat"
-rows=[]
+F=["g","prz","conf","ts","pv","m1","rr","reg","eff","atr","ext","mtf","atp","adx1","adx4","adxs","trend","spr","ses","przc","trans"]
+SF=["g","prz","m1","rr","reg","eff","atr","ext","atp","trend","spr","ses","przc","trans"]
+Z=1.645; MIN_N=60; MIN_PF=1.10; CONTEXT_MIN_PER_TRAIN_WINDOW=8; FIXED_SCORE_FLOOR=.015
+CAPITAL_EXCLUDED_FAMILIES={"ABCD"}
+rows=[]; coverage={}
 for w in W:
  xs=list(root.rglob(f"SHADOW_PREPASS-{w}.json"))
  if len(xs)!=1: raise SystemExit(f"missing shadow {w}: {len(xs)}")
+ doc=json.load(open(xs[0])); coverage[w]=doc.get("family_census",{})
  seen=set()
- for r in json.load(open(xs[0])).get("shadow_outcomes",[]):
+ for r in doc.get("shadow_outcomes",[]):
   k=(r["setup"],r["family"],r["route"])
   if k in seen: continue
   seen.add(k); q=dict(r); q["window"]=w; rows.append(q)
 if len(rows)<60: raise SystemExit(f"insufficient rows {len(rows)}")
 raw_rows=list(rows)
-rows=[r for r in rows if r["family"] not in CAPITAL_EXCLUDED_FAMILIES]
-if len(rows)<60: raise SystemExit(f"insufficient capital-eligible rows {len(rows)}")
+# Same-bar stop/2R ambiguity is excluded. Core-overlap and AB=CD remain research evidence
+# but cannot enter Capital model training.
+rows=[r for r in rows if r.get("capital_eligible",False) and r["family"] not in CAPITAL_EXCLUDED_FAMILIES and int(r.get("path_state",0))!=-2]
+if len(rows)<60: raise SystemExit(f"insufficient capital-eligible structural rows {len(rows)}")
 
 def mean(v): return sum(v)/len(v) if v else 0.
 def sd(v):
  if len(v)<2:return 0.
  m=mean(v); return math.sqrt(sum((x-m)**2 for x in v)/(len(v)-1))
 def pct(v,q):
- z=sorted(v); p=(len(z)-1)*q; a=int(math.floor(p)); b=int(math.ceil(p))
+ z=sorted(v)
+ if not z:return 0.
+ p=(len(z)-1)*q; a=int(math.floor(p)); b=int(math.ceil(p))
  return z[a] if a==b else z[a]*(b-p)+z[b]*(p-a)
 def pf(v):
  gp=sum(x for x in v if x>0); gl=-sum(x for x in v if x<0)
  return gp/gl if gl else (999. if gp else 0.)
 def lcb(v): return mean(v)-Z*sd(v)/math.sqrt(len(v)) if len(v)>1 else -999.
+def clamp(x,a,b): return max(a,min(b,x))
 
 def solve(a,b):
  n=len(b); a=[list(map(float,r))+[float(b[i])] for i,r in enumerate(a)]
@@ -45,11 +51,12 @@ def solve(a,b):
    for j in range(i,n+1):a[r][j]-=x*a[i][j]
  return [a[i][n] for i in range(n)]
 
-def ridge(data,target="outcome_r",lam=8.,stability=True):
- mu=[mean([float(r[k]) for r in data]) for k in F]; ss=[max(1e-6,sd([float(r[k]) for r in data])) for k in F]
+def ridge(data,target,lam=10.,stability=True):
+ mu=[mean([float(r.get(k,0)) for r in data]) for k in F]
+ ss=[max(1e-6,sd([float(r.get(k,0)) for r in data])) for k in F]
  ym=mean([float(r[target]) for r in data]); p=len(F); xx=[[0.]*p for _ in range(p)]; xy=[0.]*p
  for r in data:
-  x=[(float(r[k])-mu[i])/ss[i] for i,k in enumerate(F)]; y=float(r[target])-ym
+  x=[(float(r.get(k,0))-mu[i])/ss[i] for i,k in enumerate(F)]; y=float(r[target])-ym
   for i in range(p):
    xy[i]+=x[i]*y
    for j in range(p):xx[i][j]+=x[i]*x[j]
@@ -57,132 +64,138 @@ def ridge(data,target="outcome_r",lam=8.,stability=True):
  bz=solve(xx,xy); keep=[True]*p
  years=sorted(set(r["window"] for r in data))
  if stability and len(years)>1:
-  yb=[]
-  for w in years: yb.append(ridge([r for r in data if r["window"]==w],target,lam,False)[1])
-  for i in range(p):
-   s=1 if bz[i]>0 else -1 if bz[i]<0 else 0
-   keep[i]=s!=0 and all((1 if b[i]>0 else -1 if b[i]<0 else 0)==s for b in yb) and abs(bz[i])>=.01
+  yearly=[]
+  for w in years:
+   sub=[r for r in data if r["window"]==w]
+   if len(sub)<max(20,p+2): continue
+   yearly.append(ridge(sub,target,lam,False)[1])
+  if yearly:
+   for i in range(p):
+    s=1 if bz[i]>0 else -1 if bz[i]<0 else 0
+    keep[i]=s!=0 and all((1 if b[i]>0 else -1 if b[i]<0 else 0)==s for b in yearly) and abs(bz[i])>=.01
  beta=[bz[i]/ss[i] if keep[i] else 0. for i in range(p)]
  return ym-sum(beta[i]*mu[i] for i in range(p)),beta,keep
 
-def priors(data):
- gm=mean([float(r["outcome_r"]) for r in data]); fg=collections.defaultdict(list); rg=collections.defaultdict(list)
- for r in data:fg[r["family"]].append(float(r["outcome_r"]));rg[(r["family"],r["route"])].append(float(r["outcome_r"]))
- fam={f:(sum(v)+30*gm)/(len(v)+30) for f,v in fg.items()}
- return {(f,rt):(sum(v)+20*fam.get(f,gm))/(len(v)+20) for (f,rt),v in rg.items()}
-
-def support(data):
- c={k:mean([float(r[k]) for r in data]) for k in SF}; s={k:max(.05,sd([float(r[k]) for r in data])) for k in SF}
- d=[math.sqrt(sum(((float(r[k])-c[k])/s[k])**2 for k in SF)/len(SF)) for r in data]
- return c,s,max(.75,pct(d,.975))
-
-def stable_pairs(data,family=None):
- years=sorted(set(r["window"] for r in data)); out=set()
- pairs=sorted(set((r["family"],r["route"]) for r in data if family is None or r["family"]==family))
- for pair in pairs:
-  ok=True
-  for w in years:
-   v=[float(r["outcome_r"]) for r in data if (r["family"],r["route"])==pair and r["window"]==w]
-   if len(v)<PAIR_MIN_PER_TRAIN_WINDOW or mean(v)<=0 or pf(v)<=1.0:
-    ok=False; break
-  if ok: out.add(pair)
- return out
-
-def pair_floor(data,pair):
- years=sorted(set(r["window"] for r in data)); vals=[]
- for w in years:
-  v=[float(r["outcome_r"]) for r in data if (r["family"],r["route"])==pair and r["window"]==w]
-  if not v:return -999.
-  vals.append(mean(v))
- return min(vals)
-
-def fit(data,arch):
- c,s,mx=support(data)
- slot=[dict(r,slot_log=math.log(max(.5,min(12.,float(r.get("bars",60))/60.)))) for r in data]
- shi,shb,_=ridge(slot,"slot_log",12.,False)
- if arch=="H0":
-  pairs=stable_pairs(data,PRIMARY_EXPANSION_FAMILY)
-  floors={p:pair_floor(data,p) for p in pairs}
-  return {"arch":arch,"i":0.,"b":[0.]*len(F),"keep":[False]*len(F),"pri":floors,"c":c,"s":s,"support_max":999.,
-          "shi":shi,"shb":shb,"margin":0.,"stable_pairs":pairs}
- i,b,keep=ridge(data); pr=priors(data)
- pred=[i+sum(b[j]*float(r[k]) for j,k in enumerate(F))+pr.get((r["family"],r["route"]),0.) for r in data]
- resid=[float(r["outcome_r"])-pred[n] for n,r in enumerate(data)]
- margin=max(.03,.10*math.sqrt(mean([x*x for x in resid])))
- return {"arch":arch,"i":i,"b":b,"keep":keep,"pri":pr,"c":c,"s":s,"support_max":mx if arch!="H1" else 999.,
-         "shi":shi,"shb":shb,"margin":margin,"stable_pairs":stable_pairs(data)}
-
-def score(r,m):
- pair=(r["family"],r["route"])
- edge=m["i"]+sum(m["b"][j]*float(r[k]) for j,k in enumerate(F))+m["pri"].get(pair,0.)-m["margin"]
- dist=math.sqrt(sum(((float(r[k])-m["c"][k])/m["s"][k])**2 for k in SF)/len(SF)); ok=dist<=m["support_max"] and pair in m["stable_pairs"]
- hours=1.5 if r["route"]=="TREND_ALIGNED_REVERSAL" else 2. if r["route"]=="EXHAUSTION_REVERSAL" else 1.25
- if m["arch"]=="H3":
-  lh=m["shi"]+sum(m["shb"][j]*float(r[k]) for j,k in enumerate(F)); hours=max(.5,min(12.,math.exp(max(-2.,min(3.,lh)))))
- return edge,ok,hours,edge/max(.5,hours)
-
-def diag(sc,t,arch):
- use=[r for r,e,ok,h,ss in sc if ok and e>0 and (ss if arch=="H3" else e)>t]
- v=[float(r["outcome_r"]) for r in use]
- return {"selected_n":len(v),"selected_mean_r":mean(v),"selected_pf_r":pf(v),"selected_lcb_r":lcb(v),
-         "selection_floor":t,"pass":len(v)>=MIN_N and mean(v)>0 and pf(v)>=MIN_PF and lcb(v)>0}
-
-def choose_threshold(train,arch):
- years=sorted(set(r["window"] for r in train))
- if len(years)<2:return .015
- folds=[]
- for test in years:
-  tr=[r for r in train if r["window"]!=test]; ho=[r for r in train if r["window"]==test]; m=fit(tr,arch)
-  folds.append([(r,)+score(r,m) for r in ho])
- ranked=[]
- for t in TH:
-  ds=[diag(x,t,arch) for x in folds]
-  mn=min(d["selected_n"] for d in ds); mp=min(d["selected_pf_r"] for d in ds); wl=min(d["selected_lcb_r"] for d in ds)
-  good=1 if mn>=20 and mp>1.0 else 0
-  ranked.append((good,wl,mp,mn,-abs(t),t))
- return max(ranked)[-1]
+def context(r):
+ if float(r.get("trans",0))>=.5:return "TRANSITION"
+ if float(r.get("mtf",0))>=.85 and float(r.get("trend",0))>=.50:return "ALIGNED_TREND"
+ if float(r.get("ext",0))>=.50 and float(r.get("mtf",0))<=.65:return "EXHAUSTION"
+ if float(r.get("eff",0))<.30:return "RANGE"
+ return "MIXED"
 
 def route_key(x):return "T" if x=="TREND_ALIGNED_REVERSAL" else "E" if x=="EXHAUSTION_REVERSAL" else "X"
+def ctx_key(r): return (r["family"],r["route"],context(r))
+
+def hierarchical_pair_priors(data):
+ gm=mean([float(r["outcome_r"]) for r in data]); fam=collections.defaultdict(list); pair=collections.defaultdict(list)
+ for r in data:
+  fam[r["family"]].append(float(r["outcome_r"])); pair[(r["family"],r["route"])].append(float(r["outcome_r"]))
+ fp={k:(sum(v)+40*gm)/(len(v)+40) for k,v in fam.items()}
+ return {k:(sum(v)+25*fp.get(k[0],gm))/(len(v)+25) for k,v in pair.items()}
+
+def stable_contexts(data):
+ years=sorted(set(r["window"] for r in data)); out=set()
+ for k in sorted(set(ctx_key(r) for r in data)):
+  ok=True
+  for w in years:
+   v=[float(r["outcome_r"]) for r in data if r["window"]==w and ctx_key(r)==k]
+   if len(v)<CONTEXT_MIN_PER_TRAIN_WINDOW or mean(v)<=0 or pf(v)<=1.0:
+    ok=False; break
+  if ok: out.add(k)
+ return out
+
+def support(data):
+ c={k:mean([float(r.get(k,0)) for r in data]) for k in SF}
+ s={k:max(.05,sd([float(r.get(k,0)) for r in data])) for k in SF}
+ d=[math.sqrt(sum(((float(r.get(k,0))-c[k])/s[k])**2 for k in SF)/len(SF)) for r in data]
+ return c,s,max(.75,pct(d,.975))
+
+def fit(data):
+ i,b,keep=ridge(data,"outcome_r",10.,True)
+ resolved=[r for r in data if int(r.get("path_state",0)) in (-1,1)]
+ for r in resolved:r["path_success_float"]=1.0 if int(r["path_state"])==1 else 0.0
+ if len(resolved)>=40:
+  si,sb,skeep=ridge(resolved,"path_success_float",12.,True)
+ else:
+  si,sb,skeep=.5,[0.]*len(F),[False]*len(F)
+ slot=[dict(r,slot_log=math.log(max(.5,min(12.,float(r.get("bars",60))/60.)))) for r in data]
+ shi,shb,_=ridge(slot,"slot_log",12.,False)
+ pr=hierarchical_pair_priors(data); stable=stable_contexts(data); c,s,mx=support(data)
+ pred=[i+sum(b[j]*float(r.get(k,0)) for j,k in enumerate(F))+pr.get((r["family"],r["route"]),0.) for r in data]
+ resid=[float(r["outcome_r"])-pred[n] for n,r in enumerate(data)]
+ margin=max(.03,.10*math.sqrt(mean([x*x for x in resid])))
+ return {"i":i,"b":b,"keep":keep,"si":si,"sb":sb,"skeep":skeep,"shi":shi,"shb":shb,
+         "pri":pr,"stable":stable,"c":c,"s":s,"support_max":mx,"margin":margin}
+
+def score(r,m):
+ pair=(r["family"],r["route"]); ctx=ctx_key(r)
+ edge=m["i"]+sum(m["b"][j]*float(r.get(k,0)) for j,k in enumerate(F))+m["pri"].get(pair,0.)-m["margin"]
+ surv=clamp(m["si"]+sum(m["sb"][j]*float(r.get(k,0)) for j,k in enumerate(F)),.05,.95)
+ dist=math.sqrt(sum(((float(r.get(k,0))-m["c"][k])/m["s"][k])**2 for k in SF)/len(SF))
+ ok=dist<=m["support_max"] and ctx in m["stable"]
+ lh=m["shi"]+sum(m["shb"][j]*float(r.get(k,0)) for j,k in enumerate(F))
+ hours=max(.5,min(12.,math.exp(max(-2.,min(3.,lh)))))
+ return edge,surv,ok,hours,edge*surv/hours
+
+def diag(sc):
+ use=[r for r,e,su,ok,h,ss in sc if ok and e>0 and ss>FIXED_SCORE_FLOOR]
+ v=[float(r["outcome_r"]) for r in use]; resolved=[r for r in use if int(r.get("path_state",0)) in (-1,1)]
+ succ=sum(int(r.get("path_state",0))==1 for r in resolved)/len(resolved) if resolved else 0
+ return {"selected_n":len(v),"selected_mean_r":mean(v),"selected_pf_r":pf(v),"selected_lcb_r":lcb(v),
+         "resolved_path_n":len(resolved),"two_r_before_stop_rate":succ,"selection_floor":FIXED_SCORE_FLOOR,
+         "pass":len(v)>=MIN_N and mean(v)>0 and pf(v)>=MIN_PF and lcb(v)>0}
+
 def pspec(p):
  return ";".join(f"{f}:{route_key(rt)}:{max(-2,min(2,v)):.10f}" for (f,rt),v in sorted(p.items()))
-def pairspec(pairs):
- return ";".join(f"{f}:{route_key(rt)}" for f,rt in sorted(pairs))
+def pairspec(stable):
+ return ";".join(sorted(set(f"{f}:{route_key(rt)}" for f,rt,ctx in stable)))
+def ctxspec(stable):
+ return ";".join(f"{f}:{route_key(rt)}:{ctx}" for f,rt,ctx in sorted(stable))
 def mspec(m):
  a=[f"i:{m['i']:.10f}"]+[f"{k}:{m['b'][j]:.10f}" for j,k in enumerate(F)]+["prior:1.0000000000"]
  for k in SF:a += [f"mc_{k}:{m['c'][k]:.10f}",f"ms_{k}:{m['s'][k]:.10f}"]
- a.append(f"support_max:{m['support_max']:.10f}")
- a.append(f"slot_gate:{1.0 if m['arch']=='H3' else 0.0:.10f}")
- if m["arch"]=="H3":
-  a.append(f"shi:{m['shi']:.10f}"); a += [f"sh_{k}:{m['shb'][j]:.10f}" for j,k in enumerate(F)]
+ a += [f"support_max:{m['support_max']:.10f}",f"slot_gate:1.0000000000",f"shi:{m['shi']:.10f}"]
+ a += [f"sh_{k}:{m['shb'][j]:.10f}" for j,k in enumerate(F)]
+ a += [f"si:{m['si']:.10f}"]+[f"s_{k}:{m['sb'][j]:.10f}" for j,k in enumerate(F)]
  return ";".join(a)
 
-def evaluate(arch):
- folds={}; mods={}
- for test in W:
-  tr=[r for r in rows if r["window"]!=test]; ho=[r for r in rows if r["window"]==test]
-  t=choose_threshold(tr,arch); m=fit(tr,arch); sc=[(r,)+score(r,m) for r in ho]; d=diag(sc,t,arch)
-  d.update({"train_n":len(tr),"test_n":len(ho),"lcb_margin":m["margin"],"support_rejected":sum(1 for r,e,ok,h,ss in sc if not ok),
-            "stable_features":[k for k,z in zip(F,m["keep"]) if z]})
-  folds[test]=d;mods[test]=(m,t)
- return {"folds":folds,"crossfit_gate":all(x["pass"] for x in folds.values()),"folds_passed":sum(x["pass"] for x in folds.values()),
-         "worst_fold_lcb_r":min(x["selected_lcb_r"] for x in folds.values()),"min_fold_pf_r":min(x["selected_pf_r"] for x in folds.values()),"models":mods}
+folds={}; models={}
+for test in W:
+ tr=[r for r in rows if r["window"]!=test]; ho=[r for r in rows if r["window"]==test]
+ m=fit(tr); sc=[(r,)+score(r,m) for r in ho]; d=diag(sc)
+ d.update({"train_n":len(tr),"test_n":len(ho),"lcb_margin":m["margin"],
+           "support_or_context_rejected":sum(1 for r,e,su,ok,h,ss in sc if not ok),
+           "stable_contexts":len(m["stable"]),"stable_features":[k for k,z in zip(F,m["keep"]) if z],
+           "stable_survival_features":[k for k,z in zip(F,m["skeep"]) if z]})
+ folds[test]=d; models[test]=m
 
-C={a:evaluate(a) for a in ["H0","H1","H2","H3"]}
-sel=max(C,key=lambda a:(C[a]["crossfit_gate"],C[a]["folds_passed"],C[a]["worst_fold_lcb_r"],C[a]["min_fold_pf_r"]))
-best=C[sel]
-for test,(m,t) in best["models"].items():
- json.dump({"model_id":f"V71-{sel}-XFIT-{test}","architecture":sel,"training_windows":[w for w in W if w!=test],"test_window":test,
-  "spec":mspec(m),"family_prior_spec":pspec(m["pri"]),"allowed_pair_spec":pairspec(m["stable_pairs"]),"lcb_margin":m["margin"],"selection_lcb_r":t,"diagnostic":best["folds"][test]},
-  open(out/f"{test}.json","w"),indent=2)
-t=choose_threshold(rows,sel); m=fit(rows,sel)
-full={"model_id":f"V71-{sel}-XFIT-FULL","architecture":sel,"training_windows":W,"spec":mspec(m),"family_prior_spec":pspec(m["pri"]),"allowed_pair_spec":pairspec(m["stable_pairs"]),
-      "lcb_margin":m["margin"],"selection_lcb_r":t,"diagnostic":{"train_n":len(rows),"stable_features":[k for k,z in zip(F,m["keep"]) if z]}}
+crossfit=all(x["pass"] for x in folds.values())
+for test,m in models.items():
+ json.dump({"model_id":f"V71-H4-REGIME-XFIT-{test}","architecture":"H4_REGIME_HIERARCHICAL_DUAL_HEAD",
+  "training_windows":[w for w in W if w!=test],"test_window":test,"spec":mspec(m),
+  "family_prior_spec":pspec(m["pri"]),"allowed_pair_spec":pairspec(m["stable"]),
+  "allowed_context_spec":ctxspec(m["stable"]),"lcb_margin":m["margin"],"selection_lcb_r":FIXED_SCORE_FLOOR,
+  "diagnostic":folds[test]},open(out/f"{test}.json","w"),indent=2)
+fullm=fit(rows)
+full={"model_id":"V71-H4-REGIME-XFIT-FULL","architecture":"H4_REGIME_HIERARCHICAL_DUAL_HEAD","training_windows":W,
+      "spec":mspec(fullm),"family_prior_spec":pspec(fullm["pri"]),"allowed_pair_spec":pairspec(fullm["stable"]),
+      "allowed_context_spec":ctxspec(fullm["stable"]),"lcb_margin":fullm["margin"],"selection_lcb_r":FIXED_SCORE_FLOOR,
+      "diagnostic":{"train_n":len(rows),"stable_contexts":len(fullm["stable"]),"stable_features":[k for k,z in zip(F,fullm["keep"]) if z],
+                    "stable_survival_features":[k for k,z in zip(F,fullm["skeep"]) if z]}}
 json.dump(full,open(out/"FULL.json","w"),indent=2)
-manifest={"architecture":"PREREGISTERED_H0_RAT_PAIR_PLUS_H1_H2_H3_TEMPORAL_CROSSFIT","rows":len(rows),"challengers":["H0","H1","H2","H3"],"primary_expansion_family":PRIMARY_EXPANSION_FAMILY,
- "capital_alignment":"NON_ABCD_STABLE_FAMILY_ROUTE_AND_EDGE_LCB_GT_0_AND_CAPITAL_SCORE_GT_FROZEN_FLOOR",
- "selected_architecture":sel,"selection_objective":"MAXIMIZE_WORST_TEMPORAL_FOLD_CONSERVATIVE_LCB","features":F,"support_features":SF,
- "min_selected_per_fold":MIN_N,"min_pf_r":MIN_PF,"lcb_z":Z,"pair_min_per_train_window":PAIR_MIN_PER_TRAIN_WINDOW,"capital_excluded_families":sorted(CAPITAL_EXCLUDED_FAMILIES),"raw_rows":len(raw_rows),"capital_rows":len(rows),"folds":best["folds"],"crossfit_gate":best["crossfit_gate"],
- "challenger_summary":{a:{k:v for k,v in C[a].items() if k!="models"} for a in C},
+
+coverage_total=collections.defaultdict(lambda:{"tracked":0,"armed":0,"core_overlap":0,"shadow_closed":0})
+for w,d in coverage.items():
+ for fam,z in d.items():
+  for k in coverage_total[fam]: coverage_total[fam][k]+=int(z.get(k,0))
+manifest={"architecture":"H4_REGIME_HIERARCHICAL_DUAL_HEAD_PREREGISTERED","rows":len(rows),
+ "capital_alignment":"STRUCTURAL_R_X_SURVIVAL_OVER_SLOT_HOURS_WITH_FAMILY_ROUTE_REGIME_WHITELIST",
+ "selected_architecture":"H4","selection_objective":"FIXED_FLOOR__3OF3_TEMPORAL_CONSERVATIVE_LCB",
+ "features":F,"support_features":SF,"min_selected_per_fold":MIN_N,"min_pf_r":MIN_PF,"lcb_z":Z,
+ "context_min_per_train_window":CONTEXT_MIN_PER_TRAIN_WINDOW,"fixed_score_floor":FIXED_SCORE_FLOOR,
+ "capital_excluded_families":sorted(CAPITAL_EXCLUDED_FAMILIES),"raw_rows":len(raw_rows),"capital_rows":len(rows),
+ "family_census":dict(sorted(coverage_total.items())),"folds":folds,"crossfit_gate":crossfit,
+ "worst_fold_lcb_r":min(x["selected_lcb_r"] for x in folds.values()),"min_fold_pf_r":min(x["selected_pf_r"] for x in folds.values()),
  "full_model_sha256":hashlib.sha256((out/"FULL.json").read_bytes()).hexdigest()}
 json.dump(manifest,open(out/"MODEL_MANIFEST.json","w"),indent=2)
 print(json.dumps(manifest,indent=2))
