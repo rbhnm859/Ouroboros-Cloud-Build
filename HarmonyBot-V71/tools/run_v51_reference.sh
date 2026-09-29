@@ -15,5 +15,11 @@ N="V51-REFERENCE-$WIN-B10000"
  BACKTEST_TIMEOUT_SECONDS=1800 "$C/HarmonyBot-V51/tools/run_backtest.sh"
 )
 test -s "$W/seal/logs/$N.log"; test -s "$W/seal/reports/$N.json"
+DATA_FILES=$(find "$W/seal/data" -type f | wc -l | tr -d " ")
+test "$DATA_FILES" -gt 0 || { echo "[V71-DATA-SEED-FAIL] window=$WIN reason=EMPTY_DATA_CACHE"; exit 41; }
+DATA_HASH=$(cd "$W/seal/data" && find . -type f -print0 | LC_ALL=C sort -z | xargs -0 sha256sum | sha256sum | cut -d' ' -f1)
+printf "%s\n" "$DATA_HASH" > "$O/DATA_SNAPSHOT_SHA256.txt"
+printf "%s\n" "$DATA_FILES" > "$O/DATA_SNAPSHOT_FILE_COUNT.txt"
+echo "[V71-DATA-SEED] window=$WIN files=$DATA_FILES sha256=$DATA_HASH"
 cp "$W/seal/logs/$N.log" "$O/raw-logs/$N.log"; cp "$W/seal/reports/$N.json" "$O/raw-report.json"
-python3 "$C/HarmonyBot-V71/tools/audit_report.py" --report "$W/seal/reports/$N.json" --log "$W/seal/logs/$N.log"  --out "$O/V51_REFERENCE-$WIN.json" --window "$WIN" --variant "V51_REFERENCE" --years "$YEARS" --balance 10000
+python3 "$C/HarmonyBot-V71/tools/audit_report.py" --report "$W/seal/reports/$N.json" --log "$W/seal/logs/$N.log"  --out "$O/V51_REFERENCE-$WIN.json" --window "$WIN" --variant "V51_REFERENCE" --years "$YEARS" --balance 10000 --data-snapshot "$O/DATA_SNAPSHOT_SHA256.txt"
