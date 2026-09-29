@@ -71,7 +71,8 @@ jobs:
           retention-days: 30
 
   shadow:
-    needs: [build, v51_reference]
+    needs: [build, v51_reference, replay_gate]
+    if: ${{ needs.replay_gate.outputs.pass == 'true' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     strategy:
@@ -196,6 +197,89 @@ jobs:
         with:
           name: v71-data-seed-${{ matrix.window }}
           path: control/HarmonyBot-V71/reference-window-${{ matrix.window }}/seal/data
+          retention-days: 30
+
+  replay_core:
+    needs: [build, v51_reference]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      max-parallel: 3
+      matrix:
+        window: [Y2021, Y2022, Y2023]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: control
+      - uses: actions/download-artifact@v4
+        with:
+          name: v71-build
+          path: control/HarmonyBot-V71/shared
+      - uses: actions/download-artifact@v4
+        with:
+          name: v71-data-seed-${{ matrix.window }}
+          path: control/HarmonyBot-V71/data-seed
+      - name: Prepare protected core and dates
+        id: d
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p control/HarmonyBot-V71/dist
+          A=$(find control/HarmonyBot-V71/shared -type f -name 'HarmonyBot_V71_Protected_Champion_Core_Incremental_Alpha.algo' | head -1)
+          cp "$A" control/HarmonyBot-V71/dist/
+          case "${{ matrix.window }}" in
+            Y2021) echo "start=04/01/2021" >> "$GITHUB_OUTPUT"; echo "eval=2021-01-11T00:00:00Z" >> "$GITHUB_OUTPUT"; echo "end=31/12/2021" >> "$GITHUB_OUTPUT";;
+            Y2022) echo "start=03/01/2022" >> "$GITHUB_OUTPUT"; echo "eval=2022-01-10T00:00:00Z" >> "$GITHUB_OUTPUT"; echo "end=30/12/2022" >> "$GITHUB_OUTPUT";;
+            Y2023) echo "start=02/01/2023" >> "$GITHUB_OUTPUT"; echo "eval=2023-01-09T00:00:00Z" >> "$GITHUB_OUTPUT"; echo "end=29/12/2023" >> "$GITHUB_OUTPUT";;
+          esac
+      - name: Run exact protected-core replay
+        env:
+          CTRADER_PASSWORD: ${{ secrets.CTRADER_PASSWORD }}
+          CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+          CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+        run: |
+          chmod +x control/HarmonyBot-V71/tools/*.sh
+          V71_DATA_SEED_DIR="$GITHUB_WORKSPACE/control/HarmonyBot-V71/data-seed" control/HarmonyBot-V71/tools/run_window.sh A_V51_PROTECTED_CORE "${{ matrix.window }}" "${{ steps.d.outputs.start }}" "${{ steps.d.outputs.eval }}" "${{ steps.d.outputs.end }}" 1.0
+      - uses: actions/upload-artifact@v4
+        with:
+          name: v71-replay-core-${{ matrix.window }}
+          path: control/HarmonyBot-V71/output-A_V51_PROTECTED_CORE-${{ matrix.window }}
+          retention-days: 30
+
+  replay_gate:
+    needs: [replay_core, v51_reference]
+    runs-on: ubuntu-24.04
+    outputs:
+      pass: ${{ steps.g.outputs.pass }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: control
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: 'v71-replay-core-*'
+          path: merged
+          merge-multiple: true
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: 'v71-v51-reference-*'
+          path: merged
+          merge-multiple: true
+      - name: Verify exact V51 replay before any expansion research
+        id: g
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p final
+          python3 control/HarmonyBot-V71/tools/verify_v51_replay.py merged final/V71_V51_REPLAY_GATE.json
+          echo "pass=$(python3 -c 'import json; print(str(json.load(open("final/V71_V51_REPLAY_GATE.json"))["pass"]).lower())')" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: V71-V51-REPLAY-GATE
+          path: final/V71_V51_REPLAY_GATE.json
           retention-days: 30
 
   calibration:
