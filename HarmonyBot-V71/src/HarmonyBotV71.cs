@@ -2689,19 +2689,29 @@ namespace cAlgo.Robots
             return VClamp(1.0 - Math.Abs(r.AtrRatio - 1.0));
         }
 
-        private string[] V71ModelFeatureKeys()
-        {
-            return new[] { "g", "prz", "conf", "ts", "pv", "m1", "rr", "reg", "eff", "atr", "ext", "mtf",
-                           "atp", "adx1", "adx4", "adxs", "trend", "spr", "ses", "przc", "trans" };
-        }
-
         private double V71ExpectedEdge(V71ExpansionCandidate e)
         {
             if (!_v71ModelReady || e == null || e.Signal == null) return -999;
-            double z = V71W("i");
-            foreach (var key in V71ModelFeatureKeys())
-                z += V71W(key) * V71FeatureValue(e, key);
-            return z + V71W("prior") * V71FamilyRoutePrior(e);
+            double rr = VClamp(e.NetRR / 4.0);
+            double reg = VClamp(e.RegimeScore);
+            double eff = e.Regime == null ? 0 : VClamp(e.Regime.Efficiency);
+            double ext = e.Regime == null ? 0 : VClamp(e.Regime.ExtensionAtr / 2.0);
+            double mtf = V71MtfScore(e.Conflict);
+            double prior = V71FamilyRoutePrior(e);
+            return V71W("i") +
+                   V71W("g") * VClamp(e.Signal.GeometryQuality) +
+                   V71W("prz") * VClamp(e.Signal.PrzConfluence) +
+                   V71W("conf") * VClamp(e.Signal.Confidence) +
+                   V71W("ts") * VClamp(e.Signal.TimeSymmetry) +
+                   V71W("pv") * VClamp(e.Signal.PivotQuality) +
+                   V71W("m1") * VClamp(e.ConfirmationScore) +
+                   V71W("rr") * rr +
+                   V71W("reg") * reg +
+                   V71W("eff") * eff +
+                   V71W("atr") * V71AtrFit(e.Regime) +
+                   V71W("ext") * ext +
+                   V71W("mtf") * mtf +
+                   V71W("prior") * prior;
         }
 
         private double V71FeatureValue(V71ExpansionCandidate e, string key)
@@ -2719,15 +2729,6 @@ namespace cAlgo.Robots
             if (key == "atr") return V71AtrFit(e.Regime);
             if (key == "ext") return e.Regime == null ? 0 : VClamp(e.Regime.ExtensionAtr / 2.0);
             if (key == "mtf") return V71MtfScore(e.Conflict);
-            if (key == "atp") return e.AtrPercentile;
-            if (key == "adx1") return e.AdxH1Norm;
-            if (key == "adx4") return e.AdxH4Norm;
-            if (key == "adxs") return e.AdxSlopeNorm;
-            if (key == "trend") return e.TrendStrength;
-            if (key == "spr") return e.SpreadAtr;
-            if (key == "ses") return e.SessionPhase;
-            if (key == "przc") return e.PrzCompression;
-            if (key == "trans") return e.TransitionState;
             return 0;
         }
 
@@ -2746,20 +2747,11 @@ namespace cAlgo.Robots
             return Math.Sqrt(ss / keys.Length);
         }
 
-        private bool V71RegimeSurvivalEligible(V71ExpansionCandidate e)
-        {
-            if (V71W("survival_gate") <= .5) return true;
-            return V71FeatureValue(e, "ts") >= V71W("survival_ts_min") &&
-                   V71FeatureValue(e, "ext") >= V71W("survival_ext_min") &&
-                   V71FeatureValue(e, "atr") <= V71W("survival_atr_max");
-        }
-
         private bool V71SupportEligible(V71ExpansionCandidate e, out double distance)
         {
             double supportMax = V71W("support_max");
             distance = V71SupportDistance(e);
-            bool support = supportMax <= 0 || supportMax >= 900 || distance <= supportMax + 1e-12;
-            return support && V71RegimeSurvivalEligible(e);
+            return supportMax <= 0 || supportMax >= 900 || distance <= supportMax + 1e-12;
         }
 
         private double V71ExpectedSlotHours(V71ExpansionCandidate e)
@@ -2770,8 +2762,9 @@ namespace cAlgo.Robots
                        e.Route == HarmonicRoute.EXHAUSTION_REVERSAL ? 2.00 :
                        e.Route == HarmonicRoute.TRANSITION_REVERSAL ? 1.25 : 2.00;
 
+            string[] keys = { "g", "prz", "conf", "ts", "pv", "m1", "rr", "reg", "eff", "atr", "ext", "mtf" };
             double logHours = V71W("shi");
-            foreach (var key in V71ModelFeatureKeys()) logHours += V71W("sh_" + key) * V71FeatureValue(e, key);
+            foreach (var key in keys) logHours += V71W("sh_" + key) * V71FeatureValue(e, key);
             return Math.Max(.50, Math.Min(12.0, Math.Exp(Math.Max(-2.0, Math.Min(3.0, logHours)))));
         }
 
