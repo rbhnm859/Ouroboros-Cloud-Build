@@ -92,7 +92,7 @@ def score(r,m):
  return edge,ok,hours,edge/max(.5,hours)
 
 def diag(sc,t,arch):
- use=[r for r,e,ok,h,ss in sc if ok and e>t]
+ use=[r for r,e,ok,h,ss in sc if ok and (ss if arch=="H3" else e)>t]
  v=[float(r["outcome_r"]) for r in use]
  return {"selected_n":len(v),"selected_mean_r":mean(v),"selected_pf_r":pf(v),"selected_lcb_r":lcb(v),
          "selection_floor":t,"pass":len(v)>=MIN_N and mean(v)>0 and pf(v)>=MIN_PF and lcb(v)>0}
@@ -107,7 +107,9 @@ def choose_threshold(train,arch):
  ranked=[]
  for t in TH:
   ds=[diag(x,t,arch) for x in folds]
-  ranked.append((min(d["selected_lcb_r"] for d in ds),min(d["selected_pf_r"] for d in ds),min(d["selected_n"] for d in ds),-abs(t),t))
+  mn=min(d["selected_n"] for d in ds); mp=min(d["selected_pf_r"] for d in ds); wl=min(d["selected_lcb_r"] for d in ds)
+  good=1 if mn>=20 and mp>1.0 else 0
+  ranked.append((good,wl,mp,mn,-abs(t),t))
  return max(ranked)[-1]
 
 def pspec(p):
@@ -117,6 +119,7 @@ def mspec(m):
  a=[f"i:{m['i']:.10f}"]+[f"{k}:{m['b'][j]:.10f}" for j,k in enumerate(F)]+["prior:1.0000000000"]
  for k in SF:a += [f"mc_{k}:{m['c'][k]:.10f}",f"ms_{k}:{m['s'][k]:.10f}"]
  a.append(f"support_max:{m['support_max']:.10f}")
+ a.append(f"slot_gate:{1.0 if m['arch']=='H3' else 0.0:.10f}")
  if m["arch"]=="H3":
   a.append(f"shi:{m['shi']:.10f}"); a += [f"sh_{k}:{m['shb'][j]:.10f}" for j,k in enumerate(F)]
  return ";".join(a)
