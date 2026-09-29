@@ -3168,7 +3168,7 @@ namespace cAlgo.Robots
 
             var eligible = _v71Expansion.Values
                 .Where(e => e.IsActive && e.State == V71ExpansionState.ARMED && !e.Executed &&
-                            e.SupportEligible && V71CapitalQualificationScore(e) > V71ExpansionMinEdgeLcbR && e.NetRR >= MinimumNetRR &&
+                            e.SupportEligible && e.EdgeLcb > 0 && V71CapitalQualificationScore(e) > V71ExpansionMinEdgeLcbR && e.NetRR >= MinimumNetRR &&
                             !_executedSetupKeys.Contains(e.SetupKey) &&
                             !_v71ExpansionExecutedSetupKeys.Contains(e.SetupKey))
                 .OrderByDescending(e => e.SlotScore)
@@ -3177,7 +3177,7 @@ namespace cAlgo.Robots
             if (eligible.Count == 0)
             {
                 if (_v71Expansion.Values.Any(e => e.IsActive && e.State == V71ExpansionState.ARMED &&
-                    (!e.SupportEligible || V71CapitalQualificationScore(e) <= V71ExpansionMinEdgeLcbR)))
+                    (!e.SupportEligible || e.EdgeLcb <= 0 || V71CapitalQualificationScore(e) <= V71ExpansionMinEdgeLcbR)))
                     _v71ExpansionModelRejected++;
                 return;
             }
