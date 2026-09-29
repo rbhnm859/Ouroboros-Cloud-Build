@@ -21,6 +21,10 @@ if [ -n "$DATA_SEED" ]; then
  DATA_FILES=$(find "$W/seal/data" -type f | wc -l | tr -d " ")
  test "$DATA_FILES" -gt 0 || { echo "[V71-DATA-SEED-FAIL] variant=$VAR window=$WIN reason=EMPTY_SEED"; exit 43; }
  DATA_HASH=$(cd "$W/seal/data" && find . -type f -print0 | LC_ALL=C sort -z | xargs -0 sha256sum | sha256sum | cut -d' ' -f1)
+ if [[ -n "${V71_EXPECTED_DATA_SHA256:-}" && "$DATA_HASH" != "$V71_EXPECTED_DATA_SHA256" ]]; then
+  echo "[V71-DATA-CUSTODY-FAIL] variant=$VAR window=$WIN stage=pre expected=$V71_EXPECTED_DATA_SHA256 actual=$DATA_HASH"
+  exit 45
+ fi
  printf "%s\n" "$DATA_HASH" > "$O/DATA_SNAPSHOT_SHA256.txt"
  printf "%s\n" "$DATA_FILES" > "$O/DATA_SNAPSHOT_FILE_COUNT.txt"
  echo "[V71-DATA-SEED] variant=$VAR window=$WIN files=$DATA_FILES sha256=$DATA_HASH"
@@ -51,5 +55,14 @@ fi
  RUN_NAME="$N" START_DATE="$START" EVAL_DATE="$EVAL" END_DATE="$END" BALANCE=10000  EXPSHADOW="$EXPSHADOW" EXPEXEC="$EXPEXEC" EXPGRID="$EXPGRID" EXPADAPRISK="$EXPADAPRISK" EXPRISK="$EXPRISK"  EDGE_MODEL_SPEC="$EDGE_MODEL_SPEC" EDGE_PRIOR_SPEC="$EDGE_PRIOR_SPEC" EDGE_ALLOWED_PAIRS="$EDGE_ALLOWED_PAIRS" EDGE_ALLOWED_CONTEXTS="$EDGE_ALLOWED_CONTEXTS" EDGE_LCB_MARGIN="$EDGE_LCB_MARGIN" EDGE_MIN_LCB="$EDGE_MIN_LCB" EDGE_MODEL_ID="$EDGE_MODEL_ID"  BACKTEST_TIMEOUT_SECONDS=1800 "$C/HarmonyBot-V71/tools/run_backtest.sh"
 )
 test -s "$W/seal/logs/$N.log"; test -s "$W/seal/reports/$N.json"
+POST_DATA_HASH=$(cd "$W/seal/data" && find . -type f -print0 | LC_ALL=C sort -z | xargs -0 sha256sum | sha256sum | cut -d' ' -f1)
+if [[ "$POST_DATA_HASH" != "$DATA_HASH" ]]; then
+ echo "[V71-DATA-CUSTODY-FAIL] variant=$VAR window=$WIN stage=post pre=$DATA_HASH actual=$POST_DATA_HASH"
+ exit 46
+fi
+if [[ -n "${V71_EXPECTED_DATA_SHA256:-}" && "$POST_DATA_HASH" != "$V71_EXPECTED_DATA_SHA256" ]]; then
+ echo "[V71-DATA-CUSTODY-FAIL] variant=$VAR window=$WIN stage=post expected=$V71_EXPECTED_DATA_SHA256 actual=$POST_DATA_HASH"
+ exit 47
+fi
 cp "$W/seal/logs/$N.log" "$O/raw-logs/$N.log"; cp "$W/seal/reports/$N.json" "$O/raw-report.json"
 python3 "$C/HarmonyBot-V71/tools/audit_report.py" --report "$W/seal/reports/$N.json" --log "$W/seal/logs/$N.log"  --out "$O/$VAR-$WIN.json" --window "$WIN" --variant "$VAR" --years "$YEARS" --balance 10000 --data-snapshot "$O/DATA_SNAPSHOT_SHA256.txt"
