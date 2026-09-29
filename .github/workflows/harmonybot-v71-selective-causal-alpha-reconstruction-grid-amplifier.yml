@@ -182,6 +182,36 @@ jobs:
         with:
           name: v71-build
           path: control/HarmonyBot-V71/shared
+      - name: Resolve immutable burned-calibration custody source
+        id: custody
+        shell: bash
+        run: |
+          set -euo pipefail
+          M=control/HarmonyBot-V71/final/V71_BURNED_CALIBRATION_CUSTODY.json
+          test -s "$M"
+          RUN_ID=$(python3 -c 'import json; print(json.load(open("control/HarmonyBot-V71/final/V71_BURNED_CALIBRATION_CUSTODY.json"))["source_run_id"])')
+          EXPECTED=$(python3 -c 'import json; d=json.load(open("control/HarmonyBot-V71/final/V71_BURNED_CALIBRATION_CUSTODY.json")); print(d["windows"]["${{ matrix.window }}"]["sha256"])')
+          test -n "$RUN_ID"; test -n "$EXPECTED"
+          echo "run_id=$RUN_ID" >> "$GITHUB_OUTPUT"
+          echo "expected_sha256=$EXPECTED" >> "$GITHUB_OUTPUT"
+      - uses: actions/download-artifact@v4
+        with:
+          name: v71-data-seed-${{ matrix.window }}
+          path: control/HarmonyBot-V71/immutable-seed-${{ matrix.window }}
+          github-token: ${{ github.token }}
+          run-id: ${{ steps.custody.outputs.run_id }}
+      - name: Verify immutable custody seed
+        shell: bash
+        run: |
+          set -euo pipefail
+          D=control/HarmonyBot-V71/immutable-seed-${{ matrix.window }}
+          test -d "$D"
+          H=$(cd "$D" && find . -type f -print0 | LC_ALL=C sort -z | xargs -0 sha256sum | sha256sum | cut -d' ' -f1)
+          test "$H" = "${{ steps.custody.outputs.expected_sha256 }}" || {
+            echo "[V71-DATA-CUSTODY-FAIL] window=${{ matrix.window }} stage=rehydrate expected=${{ steps.custody.outputs.expected_sha256 }} actual=$H"
+            exit 48
+          }
+          echo "[V71-DATA-CUSTODY] window=${{ matrix.window }} stage=rehydrate sha256=$H"
       - name: Prepare exact V51 reference and dates
         id: d
         shell: bash
@@ -200,6 +230,8 @@ jobs:
           CTRADER_PASSWORD: ${{ secrets.CTRADER_PASSWORD }}
           CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
           CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+          V71_DATA_SEED_DIR: ${{ github.workspace }}/control/HarmonyBot-V71/immutable-seed-${{ matrix.window }}
+          V71_EXPECTED_DATA_SHA256: ${{ steps.custody.outputs.expected_sha256 }}
         run: |
           chmod +x control/HarmonyBot-V71/tools/*.sh control/HarmonyBot-V51/tools/*.sh
           control/HarmonyBot-V71/tools/run_v51_reference.sh "${{ matrix.window }}" "${{ steps.d.outputs.start }}" "${{ steps.d.outputs.eval }}" "${{ steps.d.outputs.end }}" 1.0
@@ -211,7 +243,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: v71-data-seed-${{ matrix.window }}
-          path: control/HarmonyBot-V71/reference-window-${{ matrix.window }}/seal/data
+          path: control/HarmonyBot-V71/immutable-seed-${{ matrix.window }}
           retention-days: 30
 
   replay_core:
