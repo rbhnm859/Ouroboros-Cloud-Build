@@ -227,6 +227,15 @@ namespace cAlgo.Robots
         [Parameter("V71 Expansion Max Candidates", DefaultValue = 24, MinValue = 8, MaxValue = 32)]
         public int V71ExpansionMaxCandidates { get; set; }
 
+        [Parameter("V71 Family-Balanced Census", DefaultValue = true)]
+        public bool EnableV71FamilyBalancedCensus { get; set; }
+
+        [Parameter("V71 Per-Family Census Cap", DefaultValue = 6, MinValue = 2, MaxValue = 12)]
+        public int V71PerFamilyCensusCap { get; set; }
+
+        [Parameter("V71 AB=CD Census Share %", DefaultValue = 15, MinValue = 0, MaxValue = 25)]
+        public int V71AbcdCensusSharePercent { get; set; }
+
         [Parameter("V71 Expansion TTL M15", DefaultValue = 16, MinValue = 4, MaxValue = 32)]
         public int V71ExpansionTtlM15Bars { get; set; }
 
@@ -464,8 +473,9 @@ namespace cAlgo.Robots
             Print("[V71-PROTECTED-CORE] trustedParent={0} expansionShadow={1} expansionExecution={2} expansionGrid={3} expansionAdaptiveRisk={4} expansionRiskCap={5:F2} model={6} modelReady={7}",
                 V51TrustedParent, EnableV71ExpansionShadow, EnableV71ExpansionExecution, EnableV71ExpansionGrid,
                 EnableV71ExpansionAdaptiveRisk, Math.Min(5.0, V71ExpansionRiskPercent), V71ModelId, _v71ModelReady);
-            Print("[V71-INCREMENTAL-POLICY] corePreemption=true minEdgeLcbR={0:F3} sameSetupExpansionBlocked=true",
-                Math.Max(0, V71ExpansionMinEdgeLcbR));
+            Print("[V71-INCREMENTAL-POLICY] corePreemption=true minEdgeLcbR={0:F3} sameSetupExpansionBlocked=true familyBalancedCensus={1} perFamilyCap={2} abcdSharePct={3}",
+                Math.Max(0, V71ExpansionMinEdgeLcbR), EnableV71FamilyBalancedCensus,
+                Math.Max(2, Math.Min(12, V71PerFamilyCensusCap)), Math.Max(0, Math.Min(25, V71AbcdCensusSharePercent)));
         }
 
         protected override void OnStop()
@@ -694,8 +704,13 @@ namespace cAlgo.Robots
             V71PreemptExpansionForCore(Server.Time.ToUniversalTime());
             if (EnableV71ExpansionShadow || EnableV71ExpansionExecution)
             {
-                var expansionDetected = DetectPatternCandidates(_m15Bars, i, M15SwingDepth, M15SwingLookback,
-                    Math.Max(8, Math.Min(32, V71ExpansionMaxCandidates)), "M15");
+                int expansionLimit = Math.Max(8, Math.Min(32, V71ExpansionMaxCandidates));
+                int expansionPoolLimit = EnableV71FamilyBalancedCensus
+                    ? Math.Max(64, Math.Min(128, expansionLimit * 4))
+                    : expansionLimit;
+                var expansionPool = DetectPatternCandidates(_m15Bars, i, M15SwingDepth, M15SwingLookback,
+                    expansionPoolLimit, "M15");
+                var expansionDetected = V71SelectExpansionSignals(expansionPool, expansionLimit);
                 foreach (var expansionSignal in expansionDetected)
                     V71TrackExpansionSignal(expansionSignal, h4State, h1State, regime);
             }
@@ -2634,6 +2649,56 @@ namespace cAlgo.Robots
                 return false;
             if (s.StructuralInvalidation <= 0 || s.PrzHigh <= s.PrzLow) return false;
             return true;
+        }
+
+        private List<PatternSignal> V71SelectExpansionSignals(IEnumerable<PatternSignal> pool, int maxCandidates)
+        {
+            int limit = Math.Max(8, Math.Min(32, maxCandidates));
+            var ordered = (pool ?? Enumerable.Empty<PatternSignal>())
+                .Where(x => x != null && x.Profile != null)
+                .GroupBy(BuildSetupGeometryKey)
+                .Select(g => g.OrderByDescending(x => x.Confidence).ThenByDescending(x => x.GeometryQuality).First())
+                .OrderByDescending(x => x.Confidence)
+                .ThenByDescending(x => x.GeometryQuality)
+                .ToList();
+
+            if (!EnableV71FamilyBalancedCensus)
+                return ordered.Take(limit).ToList();
+
+            int familyCap = Math.Max(2, Math.Min(12, V71PerFamilyCensusCap));
+            int abcdBudget = (int)Math.Floor(limit * Math.Max(0, Math.Min(25, V71AbcdCensusSharePercent)) / 100.0);
+            var familyBuckets = ordered
+                .Where(x => !string.Equals(V71FamilyKey(x.PatternName), "ABCD", StringComparison.OrdinalIgnoreCase))
+                .GroupBy(x => V71FamilyKey(x.PatternName))
+                .OrderBy(g => g.Key)
+                .ToDictionary(
+                    g => g.Key,
+                    g => new Queue<PatternSignal>(g.Take(familyCap)));
+
+            var selected = new List<PatternSignal>();
+            int nonAbcdBudget = Math.Max(0, limit - abcdBudget);
+            bool progressed = true;
+            while (selected.Count < nonAbcdBudget && progressed)
+            {
+                progressed = false;
+                foreach (var key in familyBuckets.Keys.OrderBy(x => x).ToList())
+                {
+                    Queue<PatternSignal> q = familyBuckets[key];
+                    if (q.Count == 0) continue;
+                    selected.Add(q.Dequeue());
+                    progressed = true;
+                    if (selected.Count >= nonAbcdBudget) break;
+                }
+            }
+
+            if (abcdBudget > 0 && selected.Count < limit)
+            {
+                foreach (var x in ordered.Where(x => string.Equals(V71FamilyKey(x.PatternName), "ABCD", StringComparison.OrdinalIgnoreCase))
+                                         .Take(Math.Min(abcdBudget, limit - selected.Count)))
+                    selected.Add(x);
+            }
+
+            return selected;
         }
 
         private void V71TrackExpansionSignal(PatternSignal s, HarmonicState h4, HarmonicState h1, RegimeSnapshot regime)
