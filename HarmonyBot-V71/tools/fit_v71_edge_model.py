@@ -5,7 +5,7 @@ W=["Y2021","Y2022","Y2023"]
 F=["g","prz","conf","ts","pv","m1","rr","reg","eff","atr","ext","mtf"]
 SF=["g","prz","m1","rr","reg","eff","atr","ext"]
 TH=[0,.025,.05,.075,.10,.125,.15,.20,.25,.30]
-Z=1.645; MIN_N=60; MIN_PF=1.10
+Z=1.645; MIN_N=60; MIN_PF=1.10; PAIR_MIN_PER_TRAIN_WINDOW=8; CAPITAL_EXCLUDED_FAMILIES={"ABCD"}
 rows=[]
 for w in W:
  xs=list(root.rglob(f"SHADOW_PREPASS-{w}.json"))
@@ -16,6 +16,9 @@ for w in W:
   if k in seen: continue
   seen.add(k); q=dict(r); q["window"]=w; rows.append(q)
 if len(rows)<60: raise SystemExit(f"insufficient rows {len(rows)}")
+raw_rows=list(rows)
+rows=[r for r in rows if r["family"] not in CAPITAL_EXCLUDED_FAMILIES]
+if len(rows)<60: raise SystemExit(f"insufficient capital-eligible rows {len(rows)}")
 
 def mean(v): return sum(v)/len(v) if v else 0.
 def sd(v):
@@ -73,6 +76,18 @@ def support(data):
  d=[math.sqrt(sum(((float(r[k])-c[k])/s[k])**2 for k in SF)/len(SF)) for r in data]
  return c,s,max(.75,pct(d,.975))
 
+def stable_pairs(data):
+ years=sorted(set(r["window"] for r in data)); out=set()
+ pairs=sorted(set((r["family"],r["route"]) for r in data))
+ for pair in pairs:
+  ok=True
+  for w in years:
+   v=[float(r["outcome_r"]) for r in data if (r["family"],r["route"])==pair and r["window"]==w]
+   if len(v)<PAIR_MIN_PER_TRAIN_WINDOW or mean(v)<=0 or pf(v)<=1.0:
+    ok=False; break
+  if ok: out.add(pair)
+ return out
+
 def fit(data,arch):
  i,b,keep=ridge(data); pr=priors(data); c,s,mx=support(data)
  slot=[dict(r,slot_log=math.log(max(.5,min(12.,float(r.get("bars",60))/60.)))) for r in data]
@@ -81,11 +96,11 @@ def fit(data,arch):
  resid=[float(r["outcome_r"])-pred[n] for n,r in enumerate(data)]
  margin=max(.03,.10*math.sqrt(mean([x*x for x in resid])))
  return {"arch":arch,"i":i,"b":b,"keep":keep,"pri":pr,"c":c,"s":s,"support_max":mx if arch!="H1" else 999.,
-         "shi":shi,"shb":shb,"margin":margin}
+         "shi":shi,"shb":shb,"margin":margin,"stable_pairs":stable_pairs(data)}
 
 def score(r,m):
  edge=m["i"]+sum(m["b"][j]*float(r[k]) for j,k in enumerate(F))+m["pri"].get((r["family"],r["route"]),0.)-m["margin"]
- dist=math.sqrt(sum(((float(r[k])-m["c"][k])/m["s"][k])**2 for k in SF)/len(SF)); ok=dist<=m["support_max"]
+ dist=math.sqrt(sum(((float(r[k])-m["c"][k])/m["s"][k])**2 for k in SF)/len(SF)); ok=dist<=m["support_max"] and (r["family"],r["route"]) in m["stable_pairs"]
  hours=1.5 if r["route"]=="TREND_ALIGNED_REVERSAL" else 2. if r["route"]=="EXHAUSTION_REVERSAL" else 1.25
  if m["arch"]=="H3":
   lh=m["shi"]+sum(m["shb"][j]*float(r[k]) for j,k in enumerate(F)); hours=max(.5,min(12.,math.exp(max(-2.,min(3.,lh)))))
@@ -147,9 +162,9 @@ full={"model_id":f"V71-{sel}-XFIT-FULL","architecture":sel,"training_windows":W,
       "lcb_margin":m["margin"],"selection_lcb_r":t,"diagnostic":{"train_n":len(rows),"stable_features":[k for k,z in zip(F,m["keep"]) if z]}}
 json.dump(full,open(out/"FULL.json","w"),indent=2)
 manifest={"architecture":"PREREGISTERED_H1_H2_H3_TEMPORAL_CROSSFIT","rows":len(rows),"challengers":["H1","H2","H3"],
- "capital_alignment":"EDGE_LCB_GT_0_AND_CAPITAL_SCORE_GT_FROZEN_FLOOR",
+ "capital_alignment":"NON_ABCD_STABLE_FAMILY_ROUTE_AND_EDGE_LCB_GT_0_AND_CAPITAL_SCORE_GT_FROZEN_FLOOR",
  "selected_architecture":sel,"selection_objective":"MAXIMIZE_WORST_TEMPORAL_FOLD_CONSERVATIVE_LCB","features":F,"support_features":SF,
- "min_selected_per_fold":MIN_N,"min_pf_r":MIN_PF,"lcb_z":Z,"folds":best["folds"],"crossfit_gate":best["crossfit_gate"],
+ "min_selected_per_fold":MIN_N,"min_pf_r":MIN_PF,"lcb_z":Z,"pair_min_per_train_window":PAIR_MIN_PER_TRAIN_WINDOW,"capital_excluded_families":sorted(CAPITAL_EXCLUDED_FAMILIES),"raw_rows":len(raw_rows),"capital_rows":len(rows),"folds":best["folds"],"crossfit_gate":best["crossfit_gate"],
  "challenger_summary":{a:{k:v for k,v in C[a].items() if k!="models"} for a in C},
  "full_model_sha256":hashlib.sha256((out/"FULL.json").read_bytes()).hexdigest()}
 json.dump(manifest,open(out/"MODEL_MANIFEST.json","w"),indent=2)
