@@ -2768,6 +2768,30 @@ namespace cAlgo.Robots
             return Math.Max(.50, Math.Min(12.0, Math.Exp(Math.Max(-2.0, Math.Min(3.0, logHours)))));
         }
 
+        private double V71SessionPhase(DateTime utc)
+        {
+            utc = DateTime.SpecifyKind(utc, DateTimeKind.Utc);
+            DateTime londonLocal = TimeZoneInfo.ConvertTimeFromUtc(utc, _londonTz);
+            DateTime nyLocal = TimeZoneInfo.ConvertTimeFromUtc(utc, _newYorkTz);
+            DateTime londonOpenUtc = TimeZoneInfo.ConvertTimeToUtc(DateTime.SpecifyKind(londonLocal.Date.AddHours(8), DateTimeKind.Unspecified), _londonTz);
+            DateTime nyCloseUtc = TimeZoneInfo.ConvertTimeToUtc(DateTime.SpecifyKind(nyLocal.Date.AddHours(17), DateTimeKind.Unspecified), _newYorkTz);
+            double span = Math.Max(1.0, (nyCloseUtc - londonOpenUtc).TotalMinutes);
+            return VClamp((utc - londonOpenUtc).TotalMinutes / span);
+        }
+
+        private double V71SpreadAtr(RegimeSnapshot r)
+        {
+            if (r == null || r.AtrM15Pips <= 1e-9) return 1.0;
+            return VClamp(CurrentSpreadPips() / r.AtrM15Pips);
+        }
+
+        private double V71PrzCompression(V71ExpansionCandidate e)
+        {
+            if (e == null || e.Signal == null || e.Regime == null || e.Regime.AtrM15Pips <= 1e-9) return 0.0;
+            double widthPips = PriceToPips(Math.Max(0, e.Signal.PrzHigh - e.Signal.PrzLow));
+            return VClamp(1.0 - widthPips / Math.Max(1e-9, e.Regime.AtrM15Pips));
+        }
+
         private void V71ArmExpansion(int i, DateTime utc, V71ExpansionCandidate e, double confirmationScore)
         {
             double entry = e.Signal.Direction == TradeDirection.Buy ? _symbol.Ask : _symbol.Bid;
@@ -2796,6 +2820,15 @@ namespace cAlgo.Robots
             e.NetRR = netRr;
             e.ConfirmationScore = confirmationScore;
             e.RegimeScore = RegimeContextScore(e.Signal, e.Conflict, e.Regime);
+            e.AtrPercentile = e.Regime == null ? .5 : VClamp(e.Regime.AtrPercentile);
+            e.AdxH1Norm = e.Regime == null ? 0 : VClamp(e.Regime.AdxH1 / 50.0);
+            e.AdxH4Norm = e.Regime == null ? 0 : VClamp(e.Regime.AdxH4 / 50.0);
+            e.AdxSlopeNorm = e.Regime == null ? 0 : Math.Max(-1.0, Math.Min(1.0, e.Regime.AdxH1Slope / 10.0));
+            e.TrendStrength = e.Regime == null ? 0 : VClamp(e.Regime.TrendStrength);
+            e.SpreadAtr = V71SpreadAtr(e.Regime);
+            e.SessionPhase = V71SessionPhase(utc);
+            e.PrzCompression = V71PrzCompression(e);
+            e.TransitionState = e.Regime != null && e.Regime.Transition ? 1.0 : 0.0;
             e.ArmedUtc = utc;
             e.State = V71ExpansionState.ARMED;
             e.ShadowStarted = true;
@@ -2809,13 +2842,15 @@ namespace cAlgo.Robots
             e.SlotScore = e.SupportEligible ? e.EdgeLcb / Math.Max(.50, e.ExpectedSlotHours) : double.NegativeInfinity;
             _v71ExpansionArmed++;
 
-            Print("[V71-EXP-ARM] cid={0} setup={1} family={2} route={3} model={4} g={5:F5} prz={6:F5} conf={7:F5} ts={8:F5} pv={9:F5} m1={10:F5} rr={11:F5} reg={12:F5} eff={13:F5} atr={14:F5} ext={15:F5} mtf={16:F5} prior={17:F5} edge={18:F5} lcb={19:F5} slotScore={20:F5}",
+            Print("[V71-EXP-ARM] cid={0} setup={1} family={2} route={3} model={4} g={5:F5} prz={6:F5} conf={7:F5} ts={8:F5} pv={9:F5} m1={10:F5} rr={11:F5} reg={12:F5} eff={13:F5} atr={14:F5} ext={15:F5} mtf={16:F5} atp={17:F5} adx1={18:F5} adx4={19:F5} adxs={20:F5} trend={21:F5} spr={22:F5} ses={23:F5} przc={24:F5} trans={25:F5} prior={26:F5} edge={27:F5} lcb={28:F5} slotScore={29:F5}",
                 e.CandidateId, e.SetupKey, V71FamilyKey(e.Signal.PatternName), e.Route, V71ModelId,
                 VClamp(e.Signal.GeometryQuality), VClamp(e.Signal.PrzConfluence), VClamp(e.Signal.Confidence),
                 VClamp(e.Signal.TimeSymmetry), VClamp(e.Signal.PivotQuality), VClamp(e.ConfirmationScore),
                 VClamp(e.NetRR / 4.0), VClamp(e.RegimeScore),
                 e.Regime == null ? 0 : VClamp(e.Regime.Efficiency), V71AtrFit(e.Regime),
                 e.Regime == null ? 0 : VClamp(e.Regime.ExtensionAtr / 2.0), V71MtfScore(e.Conflict),
+                e.AtrPercentile, e.AdxH1Norm, e.AdxH4Norm, e.AdxSlopeNorm, e.TrendStrength,
+                e.SpreadAtr, e.SessionPhase, e.PrzCompression, e.TransitionState,
                 V71FamilyRoutePrior(e), e.EdgeMean, e.EdgeLcb, e.SlotScore);
         }
 
@@ -2960,13 +2995,15 @@ namespace cAlgo.Robots
             e.ShadowOutcomeR = r;
             e.ShadowFinished = true;
             _v71ExpansionShadowClosed++;
-            Print("[V71-EXP-SHADOW] cid={0} setup={1} family={2} route={3} g={4:F6} prz={5:F6} conf={6:F6} ts={7:F6} pv={8:F6} m1={9:F6} rr={10:F6} reg={11:F6} eff={12:F6} atr={13:F6} ext={14:F6} mtf={15:F6} outcomeR={16:F6} result={17} bars={18} label=V51_NATIVE_EXIT_PROXY_COMPLETED_M1",
+            Print("[V71-EXP-SHADOW] cid={0} setup={1} family={2} route={3} g={4:F6} prz={5:F6} conf={6:F6} ts={7:F6} pv={8:F6} m1={9:F6} rr={10:F6} reg={11:F6} eff={12:F6} atr={13:F6} ext={14:F6} mtf={15:F6} atp={16:F6} adx1={17:F6} adx4={18:F6} adxs={19:F6} trend={20:F6} spr={21:F6} ses={22:F6} przc={23:F6} trans={24:F6} outcomeR={25:F6} result={26} bars={27} label=V51_NATIVE_EXIT_PROXY_COMPLETED_M1",
                 e.CandidateId, e.SetupKey, V71FamilyKey(e.Signal.PatternName), e.Route,
                 VClamp(e.Signal.GeometryQuality), VClamp(e.Signal.PrzConfluence), VClamp(e.Signal.Confidence),
                 VClamp(e.Signal.TimeSymmetry), VClamp(e.Signal.PivotQuality), VClamp(e.ConfirmationScore),
                 VClamp(e.NetRR / 4.0), VClamp(e.RegimeScore),
                 e.Regime == null ? 0 : VClamp(e.Regime.Efficiency), V71AtrFit(e.Regime),
                 e.Regime == null ? 0 : VClamp(e.Regime.ExtensionAtr / 2.0), V71MtfScore(e.Conflict),
+                e.AtrPercentile, e.AdxH1Norm, e.AdxH4Norm, e.AdxSlopeNorm, e.TrendStrength,
+                e.SpreadAtr, e.SessionPhase, e.PrzCompression, e.TransitionState,
                 r, result, e.ShadowBars);
         }
 
@@ -3690,6 +3727,7 @@ namespace cAlgo.Robots
 
             double atrNow = Atr(_m15Bars, 14, m15);
             double atrBase = RollingAtrMean(_m15Bars, 14, m15, 120);
+            r.AtrM15Pips = PriceToPips(Math.Max(0, atrNow));
             r.AtrRatio = atrBase > 0 ? atrNow / atrBase : 1.0;
             r.AtrPercentile = AtrPercentile(_m15Bars, 14, m15, 120);
             r.Efficiency = EfficiencyRatio(_m15Bars.ClosePrices, m15, 20);
@@ -4647,6 +4685,7 @@ namespace cAlgo.Robots
         public TradeDirection TrendDirection;
         public bool Transition;
         public double AtrRatio;
+        public double AtrM15Pips;
         public double AtrPercentile;
         public double Efficiency;
         public double ExtensionAtr;
@@ -4672,6 +4711,8 @@ namespace cAlgo.Robots
         public double ConfirmationScore, NetRR, RegimeScore;
         public double EntryAnchor, StructuralStop, CanonicalTarget, RiskDistance, TargetR;
         public double EdgeMean, EdgeLcb, SlotScore, ShadowOutcomeR;
+        public double AtrPercentile, AdxH1Norm, AdxH4Norm, AdxSlopeNorm, TrendStrength;
+        public double SpreadAtr, SessionPhase, PrzCompression, TransitionState;
         public double SupportDistance, ExpectedSlotHours;
         public bool SupportEligible = true;
         public double ShadowPeakR, ShadowProtectionR = -1.0;

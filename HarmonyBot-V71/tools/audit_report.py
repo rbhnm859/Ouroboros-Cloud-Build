@@ -62,13 +62,16 @@ clean_keys=["execution_errors","grid_risk_violations","duplicate_grid_legs","orp
 "unprotected_survivors","post_fill_protection_failures","actual_basket_risk_violations","execution_state_violations","margin_risk_violations"]
 clean=bool(m) and all(c[k]==0 for k in clean_keys)
 
-srx=re.compile(r"\[V71-EXP-SHADOW\]\s+cid=(\S+)\s+setup=(\S+)\s+family=(\S+)\s+route=(\S+)\s+g=([-0-9.]+)\s+prz=([-0-9.]+)\s+conf=([-0-9.]+)\s+ts=([-0-9.]+)\s+pv=([-0-9.]+)\s+m1=([-0-9.]+)\s+rr=([-0-9.]+)\s+reg=([-0-9.]+)\s+eff=([-0-9.]+)\s+atr=([-0-9.]+)\s+ext=([-0-9.]+)\s+mtf=([-0-9.]+)\s+outcomeR=([-0-9.]+)\s+result=(\S+)\s+bars=(\d+)")
+srx=re.compile(r"\[V71-EXP-SHADOW\]\s+cid=(\S+)\s+setup=(\S+)\s+family=(\S+)\s+route=(\S+)\s+g=([-0-9.]+)\s+prz=([-0-9.]+)\s+conf=([-0-9.]+)\s+ts=([-0-9.]+)\s+pv=([-0-9.]+)\s+m1=([-0-9.]+)\s+rr=([-0-9.]+)\s+reg=([-0-9.]+)\s+eff=([-0-9.]+)\s+atr=([-0-9.]+)\s+ext=([-0-9.]+)\s+mtf=([-0-9.]+)\s+atp=([-0-9.]+)\s+adx1=([-0-9.]+)\s+adx4=([-0-9.]+)\s+adxs=([-0-9.]+)\s+trend=([-0-9.]+)\s+spr=([-0-9.]+)\s+ses=([-0-9.]+)\s+przc=([-0-9.]+)\s+trans=([-0-9.]+)\s+outcomeR=([-0-9.]+)\s+result=(\S+)\s+bars=(\d+)")
 shadow=[]
 for q in srx.finditer(t):
  shadow.append({"cid":q.group(1),"setup":q.group(2),"family":q.group(3),"route":q.group(4),
  "g":float(q.group(5)),"prz":float(q.group(6)),"conf":float(q.group(7)),"ts":float(q.group(8)),"pv":float(q.group(9)),
  "m1":float(q.group(10)),"rr":float(q.group(11)),"reg":float(q.group(12)),"eff":float(q.group(13)),"atr":float(q.group(14)),
- "ext":float(q.group(15)),"mtf":float(q.group(16)),"outcome_r":float(q.group(17)),"result":q.group(18),"bars":int(q.group(19))})
+ "ext":float(q.group(15)),"mtf":float(q.group(16)),"atp":float(q.group(17)),"adx1":float(q.group(18)),
+ "adx4":float(q.group(19)),"adxs":float(q.group(20)),"trend":float(q.group(21)),"spr":float(q.group(22)),
+ "ses":float(q.group(23)),"przc":float(q.group(24)),"trans":float(q.group(25)),
+ "outcome_r":float(q.group(26)),"result":q.group(27),"bars":int(q.group(28))})
 
 es=re.findall(r"\[V71-EXPANSION-SUMMARY\].*?detected=(\d+)\s+armed=(\d+)\s+executed=(\d+)\s+coreBlocked=(\d+)\s+modelRejected=(\d+)\s+gridFallback=(\d+)\s+shadowClosed=(\d+)\s+riskScaled=(\d+)\s+active=(\d+)\s+model=(\S+)",t)
 exp_summary={"detected":0,"armed":0,"executed":0,"core_blocked":0,"model_rejected":0,"grid_fallback":0,"shadow_closed":0,"risk_scaled":0,"active":0,"model":"NONE"}
