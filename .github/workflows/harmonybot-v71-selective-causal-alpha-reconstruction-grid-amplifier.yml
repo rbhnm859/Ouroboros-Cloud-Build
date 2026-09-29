@@ -70,7 +70,7 @@ jobs:
           retention-days: 30
 
   shadow:
-    needs: build
+    needs: [build, v51_reference]
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     strategy:
@@ -87,6 +87,10 @@ jobs:
         with:
           name: v71-build
           path: control/HarmonyBot-V71/shared
+      - uses: actions/download-artifact@v4
+        with:
+          name: v71-data-seed-${{ matrix.window }}
+          path: control/HarmonyBot-V71/data-seed
       - name: Prepare algo and dates
         id: d
         shell: bash
@@ -107,7 +111,7 @@ jobs:
           CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
         run: |
           chmod +x control/HarmonyBot-V71/tools/*.sh
-          control/HarmonyBot-V71/tools/run_window.sh SHADOW_PREPASS "${{ matrix.window }}" "${{ steps.d.outputs.start }}" "${{ steps.d.outputs.eval }}" "${{ steps.d.outputs.end }}" 1.0
+          V71_DATA_SEED_DIR="$GITHUB_WORKSPACE/control/HarmonyBot-V71/data-seed" control/HarmonyBot-V71/tools/run_window.sh SHADOW_PREPASS "${{ matrix.window }}" "${{ steps.d.outputs.start }}" "${{ steps.d.outputs.eval }}" "${{ steps.d.outputs.end }}" 1.0
       - uses: actions/upload-artifact@v4
         with:
           name: v71-shadow-${{ matrix.window }}
@@ -187,9 +191,14 @@ jobs:
           name: v71-v51-reference-${{ matrix.window }}
           path: control/HarmonyBot-V71/reference-output-${{ matrix.window }}
           retention-days: 30
+      - uses: actions/upload-artifact@v4
+        with:
+          name: v71-data-seed-${{ matrix.window }}
+          path: control/HarmonyBot-V71/reference-window-${{ matrix.window }}/seal/data
+          retention-days: 30
 
   calibration:
-    needs: [build, fit_model]
+    needs: [build, fit_model, v51_reference]
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     strategy:
@@ -211,6 +220,10 @@ jobs:
         with:
           name: V71-EDGE-MODEL
           path: control/HarmonyBot-V71/model
+      - uses: actions/download-artifact@v4
+        with:
+          name: v71-data-seed-${{ matrix.window }}
+          path: control/HarmonyBot-V71/data-seed
       - name: Prepare algo and dates
         id: d
         shell: bash
@@ -231,7 +244,7 @@ jobs:
           CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
         run: |
           chmod +x control/HarmonyBot-V71/tools/*.sh
-          control/HarmonyBot-V71/tools/run_window.sh "${{ matrix.variant }}" "${{ matrix.window }}" "${{ steps.d.outputs.start }}" "${{ steps.d.outputs.eval }}" "${{ steps.d.outputs.end }}" 1.0
+          V71_DATA_SEED_DIR="$GITHUB_WORKSPACE/control/HarmonyBot-V71/data-seed" control/HarmonyBot-V71/tools/run_window.sh "${{ matrix.variant }}" "${{ matrix.window }}" "${{ steps.d.outputs.start }}" "${{ steps.d.outputs.eval }}" "${{ steps.d.outputs.end }}" 1.0
       - uses: actions/upload-artifact@v4
         with:
           name: v71-cal-${{ matrix.variant }}-${{ matrix.window }}
@@ -279,8 +292,54 @@ jobs:
           path: final
           retention-days: 30
 
+  promotion_dev_seed:
+    needs: [build, calibration_analyze]
+    if: ${{ needs.calibration_analyze.outputs.candidate != '' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      max-parallel: 3
+      matrix:
+        window: [H2024H2, H2025H1, H2025H2]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: control
+      - uses: actions/download-artifact@v4
+        with:
+          name: v71-build
+          path: control/HarmonyBot-V71/shared
+      - name: Prepare trusted V51 DEV data seed
+        id: d
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p control/HarmonyBot-V71/reference
+          R=$(find control/HarmonyBot-V71/shared -type f -name 'HarmonyBot_V51_Family_Native_Math_Geometry_Economic_Conversion_RC.algo' | head -1)
+          cp "$R" control/HarmonyBot-V71/reference/
+          case "${{ matrix.window }}" in
+            H2024H2) echo "start=01/07/2024" >> "$GITHUB_OUTPUT"; echo "eval=2024-07-08T00:00:00Z" >> "$GITHUB_OUTPUT"; echo "end=31/12/2024" >> "$GITHUB_OUTPUT";;
+            H2025H1) echo "start=02/01/2025" >> "$GITHUB_OUTPUT"; echo "eval=2025-01-09T00:00:00Z" >> "$GITHUB_OUTPUT"; echo "end=30/06/2025" >> "$GITHUB_OUTPUT";;
+            H2025H2) echo "start=01/07/2025" >> "$GITHUB_OUTPUT"; echo "eval=2025-07-08T00:00:00Z" >> "$GITHUB_OUTPUT"; echo "end=31/12/2025" >> "$GITHUB_OUTPUT";;
+          esac
+      - name: Hydrate and seal observed DEV market data
+        env:
+          CTRADER_PASSWORD: ${{ secrets.CTRADER_PASSWORD }}
+          CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+          CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+        run: |
+          chmod +x control/HarmonyBot-V71/tools/*.sh control/HarmonyBot-V51/tools/*.sh
+          control/HarmonyBot-V71/tools/run_v51_reference.sh "${{ matrix.window }}" "${{ steps.d.outputs.start }}" "${{ steps.d.outputs.eval }}" "${{ steps.d.outputs.end }}" .5
+      - uses: actions/upload-artifact@v4
+        with:
+          name: v71-dev-data-seed-${{ matrix.window }}
+          path: control/HarmonyBot-V71/reference-window-${{ matrix.window }}/seal/data
+          retention-days: 30
+
   promotion_dev:
-    needs: calibration_analyze
+    needs: [calibration_analyze, promotion_dev_seed]
     if: ${{ needs.calibration_analyze.outputs.candidate != '' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 45
@@ -303,6 +362,10 @@ jobs:
         with:
           name: V71-EDGE-MODEL
           path: control/HarmonyBot-V71/model
+      - uses: actions/download-artifact@v4
+        with:
+          name: v71-dev-data-seed-${{ matrix.window }}
+          path: control/HarmonyBot-V71/data-seed
       - name: Prepare algo and observed DEV dates
         id: d
         shell: bash
@@ -323,7 +386,7 @@ jobs:
           CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
         run: |
           chmod +x control/HarmonyBot-V71/tools/*.sh
-          control/HarmonyBot-V71/tools/run_window.sh "${{ matrix.variant }}" "${{ matrix.window }}" "${{ steps.d.outputs.start }}" "${{ steps.d.outputs.eval }}" "${{ steps.d.outputs.end }}" .5
+          V71_DATA_SEED_DIR="$GITHUB_WORKSPACE/control/HarmonyBot-V71/data-seed" control/HarmonyBot-V71/tools/run_window.sh "${{ matrix.variant }}" "${{ matrix.window }}" "${{ steps.d.outputs.start }}" "${{ steps.d.outputs.eval }}" "${{ steps.d.outputs.end }}" .5
       - uses: actions/upload-artifact@v4
         with:
           name: v71-dev-${{ matrix.variant }}-${{ matrix.window }}
