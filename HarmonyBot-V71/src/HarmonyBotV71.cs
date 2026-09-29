@@ -257,6 +257,9 @@ namespace cAlgo.Robots
         [Parameter("V71 Allowed Family Route Spec", DefaultValue = "")]
         public string V71AllowedFamilyRouteSpec { get; set; }
 
+        [Parameter("V71 Allowed Family Route Context Spec", DefaultValue = "")]
+        public string V71AllowedFamilyRouteContextSpec { get; set; }
+
         [Parameter("V71 Edge LCB Margin", DefaultValue = 0.0, MinValue = 0.0, MaxValue = 2.0)]
         public double V71EdgeLcbMargin { get; set; }
 
@@ -365,6 +368,7 @@ namespace cAlgo.Robots
         private readonly Dictionary<string, double> _v71EdgeWeights = new Dictionary<string, double>();
         private readonly Dictionary<string, double> _v71FamilyRoutePriors = new Dictionary<string, double>();
         private readonly HashSet<string> _v71AllowedFamilyRoutes = new HashSet<string>(StringComparer.Ordinal);
+        private readonly HashSet<string> _v71AllowedFamilyRouteContexts = new HashSet<string>(StringComparer.Ordinal);
         private readonly Dictionary<string, int> _v71FamilyTracked = new Dictionary<string, int>();
         private readonly Dictionary<string, int> _v71FamilyArmed = new Dictionary<string, int>();
         private readonly Dictionary<string, int> _v71FamilyCoreOverlap = new Dictionary<string, int>();
@@ -2588,6 +2592,7 @@ namespace cAlgo.Robots
             _v71EdgeWeights.Clear();
             _v71FamilyRoutePriors.Clear();
             _v71AllowedFamilyRoutes.Clear();
+            _v71AllowedFamilyRouteContexts.Clear();
             _v71ModelReady = false;
 
             if (!string.IsNullOrWhiteSpace(V71EdgeModelSpec))
@@ -2618,6 +2623,14 @@ namespace cAlgo.Robots
                 {
                     string key = part.Trim();
                     if (!string.IsNullOrWhiteSpace(key)) _v71AllowedFamilyRoutes.Add(key);
+                }
+            }
+            if (!string.IsNullOrWhiteSpace(V71AllowedFamilyRouteContextSpec))
+            {
+                foreach (var part in V71AllowedFamilyRouteContextSpec.Split(new[] { ';' }, StringSplitOptions.RemoveEmptyEntries))
+                {
+                    string key = part.Trim();
+                    if (!string.IsNullOrWhiteSpace(key)) _v71AllowedFamilyRouteContexts.Add(key);
                 }
             }
 
@@ -2656,12 +2669,25 @@ namespace cAlgo.Robots
             return _v71FamilyRoutePriors.TryGetValue(key, out v) ? v : 0.0;
         }
 
+        private string V71RegimeContextKey(V71ExpansionCandidate e)
+        {
+            if (e == null) return "MIXED";
+            if (e.TransitionState >= .50) return "TRANSITION";
+            double mtf = V71MtfScore(e.Conflict);
+            if (mtf >= .85 && e.TrendStrength >= .50) return "ALIGNED_TREND";
+            if (e.Regime != null && e.Regime.ExtensionAtr >= 1.0 && mtf <= .65) return "EXHAUSTION";
+            if (e.Regime != null && e.Regime.Efficiency < .30) return "RANGE";
+            return "MIXED";
+        }
+
         private bool V71FamilyRouteAllowed(V71ExpansionCandidate e)
         {
             if (e == null || e.Signal == null) return false;
             if (_v71AllowedFamilyRoutes.Count == 0) return false;
-            string key = V71FamilyKey(e.Signal.PatternName) + ":" + V71RouteKey(e.Route);
-            return _v71AllowedFamilyRoutes.Contains(key);
+            string pair = V71FamilyKey(e.Signal.PatternName) + ":" + V71RouteKey(e.Route);
+            if (!_v71AllowedFamilyRoutes.Contains(pair)) return false;
+            if (_v71AllowedFamilyRouteContexts.Count == 0) return true;
+            return _v71AllowedFamilyRouteContexts.Contains(pair + ":" + V71RegimeContextKey(e));
         }
 
         private double V71MtfScore(MtfConflict c)
@@ -2862,33 +2888,20 @@ namespace cAlgo.Robots
         private double V71ExpectedEdge(V71ExpansionCandidate e)
         {
             if (!_v71ModelReady || e == null || e.Signal == null) return -999;
-            double rr = VClamp(e.NetRR / 4.0);
-            double reg = VClamp(e.RegimeScore);
-            double eff = e.Regime == null ? 0 : VClamp(e.Regime.Efficiency);
-            double ext = e.Regime == null ? 0 : VClamp(e.Regime.ExtensionAtr / 2.0);
-            double mtf = V71MtfScore(e.Conflict);
-            double prior = V71FamilyRoutePrior(e);
-            return V71W("i") +
-                   V71W("g") * VClamp(e.Signal.GeometryQuality) +
-                   V71W("prz") * VClamp(e.Signal.PrzConfluence) +
-                   V71W("conf") * VClamp(e.Signal.Confidence) +
-                   V71W("ts") * VClamp(e.Signal.TimeSymmetry) +
-                   V71W("pv") * VClamp(e.Signal.PivotQuality) +
-                   V71W("m1") * VClamp(e.ConfirmationScore) +
-                   V71W("rr") * rr +
-                   V71W("reg") * reg +
-                   V71W("eff") * eff +
-                   V71W("atr") * V71AtrFit(e.Regime) +
-                   V71W("ext") * ext +
-                   V71W("mtf") * mtf +
-                   V71W("prior") * prior;
+            string[] keys = { "g", "prz", "conf", "ts", "pv", "m1", "rr", "reg", "eff", "atr", "ext", "mtf",
+                              "atp", "adx1", "adx4", "adxs", "trend", "spr", "ses", "przc", "trans" };
+            double y = V71W("i");
+            foreach (var key in keys) y += V71W(key) * V71FeatureValue(e, key);
+            y += V71W("prior") * V71FamilyRoutePrior(e);
+            return y;
         }
 
         private double V71ExpectedSurvival(V71ExpansionCandidate e)
         {
             if (e == null || e.Signal == null) return .50;
             double p = V71W("si");
-            string[] keys = { "g", "prz", "conf", "ts", "pv", "m1", "rr", "reg", "eff", "atr", "ext", "mtf" };
+            string[] keys = { "g", "prz", "conf", "ts", "pv", "m1", "rr", "reg", "eff", "atr", "ext", "mtf",
+                              "atp", "adx1", "adx4", "adxs", "trend", "spr", "ses", "przc", "trans" };
             foreach (var key in keys)
                 p += V71W("s_" + key) * V71FeatureValue(e, key);
             if (Math.Abs(p) < 1e-12 && Math.Abs(V71W("si")) < 1e-12) return .50;
@@ -2910,6 +2923,15 @@ namespace cAlgo.Robots
             if (key == "atr") return V71AtrFit(e.Regime);
             if (key == "ext") return e.Regime == null ? 0 : VClamp(e.Regime.ExtensionAtr / 2.0);
             if (key == "mtf") return V71MtfScore(e.Conflict);
+            if (key == "atp") return e.AtrPercentile;
+            if (key == "adx1") return e.AdxH1Norm;
+            if (key == "adx4") return e.AdxH4Norm;
+            if (key == "adxs") return e.AdxSlopeNorm;
+            if (key == "trend") return e.TrendStrength;
+            if (key == "spr") return e.SpreadAtr;
+            if (key == "ses") return e.SessionPhase;
+            if (key == "przc") return e.PrzCompression;
+            if (key == "trans") return e.TransitionState;
             return 0;
         }
 
@@ -2917,7 +2939,7 @@ namespace cAlgo.Robots
         {
             double supportMax = V71W("support_max");
             if (supportMax <= 0 || supportMax >= 900) return 0;
-            string[] keys = { "g", "prz", "m1", "rr", "reg", "eff", "atr", "ext" };
+            string[] keys = { "g", "prz", "m1", "rr", "reg", "eff", "atr", "ext", "atp", "trend", "spr", "ses", "przc", "trans" };
             double ss = 0;
             foreach (var key in keys)
             {
@@ -2943,7 +2965,8 @@ namespace cAlgo.Robots
                        e.Route == HarmonicRoute.EXHAUSTION_REVERSAL ? 2.00 :
                        e.Route == HarmonicRoute.TRANSITION_REVERSAL ? 1.25 : 2.00;
 
-            string[] keys = { "g", "prz", "conf", "ts", "pv", "m1", "rr", "reg", "eff", "atr", "ext", "mtf" };
+            string[] keys = { "g", "prz", "conf", "ts", "pv", "m1", "rr", "reg", "eff", "atr", "ext", "mtf",
+                              "atp", "adx1", "adx4", "adxs", "trend", "spr", "ses", "przc", "trans" };
             double logHours = V71W("shi");
             foreach (var key in keys) logHours += V71W("sh_" + key) * V71FeatureValue(e, key);
             return Math.Max(.50, Math.Min(12.0, Math.Exp(Math.Max(-2.0, Math.Min(3.0, logHours)))));
