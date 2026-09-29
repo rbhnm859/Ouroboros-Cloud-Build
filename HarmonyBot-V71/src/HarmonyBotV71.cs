@@ -2714,11 +2714,58 @@ namespace cAlgo.Robots
                    V71W("prior") * prior;
         }
 
-        private double V71ExpectedSlotHours(HarmonicRoute route)
+        private double V71FeatureValue(V71ExpansionCandidate e, string key)
         {
-            return route == HarmonicRoute.TREND_ALIGNED_REVERSAL ? 1.50 :
-                   route == HarmonicRoute.EXHAUSTION_REVERSAL ? 2.00 :
-                   route == HarmonicRoute.TRANSITION_REVERSAL ? 1.25 : 2.00;
+            if (e == null || e.Signal == null) return 0;
+            if (key == "g") return VClamp(e.Signal.GeometryQuality);
+            if (key == "prz") return VClamp(e.Signal.PrzConfluence);
+            if (key == "conf") return VClamp(e.Signal.Confidence);
+            if (key == "ts") return VClamp(e.Signal.TimeSymmetry);
+            if (key == "pv") return VClamp(e.Signal.PivotQuality);
+            if (key == "m1") return VClamp(e.ConfirmationScore);
+            if (key == "rr") return VClamp(e.NetRR / 4.0);
+            if (key == "reg") return VClamp(e.RegimeScore);
+            if (key == "eff") return e.Regime == null ? 0 : VClamp(e.Regime.Efficiency);
+            if (key == "atr") return V71AtrFit(e.Regime);
+            if (key == "ext") return e.Regime == null ? 0 : VClamp(e.Regime.ExtensionAtr / 2.0);
+            if (key == "mtf") return V71MtfScore(e.Conflict);
+            return 0;
+        }
+
+        private double V71SupportDistance(V71ExpansionCandidate e)
+        {
+            double supportMax = V71W("support_max");
+            if (supportMax <= 0 || supportMax >= 900) return 0;
+            string[] keys = { "g", "prz", "m1", "rr", "reg", "eff", "atr", "ext" };
+            double ss = 0;
+            foreach (var key in keys)
+            {
+                double scale = Math.Max(.05, Math.Abs(V71W("ms_" + key)));
+                double z = (V71FeatureValue(e, key) - V71W("mc_" + key)) / scale;
+                ss += z * z;
+            }
+            return Math.Sqrt(ss / keys.Length);
+        }
+
+        private bool V71SupportEligible(V71ExpansionCandidate e, out double distance)
+        {
+            double supportMax = V71W("support_max");
+            distance = V71SupportDistance(e);
+            return supportMax <= 0 || supportMax >= 900 || distance <= supportMax + 1e-12;
+        }
+
+        private double V71ExpectedSlotHours(V71ExpansionCandidate e)
+        {
+            if (e == null) return 2.0;
+            if (!_v71EdgeWeights.ContainsKey("shi"))
+                return e.Route == HarmonicRoute.TREND_ALIGNED_REVERSAL ? 1.50 :
+                       e.Route == HarmonicRoute.EXHAUSTION_REVERSAL ? 2.00 :
+                       e.Route == HarmonicRoute.TRANSITION_REVERSAL ? 1.25 : 2.00;
+
+            string[] keys = { "g", "prz", "conf", "ts", "pv", "m1", "rr", "reg", "eff", "atr", "ext", "mtf" };
+            double logHours = V71W("shi");
+            foreach (var key in keys) logHours += V71W("sh_" + key) * V71FeatureValue(e, key);
+            return Math.Max(.50, Math.Min(12.0, Math.Exp(Math.Max(-2.0, Math.Min(3.0, logHours)))));
         }
 
         private void V71ArmExpansion(int i, DateTime utc, V71ExpansionCandidate e, double confirmationScore)
@@ -2754,9 +2801,12 @@ namespace cAlgo.Robots
             e.ShadowStarted = true;
             e.ShadowPeakR = 0;
             e.ShadowProtectionR = -1.0;
+            e.SupportEligible = V71SupportEligible(e, out var supportDistance);
+            e.SupportDistance = supportDistance;
             e.EdgeMean = V71ExpectedEdge(e);
             e.EdgeLcb = e.EdgeMean - Math.Max(0, V71EdgeLcbMargin);
-            e.SlotScore = e.EdgeLcb / Math.Max(.50, V71ExpectedSlotHours(e.Route));
+            e.ExpectedSlotHours = V71ExpectedSlotHours(e);
+            e.SlotScore = e.SupportEligible ? e.EdgeLcb / Math.Max(.50, e.ExpectedSlotHours) : double.NegativeInfinity;
             _v71ExpansionArmed++;
 
             Print("[V71-EXP-ARM] cid={0} setup={1} family={2} route={3} model={4} g={5:F5} prz={6:F5} conf={7:F5} ts={8:F5} pv={9:F5} m1={10:F5} rr={11:F5} reg={12:F5} eff={13:F5} atr={14:F5} ext={15:F5} mtf={16:F5} prior={17:F5} edge={18:F5} lcb={19:F5} slotScore={20:F5}",
@@ -3112,7 +3162,7 @@ namespace cAlgo.Robots
 
             var eligible = _v71Expansion.Values
                 .Where(e => e.IsActive && e.State == V71ExpansionState.ARMED && !e.Executed &&
-                            e.EdgeLcb > Math.Max(0, V71ExpansionMinEdgeLcbR) && e.NetRR >= MinimumNetRR &&
+                            e.SupportEligible && e.EdgeLcb > Math.Max(0, V71ExpansionMinEdgeLcbR) && e.NetRR >= MinimumNetRR &&
                             !_executedSetupKeys.Contains(e.SetupKey) &&
                             !_v71ExpansionExecutedSetupKeys.Contains(e.SetupKey))
                 .OrderByDescending(e => e.SlotScore)
@@ -3121,7 +3171,7 @@ namespace cAlgo.Robots
             if (eligible.Count == 0)
             {
                 if (_v71Expansion.Values.Any(e => e.IsActive && e.State == V71ExpansionState.ARMED &&
-                    e.EdgeLcb <= Math.Max(0, V71ExpansionMinEdgeLcbR)))
+                    (!e.SupportEligible || e.EdgeLcb <= Math.Max(0, V71ExpansionMinEdgeLcbR))))
                     _v71ExpansionModelRejected++;
                 return;
             }
@@ -4616,6 +4666,8 @@ namespace cAlgo.Robots
         public double ConfirmationScore, NetRR, RegimeScore;
         public double EntryAnchor, StructuralStop, CanonicalTarget, RiskDistance, TargetR;
         public double EdgeMean, EdgeLcb, SlotScore, ShadowOutcomeR;
+        public double SupportDistance, ExpectedSlotHours;
+        public bool SupportEligible = true;
         public double ShadowPeakR, ShadowProtectionR = -1.0;
         public int ShadowBars;
     }
