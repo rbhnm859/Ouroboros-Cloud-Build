@@ -708,7 +708,7 @@ namespace cAlgo.Robots
                 int expansionPoolLimit = EnableV71FamilyBalancedCensus
                     ? Math.Max(64, Math.Min(128, expansionLimit * 4))
                     : expansionLimit;
-                var expansionPool = DetectPatternCandidates(_m15Bars, i, M15SwingDepth, M15SwingLookback,
+                var expansionPool = V71DetectExpansionPatternCandidates(_m15Bars, i, M15SwingDepth, M15SwingLookback,
                     expansionPoolLimit, "M15");
                 var expansionDetected = V71SelectExpansionSignals(expansionPool, expansionLimit);
                 foreach (var expansionSignal in expansionDetected)
@@ -2656,7 +2656,9 @@ namespace cAlgo.Robots
             int limit = Math.Max(8, Math.Min(32, maxCandidates));
             var ordered = (pool ?? Enumerable.Empty<PatternSignal>())
                 .Where(x => x != null && x.Profile != null)
-                .GroupBy(BuildSetupGeometryKey)
+                // Expansion research must preserve competing family interpretations of the
+                // same XABCD geometry. Core canonical identity remains geometry-only.
+                .GroupBy(x => V71FamilyKey(x.PatternName) + "|" + BuildSetupGeometryKey(x))
                 .Select(g => g.OrderByDescending(x => x.Confidence).ThenByDescending(x => x.GeometryQuality).First())
                 .OrderByDescending(x => x.Confidence)
                 .ThenByDescending(x => x.GeometryQuality)
@@ -3384,6 +3386,54 @@ namespace cAlgo.Robots
             return ordered
                 .GroupBy(x => x.PatternName + "|" + x.Direction + "|" + x.CompletionTime.ToString("O") + "|" + x.PivotScale)
                 .Select(g => g.First())
+                .Take(Math.Max(1, maxCandidates))
+                .ToList();
+        }
+
+        private List<PatternSignal> V71DetectExpansionPatternCandidates(Bars bars, int endIndex, int depth, int lookback, int maxCandidates, string timeframe)
+        {
+            var result = new List<PatternSignal>();
+            if (bars == null || endIndex < 40) return result;
+            double atr = Atr(bars, 14, endIndex);
+            if (atr <= 0) return result;
+
+            int[] scales = EnableIndependentPivotGraph && string.Equals(timeframe, "M15", StringComparison.OrdinalIgnoreCase)
+                ? new[] { 2, 3, 5 }
+                : new[] { Math.Max(2, depth) };
+
+            foreach (int scale in scales.Distinct())
+            {
+                var pivots = BuildConfirmedPivots(bars, endIndex, lookback, scale);
+                if (pivots.Count < 5) continue;
+
+                int start = Math.Max(0, pivots.Count - 36);
+                for (int i = start; i <= pivots.Count - 5; i++)
+                {
+                    var x = pivots[i];
+                    var a = pivots[i + 1];
+                    var b = pivots[i + 2];
+                    var cc = pivots[i + 3];
+                    var d = pivots[i + 4];
+
+                    foreach (var profile in _profiles)
+                    {
+                        PatternSignal sig;
+                        if (!TryMatchProfile(profile, x, a, b, cc, d, atr, bars.OpenTimes[d.Index], timeframe, scale, out sig))
+                            continue;
+                        if (endIndex - d.Index > Math.Max(2, profile.MaxAgeM15Bars)) continue;
+                        result.Add(sig);
+                    }
+                }
+            }
+
+            // IMPORTANT: unlike the immutable Core detector, Expansion preserves
+            // family identity before census balancing. A Rat and an AB=CD on the
+            // same pivots are competing hypotheses, not the same research row.
+            return result
+                .GroupBy(x => V71FamilyKey(x.PatternName) + "|" + BuildSetupGeometryKey(x) + "|" + x.PivotScale)
+                .Select(g => g.OrderByDescending(x => x.Confidence).ThenByDescending(x => x.GeometryQuality).First())
+                .OrderByDescending(x => x.Confidence)
+                .ThenByDescending(x => x.GeometryQuality)
                 .Take(Math.Max(1, maxCandidates))
                 .ToList();
         }
