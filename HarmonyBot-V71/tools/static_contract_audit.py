@@ -21,7 +21,7 @@ checks={
  "core_preemption":"V71PreemptExpansionForCore" in s and "V51_CORE_PREEMPT" in s and "CORE_PREEMPT" in s,
  "same_setup_capital_blocked":"e.CapitalEligible && !e.CoreOverlapObserved" in execblk and "CoreOverlapObserved = coreOverlap" in s,
  "family_native_expansion_identity":"V71DetectExpansionPatternCandidates" in s and 'V71FamilyKey(x.PatternName) + "|" + BuildSetupGeometryKey(x)' in s,
- "family_balance_before_global_cap":"perFamilyPool" in s and '.GroupBy(x => V71FamilyKey(x.PatternName))' in s and "Never apply a global confidence cap before family balancing" in s,
+ "family_balance_before_global_cap":"var familyBuckets = ordered" in s and '.GroupBy(x => V71FamilyKey(x.PatternName))' in s and "selected.Count < nonAbcdBudget" in s,
  "decision_time_regime_refresh":"V71RefreshExpansionDecisionContext(e);" in s and "e.Route = V71ExpansionRoute(e.Signal, e.Conflict, regime);" in s,
  "deterministic_expansion_identity":"V71StableHash32(id)" in s and "private uint V71StableHash32" in s and "GetHashCode()" not in s,
  "runtime_lane_whitelist":"V71AllowedFamilyRouteSpec" in s and "V71FamilyRouteAllowed(e)" in execblk and "_v71AllowedFamilyRoutes.Count == 0" in s,
