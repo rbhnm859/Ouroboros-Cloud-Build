@@ -39,6 +39,7 @@ jobs:
           set -euo pipefail
           cd control
           python3 HarmonyBot-V71/tools/static_contract_audit.py HarmonyBot-V71/src/HarmonyBotV71.cs
+          python3 HarmonyBot-V71/tools/validate_harmonic_contracts.py HarmonyBot-V71/src/HarmonyBotV71.cs
           python3 -m py_compile HarmonyBot-V71/tools/*.py
           bash -n HarmonyBot-V71/tools/run_backtest.sh
           bash -n HarmonyBot-V71/tools/run_window.sh
@@ -79,6 +80,7 @@ jobs:
             control/HarmonyBot-V71/reference
             control/HarmonyBot-V71/final
             control/V71_STATIC_CONTRACT_AUDIT.json
+            control/V71_HARMONIC_CONTRACT_AUDIT.json
           retention-days: 30
 
   shadow:
