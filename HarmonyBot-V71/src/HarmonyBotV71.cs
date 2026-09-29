@@ -248,6 +248,9 @@ namespace cAlgo.Robots
         [Parameter("V71 Family Route Prior Spec", DefaultValue = "")]
         public string V71FamilyRoutePriorSpec { get; set; }
 
+        [Parameter("V71 Allowed Family Route Spec", DefaultValue = "")]
+        public string V71AllowedFamilyRouteSpec { get; set; }
+
         [Parameter("V71 Edge LCB Margin", DefaultValue = 0.0, MinValue = 0.0, MaxValue = 2.0)]
         public double V71EdgeLcbMargin { get; set; }
 
@@ -355,6 +358,7 @@ namespace cAlgo.Robots
         private readonly HashSet<string> _v71ExpansionExecutedSetupKeys = new HashSet<string>();
         private readonly Dictionary<string, double> _v71EdgeWeights = new Dictionary<string, double>();
         private readonly Dictionary<string, double> _v71FamilyRoutePriors = new Dictionary<string, double>();
+        private readonly HashSet<string> _v71AllowedFamilyRoutes = new HashSet<string>(StringComparer.Ordinal);
         private bool _v71ModelReady;
         private int _v71ExpansionDetected;
         private int _v71ExpansionArmed;
@@ -473,9 +477,10 @@ namespace cAlgo.Robots
             Print("[V71-PROTECTED-CORE] trustedParent={0} expansionShadow={1} expansionExecution={2} expansionGrid={3} expansionAdaptiveRisk={4} expansionRiskCap={5:F2} model={6} modelReady={7}",
                 V51TrustedParent, EnableV71ExpansionShadow, EnableV71ExpansionExecution, EnableV71ExpansionGrid,
                 EnableV71ExpansionAdaptiveRisk, Math.Min(5.0, V71ExpansionRiskPercent), V71ModelId, _v71ModelReady);
-            Print("[V71-INCREMENTAL-POLICY] corePreemption=true minEdgeLcbR={0:F3} sameSetupExpansionBlocked=true familyBalancedCensus={1} perFamilyCap={2} abcdSharePct={3}",
+            Print("[V71-INCREMENTAL-POLICY] corePreemption=true minEdgeLcbR={0:F3} sameSetupExpansionBlocked=true familyBalancedCensus={1} perFamilyCap={2} abcdSharePct={3} allowedFamilyRoutes={4}",
                 Math.Max(0, V71ExpansionMinEdgeLcbR), EnableV71FamilyBalancedCensus,
-                Math.Max(2, Math.Min(12, V71PerFamilyCensusCap)), Math.Max(0, Math.Min(25, V71AbcdCensusSharePercent)));
+                Math.Max(2, Math.Min(12, V71PerFamilyCensusCap)), Math.Max(0, Math.Min(25, V71AbcdCensusSharePercent)),
+                _v71AllowedFamilyRoutes.Count);
         }
 
         protected override void OnStop()
@@ -2563,6 +2568,7 @@ namespace cAlgo.Robots
         {
             _v71EdgeWeights.Clear();
             _v71FamilyRoutePriors.Clear();
+            _v71AllowedFamilyRoutes.Clear();
             _v71ModelReady = false;
 
             if (!string.IsNullOrWhiteSpace(V71EdgeModelSpec))
@@ -2584,6 +2590,15 @@ namespace cAlgo.Robots
                     double v;
                     if (kv.Length == 3 && double.TryParse(kv[2], NumberStyles.Float, CultureInfo.InvariantCulture, out v))
                         _v71FamilyRoutePriors[kv[0] + ":" + kv[1]] = Math.Max(-1.0, Math.Min(1.0, v));
+                }
+            }
+
+            if (!string.IsNullOrWhiteSpace(V71AllowedFamilyRouteSpec))
+            {
+                foreach (var part in V71AllowedFamilyRouteSpec.Split(new[] { ';' }, StringSplitOptions.RemoveEmptyEntries))
+                {
+                    string key = part.Trim();
+                    if (!string.IsNullOrWhiteSpace(key)) _v71AllowedFamilyRoutes.Add(key);
                 }
             }
 
@@ -2620,6 +2635,14 @@ namespace cAlgo.Robots
             double v;
             string key = V71FamilyKey(e.Signal.PatternName) + ":" + V71RouteKey(e.Route);
             return _v71FamilyRoutePriors.TryGetValue(key, out v) ? v : 0.0;
+        }
+
+        private bool V71FamilyRouteAllowed(V71ExpansionCandidate e)
+        {
+            if (e == null || e.Signal == null) return false;
+            if (_v71AllowedFamilyRoutes.Count == 0) return false;
+            string key = V71FamilyKey(e.Signal.PatternName) + ":" + V71RouteKey(e.Route);
+            return _v71AllowedFamilyRoutes.Contains(key);
         }
 
         private double V71MtfScore(MtfConflict c)
@@ -3305,6 +3328,7 @@ namespace cAlgo.Robots
 
             var eligible = _v71Expansion.Values
                 .Where(e => e.IsActive && e.State == V71ExpansionState.ARMED && !e.Executed &&
+                            V71FamilyRouteAllowed(e) &&
                             e.SupportEligible && e.EdgeLcb > 0 && V71CapitalQualificationScore(e) > V71ExpansionMinEdgeLcbR && e.NetRR >= MinimumNetRR &&
                             !_executedSetupKeys.Contains(e.SetupKey) &&
                             !_v71ExpansionExecutedSetupKeys.Contains(e.SetupKey))
@@ -3314,7 +3338,7 @@ namespace cAlgo.Robots
             if (eligible.Count == 0)
             {
                 if (_v71Expansion.Values.Any(e => e.IsActive && e.State == V71ExpansionState.ARMED &&
-                    (!e.SupportEligible || e.EdgeLcb <= 0 || V71CapitalQualificationScore(e) <= V71ExpansionMinEdgeLcbR)))
+                    (!V71FamilyRouteAllowed(e) || !e.SupportEligible || e.EdgeLcb <= 0 || V71CapitalQualificationScore(e) <= V71ExpansionMinEdgeLcbR)))
                     _v71ExpansionModelRejected++;
                 return;
             }
@@ -3423,6 +3447,17 @@ namespace cAlgo.Robots
                 .ToList();
         }
 
+        private bool V71SparseLegInsideEnvelope(List<PivotPoint> pivots, int left, int right)
+        {
+            if (pivots == null || left < 0 || right >= pivots.Count || left >= right) return false;
+            double lo = Math.Min(pivots[left].Price, pivots[right].Price);
+            double hi = Math.Max(pivots[left].Price, pivots[right].Price);
+            double eps = Math.Max(_symbol.PipSize, (hi - lo) * 1e-9);
+            for (int k = left + 1; k < right; k++)
+                if (pivots[k].Price < lo - eps || pivots[k].Price > hi + eps) return false;
+            return true;
+        }
+
         private List<PatternSignal> V71DetectExpansionPatternCandidates(Bars bars, int endIndex, int depth, int lookback, int maxCandidates, string timeframe)
         {
             var result = new List<PatternSignal>();
@@ -3439,22 +3474,44 @@ namespace cAlgo.Robots
                 var pivots = BuildConfirmedPivots(bars, endIndex, lookback, scale);
                 if (pivots.Count < 5) continue;
 
-                int start = Math.Max(0, pivots.Count - 36);
-                for (int i = start; i <= pivots.Count - 5; i++)
+                // Expansion-only canonical sparse manifold. Each selected leg may
+                // contain up to two smaller confirmed pivots, but no intermediate pivot
+                // may break the selected leg envelope. Ratios/PRZ identity are unchanged.
+                int[] hops = { 1, 3 };
+                for (int dPos = 4; dPos < pivots.Count; dPos++)
                 {
-                    var x = pivots[i];
-                    var a = pivots[i + 1];
-                    var b = pivots[i + 2];
-                    var cc = pivots[i + 3];
-                    var d = pivots[i + 4];
+                    var d = pivots[dPos];
+                    if (endIndex - d.Index > 8) continue;
 
-                    foreach (var profile in _profiles)
+                    foreach (int hCD in hops)
+                    foreach (int hBC in hops)
+                    foreach (int hAB in hops)
+                    foreach (int hXA in hops)
                     {
-                        PatternSignal sig;
-                        if (!TryMatchProfile(profile, x, a, b, cc, d, atr, bars.OpenTimes[d.Index], timeframe, scale, out sig))
+                        int cPos = dPos - hCD;
+                        int bPos = cPos - hBC;
+                        int aPos = bPos - hAB;
+                        int xPos = aPos - hXA;
+                        if (xPos < 0) continue;
+                        if (!V71SparseLegInsideEnvelope(pivots, xPos, aPos) ||
+                            !V71SparseLegInsideEnvelope(pivots, aPos, bPos) ||
+                            !V71SparseLegInsideEnvelope(pivots, bPos, cPos) ||
+                            !V71SparseLegInsideEnvelope(pivots, cPos, dPos))
                             continue;
-                        if (endIndex - d.Index > Math.Max(2, profile.MaxAgeM15Bars)) continue;
-                        result.Add(sig);
+
+                        var x = pivots[xPos];
+                        var a = pivots[aPos];
+                        var b = pivots[bPos];
+                        var cc = pivots[cPos];
+
+                        foreach (var profile in _profiles)
+                        {
+                            PatternSignal sig;
+                            if (!TryMatchProfile(profile, x, a, b, cc, d, atr, bars.OpenTimes[d.Index], timeframe, scale, out sig))
+                                continue;
+                            if (endIndex - d.Index > Math.Max(2, profile.MaxAgeM15Bars)) continue;
+                            result.Add(sig);
+                        }
                     }
                 }
             }
