@@ -2,7 +2,7 @@
 set -euo pipefail
 : "${1:?variant}"; : "${2:?window}"; : "${3:?start}"; : "${4:?eval}"; : "${5:?end}"; : "${6:?years}"
 VAR="$1"; WIN="$2"; START="$3"; EVAL="$4"; END="$5"; YEARS="$6"
-EXPSHADOW=false; EXPEXEC=false; EXPGRID=false; EXPADAPRISK=false; EXPRISK=1.0; V72BIFURCATION=false; V72FAMILYNATIVE=false; V72FAILUREAUCTION=false; V72HCOG=false
+EXPSHADOW=false; EXPEXEC=false; EXPGRID=false; EXPADAPRISK=false; EXPRISK=1.0; V72BIFURCATION=false; V72FAMILYNATIVE=false; V72FAILUREAUCTION=false; V72HCOG=false; V72HCAP=false
 case "$VAR" in
  SHADOW_PREPASS) EXPSHADOW=true; V72BIFURCATION=true;;
  A_V51_PROTECTED_CORE) ;;
@@ -12,6 +12,8 @@ case "$VAR" in
  R_V72_FAILURE_AUCTION_CAUSAL) EXPSHADOW=true; V72FAILUREAUCTION=true;;
  R_V72_HCOG_CAUSAL) V72HCOG=true;;
  B_V72_HCOG_ALPHA) EXPEXEC=true; V72HCOG=true;;
+ R_V72_HCAP_CENSUS) V72HCAP=true;;
+ B_V72_HCAP_ALPHA) EXPEXEC=true; V72HCAP=true;;
  *) echo "unknown active V71/V72 variant $VAR"; exit 31;;
 esac
 
@@ -46,11 +48,46 @@ else
  exit 44
 fi
 cp "$C/HarmonyBot-V71/dist/HarmonyBot_V71_Protected_Champion_Core_Incremental_Alpha.algo" "$W/seal/algo/"
+
+HCAP_REV_MODEL="${HCAP_REV_MODEL:-}"
+HCAP_CONT_MODEL="${HCAP_CONT_MODEL:-}"
+if [[ "$VAR" == "B_V72_HCAP_ALPHA" ]]; then
+  M=""
+  for q in "$C/HarmonyBot-V71/model/HCAP_MANIFEST.json" "$C/HarmonyBot-V71/payoff/HCAP_MANIFEST.json"; do
+    if [[ -s "$q" ]]; then M="$q"; break; fi
+  done
+  [[ -n "$M" ]] || { echo "[HCAP-MODEL-FAIL] missing HCAP_MANIFEST.json"; exit 49; }
+  if [[ "$WIN" =~ ^Y202[123]$ ]]; then
+    HCAP_REV_MODEL=$(python3 - "$M" "$WIN" <<'PY'
+import json,sys
+d=json.load(open(sys.argv[1])); print(d["folds"][sys.argv[2]]["reversal_model"])
+PY
+)
+    HCAP_CONT_MODEL=$(python3 - "$M" "$WIN" <<'PY'
+import json,sys
+d=json.load(open(sys.argv[1])); print(d["folds"][sys.argv[2]]["continuation_model"])
+PY
+)
+  else
+    HCAP_REV_MODEL=$(python3 - "$M" <<'PY'
+import json,sys
+d=json.load(open(sys.argv[1])); print(d["final_models"]["reversal"])
+PY
+)
+    HCAP_CONT_MODEL=$(python3 - "$M" <<'PY'
+import json,sys
+d=json.load(open(sys.argv[1])); print(d["final_models"]["continuation"])
+PY
+)
+  fi
+  [[ -n "$HCAP_REV_MODEL" && -n "$HCAP_CONT_MODEL" ]] || { echo "[HCAP-MODEL-FAIL] empty model"; exit 50; }
+fi
+
 N="V71-$VAR-$WIN-B10000"
 
 (
  cd "$W"
- RUN_NAME="$N" START_DATE="$START" EVAL_DATE="$EVAL" END_DATE="$END" BALANCE=10000  EXPSHADOW="$EXPSHADOW" EXPEXEC="$EXPEXEC" EXPGRID="$EXPGRID" EXPADAPRISK="$EXPADAPRISK" EXPRISK="$EXPRISK" V72BIFURCATION="$V72BIFURCATION" V72FAMILYNATIVE="$V72FAMILYNATIVE" V72FAILUREAUCTION="$V72FAILUREAUCTION" V72HCOG="$V72HCOG"  IMMUTABLE_DATA=true BACKTEST_TIMEOUT_SECONDS=1800 "$C/HarmonyBot-V71/tools/run_backtest.sh"
+ RUN_NAME="$N" START_DATE="$START" EVAL_DATE="$EVAL" END_DATE="$END" BALANCE=10000  EXPSHADOW="$EXPSHADOW" EXPEXEC="$EXPEXEC" EXPGRID="$EXPGRID" EXPADAPRISK="$EXPADAPRISK" EXPRISK="$EXPRISK" V72BIFURCATION="$V72BIFURCATION" V72FAMILYNATIVE="$V72FAMILYNATIVE" V72FAILUREAUCTION="$V72FAILUREAUCTION" V72HCOG="$V72HCOG" V72HCAP="$V72HCAP" HCAP_REV_MODEL="$HCAP_REV_MODEL" HCAP_CONT_MODEL="$HCAP_CONT_MODEL"  IMMUTABLE_DATA=true BACKTEST_TIMEOUT_SECONDS=1800 "$C/HarmonyBot-V71/tools/run_backtest.sh"
 )
 test -s "$W/seal/logs/$N.log"; test -s "$W/seal/reports/$N.json"
 POST_DATA_HASH=$(cd "$W/seal/data" && find . -type f -print0 | LC_ALL=C sort -z | xargs -0 sha256sum | sha256sum | cut -d' ' -f1)
