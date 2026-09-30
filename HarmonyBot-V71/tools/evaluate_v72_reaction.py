@@ -33,18 +33,18 @@ for w in W:
 
 gate=all(x["pass"] for x in folds.values())
 manifest={
- "architecture":"V72_DETERMINISTIC_REACTION_FIRST_RETEST_ALPHA",
+ "architecture":"V72_DETERMINISTIC_REACTION_0618_PULLBACK_ALPHA",
  "selection_model":"NONE",
  "tuning_model":"NONE",
  "rules":["FROZEN_HARMONIC_PATTERN","PRZ_TOUCH","FAMILY_NATIVE_REACTION_PROOF",
-          "CONTROLLED_RETEST_WITHIN_4_COMPLETED_M1_BARS","STRUCTURAL_INVALIDATION_STOP",
+          "FIBONACCI_0618_PULLBACK_LIMIT_UNTIL_NEXT_M15_BOUNDARY","STRUCTURAL_INVALIDATION_STOP",
           "COST_ADJUSTED_FIXED_2R_TARGET","V51_CORE_FIRST"],
  "min_selected_per_year":MIN_N,"min_pf_r":MIN_PF,"lcb_z":Z,
  "folds":folds,"family_selected_counts":dict(sorted(family.items())),
  "rows":len(all_rows),"crossfit_gate":gate,
- "gate_semantics":"DETERMINISTIC_3_YEAR_REACTION_CALIBRATION__NO_MODEL_FIT_NO_THRESHOLD_TUNING",
+ "gate_semantics":"DETERMINISTIC_3_YEAR_0618_PULLBACK_CALIBRATION__NO_MODEL_FIT_NO_THRESHOLD_TUNING",
  "validation_used":False,"fresh_used":False
 }
 (out/"MODEL_MANIFEST.json").write_text(json.dumps(manifest,indent=2))
-(out/"FULL.json").write_text(json.dumps({"model_id":"V72_REACTION_NONE","architecture":manifest["architecture"]},indent=2))
+(out/"FULL.json").write_text(json.dumps({"model_id":"V72_0618_PULLBACK_NONE","architecture":manifest["architecture"]},indent=2))
 print(json.dumps(manifest,indent=2))
