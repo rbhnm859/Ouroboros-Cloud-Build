@@ -71,11 +71,11 @@ if reaction_gate:
               and marginal["positive_delta_windows"]==3 and Z["material_breakthrough_pass"])
     candidate=CAP if cap_gate else None
 
-freeze={"version":"HarmonyBot V71 -> V72","architecture":"IMMUTABLE_V51_CORE_PLUS_FROZEN_HARMONIC_DETECTOR_PLUS_DETERMINISTIC_0618_PULLBACK_ALPHA",
+freeze={"version":"HarmonyBot V71 -> V72","architecture":"IMMUTABLE_V51_CORE_PLUS_FROZEN_HARMONIC_DETECTOR_PLUS_0618_PULLBACK_REACTION_STOP_ALPHA",
  "trusted_v51_parent":"1b670a0f43ba8ecaa637febfdacf605b1b146f01","control_mode":"DIRECT_TRUSTED_V51_BINARY_REFERENCE",
  "pullback_manifest":manifest,"v51_floor":V51,"variants":A,"marginal":marginal,
  "gates":{"pullback_shadow_3year":reaction_gate,"pullback_capital_commercial":cap_gate},
- "candidate":candidate,"candidate_selection_source":"BURNED_2021_2023_DETERMINISTIC_0618_PULLBACK_ONLY__NO_SELECTOR_TUNING",
+ "candidate":candidate,"candidate_selection_source":"BURNED_2021_2023_DETERMINISTIC_0618_PULLBACK_REACTION_STOP__NO_SELECTOR_TUNING",
  "risk_for_alpha_qualification_pct":1.0,"validation_used":False,"fresh_used":False,
  "decision":"V72_PULLBACK_CANDIDATE_FROZEN" if candidate else ("PULLBACK_ALPHA_FAIL_CLOSED_HOLD" if not reaction_gate else "CALIBRATION_HOLD")}
 (out/"V71_CALIBRATION_FREEZE.json").write_text(json.dumps(freeze,indent=2))
