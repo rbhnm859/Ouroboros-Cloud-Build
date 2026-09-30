@@ -1,14 +1,29 @@
 #!/usr/bin/env python3
 import json,pathlib,sys,hashlib
-p=pathlib.Path(sys.argv[1]); s=p.read_text(errors="ignore")
-def between(a,b):
- i=s.find(a); j=s.find(b,i+len(a))
- return s[i:j] if i>=0 and j>i else ""
-execblk=between("private void V71TryExecuteExpansion","// ---------------- Harmonic engine")
+
+p=pathlib.Path(sys.argv[1])
+main=p.read_text(errors="ignore")
+
+# Architecture-aware deterministic source bundle. The protected refactor keeps the
+# frozen detector in the main source while moving behavior-preserving partial-class
+# modules below src/Architecture. Commercial/static checks must inspect the complete
+# compilation unit rather than assuming a single physical source file.
+arch_dir=p.parent/"Architecture"
+partials=sorted(
+    [x for x in arch_dir.glob("HarmonyBotV71.*.cs") if x.is_file()],
+    key=lambda x:x.name
+) if arch_dir.is_dir() else []
+source_files=[p]+partials
+source_parts=[x.read_text(errors="ignore") for x in source_files]
+s="\n".join(source_parts)
+
+start=s.find("private void V71TryExecuteExpansion")
+execblk=s[start:] if start>=0 else ""
+
 checks={
  "identity":"class HarmonyBotV71" in s and 'BotPrefix = "HB71"' in s,
  "trusted_parent":'V51TrustedParent = "1b670a0f43ba8ecaa637febfdacf605b1b146f01"' in s,
- "brace_balance":s.count("{")==s.count("}"),
+ "brace_balance":all(x.count("{")==x.count("}") for x in source_parts),
  "source_complete":len(s)>190000 and "public sealed class PipelineCounter" in s,
  "risk_hard_ceiling":'[Parameter("Basket Risk %", DefaultValue = 1.0, MinValue = 0.1, MaxValue = 5.0)]' in s and '[Parameter("V71 Expansion Risk %", DefaultValue = 1.0, MinValue = 0.1, MaxValue = 5.0)]' in s,
  "protected_core_priority":"V71CoreHasActiveThesis" in execblk and "V51_CORE_PREEMPT" in s,
@@ -35,7 +50,17 @@ checks={
  "no_stop_widening":"stopWideningViolations" in s,
  "dst_aware":'ResolveTimeZone("Europe/London"' in s and 'ResolveTimeZone("America/New_York"' in s
 }
+bundle=hashlib.sha256()
+for x,content in zip(source_files,source_parts):
+    bundle.update(str(x.relative_to(p.parent.parent)).encode())
+    bundle.update(b"\0")
+    bundle.update(content.encode())
+    bundle.update(b"\0")
 out={"version":"HarmonyBot V71 -> V72","audit":"V72_HARMONIC_BIFURCATION_COMMERCIAL_GUARD",
- "source_sha256":hashlib.sha256(p.read_bytes()).hexdigest(),"checks":checks,"pass":all(checks.values())}
-pathlib.Path("V71_STATIC_CONTRACT_AUDIT.json").write_text(json.dumps(out,indent=2)); print(json.dumps(out,indent=2))
+ "source_bundle_sha256":bundle.hexdigest(),
+ "source_files":[str(x) for x in source_files],
+ "architecture_mode":"PARTIAL_CLASS_PROTECTED_REBASE",
+ "checks":checks,"pass":all(checks.values())}
+pathlib.Path("V71_STATIC_CONTRACT_AUDIT.json").write_text(json.dumps(out,indent=2))
+print(json.dumps(out,indent=2))
 raise SystemExit(0 if out["pass"] else 2)
