@@ -134,6 +134,36 @@ jobs:
           path: control/HarmonyBot-V71/output-SHADOW_PREPASS-${{ matrix.window }}
           retention-days: 30
 
+  event_atlas:
+    needs: shadow
+    runs-on: ubuntu-24.04
+    outputs:
+      research_ready: ${{ steps.a.outputs.research_ready }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: control
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: 'v71-shadow-*'
+          path: merged
+          merge-multiple: true
+      - name: Build governed offline harmonic event atlas
+        id: a
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p atlas
+          python3 control/HarmonyBot-V71/tools/build_harmonic_event_atlas.py merged atlas
+          python3 control/HarmonyBot-V71/tools/analyze_family_resolution_atlas.py atlas/HARMONIC_EVENT_ATLAS.json atlas
+          echo "research_ready=$(python3 -c 'import json; print(str(json.load(open("atlas/HARMONIC_EVENT_ATLAS_MANIFEST.json"))["research_ready"]).lower())')" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: V71-OFFLINE-HARMONIC-EVENT-ATLAS
+          path: atlas
+          retention-days: 30
+
   payoff_gate:
     needs: shadow
     runs-on: ubuntu-24.04
