@@ -38,6 +38,12 @@ checks={
  "family_native_temporal_dag":"EnableV71FamilyNativeConfirmation" in s and "UpdatePatternNativeM1State(i, e.NativeEvidenceState" in s,
  "regime_context_whitelist":"V71AllowedFamilyRouteContextSpec" in s and "V71RegimeContextKey" in s and "_v71AllowedFamilyRouteContexts" in s,
  "dual_head_slot_score":"V71ExpectedSurvival" in s and "e.EdgeLcb * Math.Max(.05, Math.Min(.95, e.SurvivalProbability))" in s,
+ "h5_soft_support_uncertainty":"V71H5SupportPenalty" in s and 'V71W("soft_support") > .5' in s and "support_penalized_not_rejected" not in s,
+ "h5_dual_posterior_gate":"V71ExpectedPathLcb" in s and "V71PathBreakEven" in s and 'e.PathLcb > V71PathBreakEven(e)' in s,
+ "h5_slot_ucb_core_hazard":"V71ExpectedSlotHoursUcb" in s and "V71ExpectedCoreArrivalHazard" in s and 'V71W("core_cost")' in s,
+ "h5_frozen_setup_universe":"V71AllowedSetupHashSpec" in s and "V71SetupAllowed" in s and "_v71AllowedSetupHashes" in s,
+ "h5_exit_counterfactual":"V71ExpansionExitPolicy" in s and "REACTION_2R" in s and "SELECTIVE_RUNNER" in s and "V71ApplyExpansionExitPolicy" in s,
+ "h5_no_hard_context_gate":'if (h5 || _v71AllowedFamilyRouteContexts.Count == 0) return true;' in s,
  "fixed_edge_lcb_threshold":'[Parameter("V71 Expansion Min Edge LCB R", DefaultValue = 0.015' in s,
  "completed_m1":"private int LastClosedIndex(Bars b) { return b == null ? -1 : b.Count - 2; }" in s,
  "minimum_rr":'[Parameter("Minimum Net RR", DefaultValue = 2.0' in s,
@@ -45,7 +51,7 @@ checks={
  "no_stop_widening":"stopWideningViolations" in s,
  "dst_aware":'ResolveTimeZone("Europe/London"' in s and 'ResolveTimeZone("America/New_York"' in s
 }
-out={"version":"HarmonyBot V71","audit":"protected_champion_core_crossfit_expansion_fail_closed",
+out={"version":"HarmonyBot V71","audit":"protected_champion_core_h5_posterior_expansion_fail_closed",
  "source_sha256":hashlib.sha256(p.read_bytes()).hexdigest(),"checks":checks,"pass":all(checks.values())}
 pathlib.Path("V71_STATIC_CONTRACT_AUDIT.json").write_text(json.dumps(out,indent=2)); print(json.dumps(out,indent=2))
 raise SystemExit(0 if out["pass"] else 2)
