@@ -248,8 +248,8 @@ namespace cAlgo.Robots
         [Parameter("V71 Expansion Shadow Horizon M1", DefaultValue = 180, MinValue = 30, MaxValue = 720)]
         public int V71ExpansionShadowHorizonM1Bars { get; set; }
 
-        [Parameter("Enable V72 Reaction Alpha", DefaultValue = false)]
-        public bool EnableV72ReactionAlpha { get; set; }
+        [Parameter("Enable V72 Bifurcation Alpha", DefaultValue = false)]
+        public bool EnableV72BifurcationAlpha { get; set; }
 
         [Parameter("Min Harmonic Robustness", DefaultValue = 0.56, MinValue = 0.40, MaxValue = 0.80)]
         public double MinHarmonicRobustness { get; set; }
@@ -472,9 +472,9 @@ namespace cAlgo.Robots
             Print("[V51-THROUGHPUT-ARCH] persistentQueue={0} serialHandoff={1} nativeM1={2} nativeBars={3} decayRanking={4} hardLifetimeMinutes={5} alphaKernel=V46_SCALE_CONVERSION_FROZEN",
                 EnablePersistentArmedQueue, EnableEventDrivenSerialHandoff, EnablePatternNativeM1Expansion,
                 PatternNativeM1MaxBars, EnableOpportunityDecayRanking, ParkedHardLifetimeMinutes);
-            Print("[V71-PROTECTED-CORE] trustedParent={0} expansionShadow={1} expansionExecution={2} expansionRiskCap={3:F2} reactionResearch={4}",
+            Print("[V71-PROTECTED-CORE] trustedParent={0} expansionShadow={1} expansionExecution={2} expansionRiskCap={3:F2} bifurcationResearch={4}",
                 V51TrustedParent, EnableV71ExpansionShadow, EnableV71ExpansionExecution,
-                Math.Min(5.0, V71ExpansionRiskPercent), EnableV72ReactionAlpha);
+                Math.Min(5.0, V71ExpansionRiskPercent), EnableV72BifurcationAlpha);
             Print("[V71-INCREMENTAL-POLICY] corePreemption=true familyBalancedCensus={0} perFamilyCap={1} abcdSharePct={2} fullPivotLattice={3} familyNativeConfirmation={4} selectorModel=NONE overlapShadowVisible=true overlapCapitalBlocked=true",
                 EnableV71FamilyBalancedCensus, Math.Max(2, Math.Min(12, V71PerFamilyCensusCap)),
                 Math.Max(0, Math.Min(25, V71AbcdCensusSharePercent)), EnableV71FullFamilyPivotLattice,
@@ -1277,7 +1277,7 @@ namespace cAlgo.Robots
             {
                 CandidateId = c.CandidateId,
                 Pattern = c.Signal.PatternName,
-                Direction = c.Signal.Direction,
+                Direction = V72CapitalDirection(e),
                 Route = c.Route,
                 EntryAnchor = anchor,
                 StructuralStop = stop,
@@ -1808,7 +1808,8 @@ namespace cAlgo.Robots
                     CancelBasketPending(basket, "MFE_GRID_CANCEL");
 
                 double age = (Server.Time.ToUniversalTime() - basket.CreatedUtc).TotalMinutes;
-                if (age >= NoMfeMinAgeMinutes && basket.PeakR < NoMfeProofR && currentR <= -Math.Abs(NoMfeKillR))
+                bool v72FixedPayoff = basket.Candidate != null && basket.Candidate.V72BifurcationAlpha;
+                if (!v72FixedPayoff && age >= NoMfeMinAgeMinutes && basket.PeakR < NoMfeProofR && currentR <= -Math.Abs(NoMfeKillR))
                 {
                     basket.ExitOverride = "NO_MFE_THESIS_FAILURE";
                     CancelBasketPending(basket, basket.ExitOverride);
@@ -1816,19 +1817,18 @@ namespace cAlgo.Robots
                     continue;
                 }
 
-                double protectTriggerR = basket.Candidate != null && basket.Candidate.V72ReactionAlpha ? .50 : BreakEvenTriggerR;
-                double protectLockR = basket.Candidate != null && basket.Candidate.V72ReactionAlpha ? .10 : Math.Max(0, BreakEvenLockR);
-                if (basket.PeakR >= protectTriggerR)
+                double protectTriggerR = BreakEvenTriggerR;
+                double protectLockR = Math.Max(0, BreakEvenLockR);
+                if (!v72FixedPayoff && basket.PeakR >= protectTriggerR)
                 {
                     double span = Math.Abs(basket.AverageEntry - basket.StructuralStop);
                     double lockPrice = basket.Direction == TradeDirection.Buy
                         ? basket.AverageEntry + span * protectLockR
                         : basket.AverageEntry - span * protectLockR;
-                    AdvanceBasketProtectionFrontier(basket, lockPrice,
-                        basket.Candidate != null && basket.Candidate.V72ReactionAlpha ? "V72_EARLY_CAPITAL_PROTECT" : "COLLECTIVE_PROTECT");
+                    AdvanceBasketProtectionFrontier(basket, lockPrice, "COLLECTIVE_PROTECT");
                 }
 
-                if (basket.PeakR >= TrailTriggerR)
+                if (!v72FixedPayoff && basket.PeakR >= TrailTriggerR)
                 {
                     double trail = FibonacciStructureTrail(basket.Direction);
                     if (trail > 0) AdvanceBasketProtectionFrontier(basket, trail, "FIB_382_STRUCTURE_TRAIL");
@@ -2804,51 +2804,30 @@ namespace cAlgo.Robots
             return next <= utc ? next.AddMinutes(15) : next;
         }
 
-        private bool V72PreparePullbackEntry(DateTime utc, V71ExpansionCandidate e, double confirmationScore)
+        private TradeDirection V72CapitalDirection(V71ExpansionCandidate e)
         {
-            if (e == null || e.Signal == null || !e.ReactionProved) return false;
-            double proof = e.ReactionProofPrice;
-            double extreme = e.ReactionExtremePrice;
-            double displacement = e.Signal.Direction == TradeDirection.Buy ? proof - extreme : extreme - proof;
-            if (displacement <= _symbol.PipSize) return false;
+            if (e == null || e.Signal == null) return TradeDirection.Neutral;
+            return e.CapitalDirection != TradeDirection.Neutral ? e.CapitalDirection : e.Signal.Direction;
+        }
 
-            // One deterministic family-agnostic Fibonacci pullback. No selector and no tuning tree.
-            double entry = e.Signal.Direction == TradeDirection.Buy
-                ? proof - .618 * displacement
-                : proof + .618 * displacement;
+        private TradeDirection V72OppositeDirection(TradeDirection d)
+        {
+            return d == TradeDirection.Buy ? TradeDirection.Sell :
+                   d == TradeDirection.Sell ? TradeDirection.Buy : TradeDirection.Neutral;
+        }
 
-            // The capital thesis is now the observed reaction, not the original completion alone.
-            // A breach of the reaction extreme beyond modeled transaction-cost noise invalidates it.
-            // This stop can only tighten versus the frozen pattern structural invalidation; never widen.
-            double originalStop = e.Signal.StructuralInvalidation;
-            double reactionBuffer = Math.Max(PipsToPrice(ModeledCostPips()), _symbol.PipSize);
-            double reactionStop = e.Signal.Direction == TradeDirection.Buy
-                ? extreme - reactionBuffer
-                : extreme + reactionBuffer;
-            double stop = e.Signal.Direction == TradeDirection.Buy
-                ? Math.Max(originalStop, reactionStop)
-                : Math.Min(originalStop, reactionStop);
-            if (!GeometryValid(e.Signal.Direction, entry, stop,
-                    e.Signal.Direction == TradeDirection.Buy ? entry + Math.Abs(entry - stop) : entry - Math.Abs(entry - stop)))
-                return false;
+        private bool V72ArmCapitalPullback(DateTime utc, V71ExpansionCandidate e, TradeDirection direction,
+            double entry, double stop, double target, double confirmationScore, string lane, bool capitalReady)
+        {
+            if (e == null || e.Signal == null || direction == TradeDirection.Neutral) return false;
+            if (!GeometryValid(direction, entry, stop, target)) return false;
             double risk = Math.Abs(entry - stop);
             if (PriceToPips(risk) < MinStopLossPips) return false;
-
-            double canonical, canonicalRr;
-            if (!SelectCanonicalBasketTarget(e.Signal, entry, stop, out canonical, out canonicalRr) || canonicalRr < MinimumNetRR)
-                return false;
-
-            double costPrice = PipsToPrice(ModeledCostPips());
-            double target = e.Signal.Direction == TradeDirection.Buy
-                ? entry + 2.0 * risk + costPrice
-                : entry - 2.0 * risk - costPrice;
-            bool canonicalCovers = e.Signal.Direction == TradeDirection.Buy ? canonical >= target : canonical <= target;
-            if (!canonicalCovers || !GeometryValid(e.Signal.Direction, entry, stop, target)) return false;
-
             double netRr = (PriceToPips(Math.Abs(target - entry)) - ModeledCostPips()) /
                            Math.Max(1e-9, PriceToPips(risk));
             if (netRr + 1e-9 < MinimumNetRR) return false;
 
+            e.CapitalDirection = direction;
             e.EntryAnchor = entry;
             e.StructuralStop = stop;
             e.CanonicalTarget = target;
@@ -2864,17 +2843,167 @@ namespace cAlgo.Robots
             e.PullbackFilled = false;
             e.ShadowStarted = false;
             e.ArmedUtc = null;
+            e.CapitalReady = capitalReady;
+            e.CapitalLane = lane ?? "UNKNOWN";
+            if (!capitalReady) e.CapitalEligible = false;
             e.State = V71ExpansionState.ARMED;
+            double originalRisk = Math.Abs(entry - e.Signal.StructuralInvalidation);
+            e.AsymmetryCompression = e.FailureContinuation ? 1.0 :
+                Math.Max(.10, originalRisk / Math.Max(risk, _symbol.PipSize));
             e.EdgeMean = e.NetRR;
             e.EdgeLcb = e.NetRR;
             e.ExpectedSlotHours = Math.Max(.25, (e.PullbackExpiryUtc - utc).TotalHours);
             e.ExpectedSlotHoursUcb = e.ExpectedSlotHours;
-            e.SlotScore = e.NetRR / Math.Max(.25, e.ExpectedSlotHours);
+            e.SlotScore = e.AsymmetryCompression * e.NetRR / Math.Max(.25, e.ExpectedSlotHours);
             _v71ExpansionArmed++;
             IncrementCounter(_v71FamilyArmed, V71FamilyKey(e.Signal.PatternName));
-            Print("[V72-PULLBACK-PLAN] cid={0} family={1} route={2} proof={3:F5} extreme={4:F5} entry={5:F5} reactionStop={6:F5} originalStop={7:F5} target={8:F5} rr={9:F3} expiry={10:o}",
-                e.CandidateId, V71FamilyKey(e.Signal.PatternName), e.Route, proof, extreme, entry, stop, originalStop, target, netRr, e.PullbackExpiryUtc);
+            Print("[V72-BIFURCATION-PLAN] cid={0} lane={1} family={2} route={3} dir={4} entry={5:F5} stop={6:F5} target={7:F5} rr={8:F3} asym={9:F3} expiry={10:o}",
+                e.CandidateId, e.CapitalLane, V71FamilyKey(e.Signal.PatternName), e.Route, direction,
+                entry, stop, target, netRr, e.AsymmetryCompression, e.PullbackExpiryUtc);
             return true;
+        }
+
+        private bool V72PreparePullbackEntry(DateTime utc, V71ExpansionCandidate e, double confirmationScore)
+        {
+            if (e == null || e.Signal == null || !e.ReactionProved) return false;
+            double proof = e.ReactionProofPrice;
+            double extreme = e.ReactionExtremePrice;
+            double displacement = e.Signal.Direction == TradeDirection.Buy ? proof - extreme : extreme - proof;
+            if (displacement <= _symbol.PipSize) return false;
+            double entry = e.Signal.Direction == TradeDirection.Buy
+                ? proof - .618 * displacement
+                : proof + .618 * displacement;
+
+            double originalStop = e.Signal.StructuralInvalidation;
+            double reactionBuffer = Math.Max(PipsToPrice(ModeledCostPips()), _symbol.PipSize);
+            double reactionStop = e.Signal.Direction == TradeDirection.Buy
+                ? extreme - reactionBuffer
+                : extreme + reactionBuffer;
+            double stop = e.Signal.Direction == TradeDirection.Buy
+                ? Math.Max(originalStop, reactionStop)
+                : Math.Min(originalStop, reactionStop);
+            double risk = Math.Abs(entry - stop);
+            if (PriceToPips(risk) < MinStopLossPips) return false;
+
+            double canonical, canonicalRr;
+            if (!SelectCanonicalBasketTarget(e.Signal, entry, stop, out canonical, out canonicalRr))
+                return false;
+            double costPrice = PipsToPrice(ModeledCostPips());
+            double target = e.Signal.Direction == TradeDirection.Buy
+                ? entry + 2.0 * risk + costPrice
+                : entry - 2.0 * risk - costPrice;
+            bool canonicalCovers = e.Signal.Direction == TradeDirection.Buy ? canonical >= target : canonical <= target;
+            if (!canonicalCovers) return false;
+            string lane = e.Route == HarmonicRoute.EXHAUSTION_REVERSAL ? "EXHAUSTION_REVERSAL" : "TRANSITION_SHADOW";
+            bool capitalReady = e.Route == HarmonicRoute.EXHAUSTION_REVERSAL;
+            return V72ArmCapitalPullback(utc, e, e.Signal.Direction, entry, stop, target,
+                confirmationScore, lane, capitalReady);
+        }
+
+        private bool V72PrepareTrendVirtualProof(DateTime utc, V71ExpansionCandidate e, double confirmationScore)
+        {
+            if (e == null || e.Signal == null || !e.ReactionProved) return false;
+            double proof = e.ReactionProofPrice;
+            double extreme = e.ReactionExtremePrice;
+            double displacement = e.Signal.Direction == TradeDirection.Buy ? proof - extreme : extreme - proof;
+            if (displacement <= _symbol.PipSize) return false;
+            double entry = e.Signal.Direction == TradeDirection.Buy
+                ? proof - .618 * displacement
+                : proof + .618 * displacement;
+            double originalStop = e.Signal.StructuralInvalidation;
+            double buffer = Math.Max(PipsToPrice(ModeledCostPips()), _symbol.PipSize);
+            double reactionStop = e.Signal.Direction == TradeDirection.Buy ? extreme - buffer : extreme + buffer;
+            double stop = e.Signal.Direction == TradeDirection.Buy
+                ? Math.Max(originalStop, reactionStop)
+                : Math.Min(originalStop, reactionStop);
+            if (!GeometryValid(e.Signal.Direction, entry, stop,
+                e.Signal.Direction == TradeDirection.Buy ? entry + Math.Abs(entry-stop) : entry - Math.Abs(entry-stop)))
+                return false;
+            double risk = Math.Abs(entry - stop);
+            if (PriceToPips(risk) < MinStopLossPips) return false;
+
+            e.VirtualEntryAnchor = entry;
+            e.VirtualStructuralStop = stop;
+            e.VirtualRiskDistance = risk;
+            e.VirtualProofExpiryUtc = MinDate(e.ExpiryUtc, V72NextM15Boundary(utc));
+            if (e.VirtualProofExpiryUtc <= utc.AddSeconds(1)) return false;
+            e.AwaitingVirtualProofFill = true;
+            e.VirtualProofActive = false;
+            e.TrendProofConfirmed = false;
+            e.CapitalReady = false;
+            e.CapitalDirection = e.Signal.Direction;
+            e.CapitalLane = "TREND_VIRTUAL_PROOF";
+            e.ConfirmationScore = confirmationScore;
+            e.State = V71ExpansionState.PROOF_WAIT;
+            Print("[V72-TREND-PROOF-WAIT] cid={0} family={1} entry={2:F5} stop={3:F5} proofR=0.500 expiry={4:o}",
+                e.CandidateId, V71FamilyKey(e.Signal.PatternName), entry, stop, e.VirtualProofExpiryUtc);
+            return true;
+        }
+
+        private bool V72PrepareTrendReload(DateTime utc, V71ExpansionCandidate e)
+        {
+            if (e == null || e.Signal == null || !e.TrendProofConfirmed || e.VirtualRiskDistance <= 0) return false;
+            double start = e.VirtualEntryAnchor;
+            double proof = e.VirtualProofPrice;
+            double displacement = Math.Abs(proof - start);
+            if (displacement <= _symbol.PipSize) return false;
+            double entry = e.Signal.Direction == TradeDirection.Buy
+                ? proof - .618 * displacement
+                : proof + .618 * displacement;
+            double stop = e.VirtualStructuralStop;
+            double risk = Math.Abs(entry - stop);
+            if (PriceToPips(risk) < MinStopLossPips) return false;
+            double canonical, canonicalRr;
+            if (!SelectCanonicalBasketTarget(e.Signal, entry, stop, out canonical, out canonicalRr))
+                return false;
+            double costPrice = PipsToPrice(ModeledCostPips());
+            double target = e.Signal.Direction == TradeDirection.Buy
+                ? entry + 2.0 * risk + costPrice
+                : entry - 2.0 * risk - costPrice;
+            bool canonicalCovers = e.Signal.Direction == TradeDirection.Buy ? canonical >= target : canonical <= target;
+            if (!canonicalCovers) return false;
+            return V72ArmCapitalPullback(utc, e, e.Signal.Direction, entry, stop, target,
+                e.ConfirmationScore, "TREND_PROOF_RELOAD", true);
+        }
+
+        private bool V72FailureBreakConfirmed(int i, V71ExpansionCandidate e)
+        {
+            if (e == null || e.Signal == null || i < 0 || i >= _m1Bars.Count) return false;
+            double close = _m1Bars.ClosePrices[i];
+            double buffer = Math.Max(PipsToPrice(ModeledCostPips()), _symbol.PipSize);
+            return e.Signal.Direction == TradeDirection.Buy
+                ? close < e.Signal.StructuralInvalidation - buffer
+                : close > e.Signal.StructuralInvalidation + buffer;
+        }
+
+        private bool V72PrepareFailureContinuation(int i, DateTime utc, V71ExpansionCandidate e)
+        {
+            if (e == null || e.Signal == null || !e.PrzTouchUtc.HasValue || !V72FailureBreakConfirmed(i,e)) return false;
+            TradeDirection direction = V72OppositeDirection(e.Signal.Direction);
+            double boundary = e.Signal.StructuralInvalidation;
+            double proof = _m1Bars.ClosePrices[i];
+            double displacement = Math.Abs(proof - boundary);
+            if (displacement <= _symbol.PipSize) return false;
+            double entry = direction == TradeDirection.Buy
+                ? proof - .618 * displacement
+                : proof + .618 * displacement;
+            double buffer = Math.Max(PipsToPrice(ModeledCostPips()), _symbol.PipSize);
+            double stop = direction == TradeDirection.Buy ? boundary - buffer : boundary + buffer;
+            double risk = Math.Abs(entry - stop);
+            if (PriceToPips(risk) < MinStopLossPips) return false;
+            double costPrice = PipsToPrice(ModeledCostPips());
+            double target = direction == TradeDirection.Buy
+                ? entry + 2.0 * risk + costPrice
+                : entry - 2.0 * risk - costPrice;
+            e.FailureContinuation = true;
+            e.Route = HarmonicRoute.FAILURE_CONTINUATION;
+            e.ReactionProved = false;
+            bool ok = V72ArmCapitalPullback(utc, e, direction, entry, stop, target,
+                1.0, "FAILURE_CONTINUATION", true);
+            if (ok)
+                Print("[V72-FAILURE-PROVED] cid={0} family={1} originalDir={2} continuationDir={3} boundary={4:F5} proof={5:F5}",
+                    e.CandidateId, V71FamilyKey(e.Signal.PatternName), e.Signal.Direction, direction, boundary, proof);
+            return ok;
         }
 
         private void V71ProcessExpansionM1(int i, DateTime utc)
@@ -2897,8 +3026,12 @@ namespace cAlgo.Robots
                     continue;
                 }
 
-                if (!e.ShadowStarted && PatternInvalidatedBeforeEntry(e.Signal))
+                if (!e.ShadowStarted && !e.FailureContinuation && PatternInvalidatedBeforeEntry(e.Signal))
                 {
+                    if (EnableV72BifurcationAlpha && e.PrzTouchUtc.HasValue &&
+                        e.Route == HarmonicRoute.TREND_ALIGNED_REVERSAL &&
+                        V72PrepareFailureContinuation(i, utc, e))
+                        continue;
                     e.IsActive = false;
                     e.State = V71ExpansionState.INVALIDATED;
                     continue;
@@ -2917,9 +3050,7 @@ namespace cAlgo.Robots
                 if (e.State == V71ExpansionState.CONFIRMING)
                 {
                     if (!e.PrzTouchUtc.HasValue || utc <= e.PrzTouchUtc.Value) continue;
-                    // Research observation is intentionally independent from Core ownership.
-                    // Core overlap blocks Capital, not evidence collection.
-                    if (EnableV72ReactionAlpha)
+                    if (EnableV72BifurcationAlpha)
                     {
                         double lo = _m1Bars.LowPrices[i], hi = _m1Bars.HighPrices[i];
                         if (!e.ReactionExtremeInitialized)
@@ -2937,25 +3068,127 @@ namespace cAlgo.Robots
                     double score;
                     if (V71ExpansionM1Confirmation(i, e, out score))
                     {
-                        if (EnableV72ReactionAlpha)
-                        {
-                            e.ReactionProved = true;
-                            e.ReactionProofUtc = utc;
-                            e.ReactionProofPrice = _m1Bars.ClosePrices[i];
-                            e.ReactionScore = score;
-                            Print("[V72-REACTION-PROVED] cid={0} family={1} route={2} score={3:F3} proof={4:F5} extreme={5:F5}",
-                                e.CandidateId, V71FamilyKey(e.Signal.PatternName), e.Route, score, e.ReactionProofPrice, e.ReactionExtremePrice);
-                            if (!V72PreparePullbackEntry(utc, e, score))
-                            {
-                                e.IsActive = false;
-                                e.State = V71ExpansionState.REJECTED;
-                                Print("[V72-PULLBACK-REJECT] cid={0} reason=NO_LEGAL_0618_ENTRY", e.CandidateId);
-                            }
-                        }
-                        else
+                        if (!EnableV72BifurcationAlpha)
                         {
                             e.IsActive = false;
                             e.State = V71ExpansionState.REJECTED;
+                            continue;
+                        }
+                        e.ReactionProved = true;
+                        e.ReactionProofUtc = utc;
+                        e.ReactionProofPrice = _m1Bars.ClosePrices[i];
+                        e.ReactionScore = score;
+                        Print("[V72-REACTION-PROVED] cid={0} family={1} route={2} score={3:F3} proof={4:F5} extreme={5:F5}",
+                            e.CandidateId, V71FamilyKey(e.Signal.PatternName), e.Route, score,
+                            e.ReactionProofPrice, e.ReactionExtremePrice);
+
+                        bool prepared = false;
+                        if (e.Route == HarmonicRoute.EXHAUSTION_REVERSAL)
+                            prepared = V72PreparePullbackEntry(utc, e, score);
+                        else if (e.Route == HarmonicRoute.TREND_ALIGNED_REVERSAL)
+                            prepared = V72PrepareTrendVirtualProof(utc, e, score);
+                        else if (e.Route == HarmonicRoute.TRANSITION_REVERSAL)
+                        {
+                            e.CapitalEligible = false;
+                            prepared = V72PreparePullbackEntry(utc, e, score);
+                        }
+                        if (!prepared)
+                        {
+                            e.IsActive = false;
+                            e.State = V71ExpansionState.REJECTED;
+                            Print("[V72-BIFURCATION-REJECT] cid={0} reason=NO_LEGAL_POST_REACTION_PATH", e.CandidateId);
+                        }
+                    }
+                    continue;
+                }
+
+                if (e.State == V71ExpansionState.PROOF_WAIT)
+                {
+                    if (utc >= e.VirtualProofExpiryUtc)
+                    {
+                        e.IsActive = false; e.State = V71ExpansionState.EXPIRED;
+                        Print("[V72-TREND-PROOF-EXPIRE] cid={0} stage=WAIT_FILL", e.CandidateId);
+                        continue;
+                    }
+                    TradeDirection dir = e.Signal.Direction;
+                    bool touched = dir == TradeDirection.Buy
+                        ? _m1Bars.LowPrices[i] <= e.VirtualEntryAnchor
+                        : _m1Bars.HighPrices[i] >= e.VirtualEntryAnchor;
+                    if (!touched) continue;
+                    double proofLevel = dir == TradeDirection.Buy
+                        ? e.VirtualEntryAnchor + .50 * e.VirtualRiskDistance
+                        : e.VirtualEntryAnchor - .50 * e.VirtualRiskDistance;
+                    bool hitStop = dir == TradeDirection.Buy
+                        ? _m1Bars.LowPrices[i] <= e.VirtualStructuralStop
+                        : _m1Bars.HighPrices[i] >= e.VirtualStructuralStop;
+                    bool hitProof = dir == TradeDirection.Buy
+                        ? _m1Bars.HighPrices[i] >= proofLevel
+                        : _m1Bars.LowPrices[i] <= proofLevel;
+                    if (hitProof)
+                    {
+                        e.IsActive = false; e.State = V71ExpansionState.REJECTED;
+                        Print("[V72-TREND-PROOF-REJECT] cid={0} reason=FILL_PROOF_SAME_BAR_AMBIGUOUS", e.CandidateId);
+                        continue;
+                    }
+                    if (hitStop)
+                    {
+                        if (V72PrepareFailureContinuation(i, utc, e)) continue;
+                        e.IsActive = false; e.State = V71ExpansionState.REJECTED;
+                        Print("[V72-TREND-PROOF-REJECT] cid={0} reason=VIRTUAL_STOP_ON_FILL", e.CandidateId);
+                        continue;
+                    }
+                    e.AwaitingVirtualProofFill = false;
+                    e.VirtualProofActive = true;
+                    e.VirtualProofStartUtc = utc;
+                    e.VirtualProofExpiryUtc = MinDate(e.ExpiryUtc, V72NextM15Boundary(utc));
+                    e.State = V71ExpansionState.PROOF_ACTIVE;
+                    Print("[V72-TREND-PROOF-FILL] cid={0} entry={1:F5} expiry={2:o}",
+                        e.CandidateId, e.VirtualEntryAnchor, e.VirtualProofExpiryUtc);
+                    continue;
+                }
+
+                if (e.State == V71ExpansionState.PROOF_ACTIVE)
+                {
+                    if (!e.VirtualProofStartUtc.HasValue || utc <= e.VirtualProofStartUtc.Value) continue;
+                    if (utc >= e.VirtualProofExpiryUtc)
+                    {
+                        e.IsActive = false; e.State = V71ExpansionState.EXPIRED;
+                        Print("[V72-TREND-PROOF-EXPIRE] cid={0} stage=ACTIVE", e.CandidateId);
+                        continue;
+                    }
+                    TradeDirection dir = e.Signal.Direction;
+                    double proofLevel = dir == TradeDirection.Buy
+                        ? e.VirtualEntryAnchor + .50 * e.VirtualRiskDistance
+                        : e.VirtualEntryAnchor - .50 * e.VirtualRiskDistance;
+                    bool hitStop = dir == TradeDirection.Buy
+                        ? _m1Bars.LowPrices[i] <= e.VirtualStructuralStop
+                        : _m1Bars.HighPrices[i] >= e.VirtualStructuralStop;
+                    bool hitProof = dir == TradeDirection.Buy
+                        ? _m1Bars.HighPrices[i] >= proofLevel
+                        : _m1Bars.LowPrices[i] <= proofLevel;
+                    if (hitStop && hitProof)
+                    {
+                        e.IsActive = false; e.State = V71ExpansionState.REJECTED;
+                        Print("[V72-TREND-PROOF-REJECT] cid={0} reason=PROOF_STOP_SAME_BAR_AMBIGUOUS", e.CandidateId);
+                        continue;
+                    }
+                    if (hitStop)
+                    {
+                        if (V72PrepareFailureContinuation(i, utc, e)) continue;
+                        e.IsActive = false; e.State = V71ExpansionState.REJECTED;
+                        Print("[V72-TREND-PROOF-REJECT] cid={0} reason=VIRTUAL_STOP_FIRST", e.CandidateId);
+                        continue;
+                    }
+                    if (hitProof)
+                    {
+                        e.TrendProofConfirmed = true;
+                        e.VirtualProofPrice = proofLevel;
+                        Print("[V72-TREND-PROOF-CONFIRMED] cid={0} family={1} proof={2:F5}",
+                            e.CandidateId, V71FamilyKey(e.Signal.PatternName), proofLevel);
+                        if (!V72PrepareTrendReload(utc, e))
+                        {
+                            e.IsActive = false; e.State = V71ExpansionState.REJECTED;
+                            Print("[V72-TREND-PROOF-REJECT] cid={0} reason=NO_LEGAL_RELOAD", e.CandidateId);
                         }
                     }
                     continue;
@@ -2963,33 +3196,34 @@ namespace cAlgo.Robots
 
                 if (e.State == V71ExpansionState.ARMED && !e.ShadowFinished)
                 {
-                    if (EnableV72ReactionAlpha && e.AwaitingPullbackFill)
+                    if (e.AwaitingPullbackFill)
                     {
                         if (utc >= e.PullbackExpiryUtc)
                         {
                             e.IsActive = false;
                             e.State = V71ExpansionState.EXPIRED;
-                            Print("[V72-PULLBACK-EXPIRE] cid={0}", e.CandidateId);
+                            Print("[V72-BIFURCATION-EXPIRE] cid={0} lane={1}", e.CandidateId, e.CapitalLane);
                             continue;
                         }
-                        bool touched = e.Signal.Direction == TradeDirection.Buy
+                        TradeDirection dir = V72CapitalDirection(e);
+                        bool touched = dir == TradeDirection.Buy
                             ? _m1Bars.LowPrices[i] <= e.EntryAnchor
                             : _m1Bars.HighPrices[i] >= e.EntryAnchor;
                         if (!touched) continue;
 
-                        // Pending order existed before this completed M1 bar. Start path at planned limit price.
                         e.AwaitingPullbackFill = false;
                         e.PullbackFilled = true;
                         e.ShadowStarted = true;
                         e.ArmedUtc = utc;
                         e.ShadowPeakR = 0;
                         e.ShadowProtectionR = -1.0;
-                        Print("[V72-PULLBACK-FILL-SHADOW] cid={0} entry={1:F5} utc={2:o}", e.CandidateId, e.EntryAnchor, utc);
+                        Print("[V72-BIFURCATION-FILL-SHADOW] cid={0} lane={1} dir={2} entry={3:F5} utc={4:o}",
+                            e.CandidateId, e.CapitalLane, dir, e.EntryAnchor, utc);
 
-                        bool sameBarStop = e.Signal.Direction == TradeDirection.Buy
+                        bool sameBarStop = dir == TradeDirection.Buy
                             ? _m1Bars.LowPrices[i] <= e.StructuralStop
                             : _m1Bars.HighPrices[i] >= e.StructuralStop;
-                        bool sameBarTarget = e.Signal.Direction == TradeDirection.Buy
+                        bool sameBarTarget = dir == TradeDirection.Buy
                             ? _m1Bars.HighPrices[i] >= e.CanonicalTarget
                             : _m1Bars.LowPrices[i] <= e.CanonicalTarget;
                         if (sameBarStop || sameBarTarget)
@@ -2997,84 +3231,24 @@ namespace cAlgo.Robots
                             e.PathState = -2;
                             e.PathUsable = false;
                             V71FinalizeExpansionShadow(e, i, "PULLBACK_FILL_SAME_BAR_AMBIGUOUS");
-                            continue;
                         }
                         continue;
                     }
 
                     if (!e.ShadowStarted || !e.ArmedUtc.HasValue || utc <= e.ArmedUtc.Value) continue;
-
+                    TradeDirection dir = V72CapitalDirection(e);
                     e.ShadowBars++;
                     double high = _m1Bars.HighPrices[i], low = _m1Bars.LowPrices[i], close = _m1Bars.ClosePrices[i];
                     double risk = Math.Max(e.RiskDistance, _symbol.PipSize);
-                    double favR = e.Signal.Direction == TradeDirection.Buy
+                    double favR = dir == TradeDirection.Buy
                         ? (high - e.EntryAnchor) / risk
                         : (e.EntryAnchor - low) / risk;
-                    double adverseR = e.Signal.Direction == TradeDirection.Buy
+                    double adverseR = dir == TradeDirection.Buy
                         ? (e.EntryAnchor - low) / risk
                         : (high - e.EntryAnchor) / risk;
-                    double closeR = e.Signal.Direction == TradeDirection.Buy
+                    double closeR = dir == TradeDirection.Buy
                         ? (close - e.EntryAnchor) / risk
                         : (e.EntryAnchor - close) / risk;
-                    double priorPeak = e.ShadowPeakR;
-
-                    // V72 payoff-preservation kernel. Protection can only have been armed
-                    // by a PRIOR completed M1 bar, so this never resolves same-bar ordering
-                    // with future information.
-                    if (EnableV72ReactionAlpha && e.PathState == 0 && e.V72ProtectionActive)
-                    {
-                        double protectedR = .10;
-                        double protectedPrice = e.Signal.Direction == TradeDirection.Buy
-                            ? e.EntryAnchor + protectedR * risk
-                            : e.EntryAnchor - protectedR * risk;
-                        bool protectedExit = e.Signal.Direction == TradeDirection.Buy
-                            ? low <= protectedPrice
-                            : high >= protectedPrice;
-                        if (protectedExit)
-                        {
-                            e.PathState = 2;
-                            e.PathUsable = true;
-                            V71FinalizeExpansionShadow(e, i, "V72_EARLY_CAPITAL_PROTECT", protectedR);
-                            continue;
-                        }
-                    }
-
-                    // Native-exit counterfactual is recorded once but no longer terminates
-                    // the structural path study. This separates Entry Alpha from Exit Alpha.
-                    if (!e.NativeExitCaptured)
-                    {
-                        double protectionPrice = e.Signal.Direction == TradeDirection.Buy
-                            ? e.EntryAnchor + e.ShadowProtectionR * risk
-                            : e.EntryAnchor - e.ShadowProtectionR * risk;
-                        bool protectedStop = e.Signal.Direction == TradeDirection.Buy
-                            ? low <= protectionPrice
-                            : high >= protectionPrice;
-                        bool target = e.Signal.Direction == TradeDirection.Buy
-                            ? high >= e.CanonicalTarget
-                            : low <= e.CanonicalTarget;
-                        if (protectedStop)
-                        {
-                            e.NativeExitCaptured = true;
-                            e.NativeExitR = e.ShadowProtectionR;
-                            e.NativeExitResult = "V51_NATIVE_PROXY_PROTECTION";
-                        }
-                        else if (target)
-                        {
-                            e.NativeExitCaptured = true;
-                            e.NativeExitR = Math.Max(0, e.TargetR);
-                            e.NativeExitResult = "V51_NATIVE_PROXY_TARGET";
-                        }
-                        else
-                        {
-                            double ageMinutes = Math.Max(0, (utc - e.ArmedUtc.Value).TotalMinutes);
-                            if (ageMinutes >= NoMfeMinAgeMinutes && priorPeak < NoMfeProofR && closeR <= -Math.Abs(NoMfeKillR))
-                            {
-                                e.NativeExitCaptured = true;
-                                e.NativeExitR = Math.Max(-1.0, closeR);
-                                e.NativeExitResult = "V51_NATIVE_PROXY_NO_MFE";
-                            }
-                        }
-                    }
 
                     if (favR > e.ShadowPeakR)
                     {
@@ -3084,66 +3258,33 @@ namespace cAlgo.Robots
                     e.ShadowMfeR = Math.Max(e.ShadowMfeR, favR);
                     e.ShadowMaeR = Math.Max(e.ShadowMaeR, adverseR);
                     e.ShadowMaxGivebackR = Math.Max(e.ShadowMaxGivebackR, Math.Max(0, e.ShadowPeakR - closeR));
-
                     if (e.TimeTo05R < 0 && favR >= .50) e.TimeTo05R = e.ShadowBars;
                     if (e.TimeTo1R < 0 && favR >= 1.00) e.TimeTo1R = e.ShadowBars;
-                    if (e.TimeTo2R < 0 && favR >= 2.00) e.TimeTo2R = e.ShadowBars;
+                    if (e.TimeTo2R < 0 && favR >= e.TargetR) e.TimeTo2R = e.ShadowBars;
                     if (e.TimeToStopR < 0 && adverseR >= 1.00) e.TimeToStopR = e.ShadowBars;
 
                     if (e.PathState == 0)
                     {
-                        double targetPathR = EnableV72ReactionAlpha ? Math.Max(2.0, e.TargetR) : 2.00;
-                        bool hit2 = favR >= targetPathR;
+                        bool hitTarget = favR >= Math.Max(2.0, e.TargetR);
                         bool hitStop = adverseR >= 1.00;
-                        if (hit2 && hitStop)
+                        if (hitTarget && hitStop)
                         {
-                            e.PathState = -2;
-                            e.PathUsable = false;
+                            e.PathState = -2; e.PathUsable = false;
                             V71FinalizeExpansionShadow(e, i, "PATH_AMBIGUOUS_SAME_BAR");
                             continue;
                         }
                         if (hitStop)
                         {
-                            e.PathState = -1;
-                            e.PathUsable = true;
+                            e.PathState = -1; e.PathUsable = true;
                             V71FinalizeExpansionShadow(e, i, "STRUCTURAL_STOP_FIRST");
                             continue;
                         }
-                        if (hit2)
+                        if (hitTarget)
                         {
-                            e.PathState = 1;
-                            e.PathUsable = true;
-                            if (EnableV72ReactionAlpha)
-                            {
-                                V71FinalizeExpansionShadow(e, i, "V72_FIXED_2R_TARGET", 2.0);
-                                continue;
-                            }
+                            e.PathState = 1; e.PathUsable = true;
+                            V71FinalizeExpansionShadow(e, i, "V72_FIXED_2R_TARGET", 2.0);
+                            continue;
                         }
-                    }
-
-                    if (EnableV72ReactionAlpha && !e.V72ProtectionActive && e.PathState == 0 &&
-                        favR >= .50 && adverseR < 1.00)
-                    {
-                        e.V72ProtectionActive = true;
-                        e.ShadowProtectionR = Math.Max(e.ShadowProtectionR, .10);
-                    }
-
-                    if (!e.NativeExitCaptured)
-                    {
-                        if (e.ShadowPeakR >= BreakEvenTriggerR)
-                            e.ShadowProtectionR = Math.Max(e.ShadowProtectionR, Math.Max(0, BreakEvenLockR));
-                        if (e.ShadowPeakR >= TrailTriggerR)
-                        {
-                            double trail = FibonacciStructureTrail(e.Signal.Direction);
-                            if (trail > 0)
-                            {
-                                double trailR = e.Signal.Direction == TradeDirection.Buy
-                                    ? (trail - e.EntryAnchor) / risk
-                                    : (e.EntryAnchor - trail) / risk;
-                                e.ShadowProtectionR = Math.Max(e.ShadowProtectionR, trailR);
-                            }
-                        }
-                        e.ShadowProtectionR = Math.Min(e.ShadowProtectionR, Math.Max(0, e.TargetR));
                     }
 
                     if (e.ShadowBars >= Math.Max(30, V71ExpansionShadowHorizonM1Bars))
@@ -3162,9 +3303,10 @@ namespace cAlgo.Robots
         private void V71FinalizeExpansionShadow(V71ExpansionCandidate e, int i, string result, double? forcedR = null)
         {
             if (e == null || e.ShadowFinished || !e.ShadowStarted || e.RiskDistance <= 0) return;
+            TradeDirection dir = V72CapitalDirection(e);
             double close = i >= 0 && i < _m1Bars.Count ? _m1Bars.ClosePrices[i] :
-                           (e.Signal.Direction == TradeDirection.Buy ? _symbol.Bid : _symbol.Ask);
-            double closeR = (e.Signal.Direction == TradeDirection.Buy ? close - e.EntryAnchor : e.EntryAnchor - close) / e.RiskDistance;
+                           (dir == TradeDirection.Buy ? _symbol.Bid : _symbol.Ask);
+            double closeR = (dir == TradeDirection.Buy ? close - e.EntryAnchor : e.EntryAnchor - close) / e.RiskDistance;
 
             double structuralR;
             if (forcedR.HasValue) structuralR = forcedR.Value;
@@ -3184,7 +3326,7 @@ namespace cAlgo.Robots
             e.IsActive = false;
             _v71ExpansionShadowClosed++;
             IncrementCounter(_v71FamilyShadowClosed, V71FamilyKey(e.Signal.PatternName));
-            Print("[V71-EXP-SHADOW] cid={0} setup={1} family={2} role={3} route={4} coreOverlap={5} capitalEligible={6} g={7:F6} prz={8:F6} conf={9:F6} ts={10:F6} pv={11:F6} m1={12:F6} rr={13:F6} reg={14:F6} eff={15:F6} atr={16:F6} ext={17:F6} mtf={18:F6} atp={19:F6} adx1={20:F6} adx4={21:F6} adxs={22:F6} trend={23:F6} spr={24:F6} ses={25:F6} przc={26:F6} trans={27:F6} survival={28:F6} structuralR={29:F6} nativeR={30:F6} nativeResult={31} pathState={32} pathUsable={33} mfeR={34:F6} maeR={35:F6} t05={36} t1={37} t2={38} tstop={39} tmfe={40} givebackR={41:F6} result={42} bars={43} costR={44:F6} label=STRUCTURAL_PATH_PLUS_NATIVE_EXIT_COMPLETED_M1",
+            Print("[V71-EXP-SHADOW] cid={0} setup={1} family={2} role={3} route={4} coreOverlap={5} capitalEligible={6} g={7:F6} prz={8:F6} conf={9:F6} ts={10:F6} pv={11:F6} m1={12:F6} rr={13:F6} reg={14:F6} eff={15:F6} atr={16:F6} ext={17:F6} mtf={18:F6} atp={19:F6} adx1={20:F6} adx4={21:F6} adxs={22:F6} trend={23:F6} spr={24:F6} ses={25:F6} przc={26:F6} trans={27:F6} survival={28:F6} structuralR={29:F6} nativeR={30:F6} nativeResult={31} pathState={32} pathUsable={33} mfeR={34:F6} maeR={35:F6} t05={36} t1={37} t2={38} tstop={39} tmfe={40} givebackR={41:F6} result={42} bars={43} costR={44:F6} lane={45} label=STRUCTURAL_PATH_PLUS_NATIVE_EXIT_COMPLETED_M1",
                 e.CandidateId, e.SetupKey, V71FamilyKey(e.Signal.PatternName), e.AbcdRole, e.Route,
                 e.CoreOverlapObserved, e.CapitalEligible,
                 VClamp(e.Signal.GeometryQuality), VClamp(e.Signal.PrzConfluence), VClamp(e.Signal.Confidence),
@@ -3196,7 +3338,7 @@ namespace cAlgo.Robots
                 e.SpreadAtr, e.SessionPhase, e.PrzCompression, e.TransitionState, e.SurvivalProbability,
                 structuralR, e.NativeExitR, e.NativeExitResult ?? "NONE", e.PathState, e.PathUsable,
                 e.ShadowMfeR, e.ShadowMaeR, e.TimeTo05R, e.TimeTo1R, e.TimeTo2R, e.TimeToStopR,
-                e.TimeToMfeBars, e.ShadowMaxGivebackR, result, e.ShadowBars, e.ModeledCostR);
+                e.TimeToMfeBars, e.ShadowMaxGivebackR, result, e.ShadowBars, e.ModeledCostR, e.CapitalLane ?? "NONE");
         }
 
         private void V71FinalizeExpansionShadows()
@@ -3440,7 +3582,7 @@ namespace cAlgo.Robots
             var basket = new FibonacciBasket
             {
                 BasketId = basketId, CandidateId = c.CandidateId, Pattern = c.Signal.PatternName,
-                Direction = c.Signal.Direction, Route = c.Route, State = FibonacciBasketState.PLANNED,
+                Direction = plan.Direction, Route = c.Route, State = FibonacciBasketState.PLANNED,
                 CreatedUtc = Server.Time.ToUniversalTime(), ExpirationUtc = plan.ExpirationUtc,
                 EntryAnchor = plan.EntryAnchor, StructuralStop = plan.StructuralStop,
                 CanonicalTarget = plan.CanonicalTarget, InitialBasketRisk = plan.BasketRiskAmount,
@@ -3467,25 +3609,26 @@ namespace cAlgo.Robots
 
         private void V71TryExecuteExpansion(DateTime now)
         {
-            if (!EnableV71ExpansionExecution || !EnableV72ReactionAlpha) return;
+            if (!EnableV71ExpansionExecution || !EnableV72BifurcationAlpha) return;
             if (V71CoreHasActiveThesis()) { _v71ExpansionCoreBlocked++; return; }
             if (OwnPositions().Any() || OwnPendingOrders().Any() || _baskets.Values.Any(b => b.IsActive)) return;
             if (!IsInstitutionalSession(now) || !SpreadValid()) return;
 
             var eligible = _v71Expansion.Values
                 .Where(e => e.IsActive && e.State == V71ExpansionState.ARMED && !e.Executed &&
-                            e.CapitalEligible && !e.CoreOverlapObserved &&
-                            e.ReactionProved && e.AwaitingPullbackFill && e.NetRR >= MinimumNetRR &&
+                            e.CapitalEligible && !e.CoreOverlapObserved && e.CapitalReady &&
+                            e.AwaitingPullbackFill && e.NetRR >= MinimumNetRR &&
                             !_executedSetupKeys.Contains(e.SetupKey) &&
                             !_v71ExpansionExecutedSetupKeys.Contains(e.SetupKey))
-                .OrderByDescending(e => e.SlotScore)
+                .OrderByDescending(e => e.AsymmetryCompression)
                 .ThenByDescending(e => e.NetRR)
+                .ThenBy(e => e.ReactionProofUtc ?? e.DetectedUtc)
                 .ToList();
 
             if (eligible.Count == 0)
             {
                 if (_v71Expansion.Values.Any(e => e.IsActive && e.State == V71ExpansionState.ARMED &&
-                    (!e.CapitalEligible || e.CoreOverlapObserved || !e.ReactionProved ||
+                    (!e.CapitalEligible || e.CoreOverlapObserved || !e.CapitalReady ||
                      !e.AwaitingPullbackFill || e.NetRR < MinimumNetRR)))
                     _v71ExpansionEligibilityRejected++;
                 return;
@@ -3494,7 +3637,6 @@ namespace cAlgo.Robots
             var e = eligible[0];
             double riskPct = V71ExpansionRiskFor(e);
             if (!V71ExpansionRiskReserveAllows(riskPct)) return;
-
             var candidate = new CandidateRecord
             {
                 CandidateId = e.CandidateId,
@@ -3512,15 +3654,16 @@ namespace cAlgo.Robots
                 NetRR = e.NetRR,
                 SelectedTarget = e.CanonicalTarget,
                 V71Expansion = true,
-                V72ReactionAlpha = true,
+                V72BifurcationAlpha = true,
                 V71RiskPercent = riskPct
             };
 
             if (!V72BuildPullbackSingleLeg(candidate, e) || candidate.GridPlan == null || candidate.NetRR < MinimumNetRR)
                 return;
 
-            Print("[V72-PULLBACK-EXECUTE] cid={0} setup={1} family={2} route={3} rr={4:F3} slotScore={5:F5} riskPct={6:F2}",
-                e.CandidateId, e.SetupKey, V71FamilyKey(e.Signal.PatternName), e.Route, e.NetRR, e.SlotScore, riskPct);
+            Print("[V72-BIFURCATION-EXECUTE] cid={0} setup={1} family={2} lane={3} route={4} dir={5} rr={6:F3} asym={7:F3} riskPct={8:F2}",
+                e.CandidateId, e.SetupKey, V71FamilyKey(e.Signal.PatternName), e.CapitalLane, e.Route,
+                V72CapitalDirection(e), e.NetRR, e.AsymmetryCompression, riskPct);
 
             if (V72SubmitPullbackSingleLeg(candidate))
             {
@@ -5370,7 +5513,7 @@ namespace cAlgo.Robots
     public enum TradeDirection { Neutral, Buy, Sell }
     public enum HarmonicState { Neutral, Bullish, Bearish }
     public enum MtfConflict { NEUTRAL, ALIGNED, SUPPORTED, TRANSITION, CONFLICT }
-    public enum HarmonicRoute { NO_TRADE, TREND_ALIGNED_REVERSAL, EXHAUSTION_REVERSAL, TRANSITION_REVERSAL }
+    public enum HarmonicRoute { NO_TRADE, TREND_ALIGNED_REVERSAL, EXHAUSTION_REVERSAL, TRANSITION_REVERSAL, FAILURE_CONTINUATION }
     public enum CandidateState { DETECTED, VALIDATED, ROUTED, WAIT_PRZ, CONFIRMING, ARMED, SLOT_BLOCKED, PARKED, REVALIDATING, EXECUTABLE, EXECUTED, EXPIRED, REJECTED, INVALIDATED }
     public enum PatternMode { STANDARD, ABCD, CYPHER, SHARK, FIVEZERO }
 
@@ -5431,7 +5574,7 @@ namespace cAlgo.Robots
         public double TrendStrength;
     }
 
-    public enum V71ExpansionState { WAIT_PRZ, CONFIRMING, ARMED, EXECUTED, EXPIRED, REJECTED, INVALIDATED }
+    public enum V71ExpansionState { WAIT_PRZ, CONFIRMING, PROOF_WAIT, PROOF_ACTIVE, ARMED, EXECUTED, EXPIRED, REJECTED, INVALIDATED }
 
     public sealed class V71ExpansionCandidate
     {
@@ -5443,10 +5586,13 @@ namespace cAlgo.Robots
         public V71ExpansionState State;
         public bool IsActive, Executed, ShadowStarted, ShadowFinished;
         public DateTime DetectedUtc, ExpiryUtc;
-        public DateTime? PrzTouchUtc, ArmedUtc, ReactionProofUtc;
-        public DateTime PullbackExpiryUtc;
+        public DateTime? PrzTouchUtc, ArmedUtc, ReactionProofUtc, VirtualProofStartUtc;
+        public DateTime PullbackExpiryUtc, VirtualProofExpiryUtc;
         public double ConfirmationScore, NetRR, RegimeScore;
         public double ReactionProofPrice, ReactionExtremePrice, ReactionScore;
+        public double VirtualEntryAnchor, VirtualStructuralStop, VirtualRiskDistance, VirtualProofPrice;
+        public double AsymmetryCompression = 1.0;
+        public TradeDirection CapitalDirection = TradeDirection.Neutral;
         public double EntryAnchor, StructuralStop, CanonicalTarget, RiskDistance, TargetR;
         public double EdgeMean, EdgeLcb, SlotScore, ShadowOutcomeR;
         public double AtrPercentile, AdxH1Norm, AdxH4Norm, AdxSlopeNorm, TrendStrength;
@@ -5455,7 +5601,9 @@ namespace cAlgo.Robots
         public double ModeledCostR, PathProbability, PathLcb, RunnerProbability, RunnerLcb, CoreArrivalHazard;
         public bool SupportEligible = true;
         public bool CoreOverlapObserved, CapitalEligible = true, NativeExitCaptured, PathUsable;
-        public bool ReactionProved, ReactionExtremeInitialized, AwaitingPullbackFill, PullbackFilled, V72ProtectionActive;
+        public bool ReactionProved, ReactionExtremeInitialized, AwaitingPullbackFill, PullbackFilled;
+        public bool AwaitingVirtualProofFill, VirtualProofActive, TrendProofConfirmed, FailureContinuation, CapitalReady;
+        public string CapitalLane = "NONE";
         public string AbcdRole = "PARENT_FAMILY", NativeExitResult;
         public double NativeExitR, ShadowPeakR, ShadowProtectionR = -1.0;
         public double ShadowMfeR, ShadowMaeR, ShadowMaxGivebackR;
@@ -5492,7 +5640,7 @@ namespace cAlgo.Robots
         public bool TemporalDirectional, TemporalReclaim, TemporalBos1, TemporalBos2, TemporalRejection, TemporalFailedExtension, TemporalDisplacement;
         public bool CapitalFeasible;
         public bool V71Expansion;
-        public bool V72ReactionAlpha;
+        public bool V72BifurcationAlpha;
         public double V71RiskPercent = 1.0;
         public FibonacciGridPlan GridPlan;
         public long PositionId;

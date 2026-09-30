@@ -2,11 +2,11 @@
 set -euo pipefail
 : "${1:?variant}"; : "${2:?window}"; : "${3:?start}"; : "${4:?eval}"; : "${5:?end}"; : "${6:?years}"
 VAR="$1"; WIN="$2"; START="$3"; EVAL="$4"; END="$5"; YEARS="$6"
-EXPSHADOW=false; EXPEXEC=false; EXPGRID=false; EXPADAPRISK=false; EXPRISK=1.0; V72REACTION=false
+EXPSHADOW=false; EXPEXEC=false; EXPGRID=false; EXPADAPRISK=false; EXPRISK=1.0; V72BIFURCATION=false
 case "$VAR" in
- SHADOW_PREPASS) EXPSHADOW=true; V72REACTION=true;;
+ SHADOW_PREPASS) EXPSHADOW=true; V72BIFURCATION=true;;
  A_V51_PROTECTED_CORE) ;;
- B_V72_PULLBACK_ALPHA) EXPSHADOW=true; EXPEXEC=true; V72REACTION=true;;
+ B_V72_BIFURCATION_ALPHA) EXPSHADOW=true; EXPEXEC=true; V72BIFURCATION=true;;
  *) echo "unknown active V71/V72 variant $VAR"; exit 31;;
 esac
 
@@ -45,7 +45,7 @@ N="V71-$VAR-$WIN-B10000"
 
 (
  cd "$W"
- RUN_NAME="$N" START_DATE="$START" EVAL_DATE="$EVAL" END_DATE="$END" BALANCE=10000  EXPSHADOW="$EXPSHADOW" EXPEXEC="$EXPEXEC" EXPGRID="$EXPGRID" EXPADAPRISK="$EXPADAPRISK" EXPRISK="$EXPRISK" V72REACTION="$V72REACTION"  IMMUTABLE_DATA=true BACKTEST_TIMEOUT_SECONDS=1800 "$C/HarmonyBot-V71/tools/run_backtest.sh"
+ RUN_NAME="$N" START_DATE="$START" EVAL_DATE="$EVAL" END_DATE="$END" BALANCE=10000  EXPSHADOW="$EXPSHADOW" EXPEXEC="$EXPEXEC" EXPGRID="$EXPGRID" EXPADAPRISK="$EXPADAPRISK" EXPRISK="$EXPRISK" V72BIFURCATION="$V72BIFURCATION"  IMMUTABLE_DATA=true BACKTEST_TIMEOUT_SECONDS=1800 "$C/HarmonyBot-V71/tools/run_backtest.sh"
 )
 test -s "$W/seal/logs/$N.log"; test -s "$W/seal/reports/$N.json"
 POST_DATA_HASH=$(cd "$W/seal/data" && find . -type f -print0 | LC_ALL=C sort -z | xargs -0 sha256sum | sha256sum | cut -d' ' -f1)
