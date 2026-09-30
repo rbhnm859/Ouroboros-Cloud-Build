@@ -198,7 +198,7 @@ def scored(r,m):
     hazard=clamp(linear(r,m["haz_i"],m["haz_b"],HAZARD_F)+m["haz_margin"],.0,.95)
     be=clamp((1.0+max(0.0,float(r.get("cost_r",0.0))))/3.0,.333333,.60)
     score=edge_lcb/hours_ucb-hazard*CORE_OPPORTUNITY_COST_R
-    gates=edge_lcb>0 and p2_lcb>be and pair in m["edge_pri"]
+    gates=edge_lcb>0 and p2_lcb>be
     return {"edge":edge,"edge_lcb":edge_lcb,"p2":p2,"p2_lcb":p2_lcb,"runner":runner,"runner_lcb":runner_lcb,
             "hours":hours,"hours_ucb":hours_ucb,"hazard":hazard,"be":be,"score":score,"distance":dist,"gates":gates}
 
@@ -259,12 +259,12 @@ def setup_hash_spec(selected):
     vals=sorted({f"{fnv32(r['family']+'|'+r['setup']):08X}" for r,s in selected})
     return ";".join(vals)
 
-def pair_spec(m): return ";".join(sorted(f"{f}:{route_key(rt)}" for (f,rt) in m["edge_pri"]))
+def pair_spec(m): return ""
 
 def prior_spec(m): return ";".join(f"{f}:{route_key(rt)}:{clamp(v,-2,2):.10f}" for (f,rt),v in sorted(m["edge_pri"].items()))
 
 def model_spec(m):
-    a=["h5:1.0000000000","slot_gate:1.0000000000","soft_support:1.0000000000",
+    a=["h5:1.0000000000","slot_gate:1.0000000000","soft_support:1.0000000000","prior:1.0000000000",
        f"i:{m['edge_i']:.10f}",f"edge_base_margin:{m['base_edge_margin']:.10f}",
        f"support_ref:{m['support_ref']:.10f}",f"uncertainty_scale:{m['soft_edge']:.10f}",
        f"p2i:{m['p2_i']:.10f}",f"p2_base_margin:{m['base_p2_margin']:.10f}",f"p2_uncertainty_scale:{m['soft_prob']:.10f}",
