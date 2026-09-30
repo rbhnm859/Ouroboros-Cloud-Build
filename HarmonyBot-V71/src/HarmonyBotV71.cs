@@ -266,6 +266,9 @@ namespace cAlgo.Robots
         [Parameter("V71 Expansion Exit Policy", DefaultValue = "REACTION_2R")]
         public string V71ExpansionExitPolicy { get; set; }
 
+        [Parameter("Enable V72 Reaction Alpha", DefaultValue = false)]
+        public bool EnableV72ReactionAlpha { get; set; }
+
         [Parameter("V71 Edge LCB Margin", DefaultValue = 0.0, MinValue = 0.0, MaxValue = 2.0)]
         public double V71EdgeLcbMargin { get; set; }
 
@@ -2729,6 +2732,7 @@ namespace cAlgo.Robots
         private bool V71FamilyRouteAllowed(V71ExpansionCandidate e)
         {
             if (e == null || e.Signal == null) return false;
+            if (EnableV72ReactionAlpha) return true;
             bool h5 = V71W("h5") > .5;
             if (_v71AllowedFamilyRoutes.Count == 0) return h5;
             string pair = V71FamilyKey(e.Signal.PatternName) + ":" + V71RouteKey(e.Route);
@@ -3158,6 +3162,28 @@ namespace cAlgo.Robots
             {
                 e.IsActive = false; e.State = V71ExpansionState.REJECTED; return;
             }
+            if (EnableV72ReactionAlpha)
+            {
+                double risk = Math.Abs(entry - stop);
+                double costPrice = PipsToPrice(ModeledCostPips());
+                double reactionTarget = e.Signal.Direction == TradeDirection.Buy
+                    ? entry + 2.0 * risk + costPrice
+                    : entry - 2.0 * risk - costPrice;
+                bool canonicalCoversReaction = e.Signal.Direction == TradeDirection.Buy
+                    ? target >= reactionTarget
+                    : target <= reactionTarget;
+                if (!canonicalCoversReaction || !GeometryValid(e.Signal.Direction, entry, stop, reactionTarget))
+                {
+                    e.IsActive = false; e.State = V71ExpansionState.REJECTED; return;
+                }
+                target = reactionTarget;
+                netRr = (PriceToPips(Math.Abs(target - entry)) - ModeledCostPips()) /
+                        Math.Max(1e-9, PriceToPips(risk));
+                if (netRr + 1e-9 < MinimumNetRR)
+                {
+                    e.IsActive = false; e.State = V71ExpansionState.REJECTED; return;
+                }
+            }
 
             e.EntryAnchor = entry;
             e.StructuralStop = stop;
@@ -3182,28 +3208,48 @@ namespace cAlgo.Robots
             e.ShadowPeakR = 0;
             e.ShadowProtectionR = -1.0;
             e.ModeledCostR = e.RiskDistance > 0 ? PipsToPrice(ModeledCostPips()) / e.RiskDistance : 0;
-            e.SupportEligible = V71SupportEligible(e, out var supportDistance);
-            e.SupportDistance = supportDistance;
-            e.EdgeMean = V71ExpectedEdge(e);
-            if (V71W("h5") > .5)
-                e.EdgeLcb = e.EdgeMean - Math.Max(0, V71W("edge_base_margin")) -
-                            V71PairUncertainty("eu_", e, "edge_base_margin") - V71H5SupportPenalty(e, "uncertainty_scale");
+            if (EnableV72ReactionAlpha)
+            {
+                e.SupportEligible = true;
+                e.SupportDistance = 0;
+                e.EdgeMean = e.NetRR;
+                e.EdgeLcb = e.NetRR;
+                e.PathProbability = .50;
+                e.PathLcb = 0;
+                e.RunnerProbability = 0;
+                e.RunnerLcb = 0;
+                e.ExpectedSlotHours = e.Route == HarmonicRoute.TREND_ALIGNED_REVERSAL ? 1.50 :
+                                      e.Route == HarmonicRoute.TRANSITION_REVERSAL ? 1.25 : 2.00;
+                e.ExpectedSlotHoursUcb = e.ExpectedSlotHours;
+                e.CoreArrivalHazard = 0;
+                e.SurvivalProbability = .50;
+                e.SlotScore = e.NetRR / Math.Max(.50, e.ExpectedSlotHours);
+            }
             else
-                e.EdgeLcb = e.EdgeMean - Math.Max(0, V71EdgeLcbMargin);
-            e.PathProbability = V71ExpectedPathProbability(e);
-            e.PathLcb = V71ExpectedPathLcb(e);
-            e.RunnerProbability = V71ExpectedRunnerProbability(e);
-            e.RunnerLcb = V71ExpectedRunnerLcb(e);
-            e.ExpectedSlotHours = V71ExpectedSlotHours(e);
-            e.ExpectedSlotHoursUcb = V71ExpectedSlotHoursUcb(e);
-            e.CoreArrivalHazard = V71ExpectedCoreArrivalHazard(e);
-            e.SurvivalProbability = V71W("h5") > .5 ? e.PathProbability : V71ExpectedSurvival(e);
-            e.SlotScore = e.SupportEligible
-                ? (V71W("h5") > .5
-                    ? e.EdgeLcb / Math.Max(.50, e.ExpectedSlotHoursUcb) -
-                      e.CoreArrivalHazard * Math.Max(0, V71W("core_cost"))
-                    : e.EdgeLcb * Math.Max(.05, Math.Min(.95, e.SurvivalProbability)) / Math.Max(.50, e.ExpectedSlotHours))
-                : double.NegativeInfinity;
+            {
+                e.SupportEligible = V71SupportEligible(e, out var supportDistance);
+                e.SupportDistance = supportDistance;
+                e.EdgeMean = V71ExpectedEdge(e);
+                if (V71W("h5") > .5)
+                    e.EdgeLcb = e.EdgeMean - Math.Max(0, V71W("edge_base_margin")) -
+                                V71PairUncertainty("eu_", e, "edge_base_margin") - V71H5SupportPenalty(e, "uncertainty_scale");
+                else
+                    e.EdgeLcb = e.EdgeMean - Math.Max(0, V71EdgeLcbMargin);
+                e.PathProbability = V71ExpectedPathProbability(e);
+                e.PathLcb = V71ExpectedPathLcb(e);
+                e.RunnerProbability = V71ExpectedRunnerProbability(e);
+                e.RunnerLcb = V71ExpectedRunnerLcb(e);
+                e.ExpectedSlotHours = V71ExpectedSlotHours(e);
+                e.ExpectedSlotHoursUcb = V71ExpectedSlotHoursUcb(e);
+                e.CoreArrivalHazard = V71ExpectedCoreArrivalHazard(e);
+                e.SurvivalProbability = V71W("h5") > .5 ? e.PathProbability : V71ExpectedSurvival(e);
+                e.SlotScore = e.SupportEligible
+                    ? (V71W("h5") > .5
+                        ? e.EdgeLcb / Math.Max(.50, e.ExpectedSlotHoursUcb) -
+                          e.CoreArrivalHazard * Math.Max(0, V71W("core_cost"))
+                        : e.EdgeLcb * Math.Max(.05, Math.Min(.95, e.SurvivalProbability)) / Math.Max(.50, e.ExpectedSlotHours))
+                    : double.NegativeInfinity;
+            }
             _v71ExpansionArmed++;
             IncrementCounter(_v71FamilyArmed, V71FamilyKey(e.Signal.PatternName));
 
@@ -3217,6 +3263,21 @@ namespace cAlgo.Robots
                 e.AtrPercentile, e.AdxH1Norm, e.AdxH4Norm, e.AdxSlopeNorm, e.TrendStrength,
                 e.SpreadAtr, e.SessionPhase, e.PrzCompression, e.TransitionState,
                 V71FamilyRoutePrior(e), e.EdgeMean, e.EdgeLcb, e.SlotScore);
+        }
+
+        private bool V72ReactionRetestConfirmed(int i, V71ExpansionCandidate e)
+        {
+            if (e == null || e.Signal == null || !e.ReactionProved || !e.ReactionProofUtc.HasValue ||
+                i < 2 || i >= _m1Bars.Count) return false;
+            double close = _m1Bars.ClosePrices[i], high = _m1Bars.HighPrices[i], low = _m1Bars.LowPrices[i];
+            bool alive = e.Signal.Direction == TradeDirection.Buy
+                ? close > e.Signal.StructuralInvalidation
+                : close < e.Signal.StructuralInvalidation;
+            if (!alive) return false;
+            double level = e.ReactionRetestLevel;
+            return e.Signal.Direction == TradeDirection.Buy
+                ? low <= level && close > level
+                : high >= level && close < level;
         }
 
         private void V71ProcessExpansionM1(int i, DateTime utc)
@@ -3264,7 +3325,43 @@ namespace cAlgo.Robots
                     V71RefreshExpansionDecisionContext(e);
                     double score;
                     if (V71ExpansionM1Confirmation(i, e, out score))
-                        V71ArmExpansion(i, utc, e, score);
+                    {
+                        if (EnableV72ReactionAlpha)
+                        {
+                            double close = _m1Bars.ClosePrices[i];
+                            double przMid = (e.Signal.PrzLow + e.Signal.PrzHigh) * .5;
+                            e.ReactionProved = true;
+                            e.ReactionProofUtc = utc;
+                            e.ReactionProofPrice = close;
+                            e.ReactionRetestLevel = (close + przMid) * .5;
+                            e.ReactionScore = score;
+                            e.ReactionRetestBars = 0;
+                            e.State = V71ExpansionState.RETEST_READY;
+                            Print("[V72-REACTION-PROVED] cid={0} family={1} route={2} score={3:F3} proof={4:F5} retest={5:F5}",
+                                e.CandidateId, V71FamilyKey(e.Signal.PatternName), e.Route, score, e.ReactionProofPrice, e.ReactionRetestLevel);
+                        }
+                        else V71ArmExpansion(i, utc, e, score);
+                    }
+                    continue;
+                }
+
+                if (e.State == V71ExpansionState.RETEST_READY)
+                {
+                    if (!EnableV72ReactionAlpha || !e.ReactionProofUtc.HasValue || utc <= e.ReactionProofUtc.Value) continue;
+                    e.ReactionRetestBars++;
+                    if (V72ReactionRetestConfirmed(i, e))
+                    {
+                        e.ReactionRetestConfirmed = true;
+                        Print("[V72-REACTION-RETEST] cid={0} family={1} bars={2} close={3:F5}",
+                            e.CandidateId, V71FamilyKey(e.Signal.PatternName), e.ReactionRetestBars, _m1Bars.ClosePrices[i]);
+                        V71ArmExpansion(i, utc, e, Math.Max(e.ReactionScore, M1ConfirmationScore(i, e.Signal)));
+                    }
+                    else if (e.ReactionRetestBars >= 4)
+                    {
+                        e.IsActive = false;
+                        e.State = V71ExpansionState.REJECTED;
+                        Print("[V72-REACTION-REJECT] cid={0} reason=NO_CONTROLLED_RETEST", e.CandidateId);
+                    }
                     continue;
                 }
 
@@ -3651,7 +3748,7 @@ namespace cAlgo.Robots
 
         private void V71TryExecuteExpansion(DateTime now)
         {
-            if (!EnableV71ExpansionExecution || !_v71ModelReady) return;
+            if (!EnableV71ExpansionExecution || (!EnableV72ReactionAlpha && !_v71ModelReady)) return;
             if (V71CoreHasActiveThesis()) { _v71ExpansionCoreBlocked++; return; }
             if (OwnPositions().Any() || OwnPendingOrders().Any() || _baskets.Values.Any(b => b.IsActive)) return;
             if (!IsInstitutionalSession(now) || !SpreadValid()) return;
@@ -3659,10 +3756,11 @@ namespace cAlgo.Robots
             var eligible = _v71Expansion.Values
                 .Where(e => e.IsActive && e.State == V71ExpansionState.ARMED && !e.Executed &&
                             e.CapitalEligible && !e.CoreOverlapObserved &&
-                            V71FamilyRouteAllowed(e) && V71SetupAllowed(e) &&
-                            e.SupportEligible && e.EdgeLcb > 0 &&
-                            (V71W("h5") <= .5 || e.PathLcb > V71PathBreakEven(e)) &&
-                            V71CapitalQualificationScore(e) > V71ExpansionMinEdgeLcbR && e.NetRR >= MinimumNetRR &&
+                            (EnableV72ReactionAlpha
+                                ? (e.ReactionProved && e.ReactionRetestConfirmed && e.NetRR >= MinimumNetRR)
+                                : (V71FamilyRouteAllowed(e) && V71SetupAllowed(e) && e.SupportEligible && e.EdgeLcb > 0 &&
+                                   (V71W("h5") <= .5 || e.PathLcb > V71PathBreakEven(e)) &&
+                                   V71CapitalQualificationScore(e) > V71ExpansionMinEdgeLcbR && e.NetRR >= MinimumNetRR)) &&
                             !_executedSetupKeys.Contains(e.SetupKey) &&
                             !_v71ExpansionExecutedSetupKeys.Contains(e.SetupKey))
                 .OrderByDescending(e => e.SlotScore)
@@ -3671,9 +3769,12 @@ namespace cAlgo.Robots
             if (eligible.Count == 0)
             {
                 if (_v71Expansion.Values.Any(e => e.IsActive && e.State == V71ExpansionState.ARMED &&
-                    (!e.CapitalEligible || e.CoreOverlapObserved || !V71FamilyRouteAllowed(e) || !V71SetupAllowed(e) || !e.SupportEligible ||
-                     e.EdgeLcb <= 0 || (V71W("h5") > .5 && e.PathLcb <= V71PathBreakEven(e)) ||
-                     V71CapitalQualificationScore(e) <= V71ExpansionMinEdgeLcbR)))
+                    (!e.CapitalEligible || e.CoreOverlapObserved ||
+                     (EnableV72ReactionAlpha
+                        ? (!e.ReactionProved || !e.ReactionRetestConfirmed || e.NetRR < MinimumNetRR)
+                        : (!V71FamilyRouteAllowed(e) || !V71SetupAllowed(e) || !e.SupportEligible ||
+                           e.EdgeLcb <= 0 || (V71W("h5") > .5 && e.PathLcb <= V71PathBreakEven(e)) ||
+                           V71CapitalQualificationScore(e) <= V71ExpansionMinEdgeLcbR)))))
                     _v71ExpansionModelRejected++;
                 return;
             }
@@ -3715,7 +3816,7 @@ namespace cAlgo.Robots
             else built = V71BuildExpansionSingleLeg(c);
 
             if (!built || c.GridPlan == null || c.NetRR < MinimumNetRR) return;
-            V71ApplyExpansionExitPolicy(e, c);
+            if (!EnableV72ReactionAlpha) V71ApplyExpansionExitPolicy(e, c);
             if (c.GridPlan == null || c.NetRR < MinimumNetRR) return;
 
             Print("[V71-EXP-EXECUTE] cid={0} setup={1} family={2} route={3} model={4} edge={5:F5} lcb={6:F5} slotScore={7:F5} riskPct={8:F2} grid={9}",
@@ -5632,7 +5733,7 @@ namespace cAlgo.Robots
         public double TrendStrength;
     }
 
-    public enum V71ExpansionState { WAIT_PRZ, CONFIRMING, ARMED, EXECUTED, EXPIRED, REJECTED, INVALIDATED }
+    public enum V71ExpansionState { WAIT_PRZ, CONFIRMING, RETEST_READY, ARMED, EXECUTED, EXPIRED, REJECTED, INVALIDATED }
 
     public sealed class V71ExpansionCandidate
     {
@@ -5644,8 +5745,9 @@ namespace cAlgo.Robots
         public V71ExpansionState State;
         public bool IsActive, Executed, ShadowStarted, ShadowFinished;
         public DateTime DetectedUtc, ExpiryUtc;
-        public DateTime? PrzTouchUtc, ArmedUtc;
+        public DateTime? PrzTouchUtc, ArmedUtc, ReactionProofUtc;
         public double ConfirmationScore, NetRR, RegimeScore;
+        public double ReactionProofPrice, ReactionRetestLevel, ReactionScore;
         public double EntryAnchor, StructuralStop, CanonicalTarget, RiskDistance, TargetR;
         public double EdgeMean, EdgeLcb, SlotScore, ShadowOutcomeR;
         public double AtrPercentile, AdxH1Norm, AdxH4Norm, AdxSlopeNorm, TrendStrength;
@@ -5654,10 +5756,11 @@ namespace cAlgo.Robots
         public double ModeledCostR, PathProbability, PathLcb, RunnerProbability, RunnerLcb, CoreArrivalHazard;
         public bool SupportEligible = true;
         public bool CoreOverlapObserved, CapitalEligible = true, NativeExitCaptured, PathUsable;
+        public bool ReactionProved, ReactionRetestConfirmed;
         public string AbcdRole = "PARENT_FAMILY", NativeExitResult;
         public double NativeExitR, ShadowPeakR, ShadowProtectionR = -1.0;
         public double ShadowMfeR, ShadowMaeR, ShadowMaxGivebackR;
-        public int ShadowBars, NativeConfirmBars, PathState;
+        public int ShadowBars, NativeConfirmBars, PathState, ReactionRetestBars;
         public int TimeTo05R = -1, TimeTo1R = -1, TimeTo2R = -1, TimeToStopR = -1, TimeToMfeBars = -1;
         public CandidateRecord NativeEvidenceState;
     }
