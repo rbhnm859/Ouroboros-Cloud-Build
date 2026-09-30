@@ -3512,6 +3512,7 @@ namespace cAlgo.Robots
                 NetRR = e.NetRR,
                 SelectedTarget = e.CanonicalTarget,
                 V71Expansion = true,
+                V72ReactionAlpha = true,
                 V71RiskPercent = riskPct
             };
 
