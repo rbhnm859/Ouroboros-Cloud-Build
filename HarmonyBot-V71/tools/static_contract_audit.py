@@ -25,6 +25,7 @@ checks={
  "no_selector_gate":"e.CapitalReady" in execblk and all(x not in s for x in ["V71EdgeModelSpec","V71ExpectedPathProbability","V71ExpectedRunnerProbability","V71SupportDistance","_v71ModelReady"]),
  "single_pending_leg":"V72BuildPullbackSingleLeg" in s and "V72SubmitPullbackSingleLeg" in s and "PlaceGridLimit(basket, l0)" in s,
  "fixed_2r_payoff":"2.0 * risk + costPrice" in s and 'V71FinalizeExpansionShadow(e, i, "V72_FIXED_2R_TARGET", 2.0)' in s,
+ "exact_payoff_census":"V72RecordPayoffCensus" in s and "[V72-PAYOFF-CENSUS]" in s and "_v72PayoffSeen" in s and "_v72PayoffCensus" in s,
  "no_v72_early_exit":"V72_EARLY_CAPITAL_PROTECT" not in s and "!v72FixedPayoff && basket.PeakR >= TrailTriggerR" in s,
  "m15_expiry":"V72NextM15Boundary" in s and "PullbackExpiryUtc" in s and "VirtualProofExpiryUtc" in s,
  "same_bar_fail_closed":"FILL_PROOF_SAME_BAR_AMBIGUOUS" in s and "PROOF_STOP_SAME_BAR_AMBIGUOUS" in s and "PULLBACK_FILL_SAME_BAR_AMBIGUOUS" in s,

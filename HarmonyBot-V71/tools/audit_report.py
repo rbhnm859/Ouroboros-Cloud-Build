@@ -105,12 +105,17 @@ if om:
  z=om[-1]
  oracle_summary={"expected":int(z[0]),"matched":int(z[1]),"missed":int(z[2]),"perfect_recall":z[3]=="True"}
 
-es=re.findall(r"\[V71-EXPANSION-SUMMARY\].*?detected=(\d+)\s+armed=(\d+)\s+executed=(\d+)\s+coreBlocked=(\d+)\s+modelRejected=(\d+)\s+gridFallback=(\d+)\s+shadowClosed=(\d+)\s+riskScaled=(\d+)\s+active=(\d+)\s+model=(\S+)",t)
-exp_summary={"detected":0,"armed":0,"executed":0,"core_blocked":0,"model_rejected":0,"grid_fallback":0,"shadow_closed":0,"risk_scaled":0,"active":0,"model":"NONE"}
+es=re.findall(r"\[V71-EXPANSION-SUMMARY\].*?detected=(\d+)\s+armed=(\d+)\s+executed=(\d+)\s+coreBlocked=(\d+)\s+eligibilityRejected=(\d+)\s+shadowClosed=(\d+)\s+riskScaled=(\d+)\s+active=(\d+)\s+selectorModel=(\S+)",t)
+exp_summary={"detected":0,"armed":0,"executed":0,"core_blocked":0,"eligibility_rejected":0,"shadow_closed":0,"risk_scaled":0,"active":0,"model":"NONE"}
 if es:
  z=es[-1]
- for k,v in zip(["detected","armed","executed","core_blocked","model_rejected","grid_fallback","shadow_closed","risk_scaled","active"],z[:9]): exp_summary[k]=int(v)
- exp_summary["model"]=z[9]
+ for k,v in zip(["detected","armed","executed","core_blocked","eligibility_rejected","shadow_closed","risk_scaled","active"],z[:8]): exp_summary[k]=int(v)
+ exp_summary["model"]=z[8]
+
+payoff_census=[]
+for lane,family,n,sumr,sumsq,gp,gl,wins in re.findall(r"\[V72-PAYOFF-CENSUS\]\s+lane=(\S+)\s+family=(\S+)\s+n=(\d+)\s+sumR=([-0-9.]+)\s+sumSqR=([-0-9.]+)\s+gpR=([-0-9.]+)\s+glR=([-0-9.]+)\s+wins=(\d+)",t):
+ payoff_census.append({"lane":lane,"family":family,"n":int(n),"sum_r":float(sumr),"sum_sq_r":float(sumsq),
+                       "gross_profit_r":float(gp),"gross_loss_r":float(gl),"wins":int(wins)})
 
 eq=d.get("equity",{})
 out={"variant":a.variant,"window":a.window,"years":a.years,"starting_balance":a.balance,
@@ -124,6 +129,6 @@ out={"variant":a.variant,"window":a.window,"years":a.years,"starting_balance":a.
  "core_basket_outcomes":core,"expansion_basket_outcomes":exp,
  "core_metrics":corem,"expansion_metrics":expm,"shadow_outcomes":shadow,"family_census":family_census,
  "oracle_census":oracle_census,"oracle_summary":oracle_summary,"reject_attribution":reject_attribution,
- "expansion_summary":exp_summary,**c}
+ "expansion_summary":exp_summary,"payoff_census":payoff_census,**c}
 pathlib.Path(a.out).write_text(json.dumps(out,indent=2))
 print(json.dumps({k:out[k] for k in ["variant","window","baskets","net","pf","expectancy","win_rate","frequency","max_dd_pct","engineering_clean"]},indent=2))

@@ -366,6 +366,8 @@ namespace cAlgo.Robots
         private int _v71ExpansionEligibilityRejected;
         private int _v71ExpansionGridFallback;
         private int _v71ExpansionShadowClosed;
+        private readonly HashSet<string> _v72PayoffSeen = new HashSet<string>(StringComparer.Ordinal);
+        private readonly Dictionary<string, V72PayoffAccumulator> _v72PayoffCensus = new Dictionary<string, V72PayoffAccumulator>();
         private int _v71ExpansionRiskScaled;
         private int _v71ExpansionRiskReserveBlocked;
         private int _v71ExpansionRiskCapped;
@@ -518,6 +520,15 @@ namespace cAlgo.Robots
                 _v71ExpansionDetected, _v71ExpansionArmed, _v71ExpansionExecuted, _v71ExpansionCoreBlocked,
                 _v71ExpansionEligibilityRejected, _v71ExpansionShadowClosed,
                 _v71ExpansionRiskScaled, _v71Expansion.Values.Count(x => x.IsActive));
+            foreach (var kv in _v72PayoffCensus.OrderBy(x => x.Key))
+            {
+                string[] parts = kv.Key.Split('|');
+                string lane = parts.Length > 0 ? parts[0] : "UNKNOWN";
+                string family = parts.Length > 1 ? parts[1] : "UNKNOWN";
+                var z = kv.Value;
+                Print("[V72-PAYOFF-CENSUS] lane={0} family={1} n={2} sumR={3:F9} sumSqR={4:F9} gpR={5:F9} glR={6:F9} wins={7}",
+                    lane, family, z.N, z.SumR, z.SumSqR, z.GrossProfitR, z.GrossLossR, z.Wins);
+            }
             foreach (var fam in _profiles.Select(x => V71FamilyKey(x.Name)).Distinct().OrderBy(x => x))
             {
                 int tracked = _v71FamilyTracked.ContainsKey(fam) ? _v71FamilyTracked[fam] : 0;
@@ -3300,6 +3311,34 @@ namespace cAlgo.Robots
             }
         }
 
+        private void V72RecordPayoffCensus(V71ExpansionCandidate e, double structuralR)
+        {
+            if (e == null || e.Signal == null) return;
+            if (!e.CapitalEligible || e.CoreOverlapObserved || e.PathState == -2) return;
+            string lane = string.IsNullOrWhiteSpace(e.CapitalLane) ? e.Route.ToString() : e.CapitalLane;
+            if (string.Equals(lane, "TRANSITION_SHADOW", StringComparison.Ordinal)) return;
+            string family = V71FamilyKey(e.Signal.PatternName);
+            string dedupe = (e.SetupKey ?? "") + "|" + family + "|" + lane;
+            if (!_v72PayoffSeen.Add(dedupe)) return;
+            string key = lane + "|" + family;
+            V72PayoffAccumulator z;
+            if (!_v72PayoffCensus.TryGetValue(key, out z))
+            {
+                z = new V72PayoffAccumulator();
+                _v72PayoffCensus[key] = z;
+            }
+            z.N++;
+            z.SumR += structuralR;
+            z.SumSqR += structuralR * structuralR;
+            if (structuralR > 0)
+            {
+                z.GrossProfitR += structuralR;
+                z.Wins++;
+            }
+            else if (structuralR < 0)
+                z.GrossLossR += -structuralR;
+        }
+
         private void V71FinalizeExpansionShadow(V71ExpansionCandidate e, int i, string result, double? forcedR = null)
         {
             if (e == null || e.ShadowFinished || !e.ShadowStarted || e.RiskDistance <= 0) return;
@@ -3322,6 +3361,7 @@ namespace cAlgo.Robots
             }
 
             e.ShadowOutcomeR = structuralR;
+            V72RecordPayoffCensus(e, structuralR);
             e.ShadowFinished = true;
             e.IsActive = false;
             _v71ExpansionShadowClosed++;
@@ -5575,6 +5615,12 @@ namespace cAlgo.Robots
     }
 
     public enum V71ExpansionState { WAIT_PRZ, CONFIRMING, PROOF_WAIT, PROOF_ACTIVE, ARMED, EXECUTED, EXPIRED, REJECTED, INVALIDATED }
+
+    public sealed class V72PayoffAccumulator
+    {
+        public int N, Wins;
+        public double SumR, SumSqR, GrossProfitR, GrossLossR;
+    }
 
     public sealed class V71ExpansionCandidate
     {
