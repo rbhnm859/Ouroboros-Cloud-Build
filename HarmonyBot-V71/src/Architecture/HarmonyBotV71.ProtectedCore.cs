@@ -109,6 +109,7 @@ namespace cAlgo.Robots
 
         protected override void OnStop()
         {
+            V72HcogFinalizeAndPrint();
             V71FinalizeExpansionShadows();
             CancelAllOwnPending("BOT_STOP");
             EnsureServerProtection();
@@ -368,17 +369,19 @@ namespace cAlgo.Robots
             // Expansion is discovered only after core ownership is known, so identical setups
             // can never enter the expansion book.
             V71PreemptExpansionForCore(Server.Time.ToUniversalTime());
-            if (EnableV71ExpansionShadow || EnableV71ExpansionExecution)
+            if (EnableV71ExpansionShadow || EnableV71ExpansionExecution || EnableV72HcogAlpha)
             {
                 int expansionLimit = Math.Max(8, Math.Min(32, V71ExpansionMaxCandidates));
-                int expansionPoolLimit = EnableV71FamilyBalancedCensus
-                    ? Math.Max(64, Math.Min(128, expansionLimit * 4))
-                    : expansionLimit;
-                var expansionPool = V71DetectExpansionPatternCandidates(_m15Bars, i, M15SwingDepth, M15SwingLookback,
-                    expansionPoolLimit, "M15");
-                var expansionDetected = V71SelectExpansionSignals(expansionPool, expansionLimit);
-                foreach (var expansionSignal in expansionDetected)
-                    V71TrackExpansionSignal(expansionSignal, h4State, h1State, regime);
+                int expansionPoolLimit = EnableV72HcogAlpha ? 128 :
+                    (EnableV71FamilyBalancedCensus ? Math.Max(64, Math.Min(128, expansionLimit * 4)) : expansionLimit);
+                var expansionPool = V71DetectExpansionPatternCandidates(_m15Bars, i, M15SwingDepth, M15SwingLookback, expansionPoolLimit, "M15");
+                if (EnableV72HcogAlpha) V72HcogTrackRawPool(expansionPool, h4State, h1State, regime);
+                bool legacyResearch = EnableV71ExpansionShadow || EnableV72BifurcationAlpha || EnableV72FamilyNativeCausalAlpha || EnableV72FailureAuctionCausalAlpha;
+                if (legacyResearch)
+                {
+                    var expansionDetected = V71SelectExpansionSignals(expansionPool, expansionLimit);
+                    foreach (var expansionSignal in expansionDetected) V71TrackExpansionSignal(expansionSignal, h4State, h1State, regime);
+                }
             }
 
             TrimCandidateBook();
@@ -395,6 +398,8 @@ namespace cAlgo.Robots
 
             if (EnableV71ExpansionShadow || EnableV71ExpansionExecution)
                 V71ProcessExpansionM1(i, utc);
+            if (EnableV72HcogAlpha)
+                V72HcogProcessM1(i, utc);
 
             foreach (var c in _candidates.Values.Where(x => x.IsActive).ToList())
             {
@@ -1444,7 +1449,8 @@ namespace cAlgo.Robots
 
                 double age = (Server.Time.ToUniversalTime() - basket.CreatedUtc).TotalMinutes;
                 bool v72FixedPayoff = basket.Candidate != null &&
-                    (basket.Candidate.V72BifurcationAlpha || basket.Candidate.V72FamilyNativeCausalAlpha);
+                    (basket.Candidate.V72BifurcationAlpha || basket.Candidate.V72FamilyNativeCausalAlpha ||
+                     (basket.Candidate.CandidateId ?? "").StartsWith("V71EXP-HCOG-", StringComparison.Ordinal));
                 if (!v72FixedPayoff && age >= NoMfeMinAgeMinutes && basket.PeakR < NoMfeProofR && currentR <= -Math.Abs(NoMfeKillR))
                 {
                     basket.ExitOverride = "NO_MFE_THESIS_FAILURE";

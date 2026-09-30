@@ -1106,7 +1106,7 @@ namespace cAlgo.Robots
 
         private void V71TryExecuteExpansion(DateTime now)
         {
-            if (!EnableV71ExpansionExecution || (!EnableV72BifurcationAlpha && !EnableV72FamilyNativeCausalAlpha)) return;
+            if (!EnableV71ExpansionExecution || (!EnableV72BifurcationAlpha && !EnableV72FamilyNativeCausalAlpha && !EnableV72HcogAlpha)) return;
             if (V71CoreHasActiveThesis()) { _v71ExpansionCoreBlocked++; return; }
             if (OwnPositions().Any() || OwnPendingOrders().Any() || _baskets.Values.Any(b => b.IsActive)) return;
             if (!IsInstitutionalSession(now) || !SpreadValid()) return;
@@ -1160,7 +1160,7 @@ namespace cAlgo.Robots
                 return;
 
             Print("[V72-ALPHA-EXECUTE] architecture={0} cid={1} setup={2} family={3} lane={4} route={5} dir={6} rr={7:F3} asym={8:F3} riskPct={9:F2}",
-                EnableV72FamilyNativeCausalAlpha ? "FAMILY_NATIVE_CAUSAL" : "LEGACY_BIFURCATION",
+                EnableV72HcogAlpha ? "HARMONIC_CAUSAL_OPPORTUNITY_GRAPH" : (EnableV72FamilyNativeCausalAlpha ? "FAMILY_NATIVE_CAUSAL" : "LEGACY_BIFURCATION"),
                 e.CandidateId, e.SetupKey, V71FamilyKey(e.Signal.PatternName), e.CapitalLane, e.Route,
                 V72CapitalDirection(e), e.NetRR, e.AsymmetryCompression, riskPct);
 

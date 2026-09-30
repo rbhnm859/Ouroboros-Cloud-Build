@@ -2,7 +2,7 @@
 import json,pathlib,sys,os,hashlib
 root=pathlib.Path(sys.argv[1]); out=pathlib.Path(sys.argv[2]); manifest_path=pathlib.Path(sys.argv[3])
 out.mkdir(parents=True,exist_ok=True)
-CAP="B_V72_FAMILY_NATIVE_CAUSAL_ALPHA"; BASE="A_V51_CHAMPION_KERNEL"; W=["Y2021","Y2022","Y2023"]
+CAP="B_V72_HCOG_ALPHA"; BASE="A_V51_CHAMPION_KERNEL"; W=["Y2021","Y2022","Y2023"]
 V51={"frequency":38.6667,"net":2101.66,"pf":2.1096878432,"expectancy":36.2355,"win_rate":.534483,"max_dd_pct":4.49784}
 VIOL=["execution_errors","grid_risk_violations","duplicate_grid_legs","orphan_pending_orders","stop_widening_violations",
       "gap_through_survivors","unprotected_survivors","post_fill_protection_failures","actual_basket_risk_violations",
@@ -30,7 +30,7 @@ def fp(x):
     z=x.get("core_execution_fingerprint")
     return (int(z["executed"]),str(z["fnv64"]).upper()) if z and z.get("fnv64") else None
 
-manifest=json.load(open(manifest_path)); payoff_gate=bool(manifest.get("family_native_gate",manifest.get("payoff_gate",False)))
+manifest=json.load(open(manifest_path)); payoff_gate=bool(manifest.get("hcog_gate",False))
 REF={w:json.load(open(find(f"V51_REFERENCE-{w}.json"))) for w in W}
 A={BASE:aggregate(REF)}; A[BASE]["core_preserved"]=True
 candidate=None; marginal={}; cap_gate=False
@@ -51,13 +51,14 @@ if payoff_gate:
     exp_pf=pf(exp); exp_net=sum(r["net"] for r in exp); exp_pos=sum(R[w]["expansion_metrics"]["net"]>0 for w in W)
     Z["expansion_metrics"]={"baskets":len(exp),"net":exp_net,"pf":exp_pf,"positive_windows":exp_pos}
     breakthrough={
-      "net_25pct":Z["net"]>=1.25*V51["net"],
-      "pf_10pct":Z["pf"]>=1.10*V51["pf"],
-      "expectancy_10pct":Z["expectancy"]>=1.10*V51["expectancy"],
-      "win_rate_plus_5pp":Z["win_rate"]>=V51["win_rate"]+.05,
-      "dd_minus_15pct":Z["max_dd_pct"]<=.85*V51["max_dd_pct"]}
+      "net_50pct":Z["net"]>=1.50*V51["net"],
+      "pf_15pct":Z["pf"]>=1.15*V51["pf"],
+      "expectancy_25pct":Z["expectancy"]>=1.25*V51["expectancy"],
+      "frequency_50pct":Z["frequency"]>=1.50*V51["frequency"],
+      "win_rate_plus_7p5pp":Z["win_rate"]>=V51["win_rate"]+.075,
+      "dd_minus_20pct":Z["max_dd_pct"]<=.80*V51["max_dd_pct"]}
     Z["material_breakthrough"]=breakthrough
-    Z["material_breakthrough_pass"]=sum(bool(v) for v in breakthrough.values())>=2
+    Z["material_breakthrough_pass"]=bool(breakthrough["net_50pct"] and sum(bool(v) for k,v in breakthrough.items() if k!="net_50pct")>=1)
     A[CAP]=Z
     marginal={"delta_net":Z["net"]-A[BASE]["net"],"delta_pf":Z["pf"]-A[BASE]["pf"],
               "delta_expectancy":Z["expectancy"]-A[BASE]["expectancy"],
@@ -71,13 +72,13 @@ if payoff_gate:
               and marginal["positive_delta_windows"]==3 and Z["material_breakthrough_pass"])
     candidate=CAP if cap_gate else None
 
-freeze={"version":"HarmonyBot V71 -> V72","architecture":"IMMUTABLE_V51_ECONOMIC_SPINE_PLUS_FROZEN_12_FAMILY_EVENT_PLUS_FAMILY_NATIVE_CAUSAL_CONVERSION",
+freeze={"version":"HarmonyBot V71 -> V72","architecture":"IMMUTABLE_V51_ECONOMIC_SPINE_PLUS_FROZEN_12_FAMILY_EVENT_PLUS_HARMONIC_CAUSAL_OPPORTUNITY_GRAPH",
  "trusted_v51_parent":"1b670a0f43ba8ecaa637febfdacf605b1b146f01","control_mode":"DIRECT_TRUSTED_V51_BINARY_REFERENCE",
- "family_native_manifest":manifest,"v51_floor":V51,"variants":A,"marginal":marginal,
- "gates":{"family_native_payoff_3year":payoff_gate,"family_native_capital_commercial":cap_gate},
- "candidate":candidate,"candidate_selection_source":"BURNED_2021_2023_FAMILY_NATIVE_CAUSAL_CONVERSION__NO_SELECTOR_NO_THRESHOLD_TUNING",
+ "hcog_manifest":manifest,"v51_floor":V51,"variants":A,"marginal":marginal,
+ "gates":{"hcog_counterfactual_alpha_3year":payoff_gate,"hcog_capital_commercial":cap_gate},
+ "candidate":candidate,"candidate_selection_source":"BURNED_2021_2023_HCOG_CAUSAL_CONVERSION__NO_SELECTOR_NO_THRESHOLD_TUNING_NO_CORE_OVERLAP_FILTER",
  "risk_for_alpha_qualification_pct":1.0,"validation_used":False,"fresh_used":False,
- "decision":"V72_FAMILY_NATIVE_CAUSAL_CANDIDATE_FROZEN" if candidate else ("FAMILY_NATIVE_CAUSAL_FAIL_CLOSED_HOLD" if not payoff_gate else "CALIBRATION_HOLD")}
+ "decision":"V72_HCOG_CANDIDATE_FROZEN" if candidate else ("HCOG_CAUSAL_ALPHA_TERMINAL_REJECT" if not payoff_gate else "HCOG_CAPITAL_CONVERSION_TERMINAL_REJECT")}
 (out/"V71_CALIBRATION_FREEZE.json").write_text(json.dumps(freeze,indent=2))
 (out/"candidate.txt").write_text(candidate or "")
 (out/"dev_matrix.json").write_text(json.dumps([candidate] if candidate else [],separators=(",",":")))
