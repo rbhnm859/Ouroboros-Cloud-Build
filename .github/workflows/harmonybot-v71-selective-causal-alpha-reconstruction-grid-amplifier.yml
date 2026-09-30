@@ -150,13 +150,13 @@ jobs:
           pattern: 'v71-shadow-*'
           path: merged
           merge-multiple: true
-      - name: Fit preregistered H5 hierarchical posterior nested-frontier model
+      - name: Evaluate deterministic V72 reaction-first calibration
         id: m
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p model
-          python3 control/HarmonyBot-V71/tools/fit_v71_edge_model.py merged model
+          python3 control/HarmonyBot-V71/tools/evaluate_v72_reaction.py merged model
           echo "crossfit_gate=$(python3 -c 'import json; print(str(json.load(open("model/MODEL_MANIFEST.json"))["crossfit_gate"]).lower())')" >> "$GITHUB_OUTPUT"
       - uses: actions/upload-artifact@v4
         with:
@@ -338,7 +338,7 @@ jobs:
       fail-fast: false
       max-parallel: 8
       matrix:
-        variant: [B_H5_SINGLE_REACTION, C_H5_GRID_REACTION, D_H5_SINGLE_RUNNER, E_H5_GRID_RUNNER]
+        variant: [B_V72_REACTION_ALPHA]
         window: [Y2021, Y2022, Y2023]
     steps:
       - uses: actions/checkout@v4
@@ -580,17 +580,18 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          BR="harmonybot/v72-protected-champion-core-incremental-alpha"
+          BR="harmonybot/v72-harmonic-reaction-alpha"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git checkout -b "$BR"
           mkdir -p HarmonyBot-V72
           cat > HarmonyBot-V72/V72_BREAKTHROUGH_HANDOFF.md <<EOF
-          # HarmonyBot V72 — Breakthrough Handoff
+          # HarmonyBot V72 — Harmonic Reaction Alpha Handoff
           Promoted automatically from V71 source commit: $GITHUB_SHA
-          Promotion evidence: V71 protected V51 core replay PASS, cross-fit expansion PASS, fixed observed DEV PASS.
-          Validation and Fresh remain locked.
+          Architecture: frozen V51 Core + frozen 12-family harmonic detector + deterministic PRZ reaction proof + controlled M1 retest + structural stop + cost-adjusted fixed 2R target.
+          Promotion evidence: burned 2021-2023 reaction calibration PASS, commercial Pareto gate PASS, fixed observed DEV PASS.
+          No H5/H6 selector is required in the V72 capital decision path. Validation and Fresh remain locked.
           EOF
           git add HarmonyBot-V72/V72_BREAKTHROUGH_HANDOFF.md
-          git commit -m "promote(v72): protected-core incremental alpha breakthrough"
+          git commit -m "promote(v72): harmonic reaction alpha breakthrough"
           git push origin "$BR"
