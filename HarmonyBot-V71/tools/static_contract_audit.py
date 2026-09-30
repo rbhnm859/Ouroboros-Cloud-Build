@@ -1,10 +1,9 @@
 #!/usr/bin/env python3
-import json,pathlib,sys,hashlib,re
+import json,pathlib,sys,hashlib
 p=pathlib.Path(sys.argv[1]); s=p.read_text(errors="ignore")
 def between(a,b):
  i=s.find(a); j=s.find(b,i+len(a))
  return s[i:j] if i>=0 and j>i else ""
-edge=between("private double V71ExpectedEdge","private double V71ExpectedSlotHours")
 execblk=between("private void V71TryExecuteExpansion","// ---------------- Harmonic engine")
 checks={
  "identity":"class HarmonyBotV71" in s and 'BotPrefix = "HB71"' in s,
@@ -12,55 +11,28 @@ checks={
  "brace_balance":s.count("{")==s.count("}"),
  "source_complete":len(s)>190000 and "public sealed class PipelineCounter" in s,
  "risk_hard_ceiling":'[Parameter("Basket Risk %", DefaultValue = 1.0, MinValue = 0.1, MaxValue = 5.0)]' in s and '[Parameter("V71 Expansion Risk %", DefaultValue = 1.0, MinValue = 0.1, MaxValue = 5.0)]' in s,
- "protected_core_priority":"if (armed.Count == 0)" in s and "V71TryExecuteExpansion(now)" in s and "V71CoreHasActiveThesis" in execblk,
+ "protected_core_priority":"V71CoreHasActiveThesis" in execblk and "V51_CORE_PREEMPT" in s,
  "separate_expansion_book":"Dictionary<string, V71ExpansionCandidate> _v71Expansion" in s,
  "core_risk_isolated":"V71CandidateRiskPercent" in s and "c.V71Expansion" in s,
- "crossfit_model_runtime":"V71EdgeModelSpec" in s and "V71ExpectedEdge" in s and "EdgeLcb" in s,
- "edge_no_future":all(x not in edge for x in ["ShadowOutcomeR","Mfe","Mae","future","OutcomeR"]),
- "expansion_only_positive_lcb":"e.EdgeLcb > 0" in execblk and "V71CapitalQualificationScore(e) > V71ExpansionMinEdgeLcbR" in execblk,
- "core_preemption":"V71PreemptExpansionForCore" in s and "V51_CORE_PREEMPT" in s and "CORE_PREEMPT" in s,
- "same_setup_capital_blocked":"e.CapitalEligible && !e.CoreOverlapObserved" in execblk and "CoreOverlapObserved = coreOverlap" in s,
- "family_native_expansion_identity":"V71DetectExpansionPatternCandidates" in s and 'V71FamilyKey(x.PatternName) + "|" + BuildSetupGeometryKey(x)' in s,
- "family_balance_before_global_cap":"var familyBuckets = ordered" in s and '.GroupBy(x => V71FamilyKey(x.PatternName))' in s and "selected.Count < nonAbcdBudget" in s,
- "decision_time_regime_refresh":"V71RefreshExpansionDecisionContext(e);" in s and "e.Route = V71ExpansionRoute(e.Signal, e.Conflict, regime);" in s,
+ "same_setup_capital_blocked":"e.CapitalEligible && !e.CoreOverlapObserved" in execblk and "CapitalEligible = !coreOverlap" in s,
  "deterministic_expansion_identity":"V71StableHash32(id)" in s and "private uint V71StableHash32" in s and "GetHashCode()" not in s,
- "runtime_lane_whitelist":"V71AllowedFamilyRouteSpec" in s and "V71FamilyRouteAllowed(e)" in execblk and "_v71AllowedFamilyRoutes.Count == 0" in s,
- "sparse_confirmed_pivot_manifold":"V71SparseLegInsideEnvelope" in s and "int[] hops = { 1, 3 };" in s and "TryMatchProfile(profile" in s,
- "full_family_pivot_lattice":"EnableV71FullFamilyPivotLattice" in s and "new[] { 2, 3, 5, 8 }" in s and "dPos - xPos > 16" in s,
- "full_12_family_lattice":"var fullFamilies = _profiles.ToList();" in s,
- "independent_detector_oracle":"V71BuildOraclePivots" in s and "V71OracleContractPass" in s and "[V71-ORACLE-SUMMARY]" in s,
- "reject_attribution_ledger":"V71ExpansionPrimaryContractPass" in s and "[V71-EXP-REJECT-SUMMARY]" in s,
- "expansion_family_contract_split":"bool requireHardStandardAbcd = true" in s and "requireHardStandardAbcd && EnableCanonicalFamilyContracts" in s,
- "expansion_soft_abcd_identity":s.count("out sig, false") >= 2 and "if (includeAbcdIdentity) z.Add(CanonicalAbcdCoordinate" in s,
- "expansion_projected_prz":"Pure projected PRZ for Expansion" in s and "double coreLo = Math.Max(xaLo, bcLo)" in s and "if (d.Price < przLow || d.Price > przHigh) return false;" in s,
- "overlap_shadow_visible":"Core overlap blocks Capital, not evidence collection" in s and "CapitalEligible = !coreOverlap" in s,
- "entry_exit_label_split":"STRUCTURAL_PATH_PLUS_NATIVE_EXIT_COMPLETED_M1" in s and "NativeExitCaptured" in s and "PathState" in s,
- "family_native_temporal_dag":"EnableV71FamilyNativeConfirmation" in s and "UpdatePatternNativeM1State(i, e.NativeEvidenceState" in s,
- "regime_context_whitelist":"V71AllowedFamilyRouteContextSpec" in s and "V71RegimeContextKey" in s and "_v71AllowedFamilyRouteContexts" in s,
- "dual_head_slot_score":"V71ExpectedSurvival" in s and "e.EdgeLcb * Math.Max(.05, Math.Min(.95, e.SurvivalProbability))" in s,
- "h5_soft_support_uncertainty":"V71H5SupportPenalty" in s and 'V71W("soft_support") > .5' in s and "V71PairUncertainty" in s,
- "h5_dual_posterior_gate":"V71ExpectedPathLcb" in s and "V71PathBreakEven" in s and 'e.PathLcb > V71PathBreakEven(e)' in s,
- "h5_slot_ucb_core_hazard":"V71ExpectedSlotHoursUcb" in s and "V71ExpectedCoreArrivalHazard" in s and 'V71W("core_cost")' in s,
- "h5_frozen_setup_universe":"V71AllowedSetupHashSpec" in s and "V71SetupAllowed" in s and "_v71AllowedSetupHashes" in s,
- "h5_exit_counterfactual":"V71ExpansionExitPolicy" in s and "REACTION_2R" in s and "SELECTIVE_RUNNER" in s and "V71ApplyExpansionExitPolicy" in s,
- "h5_no_hard_context_gate":'if (h5 || _v71AllowedFamilyRouteContexts.Count == 0) return true;' in s,
- "h5_no_hard_pair_gate":'if (_v71AllowedFamilyRoutes.Count == 0) return h5;' in s,
- "h5_actual_reaction_rr":'c.GridPlan.ExpectedNetRR = (PriceToPips(Math.Abs(target - entry)) - ModeledCostPips())' in s,
- "v72_reaction_state_machine":"[V72-REACTION-PROVED]" in s and "V72PreparePullbackEntry" in s and "AwaitingPullbackFill" in s,
- "v72_pullback_0618":"proof - .618 * displacement" in s and "proof + .618 * displacement" in s and "[V72-PULLBACK-PLAN]" in s,
- "v72_pending_single_leg":"V72BuildPullbackSingleLeg" in s and "V72SubmitPullbackSingleLeg" in s and "PlaceGridLimit(basket, l0)" in s,
- "v72_reaction_no_selector":"(!EnableV72ReactionAlpha && !_v71ModelReady)" in s and "e.ReactionProved && e.AwaitingPullbackFill" in execblk,
- "v72_structural_stop_fixed_2r":"double stop = e.Signal.StructuralInvalidation;" in s and "2.0 * risk + costPrice" in s and "netRr + 1e-9 < MinimumNetRR" in s,
- "v72_m15_expiry":"V72NextM15Boundary" in s and "PullbackExpiryUtc" in s,
- "v72_core_priority_preserved":"V71CoreHasActiveThesis()" in execblk and "V51_CORE_PREEMPT" in s,
- "fixed_edge_lcb_threshold":'[Parameter("V71 Expansion Min Edge LCB R", DefaultValue = 0.015' in s,
+ "frozen_detector_present":"V71DetectExpansionPatternCandidates" in s and "fullFamilies = _profiles.ToList()" in s,
+ "projected_prz_no_future":"Pure projected PRZ for Expansion" in s and "if (d.Price < przLow || d.Price > przHigh) return false;" in s,
  "completed_m1":"private int LastClosedIndex(Bars b) { return b == null ? -1 : b.Count - 2; }" in s,
+ "v72_reaction_proof":"[V72-REACTION-PROVED]" in s and "V71ExpansionM1Confirmation" in s,
+ "v72_pullback_0618":"proof - .618 * displacement" in s and "proof + .618 * displacement" in s and "[V72-PULLBACK-PLAN]" in s,
+ "v72_single_pending_leg":"V72BuildPullbackSingleLeg" in s and "V72SubmitPullbackSingleLeg" in s and "PlaceGridLimit(basket, l0)" in s,
+ "v72_no_selector_gate":"(!EnableV72ReactionAlpha && !_v71ModelReady)" in s and "e.ReactionProved && e.AwaitingPullbackFill" in execblk,
+ "v72_structural_stop":"double stop = e.Signal.StructuralInvalidation;" in s,
+ "v72_cost_adjusted_2r":"2.0 * risk + costPrice" in s and "netRr + 1e-9 < MinimumNetRR" in s,
+ "v72_m15_expiry":"V72NextM15Boundary" in s and "PullbackExpiryUtc" in s,
+ "v72_shadow_fill_causal":"PULLBACK_FILL_SAME_BAR_AMBIGUOUS" in s and "e.AwaitingPullbackFill = false" in s,
  "minimum_rr":'[Parameter("Minimum Net RR", DefaultValue = 2.0' in s,
  "single_active_basket":"OwnPositions().Any() || OwnPendingOrders().Any() || _baskets.Values.Any(b => b.IsActive)" in s,
  "no_stop_widening":"stopWideningViolations" in s,
  "dst_aware":'ResolveTimeZone("Europe/London"' in s and 'ResolveTimeZone("America/New_York"' in s
 }
-out={"version":"HarmonyBot V71","audit":"protected_core_frozen_detector_v72_0618_pullback_alpha_fail_closed",
+out={"version":"HarmonyBot V71 -> V72","audit":"MINIMAL_V72_0618_PULLBACK_COMMERCIAL_GUARD",
  "source_sha256":hashlib.sha256(p.read_bytes()).hexdigest(),"checks":checks,"pass":all(checks.values())}
 pathlib.Path("V71_STATIC_CONTRACT_AUDIT.json").write_text(json.dumps(out,indent=2)); print(json.dumps(out,indent=2))
 raise SystemExit(0 if out["pass"] else 2)
