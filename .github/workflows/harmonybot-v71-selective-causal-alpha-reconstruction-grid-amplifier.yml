@@ -132,7 +132,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: v72-crae-${{ matrix.window }}
-          path: control/HarmonyBot-V71/output-R_V72_HCOG_CAUSAL-${{ matrix.window }}
+          path: control/HarmonyBot-V71/output-R_V72_CRAE_CAUSAL-${{ matrix.window }}
           retention-days: 30
 
   crae_gate:
@@ -150,7 +150,7 @@ jobs:
           pattern: 'v72-crae-*'
           path: merged
           merge-multiple: true
-      - name: Evaluate terminal HCOG gate
+      - name: Evaluate CRAE causal gate
         id: g
         shell: bash
         run: |
@@ -653,7 +653,7 @@ jobs:
 
   calibration_analyze:
     needs: [calibration, v51_reference, crae_gate, replay_gate]
-    if: ${{ always() && needs.v51_reference.result == 'success' && needs.replay_gate.result == 'success' && needs.crae_gate.result == 'success' && (needs.calibration.result == 'success' || needs.hcog_gate.outputs.pass != 'true') }}
+    if: ${{ always() && needs.v51_reference.result == 'success' && needs.replay_gate.result == 'success' && needs.crae_gate.result == 'success' && (needs.calibration.result == 'success' || needs.crae_gate.outputs.pass != 'true') }}
     runs-on: ubuntu-24.04
     outputs:
       candidate: ${{ steps.pick.outputs.candidate }}
@@ -664,7 +664,7 @@ jobs:
           ref: ${{ github.sha }}
           path: control
       - uses: actions/download-artifact@v4
-        if: ${{ needs.hcog_gate.outputs.pass == 'true' }}
+        if: ${{ needs.crae_gate.outputs.pass == 'true' }}
         with:
           pattern: 'v71-cal-*'
           path: merged
@@ -676,7 +676,7 @@ jobs:
           merge-multiple: true
       - uses: actions/download-artifact@v4
         with:
-          name: V72-HCOG-CAUSAL-GATE
+          name: V72-CRAE-CAUSAL-GATE
           path: payoff
       - name: Freeze candidate
         id: pick
@@ -766,7 +766,7 @@ jobs:
           path: control/HarmonyBot-V71/shared
       - uses: actions/download-artifact@v4
         with:
-          name: V72-HCOG-CAUSAL-GATE
+          name: V72-CRAE-CAUSAL-GATE
           path: control/HarmonyBot-V71/model
       - uses: actions/download-artifact@v4
         with:
