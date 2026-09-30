@@ -1,4 +1,4 @@
-name: HarmonyBot V71 Protected Champion Core Incremental Alpha DEV
+name: HarmonyBot V72 Candidate Regime-Conditioned Causal Resolution
 # CI trigger: compile-safe V72 bifurcation atomic candidate — ready-sync
 
 on:
@@ -14,7 +14,7 @@ on:
       - '.github/workflows/harmonybot-v71-selective-causal-alpha-reconstruction-grid-amplifier.yml'
 
 concurrency:
-  group: harmonybot-v71-protected-champion-core-incremental-alpha
+  group: harmonybot-v72-candidate-regime-conditioned-causal-resolution
   cancel-in-progress: true
 
 permissions:
@@ -85,7 +85,7 @@ jobs:
           retention-days: 30
 
 
-  hcog_shadow:
+  crae_shadow:
     needs: [build, v51_reference, replay_gate]
     if: ${{ needs.replay_gate.outputs.pass == 'true' }}
     runs-on: ubuntu-24.04
@@ -108,7 +108,7 @@ jobs:
         with:
           name: v71-data-seed-${{ matrix.window }}
           path: control/HarmonyBot-V71/data-seed
-      - name: Prepare terminal HCOG research
+      - name: Prepare V72 candidate CRAE research
         id: d
         shell: bash
         run: |
@@ -121,22 +121,22 @@ jobs:
             Y2022) echo "start=03/01/2022" >> "$GITHUB_OUTPUT"; echo "eval=2022-01-10T00:00:00Z" >> "$GITHUB_OUTPUT"; echo "end=30/12/2022" >> "$GITHUB_OUTPUT";;
             Y2023) echo "start=02/01/2023" >> "$GITHUB_OUTPUT"; echo "eval=2023-01-09T00:00:00Z" >> "$GITHUB_OUTPUT"; echo "end=29/12/2023" >> "$GITHUB_OUTPUT";;
           esac
-      - name: Run HCOG counterfactual Alpha ledger
+      - name: Run CRAE counterfactual Alpha ledger
         env:
           CTRADER_PASSWORD: ${{ secrets.CTRADER_PASSWORD }}
           CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
           CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
         run: |
           chmod +x control/HarmonyBot-V71/tools/*.sh
-          V71_DATA_SEED_DIR="$GITHUB_WORKSPACE/control/HarmonyBot-V71/data-seed" control/HarmonyBot-V71/tools/run_window.sh R_V72_HCOG_CAUSAL "${{ matrix.window }}" "${{ steps.d.outputs.start }}" "${{ steps.d.outputs.eval }}" "${{ steps.d.outputs.end }}" 1.0
+          V71_DATA_SEED_DIR="$GITHUB_WORKSPACE/control/HarmonyBot-V71/data-seed" control/HarmonyBot-V71/tools/run_window.sh R_V72_CRAE_CAUSAL "${{ matrix.window }}" "${{ steps.d.outputs.start }}" "${{ steps.d.outputs.eval }}" "${{ steps.d.outputs.end }}" 1.0
       - uses: actions/upload-artifact@v4
         with:
-          name: v71-hcog-${{ matrix.window }}
+          name: v72-crae-${{ matrix.window }}
           path: control/HarmonyBot-V71/output-R_V72_HCOG_CAUSAL-${{ matrix.window }}
           retention-days: 30
 
-  hcog_gate:
-    needs: hcog_shadow
+  crae_gate:
+    needs: crae_shadow
     runs-on: ubuntu-24.04
     outputs:
       pass: ${{ steps.g.outputs.pass }}
@@ -147,7 +147,7 @@ jobs:
           path: control
       - uses: actions/download-artifact@v4
         with:
-          pattern: 'v71-hcog-*'
+          pattern: 'v72-crae-*'
           path: merged
           merge-multiple: true
       - name: Evaluate terminal HCOG gate
@@ -155,13 +155,13 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p hcog
-          python3 control/HarmonyBot-V71/tools/evaluate_v72_hcog.py merged hcog
-          echo "pass=$(python3 -c 'import json; print(str(json.load(open("hcog/HCOG_MANIFEST.json"))["hcog_gate"]).lower())')" >> "$GITHUB_OUTPUT"
+          mkdir -p crae
+          python3 control/HarmonyBot-V71/tools/evaluate_v72_crae.py merged crae
+          echo "pass=$(python3 -c 'import json; print(str(json.load(open("crae/CRAE_MANIFEST.json"))["crae_gate"]).lower())')" >> "$GITHUB_OUTPUT"
       - uses: actions/upload-artifact@v4
         with:
-          name: V72-HCOG-CAUSAL-GATE
-          path: hcog
+          name: V72-CRAE-CAUSAL-GATE
+          path: crae
           retention-days: 30
 
   shadow:
@@ -398,7 +398,7 @@ jobs:
           echo "pass=$(python3 -c 'import json; print(str(json.load(open("family-native/FAMILY_NATIVE_MANIFEST.json"))["family_native_gate"]).lower())')" >> "$GITHUB_OUTPUT"
       - uses: actions/upload-artifact@v4
         with:
-          name: V72-HCOG-CAUSAL-GATE
+          name: V72-CRAE-CAUSAL-GATE
           path: family-native
           retention-days: 30
 
@@ -597,15 +597,15 @@ jobs:
           retention-days: 30
 
   calibration:
-    needs: [build, hcog_gate, v51_reference, replay_gate]
-    if: ${{ needs.replay_gate.outputs.pass == 'true' && needs.hcog_gate.outputs.pass == 'true' }}
+    needs: [build, crae_gate, v51_reference, replay_gate]
+    if: ${{ needs.replay_gate.outputs.pass == 'true' && needs.crae_gate.outputs.pass == 'true' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     strategy:
       fail-fast: false
       max-parallel: 8
       matrix:
-        variant: [B_V72_HCOG_ALPHA]
+        variant: [B_V72_CRAE_ALPHA]
         window: [Y2021, Y2022, Y2023]
     steps:
       - uses: actions/checkout@v4
@@ -618,7 +618,7 @@ jobs:
           path: control/HarmonyBot-V71/shared
       - uses: actions/download-artifact@v4
         with:
-          name: V72-HCOG-CAUSAL-GATE
+          name: V72-CRAE-CAUSAL-GATE
           path: control/HarmonyBot-V71/payoff
       - uses: actions/download-artifact@v4
         with:
@@ -652,8 +652,8 @@ jobs:
           retention-days: 30
 
   calibration_analyze:
-    needs: [calibration, v51_reference, hcog_gate, replay_gate]
-    if: ${{ always() && needs.v51_reference.result == 'success' && needs.replay_gate.result == 'success' && needs.hcog_gate.result == 'success' && (needs.calibration.result == 'success' || needs.hcog_gate.outputs.pass != 'true') }}
+    needs: [calibration, v51_reference, crae_gate, replay_gate]
+    if: ${{ always() && needs.v51_reference.result == 'success' && needs.replay_gate.result == 'success' && needs.crae_gate.result == 'success' && (needs.calibration.result == 'success' || needs.hcog_gate.outputs.pass != 'true') }}
     runs-on: ubuntu-24.04
     outputs:
       candidate: ${{ steps.pick.outputs.candidate }}
@@ -684,7 +684,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p final
-          python3 control/HarmonyBot-V71/tools/calibrate_v71.py merged final payoff/HCOG_MANIFEST.json
+          python3 control/HarmonyBot-V71/tools/calibrate_v71.py merged final payoff/CRAE_MANIFEST.json
           echo "candidate=$(cat final/candidate.txt)" >> "$GITHUB_OUTPUT"
           echo "dev_matrix=$(tr -d '\n' < final/dev_matrix.json)" >> "$GITHUB_OUTPUT"
       - uses: actions/upload-artifact@v4
@@ -847,18 +847,18 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          BR="harmonybot/v72-harmonic-causal-opportunity-graph"
+          BR="harmonybot/v72-regime-conditioned-causal-resolution"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git checkout -b "$BR"
           mkdir -p HarmonyBot-V72
           cat > HarmonyBot-V72/V72_BREAKTHROUGH_HANDOFF.md <<EOF
-          # HarmonyBot V72 — Harmonic Causal Opportunity Graph Handoff
+          # HarmonyBot V72 — Regime-Conditioned Causal Resolution Handoff
           Promoted automatically from V71 source commit: $GITHUB_SHA
-          Architecture: frozen V51 economic spine + frozen 12-family detector + explicit family completed-bar proof + own D/PRZ retest + structural-break/retest failure continuation + Grid OFF + 1% Alpha qualification.
-          Promotion evidence: burned 2021-2023 HCOG counterfactual causal gate PASS, protected V51 replay PASS, unchanged commercial Pareto gate PASS, fixed observed DEV PASS.
+          Architecture: frozen V51 economic spine + frozen 12-family detector + deterministic contemporaneous regime arbitration + completed-bar causal proof + structural retest + failure continuation + Grid OFF + 1% Alpha qualification.
+          Promotion evidence: burned 2021-2023 CRAE counterfactual causal gate PASS, protected V51 replay PASS, unchanged commercial Pareto gate PASS, fixed observed DEV PASS.
           No selector model is required in the V72 capital decision path. Validation and Fresh remain locked.
           EOF
           git add HarmonyBot-V72/V72_BREAKTHROUGH_HANDOFF.md
-          git commit -m "promote(v72): harmonic causal opportunity graph breakthrough"
+          git commit -m "promote(v72): regime-conditioned causal resolution breakthrough"
           git push origin "$BR"
