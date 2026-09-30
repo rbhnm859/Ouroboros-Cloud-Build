@@ -33,16 +33,16 @@ for w in W:
 
 gate=all(x["pass"] for x in folds.values())
 manifest={
- "architecture":"V72_DETERMINISTIC_REACTION_0618_PULLBACK_ALPHA",
+ "architecture":"V72_DETERMINISTIC_REACTION_0618_PULLBACK_PROTECTED_ALPHA",
  "selection_model":"NONE",
  "tuning_model":"NONE",
  "rules":["FROZEN_HARMONIC_PATTERN","PRZ_TOUCH","FAMILY_NATIVE_REACTION_PROOF",
           "FIBONACCI_0618_PULLBACK_LIMIT_UNTIL_NEXT_M15_BOUNDARY","STRUCTURAL_INVALIDATION_STOP",
-          "COST_ADJUSTED_FIXED_2R_TARGET","V51_CORE_FIRST"],
+          "PRIOR_COMPLETED_M1_PLUS_0_5R_ARMS_PLUS_0_1R_PROTECTION","COST_ADJUSTED_FIXED_2R_TARGET","V51_CORE_FIRST"],
  "min_selected_per_year":MIN_N,"min_pf_r":MIN_PF,"lcb_z":Z,
  "folds":folds,"family_selected_counts":dict(sorted(family.items())),
  "rows":len(all_rows),"crossfit_gate":gate,
- "gate_semantics":"DETERMINISTIC_3_YEAR_0618_PULLBACK_CALIBRATION__NO_MODEL_FIT_NO_THRESHOLD_TUNING",
+ "gate_semantics":"DETERMINISTIC_3_YEAR_0618_PULLBACK_PROTECTED_CALIBRATION__NO_MODEL_FIT_NO_THRESHOLD_TUNING",
  "validation_used":False,"fresh_used":False
 }
 (out/"MODEL_MANIFEST.json").write_text(json.dumps(manifest,indent=2))
