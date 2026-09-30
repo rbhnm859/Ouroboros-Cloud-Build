@@ -3289,7 +3289,18 @@ namespace cAlgo.Robots
             double entry = e.Signal.Direction == TradeDirection.Buy
                 ? proof - .618 * displacement
                 : proof + .618 * displacement;
-            double stop = e.Signal.StructuralInvalidation;
+
+            // The capital thesis is now the observed reaction, not the original completion alone.
+            // A breach of the reaction extreme beyond modeled transaction-cost noise invalidates it.
+            // This stop can only tighten versus the frozen pattern structural invalidation; never widen.
+            double originalStop = e.Signal.StructuralInvalidation;
+            double reactionBuffer = Math.Max(PipsToPrice(ModeledCostPips()), _symbol.PipSize);
+            double reactionStop = e.Signal.Direction == TradeDirection.Buy
+                ? extreme - reactionBuffer
+                : extreme + reactionBuffer;
+            double stop = e.Signal.Direction == TradeDirection.Buy
+                ? Math.Max(originalStop, reactionStop)
+                : Math.Min(originalStop, reactionStop);
             if (!GeometryValid(e.Signal.Direction, entry, stop,
                     e.Signal.Direction == TradeDirection.Buy ? entry + Math.Abs(entry - stop) : entry - Math.Abs(entry - stop)))
                 return false;
@@ -3334,8 +3345,8 @@ namespace cAlgo.Robots
             e.SlotScore = e.NetRR / Math.Max(.25, e.ExpectedSlotHours);
             _v71ExpansionArmed++;
             IncrementCounter(_v71FamilyArmed, V71FamilyKey(e.Signal.PatternName));
-            Print("[V72-PULLBACK-PLAN] cid={0} family={1} route={2} proof={3:F5} extreme={4:F5} entry={5:F5} stop={6:F5} target={7:F5} rr={8:F3} expiry={9:o}",
-                e.CandidateId, V71FamilyKey(e.Signal.PatternName), e.Route, proof, extreme, entry, stop, target, netRr, e.PullbackExpiryUtc);
+            Print("[V72-PULLBACK-PLAN] cid={0} family={1} route={2} proof={3:F5} extreme={4:F5} entry={5:F5} reactionStop={6:F5} originalStop={7:F5} target={8:F5} rr={9:F3} expiry={10:o}",
+                e.CandidateId, V71FamilyKey(e.Signal.PatternName), e.Route, proof, extreme, entry, stop, originalStop, target, netRr, e.PullbackExpiryUtc);
             return true;
         }
 
