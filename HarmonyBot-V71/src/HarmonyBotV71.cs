@@ -248,35 +248,8 @@ namespace cAlgo.Robots
         [Parameter("V71 Expansion Shadow Horizon M1", DefaultValue = 180, MinValue = 30, MaxValue = 720)]
         public int V71ExpansionShadowHorizonM1Bars { get; set; }
 
-        [Parameter("V71 Edge Model Spec", DefaultValue = "")]
-        public string V71EdgeModelSpec { get; set; }
-
-        [Parameter("V71 Family Route Prior Spec", DefaultValue = "")]
-        public string V71FamilyRoutePriorSpec { get; set; }
-
-        [Parameter("V71 Allowed Family Route Spec", DefaultValue = "")]
-        public string V71AllowedFamilyRouteSpec { get; set; }
-
-        [Parameter("V71 Allowed Family Route Context Spec", DefaultValue = "")]
-        public string V71AllowedFamilyRouteContextSpec { get; set; }
-
-        [Parameter("V71 Allowed Setup Hash Spec", DefaultValue = "")]
-        public string V71AllowedSetupHashSpec { get; set; }
-
-        [Parameter("V71 Expansion Exit Policy", DefaultValue = "REACTION_2R")]
-        public string V71ExpansionExitPolicy { get; set; }
-
         [Parameter("Enable V72 Reaction Alpha", DefaultValue = false)]
         public bool EnableV72ReactionAlpha { get; set; }
-
-        [Parameter("V71 Edge LCB Margin", DefaultValue = 0.0, MinValue = 0.0, MaxValue = 2.0)]
-        public double V71EdgeLcbMargin { get; set; }
-
-        [Parameter("V71 Expansion Min Edge LCB R", DefaultValue = 0.015, MinValue = 0.0, MaxValue = 1.0)]
-        public double V71ExpansionMinEdgeLcbR { get; set; }
-
-        [Parameter("V71 Model ID", DefaultValue = "NONE")]
-        public string V71ModelId { get; set; }
 
         [Parameter("Min Harmonic Robustness", DefaultValue = 0.56, MinValue = 0.40, MaxValue = 0.80)]
         public double MinHarmonicRobustness { get; set; }
@@ -374,11 +347,6 @@ namespace cAlgo.Robots
 
         private readonly Dictionary<string, V71ExpansionCandidate> _v71Expansion = new Dictionary<string, V71ExpansionCandidate>();
         private readonly HashSet<string> _v71ExpansionExecutedSetupKeys = new HashSet<string>();
-        private readonly Dictionary<string, double> _v71EdgeWeights = new Dictionary<string, double>();
-        private readonly Dictionary<string, double> _v71FamilyRoutePriors = new Dictionary<string, double>();
-        private readonly HashSet<string> _v71AllowedFamilyRoutes = new HashSet<string>(StringComparer.Ordinal);
-        private readonly HashSet<string> _v71AllowedFamilyRouteContexts = new HashSet<string>(StringComparer.Ordinal);
-        private readonly HashSet<uint> _v71AllowedSetupHashes = new HashSet<uint>();
         private readonly Dictionary<string, int> _v71FamilyTracked = new Dictionary<string, int>();
         private readonly Dictionary<string, int> _v71FamilyArmed = new Dictionary<string, int>();
         private readonly Dictionary<string, int> _v71FamilyCoreOverlap = new Dictionary<string, int>();
@@ -391,12 +359,11 @@ namespace cAlgo.Robots
         private readonly Dictionary<string, int> _v71OracleMissed = new Dictionary<string, int>();
         private readonly Dictionary<int, int> _v71OracleLastDIndexByScale = new Dictionary<int, int>();
         private readonly HashSet<string> _v71OracleSeen = new HashSet<string>(StringComparer.Ordinal);
-        private bool _v71ModelReady;
         private int _v71ExpansionDetected;
         private int _v71ExpansionArmed;
         private int _v71ExpansionExecuted;
         private int _v71ExpansionCoreBlocked;
-        private int _v71ExpansionModelRejected;
+        private int _v71ExpansionEligibilityRejected;
         private int _v71ExpansionGridFallback;
         private int _v71ExpansionShadowClosed;
         private int _v71ExpansionRiskScaled;
@@ -468,7 +435,6 @@ namespace cAlgo.Robots
             }
 
             BuildPatternProfiles();
-            V71ParseEdgeModel();
             _initialEquity = Account.Equity;
             _initialCapitalEligible = _initialEquity + 1e-8 >= MinimumSupportedEquity;
             _equityPeak = Account.Equity;
@@ -506,13 +472,13 @@ namespace cAlgo.Robots
             Print("[V51-THROUGHPUT-ARCH] persistentQueue={0} serialHandoff={1} nativeM1={2} nativeBars={3} decayRanking={4} hardLifetimeMinutes={5} alphaKernel=V46_SCALE_CONVERSION_FROZEN",
                 EnablePersistentArmedQueue, EnableEventDrivenSerialHandoff, EnablePatternNativeM1Expansion,
                 PatternNativeM1MaxBars, EnableOpportunityDecayRanking, ParkedHardLifetimeMinutes);
-            Print("[V71-PROTECTED-CORE] trustedParent={0} expansionShadow={1} expansionExecution={2} expansionGrid={3} expansionAdaptiveRisk={4} expansionRiskCap={5:F2} model={6} modelReady={7}",
-                V51TrustedParent, EnableV71ExpansionShadow, EnableV71ExpansionExecution, EnableV71ExpansionGrid,
-                EnableV71ExpansionAdaptiveRisk, Math.Min(5.0, V71ExpansionRiskPercent), V71ModelId, _v71ModelReady);
-            Print("[V71-INCREMENTAL-POLICY] corePreemption=true minEdgeLcbR={0:F3} familyBalancedCensus={1} perFamilyCap={2} abcdSharePct={3} allowedFamilyRoutes={4} fullPivotLattice={5} familyNativeConfirmation={6} overlapShadowVisible=true overlapCapitalBlocked=true",
-                Math.Max(0, V71ExpansionMinEdgeLcbR), EnableV71FamilyBalancedCensus,
-                Math.Max(2, Math.Min(12, V71PerFamilyCensusCap)), Math.Max(0, Math.Min(25, V71AbcdCensusSharePercent)),
-                _v71AllowedFamilyRoutes.Count, EnableV71FullFamilyPivotLattice, EnableV71FamilyNativeConfirmation);
+            Print("[V71-PROTECTED-CORE] trustedParent={0} expansionShadow={1} expansionExecution={2} expansionRiskCap={3:F2} reactionResearch={4}",
+                V51TrustedParent, EnableV71ExpansionShadow, EnableV71ExpansionExecution,
+                Math.Min(5.0, V71ExpansionRiskPercent), EnableV72ReactionAlpha);
+            Print("[V71-INCREMENTAL-POLICY] corePreemption=true familyBalancedCensus={0} perFamilyCap={1} abcdSharePct={2} fullPivotLattice={3} familyNativeConfirmation={4} selectorModel=NONE overlapShadowVisible=true overlapCapitalBlocked=true",
+                EnableV71FamilyBalancedCensus, Math.Max(2, Math.Min(12, V71PerFamilyCensusCap)),
+                Math.Max(0, Math.Min(25, V71AbcdCensusSharePercent)), EnableV71FullFamilyPivotLattice,
+                EnableV71FamilyNativeConfirmation);
         }
 
         protected override void OnStop()
@@ -548,10 +514,10 @@ namespace cAlgo.Robots
                 _virtualGridFills, _microModeBaskets, _capitalRejectedBaskets, _marginRiskViolations);
             Print("[V51-ALPHA-SUMMARY] qualityRejected={0} regimeRejected={1} confirmationRejected={2} capitalInfeasible={3} alphaPassed={4}",
                 _alphaQualityRejected, _regimeRejected, _confirmationRejected, _capitalInfeasibleCandidates, _alphaPassed);
-            Print("[V71-EXPANSION-SUMMARY] detected={0} armed={1} executed={2} coreBlocked={3} modelRejected={4} gridFallback={5} shadowClosed={6} riskScaled={7} active={8} model={9}",
+            Print("[V71-EXPANSION-SUMMARY] detected={0} armed={1} executed={2} coreBlocked={3} eligibilityRejected={4} shadowClosed={5} riskScaled={6} active={7} selectorModel=NONE",
                 _v71ExpansionDetected, _v71ExpansionArmed, _v71ExpansionExecuted, _v71ExpansionCoreBlocked,
-                _v71ExpansionModelRejected, _v71ExpansionGridFallback, _v71ExpansionShadowClosed,
-                _v71ExpansionRiskScaled, _v71Expansion.Values.Count(x => x.IsActive), V71ModelId);
+                _v71ExpansionEligibilityRejected, _v71ExpansionShadowClosed,
+                _v71ExpansionRiskScaled, _v71Expansion.Values.Count(x => x.IsActive));
             foreach (var fam in _profiles.Select(x => V71FamilyKey(x.Name)).Distinct().OrderBy(x => x))
             {
                 int tracked = _v71FamilyTracked.ContainsKey(fam) ? _v71FamilyTracked[fam] : 0;
@@ -2627,147 +2593,11 @@ namespace cAlgo.Robots
 
         // ---------------- V71 protected-core incremental expansion ----------------
 
-        private void V71ParseEdgeModel()
-        {
-            _v71EdgeWeights.Clear();
-            _v71FamilyRoutePriors.Clear();
-            _v71AllowedFamilyRoutes.Clear();
-            _v71AllowedFamilyRouteContexts.Clear();
-            _v71AllowedSetupHashes.Clear();
-            _v71ModelReady = false;
-
-            if (!string.IsNullOrWhiteSpace(V71EdgeModelSpec))
-            {
-                foreach (var part in V71EdgeModelSpec.Split(new[] { ';' }, StringSplitOptions.RemoveEmptyEntries))
-                {
-                    var kv = part.Split(new[] { ':' }, 2);
-                    double v;
-                    if (kv.Length == 2 && double.TryParse(kv[1], NumberStyles.Float, CultureInfo.InvariantCulture, out v))
-                        _v71EdgeWeights[kv[0]] = v;
-                }
-            }
-
-            if (!string.IsNullOrWhiteSpace(V71FamilyRoutePriorSpec))
-            {
-                foreach (var part in V71FamilyRoutePriorSpec.Split(new[] { ';' }, StringSplitOptions.RemoveEmptyEntries))
-                {
-                    var kv = part.Split(':');
-                    double v;
-                    if (kv.Length == 3 && double.TryParse(kv[2], NumberStyles.Float, CultureInfo.InvariantCulture, out v))
-                        _v71FamilyRoutePriors[kv[0] + ":" + kv[1]] = Math.Max(-1.0, Math.Min(1.0, v));
-                }
-            }
-
-            if (!string.IsNullOrWhiteSpace(V71AllowedFamilyRouteSpec))
-            {
-                foreach (var part in V71AllowedFamilyRouteSpec.Split(new[] { ';' }, StringSplitOptions.RemoveEmptyEntries))
-                {
-                    string key = part.Trim();
-                    if (!string.IsNullOrWhiteSpace(key)) _v71AllowedFamilyRoutes.Add(key);
-                }
-            }
-            if (!string.IsNullOrWhiteSpace(V71AllowedFamilyRouteContextSpec))
-            {
-                foreach (var part in V71AllowedFamilyRouteContextSpec.Split(new[] { ';' }, StringSplitOptions.RemoveEmptyEntries))
-                {
-                    string key = part.Trim();
-                    if (!string.IsNullOrWhiteSpace(key)) _v71AllowedFamilyRouteContexts.Add(key);
-                }
-            }
-            if (!string.IsNullOrWhiteSpace(V71AllowedSetupHashSpec))
-            {
-                foreach (var part in V71AllowedSetupHashSpec.Split(new[] { ';' }, StringSplitOptions.RemoveEmptyEntries))
-                {
-                    uint v;
-                    if (uint.TryParse(part.Trim(), NumberStyles.HexNumber, CultureInfo.InvariantCulture, out v))
-                        _v71AllowedSetupHashes.Add(v);
-                }
-            }
-
-            bool h5 = _v71EdgeWeights.TryGetValue("h5", out var h5Flag) && h5Flag > .5;
-            _v71ModelReady = h5
-                ? _v71EdgeWeights.ContainsKey("i") && _v71EdgeWeights.ContainsKey("p2i") &&
-                  _v71EdgeWeights.ContainsKey("shi") && _v71EdgeWeights.ContainsKey("chi")
-                : _v71EdgeWeights.ContainsKey("i") && _v71EdgeWeights.ContainsKey("g") &&
-                  _v71EdgeWeights.ContainsKey("prz") && _v71EdgeWeights.ContainsKey("m1") &&
-                  _v71EdgeWeights.ContainsKey("rr");
-        }
-
-        private double V71W(string key)
-        {
-            double v;
-            return _v71EdgeWeights.TryGetValue(key, out v) ? v : 0.0;
-        }
-
         private string V71FamilyKey(string pattern)
         {
             if (pattern == "AB=CD") return "ABCD";
             if (pattern == "5-0") return "FiveZero";
             return (pattern ?? "UNKNOWN").Replace(" ", "").Replace("-", "");
-        }
-
-        private string V71RouteKey(HarmonicRoute route)
-        {
-            return route == HarmonicRoute.TREND_ALIGNED_REVERSAL ? "T" :
-                   route == HarmonicRoute.EXHAUSTION_REVERSAL ? "E" :
-                   route == HarmonicRoute.TRANSITION_REVERSAL ? "X" : "N";
-        }
-
-        private double V71FamilyRoutePrior(V71ExpansionCandidate e)
-        {
-            if (e == null || e.Signal == null) return 0;
-            double v;
-            string key = V71FamilyKey(e.Signal.PatternName) + ":" + V71RouteKey(e.Route);
-            return _v71FamilyRoutePriors.TryGetValue(key, out v) ? v : 0.0;
-        }
-
-        private string V71RegimeContextKey(V71ExpansionCandidate e)
-        {
-            if (e == null) return "MIXED";
-            if (e.TransitionState >= .50) return "TRANSITION";
-            double mtf = V71MtfScore(e.Conflict);
-            if (mtf >= .85 && e.TrendStrength >= .50) return "ALIGNED_TREND";
-            if (e.Regime != null && e.Regime.ExtensionAtr >= 1.0 && mtf <= .65) return "EXHAUSTION";
-            if (e.Regime != null && e.Regime.Efficiency < .30) return "RANGE";
-            return "MIXED";
-        }
-
-        private bool V71FamilyRouteAllowed(V71ExpansionCandidate e)
-        {
-            if (e == null || e.Signal == null) return false;
-            if (EnableV72ReactionAlpha) return true;
-            bool h5 = V71W("h5") > .5;
-            if (_v71AllowedFamilyRoutes.Count == 0) return h5;
-            string pair = V71FamilyKey(e.Signal.PatternName) + ":" + V71RouteKey(e.Route);
-            if (!_v71AllowedFamilyRoutes.Contains(pair)) return false;
-            if (h5 || _v71AllowedFamilyRouteContexts.Count == 0) return true;
-            return _v71AllowedFamilyRouteContexts.Contains(pair + ":" + V71RegimeContextKey(e));
-        }
-
-        private bool V71SetupAllowed(V71ExpansionCandidate e)
-        {
-            if (e == null || e.Signal == null) return false;
-            if (_v71AllowedSetupHashes.Count == 0) return true;
-            string id = V71FamilyKey(e.Signal.PatternName) + "|" + e.SetupKey;
-            return _v71AllowedSetupHashes.Contains(V71StableHash32(id));
-        }
-
-        private string V71PairToken(V71ExpansionCandidate e)
-        {
-            return e == null || e.Signal == null ? "UNKNOWN_N" :
-                V71FamilyKey(e.Signal.PatternName) + "_" + V71RouteKey(e.Route);
-        }
-
-        private double V71PairWeight(string prefix, V71ExpansionCandidate e)
-        {
-            return V71W(prefix + V71PairToken(e));
-        }
-
-        private double V71PairUncertainty(string prefix, V71ExpansionCandidate e, string baseKey)
-        {
-            double v;
-            string key = prefix + V71PairToken(e);
-            return _v71EdgeWeights.TryGetValue(key, out v) ? Math.Max(0, v) : Math.Max(0, V71W(baseKey));
         }
 
         private double V71MtfScore(MtfConflict c)
@@ -2965,309 +2795,6 @@ namespace cAlgo.Robots
             return VClamp(1.0 - Math.Abs(r.AtrRatio - 1.0));
         }
 
-        private double V71ExpectedEdge(V71ExpansionCandidate e)
-        {
-            if (!_v71ModelReady || e == null || e.Signal == null) return -999;
-            string[] keys = { "g", "prz", "conf", "ts", "pv", "m1", "rr", "reg", "eff", "atr", "ext", "mtf",
-                              "atp", "adx1", "adx4", "adxs", "trend", "spr", "ses", "przc", "trans" };
-            double y = V71W("i");
-            foreach (var key in keys) y += V71W(key) * V71FeatureValue(e, key);
-            y += V71W("prior") * V71FamilyRoutePrior(e);
-            return y;
-        }
-
-        private double V71ExpectedSurvival(V71ExpansionCandidate e)
-        {
-            if (e == null || e.Signal == null) return .50;
-            double p = V71W("si");
-            string[] keys = { "g", "prz", "conf", "ts", "pv", "m1", "rr", "reg", "eff", "atr", "ext", "mtf",
-                              "atp", "adx1", "adx4", "adxs", "trend", "spr", "ses", "przc", "trans" };
-            foreach (var key in keys)
-                p += V71W("s_" + key) * V71FeatureValue(e, key);
-            if (Math.Abs(p) < 1e-12 && Math.Abs(V71W("si")) < 1e-12) return .50;
-            return Math.Max(.05, Math.Min(.95, p));
-        }
-
-        private double V71FeatureValue(V71ExpansionCandidate e, string key)
-        {
-            if (e == null || e.Signal == null) return 0;
-            if (key == "g") return VClamp(e.Signal.GeometryQuality);
-            if (key == "prz") return VClamp(e.Signal.PrzConfluence);
-            if (key == "conf") return VClamp(e.Signal.Confidence);
-            if (key == "ts") return VClamp(e.Signal.TimeSymmetry);
-            if (key == "pv") return VClamp(e.Signal.PivotQuality);
-            if (key == "m1") return VClamp(e.ConfirmationScore);
-            if (key == "rr") return VClamp(e.NetRR / 4.0);
-            if (key == "reg") return VClamp(e.RegimeScore);
-            if (key == "eff") return e.Regime == null ? 0 : VClamp(e.Regime.Efficiency);
-            if (key == "atr") return V71AtrFit(e.Regime);
-            if (key == "ext") return e.Regime == null ? 0 : VClamp(e.Regime.ExtensionAtr / 2.0);
-            if (key == "mtf") return V71MtfScore(e.Conflict);
-            if (key == "atp") return e.AtrPercentile;
-            if (key == "adx1") return e.AdxH1Norm;
-            if (key == "adx4") return e.AdxH4Norm;
-            if (key == "adxs") return e.AdxSlopeNorm;
-            if (key == "trend") return e.TrendStrength;
-            if (key == "spr") return e.SpreadAtr;
-            if (key == "ses") return e.SessionPhase;
-            if (key == "przc") return e.PrzCompression;
-            if (key == "trans") return e.TransitionState;
-            return 0;
-        }
-
-        private double V71SupportDistance(V71ExpansionCandidate e)
-        {
-            bool h5 = V71W("h5") > .5;
-            double supportRef = h5 ? V71W("support_ref") : V71W("support_max");
-            if (supportRef <= 0 || supportRef >= 900) return 0;
-            string[] keys = h5
-                ? new[] { "rr", "atr", "atp", "adx1", "ses" }
-                : new[] { "g", "prz", "m1", "rr", "reg", "eff", "atr", "ext", "atp", "trend", "spr", "ses", "przc", "trans" };
-            double ss = 0;
-            foreach (var key in keys)
-            {
-                double scale = Math.Max(.05, Math.Abs(V71W("ms_" + key)));
-                double z = (V71FeatureValue(e, key) - V71W("mc_" + key)) / scale;
-                ss += z * z;
-            }
-            return Math.Sqrt(ss / keys.Length);
-        }
-
-        private bool V71SupportEligible(V71ExpansionCandidate e, out double distance)
-        {
-            distance = V71SupportDistance(e);
-            if (V71W("soft_support") > .5) return true;
-            double supportMax = V71W("support_max");
-            return supportMax <= 0 || supportMax >= 900 || distance <= supportMax + 1e-12;
-        }
-
-        private double V71H5SupportPenalty(V71ExpansionCandidate e, string scaleKey)
-        {
-            if (V71W("h5") <= .5) return 0;
-            double extra = Math.Max(0, V71SupportDistance(e) - Math.Max(0, V71W("support_ref")));
-            return Math.Max(0, V71W(scaleKey)) * extra;
-        }
-
-        private double V71ExpectedPathProbability(V71ExpansionCandidate e)
-        {
-            if (e == null || e.Signal == null) return 0;
-            string[] keys = { "rr", "atr", "atp", "adx1" };
-            double p = V71W("p2i");
-            foreach (var key in keys) p += V71W("p2_" + key) * V71FeatureValue(e, key);
-            p += V71PairWeight("p2pr_", e);
-            return Math.Max(.01, Math.Min(.99, p));
-        }
-
-        private double V71ExpectedPathLcb(V71ExpansionCandidate e)
-        {
-            double p = V71ExpectedPathProbability(e);
-            double penalty = Math.Max(0, V71W("p2_base_margin")) + V71PairUncertainty("pu_", e, "p2_base_margin") +
-                             V71H5SupportPenalty(e, "p2_uncertainty_scale");
-            return Math.Max(0, Math.Min(.99, p - penalty));
-        }
-
-        private double V71ExpectedRunnerProbability(V71ExpansionCandidate e)
-        {
-            if (e == null || e.Signal == null) return 0;
-            string[] keys = { "rr", "atr", "atp", "adx1" };
-            double p = V71W("ri");
-            foreach (var key in keys) p += V71W("r_" + key) * V71FeatureValue(e, key);
-            p += V71PairWeight("rpr_", e);
-            return Math.Max(.01, Math.Min(.99, p));
-        }
-
-        private double V71ExpectedRunnerLcb(V71ExpansionCandidate e)
-        {
-            double p = V71ExpectedRunnerProbability(e);
-            double penalty = Math.Max(0, V71W("runner_base_margin")) + V71PairUncertainty("ru_", e, "runner_base_margin") +
-                             V71H5SupportPenalty(e, "p2_uncertainty_scale");
-            return Math.Max(0, Math.Min(.99, p - penalty));
-        }
-
-        private double V71ExpectedCoreArrivalHazard(V71ExpansionCandidate e)
-        {
-            if (e == null || e.Signal == null) return .95;
-            string[] keys = { "ses", "atr", "atp", "adx1" };
-            double p = V71W("chi");
-            foreach (var key in keys) p += V71W("ch_" + key) * V71FeatureValue(e, key);
-            p += Math.Max(0, V71W("core_hazard_margin"));
-            return Math.Max(0, Math.Min(.95, p));
-        }
-
-        private double V71ExpectedSlotHoursUcb(V71ExpansionCandidate e)
-        {
-            double hours = V71ExpectedSlotHours(e);
-            if (V71W("h5") <= .5) return hours;
-            return Math.Max(.50, Math.Min(12.0, hours * Math.Exp(Math.Max(0, Math.Min(1.5, V71W("slot_margin"))))));
-        }
-
-        private double V71PathBreakEven(V71ExpansionCandidate e)
-        {
-            double costR = e == null ? 0 : Math.Max(0, e.ModeledCostR);
-            return Math.Max(1.0 / 3.0, Math.Min(.60, (1.0 + costR) / 3.0));
-        }
-
-        private double V71ExpectedSlotHours(V71ExpansionCandidate e)
-        {
-            if (e == null) return 2.0;
-            if (!_v71EdgeWeights.ContainsKey("shi"))
-                return e.Route == HarmonicRoute.TREND_ALIGNED_REVERSAL ? 1.50 :
-                       e.Route == HarmonicRoute.EXHAUSTION_REVERSAL ? 2.00 :
-                       e.Route == HarmonicRoute.TRANSITION_REVERSAL ? 1.25 : 2.00;
-
-            string[] keys = { "g", "prz", "conf", "ts", "pv", "m1", "rr", "reg", "eff", "atr", "ext", "mtf",
-                              "atp", "adx1", "adx4", "adxs", "trend", "spr", "ses", "przc", "trans" };
-            double logHours = V71W("shi");
-            foreach (var key in keys) logHours += V71W("sh_" + key) * V71FeatureValue(e, key);
-            return Math.Max(.50, Math.Min(12.0, Math.Exp(Math.Max(-2.0, Math.Min(3.0, logHours)))));
-        }
-
-        private double V71SessionPhase(DateTime utc)
-        {
-            utc = DateTime.SpecifyKind(utc, DateTimeKind.Utc);
-            DateTime londonLocal = TimeZoneInfo.ConvertTimeFromUtc(utc, _londonTz);
-            DateTime nyLocal = TimeZoneInfo.ConvertTimeFromUtc(utc, _newYorkTz);
-            DateTime londonOpenUtc = TimeZoneInfo.ConvertTimeToUtc(DateTime.SpecifyKind(londonLocal.Date.AddHours(8), DateTimeKind.Unspecified), _londonTz);
-            DateTime nyCloseUtc = TimeZoneInfo.ConvertTimeToUtc(DateTime.SpecifyKind(nyLocal.Date.AddHours(17), DateTimeKind.Unspecified), _newYorkTz);
-            double span = Math.Max(1.0, (nyCloseUtc - londonOpenUtc).TotalMinutes);
-            return VClamp((utc - londonOpenUtc).TotalMinutes / span);
-        }
-
-        private double V71SpreadAtr(RegimeSnapshot r)
-        {
-            if (r == null || r.AtrM15Pips <= 1e-9) return 1.0;
-            return VClamp(CurrentSpreadPips() / r.AtrM15Pips);
-        }
-
-        private double V71PrzCompression(V71ExpansionCandidate e)
-        {
-            if (e == null || e.Signal == null || e.Regime == null || e.Regime.AtrM15Pips <= 1e-9) return 0.0;
-            double widthPips = PriceToPips(Math.Max(0, e.Signal.PrzHigh - e.Signal.PrzLow));
-            return VClamp(1.0 - widthPips / Math.Max(1e-9, e.Regime.AtrM15Pips));
-        }
-
-        private void V71ArmExpansion(int i, DateTime utc, V71ExpansionCandidate e, double confirmationScore)
-        {
-            double entry = e.Signal.Direction == TradeDirection.Buy ? _symbol.Ask : _symbol.Bid;
-            double stop = e.Signal.StructuralInvalidation;
-            if ((e.Signal.Direction == TradeDirection.Buy && stop >= entry) ||
-                (e.Signal.Direction == TradeDirection.Sell && stop <= entry))
-            {
-                e.IsActive = false; e.State = V71ExpansionState.INVALIDATED; return;
-            }
-            if (PriceToPips(Math.Abs(entry - stop)) < MinStopLossPips)
-            {
-                e.IsActive = false; e.State = V71ExpansionState.REJECTED; return;
-            }
-
-            double target, netRr;
-            if (!SelectCanonicalBasketTarget(e.Signal, entry, stop, out target, out netRr) || netRr < MinimumNetRR)
-            {
-                e.IsActive = false; e.State = V71ExpansionState.REJECTED; return;
-            }
-            if (EnableV72ReactionAlpha)
-            {
-                double risk = Math.Abs(entry - stop);
-                double costPrice = PipsToPrice(ModeledCostPips());
-                double reactionTarget = e.Signal.Direction == TradeDirection.Buy
-                    ? entry + 2.0 * risk + costPrice
-                    : entry - 2.0 * risk - costPrice;
-                bool canonicalCoversReaction = e.Signal.Direction == TradeDirection.Buy
-                    ? target >= reactionTarget
-                    : target <= reactionTarget;
-                if (!canonicalCoversReaction || !GeometryValid(e.Signal.Direction, entry, stop, reactionTarget))
-                {
-                    e.IsActive = false; e.State = V71ExpansionState.REJECTED; return;
-                }
-                target = reactionTarget;
-                netRr = (PriceToPips(Math.Abs(target - entry)) - ModeledCostPips()) /
-                        Math.Max(1e-9, PriceToPips(risk));
-                if (netRr + 1e-9 < MinimumNetRR)
-                {
-                    e.IsActive = false; e.State = V71ExpansionState.REJECTED; return;
-                }
-            }
-
-            e.EntryAnchor = entry;
-            e.StructuralStop = stop;
-            e.CanonicalTarget = target;
-            e.RiskDistance = Math.Abs(entry - stop);
-            e.TargetR = e.RiskDistance > 0 ? Math.Abs(target - entry) / e.RiskDistance : netRr;
-            e.NetRR = netRr;
-            e.ConfirmationScore = confirmationScore;
-            e.RegimeScore = RegimeContextScore(e.Signal, e.Conflict, e.Regime);
-            e.AtrPercentile = e.Regime == null ? .5 : VClamp(e.Regime.AtrPercentile);
-            e.AdxH1Norm = e.Regime == null ? 0 : VClamp(e.Regime.AdxH1 / 50.0);
-            e.AdxH4Norm = e.Regime == null ? 0 : VClamp(e.Regime.AdxH4 / 50.0);
-            e.AdxSlopeNorm = e.Regime == null ? 0 : Math.Max(-1.0, Math.Min(1.0, e.Regime.AdxH1Slope / 10.0));
-            e.TrendStrength = e.Regime == null ? 0 : VClamp(e.Regime.TrendStrength);
-            e.SpreadAtr = V71SpreadAtr(e.Regime);
-            e.SessionPhase = V71SessionPhase(utc);
-            e.PrzCompression = V71PrzCompression(e);
-            e.TransitionState = e.Regime != null && e.Regime.Transition ? 1.0 : 0.0;
-            e.ArmedUtc = utc;
-            e.State = V71ExpansionState.ARMED;
-            e.ShadowStarted = true;
-            e.ShadowPeakR = 0;
-            e.ShadowProtectionR = -1.0;
-            e.ModeledCostR = e.RiskDistance > 0 ? PipsToPrice(ModeledCostPips()) / e.RiskDistance : 0;
-            if (EnableV72ReactionAlpha)
-            {
-                e.SupportEligible = true;
-                e.SupportDistance = 0;
-                e.EdgeMean = e.NetRR;
-                e.EdgeLcb = e.NetRR;
-                e.PathProbability = .50;
-                e.PathLcb = 0;
-                e.RunnerProbability = 0;
-                e.RunnerLcb = 0;
-                e.ExpectedSlotHours = e.Route == HarmonicRoute.TREND_ALIGNED_REVERSAL ? 1.50 :
-                                      e.Route == HarmonicRoute.TRANSITION_REVERSAL ? 1.25 : 2.00;
-                e.ExpectedSlotHoursUcb = e.ExpectedSlotHours;
-                e.CoreArrivalHazard = 0;
-                e.SurvivalProbability = .50;
-                e.SlotScore = e.NetRR / Math.Max(.50, e.ExpectedSlotHours);
-            }
-            else
-            {
-                e.SupportEligible = V71SupportEligible(e, out var supportDistance);
-                e.SupportDistance = supportDistance;
-                e.EdgeMean = V71ExpectedEdge(e);
-                if (V71W("h5") > .5)
-                    e.EdgeLcb = e.EdgeMean - Math.Max(0, V71W("edge_base_margin")) -
-                                V71PairUncertainty("eu_", e, "edge_base_margin") - V71H5SupportPenalty(e, "uncertainty_scale");
-                else
-                    e.EdgeLcb = e.EdgeMean - Math.Max(0, V71EdgeLcbMargin);
-                e.PathProbability = V71ExpectedPathProbability(e);
-                e.PathLcb = V71ExpectedPathLcb(e);
-                e.RunnerProbability = V71ExpectedRunnerProbability(e);
-                e.RunnerLcb = V71ExpectedRunnerLcb(e);
-                e.ExpectedSlotHours = V71ExpectedSlotHours(e);
-                e.ExpectedSlotHoursUcb = V71ExpectedSlotHoursUcb(e);
-                e.CoreArrivalHazard = V71ExpectedCoreArrivalHazard(e);
-                e.SurvivalProbability = V71W("h5") > .5 ? e.PathProbability : V71ExpectedSurvival(e);
-                e.SlotScore = e.SupportEligible
-                    ? (V71W("h5") > .5
-                        ? e.EdgeLcb / Math.Max(.50, e.ExpectedSlotHoursUcb) -
-                          e.CoreArrivalHazard * Math.Max(0, V71W("core_cost"))
-                        : e.EdgeLcb * Math.Max(.05, Math.Min(.95, e.SurvivalProbability)) / Math.Max(.50, e.ExpectedSlotHours))
-                    : double.NegativeInfinity;
-            }
-            _v71ExpansionArmed++;
-            IncrementCounter(_v71FamilyArmed, V71FamilyKey(e.Signal.PatternName));
-
-            Print("[V71-EXP-ARM] cid={0} setup={1} family={2} route={3} model={4} g={5:F5} prz={6:F5} conf={7:F5} ts={8:F5} pv={9:F5} m1={10:F5} rr={11:F5} reg={12:F5} eff={13:F5} atr={14:F5} ext={15:F5} mtf={16:F5} atp={17:F5} adx1={18:F5} adx4={19:F5} adxs={20:F5} trend={21:F5} spr={22:F5} ses={23:F5} przc={24:F5} trans={25:F5} prior={26:F5} edge={27:F5} lcb={28:F5} slotScore={29:F5}",
-                e.CandidateId, e.SetupKey, V71FamilyKey(e.Signal.PatternName), e.Route, V71ModelId,
-                VClamp(e.Signal.GeometryQuality), VClamp(e.Signal.PrzConfluence), VClamp(e.Signal.Confidence),
-                VClamp(e.Signal.TimeSymmetry), VClamp(e.Signal.PivotQuality), VClamp(e.ConfirmationScore),
-                VClamp(e.NetRR / 4.0), VClamp(e.RegimeScore),
-                e.Regime == null ? 0 : VClamp(e.Regime.Efficiency), V71AtrFit(e.Regime),
-                e.Regime == null ? 0 : VClamp(e.Regime.ExtensionAtr / 2.0), V71MtfScore(e.Conflict),
-                e.AtrPercentile, e.AdxH1Norm, e.AdxH4Norm, e.AdxSlopeNorm, e.TrendStrength,
-                e.SpreadAtr, e.SessionPhase, e.PrzCompression, e.TransitionState,
-                V71FamilyRoutePrior(e), e.EdgeMean, e.EdgeLcb, e.SlotScore);
-        }
-
         private DateTime V72NextM15Boundary(DateTime utc)
         {
             utc = DateTime.SpecifyKind(utc, DateTimeKind.Utc);
@@ -3425,7 +2952,11 @@ namespace cAlgo.Robots
                                 Print("[V72-PULLBACK-REJECT] cid={0} reason=NO_LEGAL_0618_ENTRY", e.CandidateId);
                             }
                         }
-                        else V71ArmExpansion(i, utc, e, score);
+                        else
+                        {
+                            e.IsActive = false;
+                            e.State = V71ExpansionState.REJECTED;
+                        }
                     }
                     continue;
                 }
@@ -3934,42 +3465,9 @@ namespace cAlgo.Robots
             return true;
         }
 
-        private double V71CapitalQualificationScore(V71ExpansionCandidate e)
-        {
-            if (e == null) return double.NegativeInfinity;
-            return V71W("slot_gate") > .5 ? e.SlotScore : e.EdgeLcb;
-        }
-
-        private void V71ApplyExpansionExitPolicy(V71ExpansionCandidate e, CandidateRecord c)
-        {
-            if (e == null || c == null || c.GridPlan == null) return;
-            string policy = (V71ExpansionExitPolicy ?? "REACTION_2R").Trim().ToUpperInvariant();
-            bool runner = policy == "SELECTIVE_RUNNER" && e.RunnerLcb > Math.Max(.50, V71W("runner_gate"));
-            if (runner) return;
-
-            double entry = c.GridPlan.ExpectedWeightedEntry > 0 ? c.GridPlan.ExpectedWeightedEntry : c.GridPlan.EntryAnchor;
-            double risk = Math.Abs(entry - c.GridPlan.StructuralStop);
-            if (risk <= 0) return;
-            double grossR = 2.0 + PipsToPrice(ModeledCostPips()) / risk;
-            double target = c.Signal.Direction == TradeDirection.Buy ? entry + risk * grossR : entry - risk * grossR;
-            if (!GeometryValid(c.Signal.Direction, entry, c.GridPlan.StructuralStop, target)) return;
-
-            if (c.Signal.Direction == TradeDirection.Buy)
-                target = Math.Min(target, c.GridPlan.CanonicalTarget);
-            else
-                target = Math.Max(target, c.GridPlan.CanonicalTarget);
-            if (!GeometryValid(c.Signal.Direction, entry, c.GridPlan.StructuralStop, target)) return;
-
-            c.GridPlan.CanonicalTarget = target;
-            c.GridPlan.ExpectedNetRR = (PriceToPips(Math.Abs(target - entry)) - ModeledCostPips()) /
-                Math.Max(1e-9, PriceToPips(risk));
-            c.SelectedTarget = target;
-            c.NetRR = c.GridPlan.ExpectedNetRR;
-        }
-
         private void V71TryExecuteExpansion(DateTime now)
         {
-            if (!EnableV71ExpansionExecution || (!EnableV72ReactionAlpha && !_v71ModelReady)) return;
+            if (!EnableV71ExpansionExecution || !EnableV72ReactionAlpha) return;
             if (V71CoreHasActiveThesis()) { _v71ExpansionCoreBlocked++; return; }
             if (OwnPositions().Any() || OwnPendingOrders().Any() || _baskets.Values.Any(b => b.IsActive)) return;
             if (!IsInstitutionalSession(now) || !SpreadValid()) return;
@@ -3977,33 +3475,27 @@ namespace cAlgo.Robots
             var eligible = _v71Expansion.Values
                 .Where(e => e.IsActive && e.State == V71ExpansionState.ARMED && !e.Executed &&
                             e.CapitalEligible && !e.CoreOverlapObserved &&
-                            (EnableV72ReactionAlpha
-                                ? (e.ReactionProved && e.AwaitingPullbackFill && e.NetRR >= MinimumNetRR)
-                                : (V71FamilyRouteAllowed(e) && V71SetupAllowed(e) && e.SupportEligible && e.EdgeLcb > 0 &&
-                                   (V71W("h5") <= .5 || e.PathLcb > V71PathBreakEven(e)) &&
-                                   V71CapitalQualificationScore(e) > V71ExpansionMinEdgeLcbR && e.NetRR >= MinimumNetRR)) &&
+                            e.ReactionProved && e.AwaitingPullbackFill && e.NetRR >= MinimumNetRR &&
                             !_executedSetupKeys.Contains(e.SetupKey) &&
                             !_v71ExpansionExecutedSetupKeys.Contains(e.SetupKey))
                 .OrderByDescending(e => e.SlotScore)
-                .ThenByDescending(e => e.EdgeLcb)
+                .ThenByDescending(e => e.NetRR)
                 .ToList();
+
             if (eligible.Count == 0)
             {
                 if (_v71Expansion.Values.Any(e => e.IsActive && e.State == V71ExpansionState.ARMED &&
-                    (!e.CapitalEligible || e.CoreOverlapObserved ||
-                     (EnableV72ReactionAlpha
-                        ? (!e.ReactionProved || !e.AwaitingPullbackFill || e.NetRR < MinimumNetRR)
-                        : (!V71FamilyRouteAllowed(e) || !V71SetupAllowed(e) || !e.SupportEligible ||
-                           e.EdgeLcb <= 0 || (V71W("h5") > .5 && e.PathLcb <= V71PathBreakEven(e)) ||
-                           V71CapitalQualificationScore(e) <= V71ExpansionMinEdgeLcbR)))))
-                    _v71ExpansionModelRejected++;
+                    (!e.CapitalEligible || e.CoreOverlapObserved || !e.ReactionProved ||
+                     !e.AwaitingPullbackFill || e.NetRR < MinimumNetRR)))
+                    _v71ExpansionEligibilityRejected++;
                 return;
             }
 
             var e = eligible[0];
             double riskPct = V71ExpansionRiskFor(e);
             if (!V71ExpansionRiskReserveAllows(riskPct)) return;
-            var c = new CandidateRecord
+
+            var candidate = new CandidateRecord
             {
                 CandidateId = e.CandidateId,
                 SetupKey = e.SetupKey,
@@ -4020,31 +3512,16 @@ namespace cAlgo.Robots
                 NetRR = e.NetRR,
                 SelectedTarget = e.CanonicalTarget,
                 V71Expansion = true,
-                V72ReactionAlpha = EnableV72ReactionAlpha,
                 V71RiskPercent = riskPct
             };
 
-            bool built = EnableV72ReactionAlpha
-                ? V72BuildPullbackSingleLeg(c, e)
-                : (EnableV71ExpansionGrid ? TryBuildFibonacciGridPlan(c) : V71BuildExpansionSingleLeg(c));
-            if (!built && !EnableV72ReactionAlpha && EnableV71ExpansionGrid)
-            {
-                c.GridPlan = null;
-                _v71ExpansionGridFallback++;
-                built = V71BuildExpansionSingleLeg(c);
-            }
+            if (!V72BuildPullbackSingleLeg(candidate, e) || candidate.GridPlan == null || candidate.NetRR < MinimumNetRR)
+                return;
 
-            if (!built || c.GridPlan == null || c.NetRR < MinimumNetRR) return;
-            if (!EnableV72ReactionAlpha) V71ApplyExpansionExitPolicy(e, c);
-            if (c.GridPlan == null || c.NetRR < MinimumNetRR) return;
+            Print("[V72-PULLBACK-EXECUTE] cid={0} setup={1} family={2} route={3} rr={4:F3} slotScore={5:F5} riskPct={6:F2}",
+                e.CandidateId, e.SetupKey, V71FamilyKey(e.Signal.PatternName), e.Route, e.NetRR, e.SlotScore, riskPct);
 
-            Print("[V71-EXP-EXECUTE] cid={0} setup={1} family={2} route={3} model={4} edge={5:F5} lcb={6:F5} slotScore={7:F5} riskPct={8:F2} grid={9}",
-                e.CandidateId, e.SetupKey, V71FamilyKey(e.Signal.PatternName), e.Route, V71ModelId,
-                e.EdgeMean, e.EdgeLcb, e.SlotScore, riskPct, EnableV71ExpansionGrid);
-
-            bool submitted = EnableV72ReactionAlpha ? V72SubmitPullbackSingleLeg(c) : true;
-            if (!EnableV72ReactionAlpha) ExecuteFibonacciGridPlan(c);
-            if ((EnableV72ReactionAlpha && submitted) || c.State == CandidateState.EXECUTED)
+            if (V72SubmitPullbackSingleLeg(candidate))
             {
                 e.Executed = true;
                 e.IsActive = false;
