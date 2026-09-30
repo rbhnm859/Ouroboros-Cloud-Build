@@ -33,7 +33,7 @@ for p in root.rglob("*.log"):
     for m in rx.finditer(txt):
         lane=m.group(4)
         if lane not in ("HCOG_REVERSAL","HCOG_FAILURE_CONTINUATION"): continue
-        feats=[float(x) for x in m.group(15).split(",")]
+        feats=[float(x) for x in m.group(16).split(",")]
         if len(feats)!=len(FEATURES): raise SystemExit(f"bad HCAP feature count {len(feats)} in {p}")
         rows.append({"window":w,"id":m.group(1),"setup":m.group(2),"family":m.group(3),"lane":lane,
                      "action":"REVERSAL" if lane=="HCOG_REVERSAL" else "CONTINUATION",
