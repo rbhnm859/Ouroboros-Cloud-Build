@@ -1277,7 +1277,7 @@ namespace cAlgo.Robots
             {
                 CandidateId = c.CandidateId,
                 Pattern = c.Signal.PatternName,
-                Direction = V72CapitalDirection(e),
+                Direction = c.Signal.Direction,
                 Route = c.Route,
                 EntryAnchor = anchor,
                 StructuralStop = stop,
@@ -3205,8 +3205,8 @@ namespace cAlgo.Robots
                             Print("[V72-BIFURCATION-EXPIRE] cid={0} lane={1}", e.CandidateId, e.CapitalLane);
                             continue;
                         }
-                        TradeDirection dir = V72CapitalDirection(e);
-                        bool touched = dir == TradeDirection.Buy
+                        TradeDirection fillDir = V72CapitalDirection(e);
+                        bool touched = fillDir == TradeDirection.Buy
                             ? _m1Bars.LowPrices[i] <= e.EntryAnchor
                             : _m1Bars.HighPrices[i] >= e.EntryAnchor;
                         if (!touched) continue;
@@ -3218,12 +3218,12 @@ namespace cAlgo.Robots
                         e.ShadowPeakR = 0;
                         e.ShadowProtectionR = -1.0;
                         Print("[V72-BIFURCATION-FILL-SHADOW] cid={0} lane={1} dir={2} entry={3:F5} utc={4:o}",
-                            e.CandidateId, e.CapitalLane, dir, e.EntryAnchor, utc);
+                            e.CandidateId, e.CapitalLane, fillDir, e.EntryAnchor, utc);
 
-                        bool sameBarStop = dir == TradeDirection.Buy
+                        bool sameBarStop = fillDir == TradeDirection.Buy
                             ? _m1Bars.LowPrices[i] <= e.StructuralStop
                             : _m1Bars.HighPrices[i] >= e.StructuralStop;
-                        bool sameBarTarget = dir == TradeDirection.Buy
+                        bool sameBarTarget = fillDir == TradeDirection.Buy
                             ? _m1Bars.HighPrices[i] >= e.CanonicalTarget
                             : _m1Bars.LowPrices[i] <= e.CanonicalTarget;
                         if (sameBarStop || sameBarTarget)
@@ -3537,7 +3537,7 @@ namespace cAlgo.Robots
             {
                 CandidateId = c.CandidateId,
                 Pattern = c.Signal.PatternName,
-                Direction = c.Signal.Direction,
+                Direction = V72CapitalDirection(e),
                 Route = c.Route,
                 EntryAnchor = anchor,
                 StructuralStop = stop,
