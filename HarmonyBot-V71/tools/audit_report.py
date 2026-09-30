@@ -192,6 +192,17 @@ if hm:
  for k,v in zip(["detected","prz_touched","proofs","armed","failure_armed","closed","core_overlap_at_entry","abcd_primitive","capital_queued","active"],z[:10]): hcog_summary[k]=int(v)
  hcog_summary["counterfactual_core_independent"]=z[10]=="True"
 
+
+crae_census=[]
+for lane,family,mode,n,sumr,sumsq,gp,gl,wins in re.findall(r"\[V72-CRAE-CENSUS\]\s+lane=(\S+)\s+family=(\S+)\s+mode=(\S+)\s+n=(\d+)\s+sumR=([-0-9.]+)\s+sumSqR=([-0-9.]+)\s+gpR=([-0-9.]+)\s+glR=([-0-9.]+)\s+wins=(\d+)",t):
+ crae_census.append({"lane":lane,"family":family,"mode":mode,"n":int(n),"sum_r":float(sumr),"sum_sq_r":float(sumsq),"gross_profit_r":float(gp),"gross_loss_r":float(gl),"wins":int(wins)})
+crae_summary={"detected":0,"prz_touched":0,"proofs":0,"armed":0,"failure_armed":0,"closed":0,"core_overlap_at_entry":0,"abcd_primitive":0,"capital_queued":0,"regime_rejected":0,"active":0,"counterfactual_core_independent":False}
+cm=re.findall(r"\[V72-CRAE-SUMMARY\]\s+detected=(\d+)\s+przTouched=(\d+)\s+proofs=(\d+)\s+armed=(\d+)\s+failureArmed=(\d+)\s+closed=(\d+)\s+coreOverlapAtEntry=(\d+)\s+abcdPrimitive=(\d+)\s+capitalQueued=(\d+)\s+regimeRejected=(\d+)\s+active=(\d+)\s+counterfactualCoreIndependent=(True|False)",t)
+if cm:
+ z=cm[-1]
+ for k,v in zip(["detected","prz_touched","proofs","armed","failure_armed","closed","core_overlap_at_entry","abcd_primitive","capital_queued","regime_rejected","active"],z[:11]): crae_summary[k]=int(v)
+ crae_summary["counterfactual_core_independent"]=z[11]=="True"
+
 eq=d.get("equity",{})
 out={"variant":a.variant,"window":a.window,"years":a.years,"starting_balance":a.balance,
  **allm,"frequency":allm["baskets"]/a.years if a.years else 0,
@@ -211,6 +222,6 @@ out={"variant":a.variant,"window":a.window,"years":a.years,"starting_balance":a.
  "core_basket_outcomes":core,"expansion_basket_outcomes":exp,
  "core_metrics":corem,"expansion_metrics":expm,"shadow_outcomes":shadow,"family_census":family_census,
  "oracle_census":oracle_census,"oracle_summary":oracle_summary,"reject_attribution":reject_attribution,
- "expansion_summary":exp_summary,"payoff_census":payoff_census,"hcog_census":hcog_census,"hcog_summary":hcog_summary,**c}
+ "expansion_summary":exp_summary,"payoff_census":payoff_census,"hcog_census":hcog_census,"hcog_summary":hcog_summary,"crae_census":crae_census,"crae_summary":crae_summary,**c}
 pathlib.Path(a.out).write_text(json.dumps(out,indent=2))
 print(json.dumps({k:out[k] for k in ["variant","window","baskets","net","pf","expectancy","win_rate","frequency","max_dd_pct","engineering_clean"]},indent=2))
