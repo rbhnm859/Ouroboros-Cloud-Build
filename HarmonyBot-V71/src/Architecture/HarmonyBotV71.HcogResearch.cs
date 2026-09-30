@@ -1,0 +1,220 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using cAlgo.API;
+
+namespace cAlgo.Robots
+{
+    // Terminal V71 one-shot challenger. Alpha truth is counterfactual and independent
+    // of V51 capital-slot ownership; deployment remains V51-Core-first.
+    public partial class HarmonyBotV71
+    {
+        [Parameter("Enable V72 HCOG Alpha", DefaultValue = false)]
+        public bool EnableV72HcogAlpha { get; set; }
+
+        private enum V72HcogState { WAIT_PRZ, WAIT_LIQUIDITY, WAIT_RECLAIM, WAIT_BOS, WAIT_RETEST, FAILURE_WAIT_RETEST, ACTIVE, CLOSED, EXPIRED }
+
+        private sealed class V72HcogOpportunity
+        {
+            public string Id, SetupKey, Family, Hypotheses, Lane, Result;
+            public PatternSignal Signal;
+            public MtfConflict Conflict;
+            public RegimeSnapshot Regime;
+            public V72HcogState State;
+            public bool Active = true, HasAbcdConfluence, StandaloneAbcd, CapitalSemantic, CoreOverlapAtEntry, CapitalQueued;
+            public DateTime DetectedUtc, OverallExpiryUtc, ProofExpiryUtc, LastStageUtc, EntryUtc, FailureBreakUtc;
+            public DateTime? PrzTouchUtc, ProofUtc;
+            public TradeDirection Direction;
+            public double LiquidityExtreme, BosBoundary, FailureBoundary, Entry, Stop, Target, RiskDistance, NetRr, MfeR, MaeR;
+            public int BarsActive;
+        }
+
+        private readonly Dictionary<string,V72HcogOpportunity> _v72Hcog = new Dictionary<string,V72HcogOpportunity>(StringComparer.Ordinal);
+        private readonly HashSet<string> _v72HcogSeen = new HashSet<string>(StringComparer.Ordinal);
+        private readonly Dictionary<string,V72PayoffAccumulator> _v72HcogCensus = new Dictionary<string,V72PayoffAccumulator>(StringComparer.Ordinal);
+        private readonly HashSet<string> _v72HcogPayoffSeen = new HashSet<string>(StringComparer.Ordinal);
+        private int _v72HcogSeq, _v72HcogDetected, _v72HcogPrzTouched, _v72HcogProofs, _v72HcogArmed, _v72HcogClosed;
+        private int _v72HcogFailureArmed, _v72HcogCoreOverlapAtEntry, _v72HcogAbcdPrimitive, _v72HcogCapitalQueued;
+
+        private double V72HcogRatioResidual(double value,double lo,double hi)
+        {
+            if(hi<=0||hi<lo)return 0;
+            if(!double.IsFinite(value)||value<=0)return 4.0;
+            double mid=(lo+hi)*.5,half=Math.Max(.03,Math.Abs(hi-lo)*.5);
+            return Math.Abs(value-mid)/half;
+        }
+
+        private double V72HcogGeometryLoss(PatternSignal s)
+        {
+            if(s==null||s.Profile==null)return 999;
+            var p=s.Profile;double sum=0;int n=0;
+            Action<double,double,double> add=(v,lo,hi)=>{if(hi<=0||hi<lo)return;sum+=V72HcogRatioResidual(v,lo,hi);n++;};
+            add(s.Xab,p.XabMin,p.XabMax);add(s.Abc,p.AbcMin,p.AbcMax);add(s.Bcd,p.BcdMin,p.BcdMax);add(s.Xad,p.XadMin,p.XadMax);add(s.AbCd,p.AbcDMin,p.AbcDMax);
+            return (n>0?sum/n:0)-.25*VClamp(s.GeometryQuality)-.25*VClamp(s.PrzConfluence);
+        }
+
+        private PatternSignal V72HcogSelectPrimary(List<PatternSignal> xs)
+        {
+            var parent=xs.Where(x=>!string.Equals(V71FamilyKey(x.PatternName),"ABCD",StringComparison.OrdinalIgnoreCase))
+                .OrderBy(V72HcogGeometryLoss).ThenByDescending(x=>x.PrzConfluence).ThenByDescending(x=>x.GeometryQuality).FirstOrDefault();
+            return parent??xs.OrderBy(V72HcogGeometryLoss).ThenByDescending(x=>x.PrzConfluence).ThenByDescending(x=>x.GeometryQuality).FirstOrDefault();
+        }
+
+        private void V72HcogTrackRawPool(IEnumerable<PatternSignal> pool,HarmonicState h4,HarmonicState h1,RegimeSnapshot regime)
+        {
+            if(!EnableV72HcogAlpha)return;
+            foreach(var g in (pool??Enumerable.Empty<PatternSignal>()).Where(V71ExpansionIntegrity).GroupBy(BuildSetupGeometryKey))
+            {
+                string setup=g.Key;if(string.IsNullOrWhiteSpace(setup)||!_v72HcogSeen.Add(setup))continue;
+                var xs=g.ToList();var s=V72HcogSelectPrimary(xs);if(s==null)continue;
+                string fam=V71FamilyKey(s.PatternName);bool abcd=xs.Any(x=>V71FamilyKey(x.PatternName)=="ABCD");bool standalone=fam=="ABCD";
+                if(abcd)_v72HcogAbcdPrimitive++;
+                DateTime now=Server.Time.ToUniversalTime();
+                var o=new V72HcogOpportunity{Id="HCOG-"+(++_v72HcogSeq).ToString("D7"),SetupKey=setup,Family=fam,
+                    Hypotheses=string.Join(",",xs.Select(x=>V71FamilyKey(x.PatternName)).Distinct().OrderBy(x=>x)),Signal=s,
+                    Conflict=ClassifyMtfConflict(s.Direction,h4,h1),Regime=regime,State=V72HcogState.WAIT_PRZ,DetectedUtc=now,
+                    OverallExpiryUtc=now.AddMinutes(15.0*Math.Max(2,Math.Min(V71ExpansionTtlM15Bars,s.Profile.MaxAgeM15Bars))),
+                    Direction=s.Direction,HasAbcdConfluence=abcd,StandaloneAbcd=standalone,CapitalSemantic=!standalone,
+                    Lane=standalone?"HCOG_ABCD_STANDALONE_SHADOW":"HCOG_PENDING"};
+                _v72Hcog[o.Id]=o;_v72HcogDetected++;
+                Print("[V72-HCOG-DETECTED] id={0} setup={1} family={2} hypotheses={3} abcd={4} fitLoss={5:F6} conflict={6}",
+                    o.Id,o.SetupKey,o.Family,o.Hypotheses,o.HasAbcdConfluence,V72HcogGeometryLoss(s),o.Conflict);
+            }
+        }
+
+        private bool V72HcogStructuralBreak(int i,PatternSignal s)
+        {
+            double c=_m1Bars.ClosePrices[i];return s.Direction==TradeDirection.Buy?c<s.StructuralInvalidation:c>s.StructuralInvalidation;
+        }
+
+        private void V72HcogStartFailure(DateTime utc,V72HcogOpportunity o)
+        {
+            o.Direction=V72OppositeDirection(o.Signal.Direction);o.FailureBoundary=o.Signal.StructuralInvalidation;o.FailureBreakUtc=utc;
+            o.ProofExpiryUtc=V72NextM15Boundary(utc).AddMinutes(15);if(o.ProofExpiryUtc>o.OverallExpiryUtc)o.ProofExpiryUtc=o.OverallExpiryUtc;
+            o.LastStageUtc=utc;o.State=V72HcogState.FAILURE_WAIT_RETEST;
+            Print("[V72-HCOG-FAILURE-BREAK] id={0} family={1} boundary={2:F5} dir={3} expiry={4:o}",o.Id,o.Family,o.FailureBoundary,o.Direction,o.ProofExpiryUtc);
+        }
+
+        private bool V72HcogArm(DateTime utc,V72HcogOpportunity o,TradeDirection direction,double entry,double stop,double target,double rr,string lane)
+        {
+            if(direction==TradeDirection.Neutral||rr+1e-9<MinimumNetRR||!GeometryValid(direction,entry,stop,target))return false;
+            double risk=Math.Abs(entry-stop);if(PriceToPips(risk)<MinStopLossPips)return false;
+            o.Direction=direction;o.Entry=entry;o.Stop=stop;o.Target=target;o.RiskDistance=risk;o.NetRr=rr;o.EntryUtc=utc;o.ProofUtc=utc;o.State=V72HcogState.ACTIVE;
+            o.Lane=o.StandaloneAbcd?"HCOG_ABCD_STANDALONE_SHADOW":lane;
+            o.CoreOverlapAtEntry=V71CoreHasActiveThesis()||_activeSetupOwners.ContainsKey(o.SetupKey)||_executedSetupKeys.Contains(o.SetupKey);
+            if(o.CoreOverlapAtEntry)_v72HcogCoreOverlapAtEntry++;_v72HcogProofs++;_v72HcogArmed++;if(lane=="HCOG_FAILURE_CONTINUATION")_v72HcogFailureArmed++;
+            Print("[V72-HCOG-PROVED] id={0} family={1} lane={2} dir={3} entry={4:F5} stop={5:F5} target={6:F5} netRR={7:F4} coreOverlap={8} abcd={9}",
+                o.Id,o.Family,o.Lane,o.Direction,o.Entry,o.Stop,o.Target,o.NetRr,o.CoreOverlapAtEntry,o.HasAbcdConfluence);
+            if(o.CapitalSemantic&&EnableV71ExpansionExecution)V72HcogQueueCapital(o,utc);
+            return true;
+        }
+
+        private void V72HcogQueueCapital(V72HcogOpportunity o,DateTime utc)
+        {
+            if(o==null||o.CapitalQueued||o.StandaloneAbcd)return;
+            DateTime exp=V72NextM15Boundary(utc).AddMinutes(15);if(exp>o.OverallExpiryUtc)exp=o.OverallExpiryUtc;if(exp<=utc.AddSeconds(1))return;
+            string cid="V71EXP-HCOG-"+o.Id.Substring(Math.Max(0,o.Id.Length-7));if(_v71Expansion.ContainsKey(cid))return;
+            var e=new V71ExpansionCandidate{CandidateId=cid,IdentityKey=o.SetupKey+"|HCOG",SetupKey=o.SetupKey,Signal=o.Signal,Conflict=o.Conflict,
+                Route=o.Lane=="HCOG_FAILURE_CONTINUATION"?HarmonicRoute.FAILURE_CONTINUATION:V71ExpansionRoute(o.Signal,o.Conflict,o.Regime),Regime=o.Regime,
+                State=V71ExpansionState.ARMED,IsActive=true,DetectedUtc=o.DetectedUtc,ExpiryUtc=exp,PrzTouchUtc=o.PrzTouchUtc,ReactionProofUtc=o.ProofUtc,
+                ConfirmationScore=1.0,NetRR=o.NetRr,EntryAnchor=o.Entry,StructuralStop=o.Stop,CanonicalTarget=o.Target,RiskDistance=o.RiskDistance,
+                TargetR=Math.Abs(o.Target-o.Entry)/Math.Max(o.RiskDistance,_symbol.PipSize),CapitalDirection=o.Direction,CapitalEligible=true,CoreOverlapObserved=false,
+                CapitalReady=true,AwaitingPullbackFill=true,PullbackFilled=false,PullbackExpiryUtc=exp,CapitalLane=o.Lane,
+                AbcdRole=o.HasAbcdConfluence?"PARENT_PLUS_ABCD_CONFLUENCE":"PARENT_FAMILY",AsymmetryCompression=Math.Max(.10,Math.Abs(o.Signal.D.Price-o.Stop)/Math.Max(o.RiskDistance,_symbol.PipSize)),
+                EdgeMean=o.NetRr,EdgeLcb=o.NetRr};
+            _v71Expansion[cid]=e;_v71ExpansionDetected++;o.CapitalQueued=true;_v72HcogCapitalQueued++;
+            Print("[V72-HCOG-CAPITAL-QUEUE] id={0} cid={1} setup={2} family={3} lane={4} expiry={5:o}",o.Id,cid,o.SetupKey,o.Family,o.Lane,exp);
+        }
+
+        private void V72HcogProcessFailureRetest(int i,DateTime utc,V72HcogOpportunity o)
+        {
+            if(utc<=o.FailureBreakUtc)return;if(utc>=o.ProofExpiryUtc){o.Active=false;o.State=V72HcogState.EXPIRED;return;}
+            double open=_m1Bars.OpenPrices[i],close=_m1Bars.ClosePrices[i],high=_m1Bars.HighPrices[i],low=_m1Bars.LowPrices[i];
+            bool touched=o.Direction==TradeDirection.Buy?low<=o.FailureBoundary:high>=o.FailureBoundary;
+            bool side=o.Direction==TradeDirection.Buy?close>o.FailureBoundary:close<o.FailureBoundary;
+            bool directional=o.Direction==TradeDirection.Buy?close>open:close<open;if(!(touched&&side&&directional))return;
+            double buffer=Math.Max(PipsToPrice(ModeledCostPips()),_symbol.PipSize),entry=close;
+            double stop=o.Direction==TradeDirection.Buy?Math.Min(low,o.FailureBoundary)-buffer:Math.Max(high,o.FailureBoundary)+buffer;
+            double risk=Math.Abs(entry-stop);if(PriceToPips(risk)<MinStopLossPips)return;double cost=PipsToPrice(ModeledCostPips());
+            double target=o.Direction==TradeDirection.Buy?entry+2.0*risk+cost:entry-2.0*risk-cost;
+            double rr=(PriceToPips(Math.Abs(target-entry))-ModeledCostPips())/Math.Max(1e-9,PriceToPips(risk));
+            V72HcogArm(utc,o,o.Direction,entry,stop,target,rr,"HCOG_FAILURE_CONTINUATION");
+        }
+
+        private void V72HcogProcessProof(int i,DateTime utc,V72HcogOpportunity o)
+        {
+            if(utc>=o.ProofExpiryUtc){o.Active=false;o.State=V72HcogState.EXPIRED;return;}
+            var s=o.Signal;double open=_m1Bars.OpenPrices[i],close=_m1Bars.ClosePrices[i],high=_m1Bars.HighPrices[i],low=_m1Bars.LowPrices[i];
+            double pc=_m1Bars.ClosePrices[i-1],ph=Math.Max(_m1Bars.HighPrices[i-1],_m1Bars.HighPrices[i-2]),pl=Math.Min(_m1Bars.LowPrices[i-1],_m1Bars.LowPrices[i-2]);
+            double body=Math.Max(Math.Abs(close-open),_symbol.PipSize),atr=Atr(_m1Bars,14,i);bool buy=s.Direction==TradeDirection.Buy;
+            bool directional=buy?close>open:close<open,reclaim=buy?(close>s.PrzLow&&close>=pc):(close<s.PrzHigh&&close<=pc),bos=buy?close>ph:close<pl;
+            bool rejection=buy?Math.Max(0,Math.Min(open,close)-low)>=body*.5:Math.Max(0,high-Math.Max(open,close))>=body*.5;
+            bool failed=buy?(low<_m1Bars.LowPrices[i-1]&&close>_m1Bars.LowPrices[i-1]):(high>_m1Bars.HighPrices[i-1]&&close<_m1Bars.HighPrices[i-1]);
+            bool sweep=buy?low<_m1Bars.LowPrices[i-1]:high>_m1Bars.HighPrices[i-1];
+            bool inside=close>=Math.Min(s.PrzLow,s.PrzHigh)&&close<=Math.Max(s.PrzLow,s.PrzHigh),displacement=atr>0&&body>=atr*.30;
+            if(buy)o.LiquidityExtreme=o.LiquidityExtreme==0?low:Math.Min(o.LiquidityExtreme,low);else o.LiquidityExtreme=o.LiquidityExtreme==0?high:Math.Max(o.LiquidityExtreme,high);
+            bool extension=o.Family=="AltBat"||o.Family=="Butterfly"||o.Family=="Crab"||o.Family=="DeepCrab";
+            bool transition=o.Family=="Shark"||o.Family=="FiveZero";bool liquidity=extension?(sweep&&failed):(transition?failed:(rejection||failed));
+            if(o.State==V72HcogState.WAIT_LIQUIDITY){if(!liquidity)return;o.LastStageUtc=utc;o.State=V72HcogState.WAIT_RECLAIM;return;}
+            if(o.State==V72HcogState.WAIT_RECLAIM){if(utc<=o.LastStageUtc)return;bool pass=(extension||transition)?(reclaim||inside):reclaim;if(!pass)return;o.LastStageUtc=utc;o.State=V72HcogState.WAIT_BOS;return;}
+            if(o.State==V72HcogState.WAIT_BOS){if(utc<=o.LastStageUtc)return;bool pass=transition?(bos&&directional):(bos&&displacement);if(!pass)return;o.BosBoundary=buy?ph:pl;o.LastStageUtc=utc;o.State=V72HcogState.WAIT_RETEST;return;}
+            if(o.State==V72HcogState.WAIT_RETEST)
+            {
+                if(utc<=o.LastStageUtc)return;bool touched=buy?low<=o.BosBoundary:high>=o.BosBoundary,side=buy?close>o.BosBoundary:close<o.BosBoundary;
+                if(!(touched&&side&&directional))return;double buffer=Math.Max(PipsToPrice(ModeledCostPips()),_symbol.PipSize);
+                double causalStop=buy?o.LiquidityExtreme-buffer:o.LiquidityExtreme+buffer,stop=buy?Math.Max(s.StructuralInvalidation,causalStop):Math.Min(s.StructuralInvalidation,causalStop);
+                double target,rr;if(!SelectCanonicalBasketTarget(s,close,stop,out target,out rr))return;V72HcogArm(utc,o,s.Direction,close,stop,target,rr,"HCOG_REVERSAL");
+            }
+        }
+
+        private void V72HcogRecord(V72HcogOpportunity o,double r)
+        {
+            string dedupe=o.SetupKey+"|"+o.Lane;if(!_v72HcogPayoffSeen.Add(dedupe))return;string key=o.Lane+"|"+o.Family;V72PayoffAccumulator z;
+            if(!_v72HcogCensus.TryGetValue(key,out z)){z=new V72PayoffAccumulator();_v72HcogCensus[key]=z;}z.N++;z.SumR+=r;z.SumSqR+=r*r;
+            if(r>0){z.GrossProfitR+=r;z.Wins++;}else if(r<0)z.GrossLossR+=-r;
+        }
+
+        private void V72HcogFinalizeOutcome(V72HcogOpportunity o,int i,string result,double? forcedR=null)
+        {
+            if(o==null||!o.Active||o.State!=V72HcogState.ACTIVE||o.RiskDistance<=0)return;
+            double close=i>=0&&i<_m1Bars.Count?_m1Bars.ClosePrices[i]:(o.Direction==TradeDirection.Buy?_symbol.Bid:_symbol.Ask);
+            double closeR=(o.Direction==TradeDirection.Buy?close-o.Entry:o.Entry-close)/o.RiskDistance,r=forcedR.HasValue?forcedR.Value:Math.Max(-1.0,Math.Min(o.NetRr,closeR));
+            o.Result=result;o.Active=false;o.State=V72HcogState.CLOSED;_v72HcogClosed++;V72HcogRecord(o,r);
+            Print("[V72-HCOG-OUTCOME] id={0} setup={1} family={2} lane={3} abcd={4} coreOverlap={5} r={6:F6} mfeR={7:F6} maeR={8:F6} bars={9} result={10}",
+                o.Id,o.SetupKey,o.Family,o.Lane,o.HasAbcdConfluence,o.CoreOverlapAtEntry,r,o.MfeR,o.MaeR,o.BarsActive,result);
+        }
+
+        private void V72HcogProcessActive(int i,DateTime utc,V72HcogOpportunity o)
+        {
+            if(utc<=o.EntryUtc)return;o.BarsActive++;double high=_m1Bars.HighPrices[i],low=_m1Bars.LowPrices[i];
+            double fav=o.Direction==TradeDirection.Buy?(high-o.Entry)/o.RiskDistance:(o.Entry-low)/o.RiskDistance,adv=o.Direction==TradeDirection.Buy?(o.Entry-low)/o.RiskDistance:(high-o.Entry)/o.RiskDistance;
+            o.MfeR=Math.Max(o.MfeR,fav);o.MaeR=Math.Max(o.MaeR,adv);bool stop=o.Direction==TradeDirection.Buy?low<=o.Stop:high>=o.Stop,target=o.Direction==TradeDirection.Buy?high>=o.Target:low<=o.Target;
+            if(stop&&target){V72HcogFinalizeOutcome(o,i,"AMBIGUOUS_STOP_FIRST_CONSERVATIVE",-1.0);return;}if(stop){V72HcogFinalizeOutcome(o,i,"STRUCTURAL_STOP",-1.0);return;}
+            if(target){V72HcogFinalizeOutcome(o,i,"CANONICAL_TARGET",o.NetRr);return;}if(o.BarsActive>=180)V72HcogFinalizeOutcome(o,i,"FIXED_180M_HORIZON");
+        }
+
+        private void V72HcogProcessM1(int i,DateTime utc)
+        {
+            if(!EnableV72HcogAlpha||i<3)return;
+            foreach(var o in _v72Hcog.Values.Where(x=>x.Active).ToList())
+            {
+                if(utc<=o.DetectedUtc)continue;if(o.State==V72HcogState.ACTIVE){V72HcogProcessActive(i,utc,o);continue;}
+                if(utc>=o.OverallExpiryUtc){o.Active=false;o.State=V72HcogState.EXPIRED;continue;}
+                if(o.State!=V72HcogState.WAIT_PRZ&&o.State!=V72HcogState.FAILURE_WAIT_RETEST&&o.PrzTouchUtc.HasValue&&V72HcogStructuralBreak(i,o.Signal)){V72HcogStartFailure(utc,o);continue;}
+                if(o.State==V72HcogState.WAIT_PRZ){if(!BarTouchesPrz(i,o.Signal))continue;o.PrzTouchUtc=utc;o.ProofExpiryUtc=V72NextM15Boundary(utc).AddMinutes(15);if(o.ProofExpiryUtc>o.OverallExpiryUtc)o.ProofExpiryUtc=o.OverallExpiryUtc;
+                    o.LiquidityExtreme=o.Signal.Direction==TradeDirection.Buy?_m1Bars.LowPrices[i]:_m1Bars.HighPrices[i];o.LastStageUtc=utc;o.State=V72HcogState.WAIT_LIQUIDITY;_v72HcogPrzTouched++;continue;}
+                if(o.State==V72HcogState.FAILURE_WAIT_RETEST){V72HcogProcessFailureRetest(i,utc,o);continue;}V72HcogProcessProof(i,utc,o);
+            }
+        }
+
+        private void V72HcogFinalizeAndPrint()
+        {
+            if(!EnableV72HcogAlpha)return;int i=LastClosedIndex(_m1Bars);
+            foreach(var o in _v72Hcog.Values.Where(x=>x.Active&&x.State==V72HcogState.ACTIVE).ToList())V72HcogFinalizeOutcome(o,i,"BACKTEST_END");
+            foreach(var kv in _v72HcogCensus.OrderBy(x=>x.Key)){string[] p=kv.Key.Split('|');string lane=p.Length>0?p[0]:"UNKNOWN",fam=p.Length>1?p[1]:"UNKNOWN";var z=kv.Value;
+                Print("[V72-HCOG-CENSUS] lane={0} family={1} n={2} sumR={3:F9} sumSqR={4:F9} gpR={5:F9} glR={6:F9} wins={7}",lane,fam,z.N,z.SumR,z.SumSqR,z.GrossProfitR,z.GrossLossR,z.Wins);}
+            Print("[V72-HCOG-SUMMARY] detected={0} przTouched={1} proofs={2} armed={3} failureArmed={4} closed={5} coreOverlapAtEntry={6} abcdPrimitive={7} capitalQueued={8} active={9} counterfactualCoreIndependent=True",
+                _v72HcogDetected,_v72HcogPrzTouched,_v72HcogProofs,_v72HcogArmed,_v72HcogFailureArmed,_v72HcogClosed,_v72HcogCoreOverlapAtEntry,_v72HcogAbcdPrimitive,_v72HcogCapitalQueued,_v72Hcog.Values.Count(x=>x.Active));
+        }
+    }
+}
