@@ -2756,6 +2756,13 @@ namespace cAlgo.Robots
             return V71W(prefix + V71PairToken(e));
         }
 
+        private double V71PairUncertainty(string prefix, V71ExpansionCandidate e, string baseKey)
+        {
+            double v;
+            string key = prefix + V71PairToken(e);
+            return _v71EdgeWeights.TryGetValue(key, out v) ? Math.Max(0, v) : Math.Max(0, V71W(baseKey));
+        }
+
         private double V71MtfScore(MtfConflict c)
         {
             return c == MtfConflict.ALIGNED ? 1.0 :
@@ -3047,7 +3054,7 @@ namespace cAlgo.Robots
         private double V71ExpectedPathLcb(V71ExpansionCandidate e)
         {
             double p = V71ExpectedPathProbability(e);
-            double penalty = Math.Max(0, V71W("p2_base_margin")) + Math.Max(0, V71PairWeight("pu_", e)) +
+            double penalty = Math.Max(0, V71W("p2_base_margin")) + V71PairUncertainty("pu_", e, "p2_base_margin") +
                              V71H5SupportPenalty(e, "p2_uncertainty_scale");
             return Math.Max(0, Math.Min(.99, p - penalty));
         }
@@ -3065,7 +3072,7 @@ namespace cAlgo.Robots
         private double V71ExpectedRunnerLcb(V71ExpansionCandidate e)
         {
             double p = V71ExpectedRunnerProbability(e);
-            double penalty = Math.Max(0, V71W("runner_base_margin")) + Math.Max(0, V71PairWeight("ru_", e)) +
+            double penalty = Math.Max(0, V71W("runner_base_margin")) + V71PairUncertainty("ru_", e, "runner_base_margin") +
                              V71H5SupportPenalty(e, "p2_uncertainty_scale");
             return Math.Max(0, Math.Min(.99, p - penalty));
         }
@@ -3180,7 +3187,7 @@ namespace cAlgo.Robots
             e.EdgeMean = V71ExpectedEdge(e);
             if (V71W("h5") > .5)
                 e.EdgeLcb = e.EdgeMean - Math.Max(0, V71W("edge_base_margin")) -
-                            Math.Max(0, V71PairWeight("eu_", e)) - V71H5SupportPenalty(e, "uncertainty_scale");
+                            V71PairUncertainty("eu_", e, "edge_base_margin") - V71H5SupportPenalty(e, "uncertainty_scale");
             else
                 e.EdgeLcb = e.EdgeMean - Math.Max(0, V71EdgeLcbMargin);
             e.PathProbability = V71ExpectedPathProbability(e);
@@ -3636,8 +3643,8 @@ namespace cAlgo.Robots
             if (!GeometryValid(c.Signal.Direction, entry, c.GridPlan.StructuralStop, target)) return;
 
             c.GridPlan.CanonicalTarget = target;
-            c.GridPlan.ExpectedNetRR = Math.Max(2.0, (PriceToPips(Math.Abs(target - entry)) - ModeledCostPips()) /
-                Math.Max(1e-9, PriceToPips(risk)));
+            c.GridPlan.ExpectedNetRR = (PriceToPips(Math.Abs(target - entry)) - ModeledCostPips()) /
+                Math.Max(1e-9, PriceToPips(risk));
             c.SelectedTarget = target;
             c.NetRR = c.GridPlan.ExpectedNetRR;
         }
