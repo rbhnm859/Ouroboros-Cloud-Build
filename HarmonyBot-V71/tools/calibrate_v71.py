@@ -2,7 +2,7 @@
 import json,pathlib,sys,os,hashlib
 root=pathlib.Path(sys.argv[1]); out=pathlib.Path(sys.argv[2]); manifest_path=pathlib.Path(sys.argv[3])
 out.mkdir(parents=True,exist_ok=True)
-CAP="B_V72_REACTION_ALPHA"; BASE="A_V51_CHAMPION_KERNEL"; W=["Y2021","Y2022","Y2023"]
+CAP="B_V72_PULLBACK_ALPHA"; BASE="A_V51_CHAMPION_KERNEL"; W=["Y2021","Y2022","Y2023"]
 V51={"frequency":38.6667,"net":2101.66,"pf":2.1096878432,"expectancy":36.2355,"win_rate":.534483,"max_dd_pct":4.49784}
 VIOL=["execution_errors","grid_risk_violations","duplicate_grid_legs","orphan_pending_orders","stop_widening_violations",
       "gap_through_survivors","unprotected_survivors","post_fill_protection_failures","actual_basket_risk_violations",
@@ -71,18 +71,18 @@ if reaction_gate:
               and marginal["positive_delta_windows"]==3 and Z["material_breakthrough_pass"])
     candidate=CAP if cap_gate else None
 
-freeze={"version":"HarmonyBot V71 -> V72","architecture":"IMMUTABLE_V51_CORE_PLUS_FROZEN_HARMONIC_DETECTOR_PLUS_DETERMINISTIC_REACTION_ALPHA",
+freeze={"version":"HarmonyBot V71 -> V72","architecture":"IMMUTABLE_V51_CORE_PLUS_FROZEN_HARMONIC_DETECTOR_PLUS_DETERMINISTIC_0618_PULLBACK_ALPHA",
  "trusted_v51_parent":"1b670a0f43ba8ecaa637febfdacf605b1b146f01","control_mode":"DIRECT_TRUSTED_V51_BINARY_REFERENCE",
- "reaction_manifest":manifest,"v51_floor":V51,"variants":A,"marginal":marginal,
- "gates":{"reaction_shadow_3year":reaction_gate,"reaction_capital_commercial":cap_gate},
- "candidate":candidate,"candidate_selection_source":"BURNED_2021_2023_DETERMINISTIC_REACTION_ONLY__NO_SELECTOR_TUNING",
+ "pullback_manifest":manifest,"v51_floor":V51,"variants":A,"marginal":marginal,
+ "gates":{"pullback_shadow_3year":reaction_gate,"pullback_capital_commercial":cap_gate},
+ "candidate":candidate,"candidate_selection_source":"BURNED_2021_2023_DETERMINISTIC_0618_PULLBACK_ONLY__NO_SELECTOR_TUNING",
  "risk_for_alpha_qualification_pct":1.0,"validation_used":False,"fresh_used":False,
- "decision":"V72_REACTION_CANDIDATE_FROZEN" if candidate else ("REACTION_ALPHA_FAIL_CLOSED_HOLD" if not reaction_gate else "CALIBRATION_HOLD")}
+ "decision":"V72_PULLBACK_CANDIDATE_FROZEN" if candidate else ("PULLBACK_ALPHA_FAIL_CLOSED_HOLD" if not reaction_gate else "CALIBRATION_HOLD")}
 (out/"V71_CALIBRATION_FREEZE.json").write_text(json.dumps(freeze,indent=2))
 (out/"candidate.txt").write_text(candidate or "")
 (out/"dev_matrix.json").write_text(json.dumps([candidate] if candidate else [],separators=(",",":")))
 summary={"version":"HarmonyBot V71 -> V72","source_sha":os.environ.get("GITHUB_SHA","UNKNOWN"),
- "candidate":candidate,"reaction_gate":reaction_gate,"capital_gate":cap_gate,
+ "candidate":candidate,"pullback_gate":reaction_gate,"capital_gate":cap_gate,
  "validation_access_count":0,"fresh_access_count":0,
  "manifest_sha256":hashlib.sha256(manifest_path.read_bytes()).hexdigest(),
  "decision":"V72_PRE_DEV_PASS" if candidate else "HOLD_WITH_EVIDENCE"}
