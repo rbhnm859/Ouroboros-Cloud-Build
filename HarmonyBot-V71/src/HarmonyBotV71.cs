@@ -3265,19 +3265,75 @@ namespace cAlgo.Robots
                 V71FamilyRoutePrior(e), e.EdgeMean, e.EdgeLcb, e.SlotScore);
         }
 
-        private bool V72ReactionRetestConfirmed(int i, V71ExpansionCandidate e)
+        private DateTime V72NextM15Boundary(DateTime utc)
         {
-            if (e == null || e.Signal == null || !e.ReactionProved || !e.ReactionProofUtc.HasValue ||
-                i < 2 || i >= _m1Bars.Count) return false;
-            double close = _m1Bars.ClosePrices[i], high = _m1Bars.HighPrices[i], low = _m1Bars.LowPrices[i];
-            bool alive = e.Signal.Direction == TradeDirection.Buy
-                ? close > e.Signal.StructuralInvalidation
-                : close < e.Signal.StructuralInvalidation;
-            if (!alive) return false;
-            double level = e.ReactionRetestLevel;
-            return e.Signal.Direction == TradeDirection.Buy
-                ? low <= level && close > level
-                : high >= level && close < level;
+            utc = DateTime.SpecifyKind(utc, DateTimeKind.Utc);
+            int minute = (utc.Minute / 15) * 15;
+            DateTime baseBar = new DateTime(utc.Year, utc.Month, utc.Day, utc.Hour, minute, 0, DateTimeKind.Utc);
+            DateTime next = baseBar.AddMinutes(15);
+            return next <= utc ? next.AddMinutes(15) : next;
+        }
+
+        private bool V72PreparePullbackEntry(DateTime utc, V71ExpansionCandidate e, double confirmationScore)
+        {
+            if (e == null || e.Signal == null || !e.ReactionProved) return false;
+            double proof = e.ReactionProofPrice;
+            double extreme = e.ReactionExtremePrice;
+            double displacement = e.Signal.Direction == TradeDirection.Buy ? proof - extreme : extreme - proof;
+            if (displacement <= _symbol.PipSize) return false;
+
+            // One deterministic family-agnostic Fibonacci pullback. No selector and no tuning tree.
+            double entry = e.Signal.Direction == TradeDirection.Buy
+                ? proof - .618 * displacement
+                : proof + .618 * displacement;
+            double stop = e.Signal.StructuralInvalidation;
+            if (!GeometryValid(e.Signal.Direction, entry, stop,
+                    e.Signal.Direction == TradeDirection.Buy ? entry + Math.Abs(entry - stop) : entry - Math.Abs(entry - stop)))
+                return false;
+            double risk = Math.Abs(entry - stop);
+            if (PriceToPips(risk) < MinStopLossPips) return false;
+
+            double canonical, canonicalRr;
+            if (!SelectCanonicalBasketTarget(e.Signal, entry, stop, out canonical, out canonicalRr) || canonicalRr < MinimumNetRR)
+                return false;
+
+            double costPrice = PipsToPrice(ModeledCostPips());
+            double target = e.Signal.Direction == TradeDirection.Buy
+                ? entry + 2.0 * risk + costPrice
+                : entry - 2.0 * risk - costPrice;
+            bool canonicalCovers = e.Signal.Direction == TradeDirection.Buy ? canonical >= target : canonical <= target;
+            if (!canonicalCovers || !GeometryValid(e.Signal.Direction, entry, stop, target)) return false;
+
+            double netRr = (PriceToPips(Math.Abs(target - entry)) - ModeledCostPips()) /
+                           Math.Max(1e-9, PriceToPips(risk));
+            if (netRr + 1e-9 < MinimumNetRR) return false;
+
+            e.EntryAnchor = entry;
+            e.StructuralStop = stop;
+            e.CanonicalTarget = target;
+            e.RiskDistance = risk;
+            e.TargetR = Math.Abs(target - entry) / risk;
+            e.NetRR = netRr;
+            e.ConfirmationScore = confirmationScore;
+            e.RegimeScore = RegimeContextScore(e.Signal, e.Conflict, e.Regime);
+            e.ModeledCostR = PipsToPrice(ModeledCostPips()) / risk;
+            e.PullbackExpiryUtc = MinDate(e.ExpiryUtc, V72NextM15Boundary(utc));
+            if (e.PullbackExpiryUtc <= utc.AddSeconds(1)) return false;
+            e.AwaitingPullbackFill = true;
+            e.PullbackFilled = false;
+            e.ShadowStarted = false;
+            e.ArmedUtc = null;
+            e.State = V71ExpansionState.ARMED;
+            e.EdgeMean = e.NetRR;
+            e.EdgeLcb = e.NetRR;
+            e.ExpectedSlotHours = Math.Max(.25, (e.PullbackExpiryUtc - utc).TotalHours);
+            e.ExpectedSlotHoursUcb = e.ExpectedSlotHours;
+            e.SlotScore = e.NetRR / Math.Max(.25, e.ExpectedSlotHours);
+            _v71ExpansionArmed++;
+            IncrementCounter(_v71FamilyArmed, V71FamilyKey(e.Signal.PatternName));
+            Print("[V72-PULLBACK-PLAN] cid={0} family={1} route={2} proof={3:F5} extreme={4:F5} entry={5:F5} stop={6:F5} target={7:F5} rr={8:F3} expiry={9:o}",
+                e.CandidateId, V71FamilyKey(e.Signal.PatternName), e.Route, proof, extreme, entry, stop, target, netRr, e.PullbackExpiryUtc);
+            return true;
         }
 
         private void V71ProcessExpansionM1(int i, DateTime utc)
@@ -3322,52 +3378,86 @@ namespace cAlgo.Robots
                     if (!e.PrzTouchUtc.HasValue || utc <= e.PrzTouchUtc.Value) continue;
                     // Research observation is intentionally independent from Core ownership.
                     // Core overlap blocks Capital, not evidence collection.
+                    if (EnableV72ReactionAlpha)
+                    {
+                        double lo = _m1Bars.LowPrices[i], hi = _m1Bars.HighPrices[i];
+                        if (!e.ReactionExtremeInitialized)
+                        {
+                            e.ReactionExtremePrice = e.Signal.Direction == TradeDirection.Buy ? lo : hi;
+                            e.ReactionExtremeInitialized = true;
+                        }
+                        else if (e.Signal.Direction == TradeDirection.Buy)
+                            e.ReactionExtremePrice = Math.Min(e.ReactionExtremePrice, lo);
+                        else
+                            e.ReactionExtremePrice = Math.Max(e.ReactionExtremePrice, hi);
+                    }
+
                     V71RefreshExpansionDecisionContext(e);
                     double score;
                     if (V71ExpansionM1Confirmation(i, e, out score))
                     {
                         if (EnableV72ReactionAlpha)
                         {
-                            double close = _m1Bars.ClosePrices[i];
-                            double przMid = (e.Signal.PrzLow + e.Signal.PrzHigh) * .5;
                             e.ReactionProved = true;
                             e.ReactionProofUtc = utc;
-                            e.ReactionProofPrice = close;
-                            e.ReactionRetestLevel = (close + przMid) * .5;
+                            e.ReactionProofPrice = _m1Bars.ClosePrices[i];
                             e.ReactionScore = score;
-                            e.ReactionRetestBars = 0;
-                            e.State = V71ExpansionState.RETEST_READY;
-                            Print("[V72-REACTION-PROVED] cid={0} family={1} route={2} score={3:F3} proof={4:F5} retest={5:F5}",
-                                e.CandidateId, V71FamilyKey(e.Signal.PatternName), e.Route, score, e.ReactionProofPrice, e.ReactionRetestLevel);
+                            Print("[V72-REACTION-PROVED] cid={0} family={1} route={2} score={3:F3} proof={4:F5} extreme={5:F5}",
+                                e.CandidateId, V71FamilyKey(e.Signal.PatternName), e.Route, score, e.ReactionProofPrice, e.ReactionExtremePrice);
+                            if (!V72PreparePullbackEntry(utc, e, score))
+                            {
+                                e.IsActive = false;
+                                e.State = V71ExpansionState.REJECTED;
+                                Print("[V72-PULLBACK-REJECT] cid={0} reason=NO_LEGAL_0618_ENTRY", e.CandidateId);
+                            }
                         }
                         else V71ArmExpansion(i, utc, e, score);
                     }
                     continue;
                 }
 
-                if (e.State == V71ExpansionState.RETEST_READY)
+                if (e.State == V71ExpansionState.ARMED && !e.ShadowFinished)
                 {
-                    if (!EnableV72ReactionAlpha || !e.ReactionProofUtc.HasValue || utc <= e.ReactionProofUtc.Value) continue;
-                    e.ReactionRetestBars++;
-                    if (V72ReactionRetestConfirmed(i, e))
+                    if (EnableV72ReactionAlpha && e.AwaitingPullbackFill)
                     {
-                        e.ReactionRetestConfirmed = true;
-                        Print("[V72-REACTION-RETEST] cid={0} family={1} bars={2} close={3:F5}",
-                            e.CandidateId, V71FamilyKey(e.Signal.PatternName), e.ReactionRetestBars, _m1Bars.ClosePrices[i]);
-                        V71ArmExpansion(i, utc, e, Math.Max(e.ReactionScore, M1ConfirmationScore(i, e.Signal)));
-                    }
-                    else if (e.ReactionRetestBars >= 4)
-                    {
-                        e.IsActive = false;
-                        e.State = V71ExpansionState.REJECTED;
-                        Print("[V72-REACTION-REJECT] cid={0} reason=NO_CONTROLLED_RETEST", e.CandidateId);
-                    }
-                    continue;
-                }
+                        if (utc >= e.PullbackExpiryUtc)
+                        {
+                            e.IsActive = false;
+                            e.State = V71ExpansionState.EXPIRED;
+                            Print("[V72-PULLBACK-EXPIRE] cid={0}", e.CandidateId);
+                            continue;
+                        }
+                        bool touched = e.Signal.Direction == TradeDirection.Buy
+                            ? _m1Bars.LowPrices[i] <= e.EntryAnchor
+                            : _m1Bars.HighPrices[i] >= e.EntryAnchor;
+                        if (!touched) continue;
 
-                if (e.State == V71ExpansionState.ARMED && e.ShadowStarted && !e.ShadowFinished)
-                {
-                    if (!e.ArmedUtc.HasValue || utc <= e.ArmedUtc.Value) continue;
+                        // Pending order existed before this completed M1 bar. Start path at planned limit price.
+                        e.AwaitingPullbackFill = false;
+                        e.PullbackFilled = true;
+                        e.ShadowStarted = true;
+                        e.ArmedUtc = utc;
+                        e.ShadowPeakR = 0;
+                        e.ShadowProtectionR = -1.0;
+                        Print("[V72-PULLBACK-FILL-SHADOW] cid={0} entry={1:F5} utc={2:o}", e.CandidateId, e.EntryAnchor, utc);
+
+                        bool sameBarStop = e.Signal.Direction == TradeDirection.Buy
+                            ? _m1Bars.LowPrices[i] <= e.StructuralStop
+                            : _m1Bars.HighPrices[i] >= e.StructuralStop;
+                        bool sameBarTarget = e.Signal.Direction == TradeDirection.Buy
+                            ? _m1Bars.HighPrices[i] >= e.CanonicalTarget
+                            : _m1Bars.LowPrices[i] <= e.CanonicalTarget;
+                        if (sameBarStop || sameBarTarget)
+                        {
+                            e.PathState = -2;
+                            e.PathUsable = false;
+                            V71FinalizeExpansionShadow(e, i, "PULLBACK_FILL_SAME_BAR_AMBIGUOUS");
+                            continue;
+                        }
+                        continue;
+                    }
+
+                    if (!e.ShadowStarted || !e.ArmedUtc.HasValue || utc <= e.ArmedUtc.Value) continue;
 
                     e.ShadowBars++;
                     double high = _m1Bars.HighPrices[i], low = _m1Bars.LowPrices[i], close = _m1Bars.ClosePrices[i];
@@ -3713,6 +3803,89 @@ namespace cAlgo.Robots
             return true;
         }
 
+        private bool V72BuildPullbackSingleLeg(CandidateRecord c, V71ExpansionCandidate e)
+        {
+            if (c == null || e == null || c.Signal == null || !e.AwaitingPullbackFill) return false;
+            double anchor = e.EntryAnchor;
+            double stop = e.StructuralStop;
+            double target = e.CanonicalTarget;
+            double distance = Math.Abs(anchor - stop);
+            if (PriceToPips(distance) < MinStopLossPips || e.NetRR < MinimumNetRR) return false;
+
+            var plan = new FibonacciGridPlan
+            {
+                CandidateId = c.CandidateId,
+                Pattern = c.Signal.PatternName,
+                Direction = c.Signal.Direction,
+                Route = c.Route,
+                EntryAnchor = anchor,
+                StructuralStop = stop,
+                GridDistance = distance,
+                BasketRiskAmount = Account.Equity * V71CandidateRiskPercent(c) / 100.0,
+                CreatedUtc = Server.Time.ToUniversalTime(),
+                ExpirationUtc = e.PullbackExpiryUtc,
+                MicroCapitalMode = AdaptiveCapitalMode && Account.Equity <= MicroCapitalThreshold,
+                CanonicalTarget = target,
+                ExpectedNetRR = e.NetRR,
+                ExpectedWeightedEntry = anchor,
+                VirtualWeightedEntry = anchor
+            };
+            if (plan.BasketRiskAmount <= 0 || plan.ExpirationUtc <= Server.Time.ToUniversalTime().AddSeconds(1)) return false;
+            double slPips = PriceToPips(distance);
+            double minRisk = _symbol.VolumeInUnitsMin * _symbol.PipValue * (slPips + ModeledCostPips());
+            plan.Legs.Add(new FibonacciGridLeg
+            {
+                Index = 0, Fraction = .618, PlannedPrice = anchor, RiskWeight = 1.0,
+                RiskBudget = plan.BasketRiskAmount, MinBrokerRisk = minRisk,
+                Volume = 0, PlannedRisk = 0, ModeledCost = 0, Physical = false,
+                State = GridLegState.VIRTUAL_ONLY
+            });
+            plan.LogicalLegCount = 1;
+            if (!ConfigureCapitalExecution(plan)) return false;
+            if (plan.Legs.Count == 0 || !plan.Legs[0].Physical || plan.WorstCaseRisk > plan.BasketRiskAmount + 1e-8) return false;
+            c.GridPlan = plan;
+            c.SelectedTarget = target;
+            c.NetRR = e.NetRR;
+            return true;
+        }
+
+        private bool V72SubmitPullbackSingleLeg(CandidateRecord c)
+        {
+            var plan = c == null ? null : c.GridPlan;
+            if (plan == null || plan.Legs.Count != 1) return false;
+            if (Account.FreeMargin < plan.BasketRiskAmount * MinFreeMarginRiskMultiple) return false;
+            if (plan.WorstCaseRisk > plan.BasketRiskAmount + 1e-8) { _gridRiskViolations++; return false; }
+
+            string basketId = NewBasketId();
+            plan.BasketId = basketId;
+            var basket = new FibonacciBasket
+            {
+                BasketId = basketId, CandidateId = c.CandidateId, Pattern = c.Signal.PatternName,
+                Direction = c.Signal.Direction, Route = c.Route, State = FibonacciBasketState.PLANNED,
+                CreatedUtc = Server.Time.ToUniversalTime(), ExpirationUtc = plan.ExpirationUtc,
+                EntryAnchor = plan.EntryAnchor, StructuralStop = plan.StructuralStop,
+                CanonicalTarget = plan.CanonicalTarget, InitialBasketRisk = plan.BasketRiskAmount,
+                PlannedWorstCaseRisk = plan.WorstCaseRisk, ProtectionFrontier = plan.StructuralStop,
+                Plan = plan, Candidate = c, IsActive = true
+            };
+            _baskets[basketId] = basket;
+            CountPipeline(c.Signal.PatternName).BasketPlanned++;
+            BasketEvent(basket, "V72_PULLBACK_BASKET_PLANNED");
+
+            var l0 = plan.Legs[0];
+            if (!PlaceGridLimit(basket, l0))
+            {
+                basket.State = FibonacciBasketState.CANCELLED;
+                basket.IsActive = false;
+                return false;
+            }
+            basket.State = FibonacciBasketState.GRID_PENDING;
+            Transition(c, CandidateState.EXECUTED, "V72_PULLBACK_LIMIT_SUBMITTED");
+            if (!string.IsNullOrWhiteSpace(c.SetupKey)) _v71ExpansionExecutedSetupKeys.Add(c.SetupKey);
+            BasketEvent(basket, "V72_PULLBACK_LIMIT_SUBMITTED");
+            return true;
+        }
+
         private double V71CapitalQualificationScore(V71ExpansionCandidate e)
         {
             if (e == null) return double.NegativeInfinity;
@@ -3757,7 +3930,7 @@ namespace cAlgo.Robots
                 .Where(e => e.IsActive && e.State == V71ExpansionState.ARMED && !e.Executed &&
                             e.CapitalEligible && !e.CoreOverlapObserved &&
                             (EnableV72ReactionAlpha
-                                ? (e.ReactionProved && e.ReactionRetestConfirmed && e.NetRR >= MinimumNetRR)
+                                ? (e.ReactionProved && e.AwaitingPullbackFill && e.NetRR >= MinimumNetRR)
                                 : (V71FamilyRouteAllowed(e) && V71SetupAllowed(e) && e.SupportEligible && e.EdgeLcb > 0 &&
                                    (V71W("h5") <= .5 || e.PathLcb > V71PathBreakEven(e)) &&
                                    V71CapitalQualificationScore(e) > V71ExpansionMinEdgeLcbR && e.NetRR >= MinimumNetRR)) &&
@@ -3771,7 +3944,7 @@ namespace cAlgo.Robots
                 if (_v71Expansion.Values.Any(e => e.IsActive && e.State == V71ExpansionState.ARMED &&
                     (!e.CapitalEligible || e.CoreOverlapObserved ||
                      (EnableV72ReactionAlpha
-                        ? (!e.ReactionProved || !e.ReactionRetestConfirmed || e.NetRR < MinimumNetRR)
+                        ? (!e.ReactionProved || !e.AwaitingPullbackFill || e.NetRR < MinimumNetRR)
                         : (!V71FamilyRouteAllowed(e) || !V71SetupAllowed(e) || !e.SupportEligible ||
                            e.EdgeLcb <= 0 || (V71W("h5") > .5 && e.PathLcb <= V71PathBreakEven(e)) ||
                            V71CapitalQualificationScore(e) <= V71ExpansionMinEdgeLcbR)))))
@@ -3802,18 +3975,15 @@ namespace cAlgo.Robots
                 V71RiskPercent = riskPct
             };
 
-            bool built = false;
-            if (EnableV71ExpansionGrid)
+            bool built = EnableV72ReactionAlpha
+                ? V72BuildPullbackSingleLeg(c, e)
+                : (EnableV71ExpansionGrid ? TryBuildFibonacciGridPlan(c) : V71BuildExpansionSingleLeg(c));
+            if (!built && !EnableV72ReactionAlpha && EnableV71ExpansionGrid)
             {
-                built = TryBuildFibonacciGridPlan(c);
-                if (!built)
-                {
-                    c.GridPlan = null;
-                    _v71ExpansionGridFallback++;
-                    built = V71BuildExpansionSingleLeg(c);
-                }
+                c.GridPlan = null;
+                _v71ExpansionGridFallback++;
+                built = V71BuildExpansionSingleLeg(c);
             }
-            else built = V71BuildExpansionSingleLeg(c);
 
             if (!built || c.GridPlan == null || c.NetRR < MinimumNetRR) return;
             if (!EnableV72ReactionAlpha) V71ApplyExpansionExitPolicy(e, c);
@@ -3823,8 +3993,9 @@ namespace cAlgo.Robots
                 e.CandidateId, e.SetupKey, V71FamilyKey(e.Signal.PatternName), e.Route, V71ModelId,
                 e.EdgeMean, e.EdgeLcb, e.SlotScore, riskPct, EnableV71ExpansionGrid);
 
-            ExecuteFibonacciGridPlan(c);
-            if (c.State == CandidateState.EXECUTED)
+            bool submitted = EnableV72ReactionAlpha ? V72SubmitPullbackSingleLeg(c) : true;
+            if (!EnableV72ReactionAlpha) ExecuteFibonacciGridPlan(c);
+            if ((EnableV72ReactionAlpha && submitted) || c.State == CandidateState.EXECUTED)
             {
                 e.Executed = true;
                 e.IsActive = false;
@@ -5733,7 +5904,7 @@ namespace cAlgo.Robots
         public double TrendStrength;
     }
 
-    public enum V71ExpansionState { WAIT_PRZ, CONFIRMING, RETEST_READY, ARMED, EXECUTED, EXPIRED, REJECTED, INVALIDATED }
+    public enum V71ExpansionState { WAIT_PRZ, CONFIRMING, ARMED, EXECUTED, EXPIRED, REJECTED, INVALIDATED }
 
     public sealed class V71ExpansionCandidate
     {
@@ -5746,8 +5917,9 @@ namespace cAlgo.Robots
         public bool IsActive, Executed, ShadowStarted, ShadowFinished;
         public DateTime DetectedUtc, ExpiryUtc;
         public DateTime? PrzTouchUtc, ArmedUtc, ReactionProofUtc;
+        public DateTime PullbackExpiryUtc;
         public double ConfirmationScore, NetRR, RegimeScore;
-        public double ReactionProofPrice, ReactionRetestLevel, ReactionScore;
+        public double ReactionProofPrice, ReactionExtremePrice, ReactionScore;
         public double EntryAnchor, StructuralStop, CanonicalTarget, RiskDistance, TargetR;
         public double EdgeMean, EdgeLcb, SlotScore, ShadowOutcomeR;
         public double AtrPercentile, AdxH1Norm, AdxH4Norm, AdxSlopeNorm, TrendStrength;
@@ -5756,11 +5928,11 @@ namespace cAlgo.Robots
         public double ModeledCostR, PathProbability, PathLcb, RunnerProbability, RunnerLcb, CoreArrivalHazard;
         public bool SupportEligible = true;
         public bool CoreOverlapObserved, CapitalEligible = true, NativeExitCaptured, PathUsable;
-        public bool ReactionProved, ReactionRetestConfirmed;
+        public bool ReactionProved, ReactionExtremeInitialized, AwaitingPullbackFill, PullbackFilled;
         public string AbcdRole = "PARENT_FAMILY", NativeExitResult;
         public double NativeExitR, ShadowPeakR, ShadowProtectionR = -1.0;
         public double ShadowMfeR, ShadowMaeR, ShadowMaxGivebackR;
-        public int ShadowBars, NativeConfirmBars, PathState, ReactionRetestBars;
+        public int ShadowBars, NativeConfirmBars, PathState;
         public int TimeTo05R = -1, TimeTo1R = -1, TimeTo2R = -1, TimeToStopR = -1, TimeToMfeBars = -1;
         public CandidateRecord NativeEvidenceState;
     }
