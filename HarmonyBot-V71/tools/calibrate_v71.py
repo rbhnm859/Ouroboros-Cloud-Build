@@ -30,12 +30,12 @@ def fp(x):
     z=x.get("core_execution_fingerprint")
     return (int(z["executed"]),str(z["fnv64"]).upper()) if z and z.get("fnv64") else None
 
-manifest=json.load(open(manifest_path)); reaction_gate=bool(manifest.get("crossfit_gate"))
+manifest=json.load(open(manifest_path)); payoff_gate=bool(manifest.get("payoff_gate"))
 REF={w:json.load(open(find(f"V51_REFERENCE-{w}.json"))) for w in W}
 A={BASE:aggregate(REF)}; A[BASE]["core_preserved"]=True
 candidate=None; marginal={}; cap_gate=False
 
-if reaction_gate:
+if payoff_gate:
     R={w:json.load(open(find(f"{CAP}-{w}.json"))) for w in W}
     def core_preserved():
         for w in W:
@@ -74,15 +74,15 @@ if reaction_gate:
 freeze={"version":"HarmonyBot V71 -> V72","architecture":"IMMUTABLE_V51_CORE_PLUS_FROZEN_HARMONIC_DETECTOR_PLUS_0618_PULLBACK_REACTION_STOP_ALPHA",
  "trusted_v51_parent":"1b670a0f43ba8ecaa637febfdacf605b1b146f01","control_mode":"DIRECT_TRUSTED_V51_BINARY_REFERENCE",
  "pullback_manifest":manifest,"v51_floor":V51,"variants":A,"marginal":marginal,
- "gates":{"pullback_shadow_3year":reaction_gate,"pullback_capital_commercial":cap_gate},
+ "gates":{"pullback_payoff_3year":payoff_gate,"pullback_capital_commercial":cap_gate},
  "candidate":candidate,"candidate_selection_source":"BURNED_2021_2023_DETERMINISTIC_0618_PULLBACK_REACTION_STOP__NO_SELECTOR_TUNING",
  "risk_for_alpha_qualification_pct":1.0,"validation_used":False,"fresh_used":False,
- "decision":"V72_PULLBACK_CANDIDATE_FROZEN" if candidate else ("PULLBACK_ALPHA_FAIL_CLOSED_HOLD" if not reaction_gate else "CALIBRATION_HOLD")}
+ "decision":"V72_PULLBACK_CANDIDATE_FROZEN" if candidate else ("PULLBACK_ALPHA_FAIL_CLOSED_HOLD" if not payoff_gate else "CALIBRATION_HOLD")}
 (out/"V71_CALIBRATION_FREEZE.json").write_text(json.dumps(freeze,indent=2))
 (out/"candidate.txt").write_text(candidate or "")
 (out/"dev_matrix.json").write_text(json.dumps([candidate] if candidate else [],separators=(",",":")))
 summary={"version":"HarmonyBot V71 -> V72","source_sha":os.environ.get("GITHUB_SHA","UNKNOWN"),
- "candidate":candidate,"pullback_gate":reaction_gate,"capital_gate":cap_gate,
+ "candidate":candidate,"payoff_gate":payoff_gate,"capital_gate":cap_gate,
  "validation_access_count":0,"fresh_access_count":0,
  "manifest_sha256":hashlib.sha256(manifest_path.read_bytes()).hexdigest(),
  "decision":"V72_PRE_DEV_PASS" if candidate else "HOLD_WITH_EVIDENCE"}
