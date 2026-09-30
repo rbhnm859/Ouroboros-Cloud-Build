@@ -37,7 +37,7 @@ manifest={
  "selection_model":"NONE",
  "tuning_model":"NONE",
  "rules":["FROZEN_HARMONIC_PATTERN","PRZ_TOUCH","FAMILY_NATIVE_REACTION_PROOF",
-          "FIBONACCI_0618_PULLBACK_LIMIT_UNTIL_NEXT_M15_BOUNDARY","STRUCTURAL_INVALIDATION_STOP",
+          "FIBONACCI_0618_PULLBACK_LIMIT_UNTIL_NEXT_M15_BOUNDARY","REACTION_EXTREME_COST_BUFFER_STOP_NEVER_WIDER_THAN_PATTERN_STOP",
           "PRIOR_COMPLETED_M1_PLUS_0_5R_ARMS_PLUS_0_1R_PROTECTION","COST_ADJUSTED_FIXED_2R_TARGET","V51_CORE_FIRST"],
  "min_selected_per_year":MIN_N,"min_pf_r":MIN_PF,"lcb_z":Z,
  "folds":folds,"family_selected_counts":dict(sorted(family.items())),
@@ -46,5 +46,5 @@ manifest={
  "validation_used":False,"fresh_used":False
 }
 (out/"MODEL_MANIFEST.json").write_text(json.dumps(manifest,indent=2))
-(out/"FULL.json").write_text(json.dumps({"model_id":"V72_0618_PULLBACK_NONE","architecture":manifest["architecture"]},indent=2))
+(out/"FULL.json").write_text(json.dumps({"model_id":"V72_0618_PULLBACK_REACTION_STOP_NONE","architecture":manifest["architecture"]},indent=2))
 print(json.dumps(manifest,indent=2))
