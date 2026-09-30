@@ -653,7 +653,7 @@ jobs:
 
   calibration_analyze:
     needs: [calibration, v51_reference, hcog_gate, replay_gate]
-    if: ${{ always() && needs.v51_reference.result == 'success' && needs.family_native_gate.result == 'success' && needs.replay_gate.result == 'success' && (needs.calibration.result == 'success' || needs.hcog_gate.outputs.pass != 'true') }}
+    if: ${{ always() && needs.v51_reference.result == 'success' && needs.replay_gate.result == 'success' && needs.hcog_gate.result == 'success' && (needs.calibration.result == 'success' || needs.hcog_gate.outputs.pass != 'true') }}
     runs-on: ubuntu-24.04
     outputs:
       candidate: ${{ steps.pick.outputs.candidate }}
@@ -856,7 +856,7 @@ jobs:
           # HarmonyBot V72 — Harmonic Causal Opportunity Graph Handoff
           Promoted automatically from V71 source commit: $GITHUB_SHA
           Architecture: frozen V51 economic spine + frozen 12-family detector + explicit family completed-bar proof + own D/PRZ retest + structural-break/retest failure continuation + Grid OFF + 1% Alpha qualification.
-          Promotion evidence: burned 2021-2023 family-native causal gate PASS, unchanged commercial Pareto gate PASS, fixed observed DEV PASS.
+          Promotion evidence: burned 2021-2023 HCOG counterfactual causal gate PASS, protected V51 replay PASS, unchanged commercial Pareto gate PASS, fixed observed DEV PASS.
           No selector model is required in the V72 capital decision path. Validation and Fresh remain locked.
           EOF
           git add HarmonyBot-V72/V72_BREAKTHROUGH_HANDOFF.md
