@@ -449,6 +449,9 @@ namespace cAlgo.Robots
 
                 if (!e.ShadowStarted && !e.FailureContinuation && PatternInvalidatedBeforeEntry(e.Signal))
                 {
+                    if (EnableV72FamilyNativeCausalAlpha && e.PrzTouchUtc.HasValue &&
+                        V72StartFamilyNativeFailureRetest(i, utc, e))
+                        continue;
                     if (EnableV72BifurcationAlpha && e.PrzTouchUtc.HasValue &&
                         e.Route == HarmonicRoute.TREND_ALIGNED_REVERSAL &&
                         V72PrepareFailureContinuation(i, utc, e))
@@ -489,7 +492,7 @@ namespace cAlgo.Robots
                     double score;
                     if (V71ExpansionM1Confirmation(i, e, out score))
                     {
-                        if (!EnableV72BifurcationAlpha)
+                        if (!EnableV72BifurcationAlpha && !EnableV72FamilyNativeCausalAlpha)
                         {
                             e.IsActive = false;
                             e.State = V71ExpansionState.REJECTED;
@@ -504,7 +507,9 @@ namespace cAlgo.Robots
                             e.ReactionProofPrice, e.ReactionExtremePrice);
 
                         bool prepared = false;
-                        if (e.Route == HarmonicRoute.EXHAUSTION_REVERSAL)
+                        if (EnableV72FamilyNativeCausalAlpha)
+                            prepared = V72PrepareFamilyNativeReversalShadow(i, utc, e, score);
+                        else if (e.Route == HarmonicRoute.EXHAUSTION_REVERSAL)
                             prepared = V72PreparePullbackEntry(utc, e, score);
                         else if (e.Route == HarmonicRoute.TREND_ALIGNED_REVERSAL)
                             prepared = V72PrepareTrendVirtualProof(utc, e, score);
@@ -517,7 +522,8 @@ namespace cAlgo.Robots
                         {
                             e.IsActive = false;
                             e.State = V71ExpansionState.REJECTED;
-                            Print("[V72-BIFURCATION-REJECT] cid={0} reason=NO_LEGAL_POST_REACTION_PATH", e.CandidateId);
+                            Print("[V72-RESOLUTION-REJECT] cid={0} familyNative={1} reason=NO_LEGAL_POST_REACTION_PATH",
+                                e.CandidateId, EnableV72FamilyNativeCausalAlpha);
                         }
                     }
                     continue;
@@ -525,6 +531,12 @@ namespace cAlgo.Robots
 
                 if (e.State == V71ExpansionState.PROOF_WAIT)
                 {
+                    if (EnableV72FamilyNativeCausalAlpha && e.FailureContinuation && e.FailureBreakObserved)
+                    {
+                        V72ProcessFamilyNativeFailureRetest(i, utc, e);
+                        continue;
+                    }
+
                     if (utc >= e.VirtualProofExpiryUtc)
                     {
                         e.IsActive = false; e.State = V71ExpansionState.EXPIRED;
@@ -703,13 +715,20 @@ namespace cAlgo.Robots
                         if (hitTarget)
                         {
                             e.PathState = 1; e.PathUsable = true;
-                            V71FinalizeExpansionShadow(e, i, "V72_FIXED_2R_TARGET", 2.0);
+                            if (EnableV72FamilyNativeCausalAlpha)
+                                V71FinalizeExpansionShadow(e, i, "FAMILY_NATIVE_TARGET", e.NetRR);
+                            else
+                                V71FinalizeExpansionShadow(e, i, "V72_FIXED_2R_TARGET", 2.0);
                             continue;
                         }
                     }
 
                     if (e.ShadowBars >= Math.Max(30, V71ExpansionShadowHorizonM1Bars))
-                        V71FinalizeExpansionShadow(e, i, "STRUCTURAL_HORIZON");
+                    {
+                        if (EnableV72FamilyNativeCausalAlpha) e.PathUsable = true;
+                        V71FinalizeExpansionShadow(e, i,
+                            EnableV72FamilyNativeCausalAlpha ? "FAMILY_NATIVE_HORIZON" : "STRUCTURAL_HORIZON");
+                    }
                 }
             }
 

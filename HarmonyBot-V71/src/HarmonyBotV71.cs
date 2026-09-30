@@ -251,6 +251,9 @@ namespace cAlgo.Robots
         [Parameter("Enable V72 Bifurcation Alpha", DefaultValue = false)]
         public bool EnableV72BifurcationAlpha { get; set; }
 
+        [Parameter("Enable V72 Family-Native Causal Alpha", DefaultValue = false)]
+        public bool EnableV72FamilyNativeCausalAlpha { get; set; }
+
         [Parameter("Min Harmonic Robustness", DefaultValue = 0.56, MinValue = 0.40, MaxValue = 0.80)]
         public double MinHarmonicRobustness { get; set; }
 

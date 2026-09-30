@@ -89,11 +89,12 @@ namespace cAlgo.Robots
         public V71ExpansionState State;
         public bool IsActive, Executed, ShadowStarted, ShadowFinished;
         public DateTime DetectedUtc, ExpiryUtc;
-        public DateTime? PrzTouchUtc, ArmedUtc, ReactionProofUtc, VirtualProofStartUtc;
-        public DateTime PullbackExpiryUtc, VirtualProofExpiryUtc;
+        public DateTime? PrzTouchUtc, ArmedUtc, ReactionProofUtc, VirtualProofStartUtc, FailureBreakUtc;
+        public DateTime PullbackExpiryUtc, VirtualProofExpiryUtc, FailureRetestExpiryUtc;
         public double ConfirmationScore, NetRR, RegimeScore;
         public double ReactionProofPrice, ReactionExtremePrice, ReactionScore;
         public double VirtualEntryAnchor, VirtualStructuralStop, VirtualRiskDistance, VirtualProofPrice;
+        public double FailureBoundary, FailureBreakPrice;
         public double AsymmetryCompression = 1.0;
         public TradeDirection CapitalDirection = TradeDirection.Neutral;
         public double EntryAnchor, StructuralStop, CanonicalTarget, RiskDistance, TargetR;
@@ -105,7 +106,7 @@ namespace cAlgo.Robots
         public bool SupportEligible = true;
         public bool CoreOverlapObserved, CapitalEligible = true, NativeExitCaptured, PathUsable;
         public bool ReactionProved, ReactionExtremeInitialized, AwaitingPullbackFill, PullbackFilled;
-        public bool AwaitingVirtualProofFill, VirtualProofActive, TrendProofConfirmed, FailureContinuation, CapitalReady;
+        public bool AwaitingVirtualProofFill, VirtualProofActive, TrendProofConfirmed, FailureContinuation, FailureBreakObserved, CapitalReady;
         public string CapitalLane = "NONE";
         public string AbcdRole = "PARENT_FAMILY", NativeExitResult;
         public double NativeExitR, ShadowPeakR, ShadowProtectionR = -1.0;
