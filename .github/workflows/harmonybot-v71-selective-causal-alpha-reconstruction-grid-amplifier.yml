@@ -1,5 +1,5 @@
 name: HarmonyBot V71 Protected Champion Core Incremental Alpha DEV
-# CI trigger: compile-safe V72 bifurcation atomic candidate
+# CI trigger: compile-safe V72 bifurcation atomic candidate — ready-sync
 
 on:
   # Single authoritative CI trigger while diagnostic PR #22 remains open.
