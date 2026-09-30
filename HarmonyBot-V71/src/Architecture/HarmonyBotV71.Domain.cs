@@ -145,6 +145,7 @@ namespace cAlgo.Robots
         public bool CapitalFeasible;
         public bool V71Expansion;
         public bool V72BifurcationAlpha;
+        public bool V72FamilyNativeCausalAlpha;
         public double V71RiskPercent = 1.0;
         public FibonacciGridPlan GridPlan;
         public long PositionId;

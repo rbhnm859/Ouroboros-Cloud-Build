@@ -2,7 +2,7 @@
 import json,pathlib,sys,os,hashlib
 root=pathlib.Path(sys.argv[1]); out=pathlib.Path(sys.argv[2]); manifest_path=pathlib.Path(sys.argv[3])
 out.mkdir(parents=True,exist_ok=True)
-CAP="B_V72_BIFURCATION_ALPHA"; BASE="A_V51_CHAMPION_KERNEL"; W=["Y2021","Y2022","Y2023"]
+CAP="B_V72_FAMILY_NATIVE_CAUSAL_ALPHA"; BASE="A_V51_CHAMPION_KERNEL"; W=["Y2021","Y2022","Y2023"]
 V51={"frequency":38.6667,"net":2101.66,"pf":2.1096878432,"expectancy":36.2355,"win_rate":.534483,"max_dd_pct":4.49784}
 VIOL=["execution_errors","grid_risk_violations","duplicate_grid_legs","orphan_pending_orders","stop_widening_violations",
       "gap_through_survivors","unprotected_survivors","post_fill_protection_failures","actual_basket_risk_violations",
@@ -30,7 +30,7 @@ def fp(x):
     z=x.get("core_execution_fingerprint")
     return (int(z["executed"]),str(z["fnv64"]).upper()) if z and z.get("fnv64") else None
 
-manifest=json.load(open(manifest_path)); payoff_gate=bool(manifest.get("payoff_gate"))
+manifest=json.load(open(manifest_path)); payoff_gate=bool(manifest.get("family_native_gate",manifest.get("payoff_gate",False)))
 REF={w:json.load(open(find(f"V51_REFERENCE-{w}.json"))) for w in W}
 A={BASE:aggregate(REF)}; A[BASE]["core_preserved"]=True
 candidate=None; marginal={}; cap_gate=False
@@ -71,13 +71,13 @@ if payoff_gate:
               and marginal["positive_delta_windows"]==3 and Z["material_breakthrough_pass"])
     candidate=CAP if cap_gate else None
 
-freeze={"version":"HarmonyBot V71 -> V72","architecture":"IMMUTABLE_V51_CORE_PLUS_FROZEN_HARMONIC_EVENT_PLUS_BIFURCATION_ALPHA",
+freeze={"version":"HarmonyBot V71 -> V72","architecture":"IMMUTABLE_V51_ECONOMIC_SPINE_PLUS_FROZEN_12_FAMILY_EVENT_PLUS_FAMILY_NATIVE_CAUSAL_CONVERSION",
  "trusted_v51_parent":"1b670a0f43ba8ecaa637febfdacf605b1b146f01","control_mode":"DIRECT_TRUSTED_V51_BINARY_REFERENCE",
- "bifurcation_manifest":manifest,"v51_floor":V51,"variants":A,"marginal":marginal,
- "gates":{"bifurcation_payoff_3year":payoff_gate,"bifurcation_capital_commercial":cap_gate},
- "candidate":candidate,"candidate_selection_source":"BURNED_2021_2023_DETERMINISTIC_HARMONIC_BIFURCATION__NO_SELECTOR_TUNING",
+ "family_native_manifest":manifest,"v51_floor":V51,"variants":A,"marginal":marginal,
+ "gates":{"family_native_payoff_3year":payoff_gate,"family_native_capital_commercial":cap_gate},
+ "candidate":candidate,"candidate_selection_source":"BURNED_2021_2023_FAMILY_NATIVE_CAUSAL_CONVERSION__NO_SELECTOR_NO_THRESHOLD_TUNING",
  "risk_for_alpha_qualification_pct":1.0,"validation_used":False,"fresh_used":False,
- "decision":"V72_BIFURCATION_CANDIDATE_FROZEN" if candidate else ("BIFURCATION_ALPHA_FAIL_CLOSED_HOLD" if not payoff_gate else "CALIBRATION_HOLD")}
+ "decision":"V72_FAMILY_NATIVE_CAUSAL_CANDIDATE_FROZEN" if candidate else ("FAMILY_NATIVE_CAUSAL_FAIL_CLOSED_HOLD" if not payoff_gate else "CALIBRATION_HOLD")}
 (out/"V71_CALIBRATION_FREEZE.json").write_text(json.dumps(freeze,indent=2))
 (out/"candidate.txt").write_text(candidate or "")
 (out/"dev_matrix.json").write_text(json.dumps([candidate] if candidate else [],separators=(",",":")))

@@ -40,14 +40,14 @@ for w in W:
 
 gate=all(folds[w]["pass"] for w in W)
 manifest={"architecture":"V72_FAMILY_NATIVE_COMPLETED_BAR_CAUSAL_RESOLUTION",
- "stage":"BURNED_CALIBRATION_SHADOW_ONLY","selection_model":"NONE","tuning_model":"NONE",
- "entry_semantics":"FAMILY_NATIVE_COMPLETED_BAR_PROOF_CLOSE",
+ "stage":"BURNED_CALIBRATION_PRECAPITAL_GATE","selection_model":"NONE","tuning_model":"NONE",
+ "entry_semantics":"FAMILY_SPECIFIC_COMPLETED_BAR_PROOF_THEN_CONFIRMED_D_INSIDE_PRZ_RETEST",
  "failure_semantics":"STRUCTURAL_BREAK_THEN_LATER_BOUNDARY_RETEST_THEN_CONTINUATION_CLOSE",
  "target_semantics":"FAMILY_CANONICAL_T1_T2_MIN_NET_RR_2; FAILURE_FIXED_NET_2R",
  "grid":"OFF","risk_pct":1.0,"min_selected_per_year":MIN_N,"lcb_z":Z,
  "folds":folds,"family_selected_counts":dict(sorted(family_total.items())),
  "lane_selected_counts":dict(sorted(lane_total.items())),"family_native_gate":gate,
- "gate_semantics":"DETERMINISTIC_3_YEAR_FAMILY_NATIVE_CAUSAL_GATE__NO_MODEL_FIT_NO_THRESHOLD_TUNING",
+ "gate_semantics":"DETERMINISTIC_3_YEAR_FAMILY_NATIVE_CAUSAL_GATE__NO_MODEL_FIT_NO_THRESHOLD_TUNING__FINAL_CAPITAL_GATE_UNCHANGED",
  "capital_execution_used":False,"validation_used":False,"fresh_used":False}
 (out/"FAMILY_NATIVE_MANIFEST.json").write_text(json.dumps(manifest,indent=2))
 print(json.dumps(manifest,indent=2))

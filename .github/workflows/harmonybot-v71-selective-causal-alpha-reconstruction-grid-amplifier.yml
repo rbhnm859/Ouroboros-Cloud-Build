@@ -72,7 +72,7 @@ jobs:
 
           sha256sum HarmonyBot-V71/src/HarmonyBotV71.cs "$A" HarmonyBot-V71/reference/*.algo > HarmonyBot-V71/final/SHA256SUMS
           printf '%s\n' "$GITHUB_SHA" > HarmonyBot-V71/final/SOURCE_COMMIT.txt
-          python3 -c 'import json,pathlib; pathlib.Path("HarmonyBot-V71/final/V71_PREREGISTERED_FREEZE_MANIFEST.json").write_text(json.dumps({"version":"HarmonyBot V71 -> V72","architecture":"IMMUTABLE_V51_CORE_PLUS_FROZEN_HARMONIC_EVENT_PLUS_BIFURCATION_ALPHA","trusted_v51_parent":"1b670a0f43ba8ecaa637febfdacf605b1b146f01","control":"DIRECT_TRUSTED_V51_BINARY","capital_variants":["B_V72_BIFURCATION_ALPHA"],"shadow_windows":["Y2021","Y2022","Y2023"],"calibration_windows":["Y2021","Y2022","Y2023"],"promotion_dev_windows":["H2024H2","H2025H1","H2025H2"],"core_risk_pct":1.0,"alpha_qualification_risk_pct":1.0,"minimum_net_rr":2.0,"max_active_basket":1,"candidate_source":"DETERMINISTIC_EXHAUSTION_REVERSAL_PLUS_TREND_SHADOW_PROOF_RELOAD_PLUS_FAILURE_CONTINUATION","selector_model":"NONE","detector_policy":"FROZEN_REGION_HASH_CHANGE_ONLY_REVALIDATION","pullback_expiry":"NEXT_M15_BOUNDARY","core_preemption":True,"pareto_non_regression":True,"validation_locked":True,"fresh_locked":True,"v72_auto_promotion_only_after_breakthrough":True},indent=2))'
+          python3 -c 'import json,pathlib; pathlib.Path("HarmonyBot-V71/final/V71_PREREGISTERED_FREEZE_MANIFEST.json").write_text(json.dumps({"version":"HarmonyBot V71 -> V72","architecture":"IMMUTABLE_V51_ECONOMIC_SPINE_PLUS_FROZEN_12_FAMILY_EVENT_PLUS_FAMILY_NATIVE_CAUSAL_CONVERSION","trusted_v51_parent":"1b670a0f43ba8ecaa637febfdacf605b1b146f01","control":"DIRECT_TRUSTED_V51_BINARY","capital_variants":["B_V72_FAMILY_NATIVE_CAUSAL_ALPHA"],"shadow_windows":["Y2021","Y2022","Y2023"],"calibration_windows":["Y2021","Y2022","Y2023"],"promotion_dev_windows":["H2024H2","H2025H1","H2025H2"],"core_risk_pct":1.0,"alpha_qualification_risk_pct":1.0,"minimum_net_rr":2.0,"max_active_basket":1,"candidate_source":"FAMILY_SPECIFIC_COMPLETED_BAR_PROOF_THEN_OWN_D_PRZ_RETEST_OR_STRUCTURAL_BREAK_RETEST","selector_model":"NONE","detector_policy":"FROZEN_REGION_HASH_CHANGE_ONLY_REVALIDATION","pullback_expiry":"EXISTING_HARMONIC_THESIS_TTL","core_preemption":True,"pareto_non_regression":True,"validation_locked":True,"fresh_locked":True,"v72_auto_promotion_only_after_breakthrough":True},indent=2))'
       - uses: actions/upload-artifact@v4
         with:
           name: v71-build
@@ -165,8 +165,8 @@ jobs:
           retention-days: 30
 
   family_native_shadow:
-    needs: [build, v51_reference, replay_gate, event_atlas]
-    if: ${{ needs.replay_gate.outputs.pass == 'true' && needs.event_atlas.outputs.research_ready == 'true' }}
+    needs: [build, v51_reference, replay_gate]
+    if: ${{ needs.replay_gate.outputs.pass == 'true' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     strategy:
@@ -438,15 +438,15 @@ jobs:
           retention-days: 30
 
   calibration:
-    needs: [build, payoff_gate, v51_reference, replay_gate]
-    if: ${{ needs.replay_gate.outputs.pass == 'true' && needs.payoff_gate.outputs.pass == 'true' }}
+    needs: [build, family_native_gate, v51_reference, replay_gate]
+    if: ${{ needs.replay_gate.outputs.pass == 'true' && needs.family_native_gate.outputs.pass == 'true' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     strategy:
       fail-fast: false
       max-parallel: 8
       matrix:
-        variant: [B_V72_BIFURCATION_ALPHA]
+        variant: [B_V72_FAMILY_NATIVE_CAUSAL_ALPHA]
         window: [Y2021, Y2022, Y2023]
     steps:
       - uses: actions/checkout@v4
@@ -459,7 +459,7 @@ jobs:
           path: control/HarmonyBot-V71/shared
       - uses: actions/download-artifact@v4
         with:
-          name: V72-PAYOFF-GATE
+          name: V72-FAMILY-NATIVE-CAUSAL-GATE
           path: control/HarmonyBot-V71/payoff
       - uses: actions/download-artifact@v4
         with:
@@ -493,8 +493,8 @@ jobs:
           retention-days: 30
 
   calibration_analyze:
-    needs: [calibration, v51_reference, payoff_gate, replay_gate]
-    if: ${{ always() && needs.v51_reference.result == 'success' && needs.payoff_gate.result == 'success' && needs.replay_gate.result == 'success' && (needs.calibration.result == 'success' || needs.payoff_gate.outputs.pass != 'true') }}
+    needs: [calibration, v51_reference, family_native_gate, replay_gate]
+    if: ${{ always() && needs.v51_reference.result == 'success' && needs.family_native_gate.result == 'success' && needs.replay_gate.result == 'success' && (needs.calibration.result == 'success' || needs.family_native_gate.outputs.pass != 'true') }}
     runs-on: ubuntu-24.04
     outputs:
       candidate: ${{ steps.pick.outputs.candidate }}
@@ -505,7 +505,7 @@ jobs:
           ref: ${{ github.sha }}
           path: control
       - uses: actions/download-artifact@v4
-        if: ${{ needs.payoff_gate.outputs.pass == 'true' }}
+        if: ${{ needs.family_native_gate.outputs.pass == 'true' }}
         with:
           pattern: 'v71-cal-*'
           path: merged
@@ -517,7 +517,7 @@ jobs:
           merge-multiple: true
       - uses: actions/download-artifact@v4
         with:
-          name: V72-PAYOFF-GATE
+          name: V72-FAMILY-NATIVE-CAUSAL-GATE
           path: payoff
       - name: Freeze candidate
         id: pick
@@ -525,7 +525,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p final
-          python3 control/HarmonyBot-V71/tools/calibrate_v71.py merged final payoff/PAYOFF_MANIFEST.json
+          python3 control/HarmonyBot-V71/tools/calibrate_v71.py merged final payoff/FAMILY_NATIVE_MANIFEST.json
           echo "candidate=$(cat final/candidate.txt)" >> "$GITHUB_OUTPUT"
           echo "dev_matrix=$(tr -d '\n' < final/dev_matrix.json)" >> "$GITHUB_OUTPUT"
       - uses: actions/upload-artifact@v4
@@ -607,7 +607,7 @@ jobs:
           path: control/HarmonyBot-V71/shared
       - uses: actions/download-artifact@v4
         with:
-          name: V72-PAYOFF-GATE
+          name: V72-FAMILY-NATIVE-CAUSAL-GATE
           path: control/HarmonyBot-V71/model
       - uses: actions/download-artifact@v4
         with:
@@ -688,18 +688,18 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          BR="harmonybot/v72-harmonic-bifurcation-alpha"
+          BR="harmonybot/v72-family-native-causal-alpha"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git checkout -b "$BR"
           mkdir -p HarmonyBot-V72
           cat > HarmonyBot-V72/V72_BREAKTHROUGH_HANDOFF.md <<EOF
-          # HarmonyBot V72 — Harmonic Bifurcation Alpha Handoff
+          # HarmonyBot V72 — Family-Native Causal Alpha Handoff
           Promoted automatically from V71 source commit: $GITHUB_SHA
-          Architecture: frozen V51 Core + frozen 12-family harmonic event detector + Exhaustion reversal + Trend virtual 0.5R proof/reload + independent harmonic-failure continuation + fixed 2R/-1R payoff.
-          Promotion evidence: burned 2021-2023 reaction calibration PASS, commercial Pareto gate PASS, fixed observed DEV PASS.
+          Architecture: frozen V51 economic spine + frozen 12-family detector + explicit family completed-bar proof + own D/PRZ retest + structural-break/retest failure continuation + Grid OFF + 1% Alpha qualification.
+          Promotion evidence: burned 2021-2023 family-native causal gate PASS, unchanged commercial Pareto gate PASS, fixed observed DEV PASS.
           No selector model is required in the V72 capital decision path. Validation and Fresh remain locked.
           EOF
           git add HarmonyBot-V72/V72_BREAKTHROUGH_HANDOFF.md
-          git commit -m "promote(v72): harmonic bifurcation alpha breakthrough"
+          git commit -m "promote(v72): family-native causal alpha breakthrough"
           git push origin "$BR"

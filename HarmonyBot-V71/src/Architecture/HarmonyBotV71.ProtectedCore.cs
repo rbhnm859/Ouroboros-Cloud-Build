@@ -98,9 +98,9 @@ namespace cAlgo.Robots
             Print("[V51-THROUGHPUT-ARCH] persistentQueue={0} serialHandoff={1} nativeM1={2} nativeBars={3} decayRanking={4} hardLifetimeMinutes={5} alphaKernel=V46_SCALE_CONVERSION_FROZEN",
                 EnablePersistentArmedQueue, EnableEventDrivenSerialHandoff, EnablePatternNativeM1Expansion,
                 PatternNativeM1MaxBars, EnableOpportunityDecayRanking, ParkedHardLifetimeMinutes);
-            Print("[V71-PROTECTED-CORE] trustedParent={0} expansionShadow={1} expansionExecution={2} expansionRiskCap={3:F2} bifurcationResearch={4}",
+            Print("[V71-PROTECTED-CORE] trustedParent={0} expansionShadow={1} expansionExecution={2} expansionRiskCap={3:F2} bifurcationResearch={4} familyNativeCausal={5}",
                 V51TrustedParent, EnableV71ExpansionShadow, EnableV71ExpansionExecution,
-                Math.Min(5.0, V71ExpansionRiskPercent), EnableV72BifurcationAlpha);
+                Math.Min(5.0, V71ExpansionRiskPercent), EnableV72BifurcationAlpha, EnableV72FamilyNativeCausalAlpha);
             Print("[V71-INCREMENTAL-POLICY] corePreemption=true familyBalancedCensus={0} perFamilyCap={1} abcdSharePct={2} fullPivotLattice={3} familyNativeConfirmation={4} selectorModel=NONE overlapShadowVisible=true overlapCapitalBlocked=true",
                 EnableV71FamilyBalancedCensus, Math.Max(2, Math.Min(12, V71PerFamilyCensusCap)),
                 Math.Max(0, Math.Min(25, V71AbcdCensusSharePercent)), EnableV71FullFamilyPivotLattice,
@@ -1443,7 +1443,8 @@ namespace cAlgo.Robots
                     CancelBasketPending(basket, "MFE_GRID_CANCEL");
 
                 double age = (Server.Time.ToUniversalTime() - basket.CreatedUtc).TotalMinutes;
-                bool v72FixedPayoff = basket.Candidate != null && basket.Candidate.V72BifurcationAlpha;
+                bool v72FixedPayoff = basket.Candidate != null &&
+                    (basket.Candidate.V72BifurcationAlpha || basket.Candidate.V72FamilyNativeCausalAlpha);
                 if (!v72FixedPayoff && age >= NoMfeMinAgeMinutes && basket.PeakR < NoMfeProofR && currentR <= -Math.Abs(NoMfeKillR))
                 {
                     basket.ExitOverride = "NO_MFE_THESIS_FAILURE";

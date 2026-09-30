@@ -180,6 +180,9 @@ namespace cAlgo.Robots
                 : close < e.Signal.StructuralInvalidation;
             if (!structurallyAlive) return false;
 
+            if (EnableV72FamilyNativeCausalAlpha)
+                return V72FamilyNativeCausalProof(i, e, out score);
+
             if (!EnableV71FamilyNativeConfirmation)
             {
                 score = M1ConfirmationScore(i, e.Signal);
@@ -1078,7 +1081,7 @@ namespace cAlgo.Robots
 
         private void V71TryExecuteExpansion(DateTime now)
         {
-            if (!EnableV71ExpansionExecution || !EnableV72BifurcationAlpha) return;
+            if (!EnableV71ExpansionExecution || (!EnableV72BifurcationAlpha && !EnableV72FamilyNativeCausalAlpha)) return;
             if (V71CoreHasActiveThesis()) { _v71ExpansionCoreBlocked++; return; }
             if (OwnPositions().Any() || OwnPendingOrders().Any() || _baskets.Values.Any(b => b.IsActive)) return;
             if (!IsInstitutionalSession(now) || !SpreadValid()) return;
@@ -1123,14 +1126,16 @@ namespace cAlgo.Robots
                 NetRR = e.NetRR,
                 SelectedTarget = e.CanonicalTarget,
                 V71Expansion = true,
-                V72BifurcationAlpha = true,
+                V72BifurcationAlpha = EnableV72BifurcationAlpha,
+                V72FamilyNativeCausalAlpha = EnableV72FamilyNativeCausalAlpha,
                 V71RiskPercent = riskPct
             };
 
             if (!V72BuildPullbackSingleLeg(candidate, e) || candidate.GridPlan == null || candidate.NetRR < MinimumNetRR)
                 return;
 
-            Print("[V72-BIFURCATION-EXECUTE] cid={0} setup={1} family={2} lane={3} route={4} dir={5} rr={6:F3} asym={7:F3} riskPct={8:F2}",
+            Print("[V72-ALPHA-EXECUTE] architecture={0} cid={1} setup={2} family={3} lane={4} route={5} dir={6} rr={7:F3} asym={8:F3} riskPct={9:F2}",
+                EnableV72FamilyNativeCausalAlpha ? "FAMILY_NATIVE_CAUSAL" : "LEGACY_BIFURCATION",
                 e.CandidateId, e.SetupKey, V71FamilyKey(e.Signal.PatternName), e.CapitalLane, e.Route,
                 V72CapitalDirection(e), e.NetRR, e.AsymmetryCompression, riskPct);
 
