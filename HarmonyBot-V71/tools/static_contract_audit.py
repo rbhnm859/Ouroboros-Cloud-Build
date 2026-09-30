@@ -27,12 +27,16 @@ checks={
  "v72_cost_adjusted_2r":"2.0 * risk + costPrice" in s and "netRr + 1e-9 < MinimumNetRR" in s,
  "v72_m15_expiry":"V72NextM15Boundary" in s and "PullbackExpiryUtc" in s,
  "v72_shadow_fill_causal":"PULLBACK_FILL_SAME_BAR_AMBIGUOUS" in s and "e.AwaitingPullbackFill = false" in s,
+ "v72_early_capital_protection":"V72_EARLY_CAPITAL_PROTECT" in s and "protectTriggerR = basket.Candidate != null && basket.Candidate.V72ReactionAlpha ? .50" in s and "protectLockR = basket.Candidate != null && basket.Candidate.V72ReactionAlpha ? .10" in s,
+ "v72_shadow_protection_causal":"e.V72ProtectionActive" in s and "PRIOR completed M1 bar" in s and 'V71FinalizeExpansionShadow(e, i, "V72_EARLY_CAPITAL_PROTECT", protectedR)' in s,
+ "v72_target_path_exact":"targetPathR = EnableV72ReactionAlpha ? Math.Max(2.0, e.TargetR)" in s and 'V71FinalizeExpansionShadow(e, i, "V72_FIXED_2R_TARGET", 2.0)' in s,
+ "v72_capital_flag_isolated":"V72ReactionAlpha = EnableV72ReactionAlpha" in s and "public bool V72ReactionAlpha;" in s,
  "minimum_rr":'[Parameter("Minimum Net RR", DefaultValue = 2.0' in s,
  "single_active_basket":"OwnPositions().Any() || OwnPendingOrders().Any() || _baskets.Values.Any(b => b.IsActive)" in s,
  "no_stop_widening":"stopWideningViolations" in s,
  "dst_aware":'ResolveTimeZone("Europe/London"' in s and 'ResolveTimeZone("America/New_York"' in s
 }
-out={"version":"HarmonyBot V71 -> V72","audit":"MINIMAL_V72_0618_PULLBACK_COMMERCIAL_GUARD",
+out={"version":"HarmonyBot V71 -> V72","audit":"MINIMAL_V72_0618_PULLBACK_PROTECTED_COMMERCIAL_GUARD",
  "source_sha256":hashlib.sha256(p.read_bytes()).hexdigest(),"checks":checks,"pass":all(checks.values())}
 pathlib.Path("V71_STATIC_CONTRACT_AUDIT.json").write_text(json.dumps(out,indent=2)); print(json.dumps(out,indent=2))
 raise SystemExit(0 if out["pass"] else 2)
