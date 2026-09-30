@@ -497,7 +497,7 @@ jobs:
           path: control/HarmonyBot-V71/shared
       - uses: actions/download-artifact@v4
         with:
-          name: V71-EDGE-MODEL
+          name: V72-PULLBACK-GATE
           path: control/HarmonyBot-V71/model
       - uses: actions/download-artifact@v4
         with:
@@ -588,7 +588,7 @@ jobs:
           Promoted automatically from V71 source commit: $GITHUB_SHA
           Architecture: frozen V51 Core + frozen 12-family harmonic detector + deterministic PRZ reaction proof + 0.618 pullback limit until next M15 boundary + structural stop + cost-adjusted fixed 2R target.
           Promotion evidence: burned 2021-2023 reaction calibration PASS, commercial Pareto gate PASS, fixed observed DEV PASS.
-          No H5/H6 selector is required in the V72 capital decision path. Validation and Fresh remain locked.
+          No selector model is required in the V72 capital decision path. Validation and Fresh remain locked.
           EOF
           git add HarmonyBot-V72/V72_BREAKTHROUGH_HANDOFF.md
           git commit -m "promote(v72): harmonic 0618 pullback alpha breakthrough"
