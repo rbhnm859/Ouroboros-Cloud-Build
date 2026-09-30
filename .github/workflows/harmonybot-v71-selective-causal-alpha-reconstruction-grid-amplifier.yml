@@ -39,8 +39,7 @@ jobs:
           set -euo pipefail
           cd control
           python3 HarmonyBot-V71/tools/static_contract_audit.py HarmonyBot-V71/src/HarmonyBotV71.cs
-          python3 HarmonyBot-V71/tools/validate_harmonic_contracts.py HarmonyBot-V71/src/HarmonyBotV71.cs
-          python3 HarmonyBot-V71/tools/validate_harmonic_fixtures.py HarmonyBot-V71/src/HarmonyBotV71.cs
+          python3 HarmonyBot-V71/tools/verify_frozen_harmonic_engine.py HarmonyBot-V71/src/HarmonyBotV71.cs
           python3 -m py_compile HarmonyBot-V71/tools/*.py
           bash -n HarmonyBot-V71/tools/run_backtest.sh
           bash -n HarmonyBot-V71/tools/run_window.sh
@@ -72,7 +71,7 @@ jobs:
 
           sha256sum HarmonyBot-V71/src/HarmonyBotV71.cs "$A" HarmonyBot-V71/reference/*.algo > HarmonyBot-V71/final/SHA256SUMS
           printf '%s\n' "$GITHUB_SHA" > HarmonyBot-V71/final/SOURCE_COMMIT.txt
-          python3 -c 'import json,pathlib,os; pathlib.Path("HarmonyBot-V71/final/V71_PREREGISTERED_FREEZE_MANIFEST.json").write_text(json.dumps({"version":"HarmonyBot V71","architecture":"IMMUTABLE_V51_MOTHER_PLUS_FROZEN_HARMONIC_DETECTOR_PLUS_H5_POSTERIOR_ALPHA","trusted_v51_parent":"1b670a0f43ba8ecaa637febfdacf605b1b146f01","control":"DIRECT_TRUSTED_V51_BINARY","capital_variants":["B_PROTECTED_XFIT_SINGLE","C_PROTECTED_XFIT_GRID"],"shadow_windows":["Y2021","Y2022","Y2023"],"calibration_windows":["Y2021","Y2022","Y2023"],"promotion_dev_windows":["H2024H2","H2025H1","H2025H2"],"core_risk_pct":1.0,"alpha_qualification_risk_pct":1.0,"capacity_risk_scaling_deferred":True,"minimum_net_rr":2.0,"max_active_basket":1,"candidate_source":"PREREGISTERED_H5_HIERARCHICAL_POSTERIOR_NESTED_60_100_150_200_BURNED_CALIBRATION_ONLY","runtime_lane_whitelist":True,"runtime_regime_context_whitelist":False,"h5_hard_context_gate":False,"h5_hard_support_gate":False,"h5_partial_pooling":"GLOBAL_ARCHETYPE_FAMILY_FAMILY_ROUTE","h5_dual_posterior_gate":True,"h5_cost_adjusted_p2_gate":True,"h5_nested_frequency_frontier":[60,100,150,200],"h5_slot_hour_ucb":True,"h5_core_arrival_hazard":True,"h5_frozen_calibration_setup_universe":True,"full_family_pivot_lattice":"ALL_12_FAMILY_HOPS_1_TO_5_SCALES_2_3_5_8_CANONICAL_PRIMARY_CONTRACTS","detector_oracle_recall_fail_closed":True,"synthetic_fixture_12of12":True,"reject_attribution_ledger":True,"family_native_temporal_dag":True,"expansion_min_edge_lcb_r":0.015,"core_preemption":True,"core_overlap_shadow_visible":True,"core_overlap_capital_blocked":True,"expansion_identity_namespace_isolated":True,"entry_exit_label_split":True,"shadow_label":"STRUCTURAL_PATH_PLUS_NATIVE_EXIT_COMPLETED_M1","pareto_non_regression":True,"material_breakthrough_gate":"AT_LEAST_2_OF_NET25_PF10_EXP10_WR5PP_DD15","reference_full_v51_commercial_env":True,"validation_locked":True,"fresh_locked":True,"v72_auto_promotion_only_after_breakthrough":True,"final_v80_targets":{"return_pct":100,"pf":2.5,"max_dd_pct":10,"win_rate":0.65,"trades_per_year":200,"realized_rr":2.0,"profitable_months":10,"net_pct_initial":100}},indent=2))'
+          python3 -c 'import json,pathlib; pathlib.Path("HarmonyBot-V71/final/V71_PREREGISTERED_FREEZE_MANIFEST.json").write_text(json.dumps({"version":"HarmonyBot V71 -> V72","architecture":"IMMUTABLE_V51_CORE_PLUS_FROZEN_HARMONIC_DETECTOR_PLUS_0618_PULLBACK_ALPHA","trusted_v51_parent":"1b670a0f43ba8ecaa637febfdacf605b1b146f01","control":"DIRECT_TRUSTED_V51_BINARY","capital_variants":["B_V72_PULLBACK_ALPHA"],"shadow_windows":["Y2021","Y2022","Y2023"],"calibration_windows":["Y2021","Y2022","Y2023"],"promotion_dev_windows":["H2024H2","H2025H1","H2025H2"],"core_risk_pct":1.0,"alpha_qualification_risk_pct":1.0,"minimum_net_rr":2.0,"max_active_basket":1,"candidate_source":"DETERMINISTIC_REACTION_PROOF_PLUS_0618_PULLBACK_LIMIT","selector_model":"NONE","detector_policy":"FROZEN_REGION_HASH_CHANGE_ONLY_REVALIDATION","pullback_expiry":"NEXT_M15_BOUNDARY","core_preemption":True,"pareto_non_regression":True,"validation_locked":True,"fresh_locked":True,"v72_auto_promotion_only_after_breakthrough":True},indent=2))'
       - uses: actions/upload-artifact@v4
         with:
           name: v71-build
@@ -81,8 +80,7 @@ jobs:
             control/HarmonyBot-V71/reference
             control/HarmonyBot-V71/final
             control/V71_STATIC_CONTRACT_AUDIT.json
-            control/V71_HARMONIC_CONTRACT_AUDIT.json
-            control/V71_HARMONIC_FIXTURE_AUDIT.json
+            control/V71_FROZEN_HARMONIC_ENGINE_GUARD.json
           retention-days: 30
 
   shadow:
@@ -150,7 +148,7 @@ jobs:
           pattern: 'v71-shadow-*'
           path: merged
           merge-multiple: true
-      - name: Evaluate deterministic V72 reaction-first calibration
+      - name: Evaluate deterministic V72 0.618 pullback calibration
         id: m
         shell: bash
         run: |
@@ -160,7 +158,7 @@ jobs:
           echo "crossfit_gate=$(python3 -c 'import json; print(str(json.load(open("model/MODEL_MANIFEST.json"))["crossfit_gate"]).lower())')" >> "$GITHUB_OUTPUT"
       - uses: actions/upload-artifact@v4
         with:
-          name: V71-EDGE-MODEL
+          name: V72-PULLBACK-GATE
           path: model
           retention-days: 30
 
@@ -338,7 +336,7 @@ jobs:
       fail-fast: false
       max-parallel: 8
       matrix:
-        variant: [B_V72_REACTION_ALPHA]
+        variant: [B_V72_PULLBACK_ALPHA]
         window: [Y2021, Y2022, Y2023]
     steps:
       - uses: actions/checkout@v4
@@ -351,7 +349,7 @@ jobs:
           path: control/HarmonyBot-V71/shared
       - uses: actions/download-artifact@v4
         with:
-          name: V71-EDGE-MODEL
+          name: V72-PULLBACK-GATE
           path: control/HarmonyBot-V71/model
       - uses: actions/download-artifact@v4
         with:
@@ -409,7 +407,7 @@ jobs:
           merge-multiple: true
       - uses: actions/download-artifact@v4
         with:
-          name: V71-EDGE-MODEL
+          name: V72-PULLBACK-GATE
           path: model
       - name: Freeze candidate
         id: pick
@@ -586,12 +584,12 @@ jobs:
           git checkout -b "$BR"
           mkdir -p HarmonyBot-V72
           cat > HarmonyBot-V72/V72_BREAKTHROUGH_HANDOFF.md <<EOF
-          # HarmonyBot V72 — Harmonic Reaction Alpha Handoff
+          # HarmonyBot V72 — Harmonic 0.618 Pullback Alpha Handoff
           Promoted automatically from V71 source commit: $GITHUB_SHA
-          Architecture: frozen V51 Core + frozen 12-family harmonic detector + deterministic PRZ reaction proof + controlled M1 retest + structural stop + cost-adjusted fixed 2R target.
+          Architecture: frozen V51 Core + frozen 12-family harmonic detector + deterministic PRZ reaction proof + 0.618 pullback limit until next M15 boundary + structural stop + cost-adjusted fixed 2R target.
           Promotion evidence: burned 2021-2023 reaction calibration PASS, commercial Pareto gate PASS, fixed observed DEV PASS.
           No H5/H6 selector is required in the V72 capital decision path. Validation and Fresh remain locked.
           EOF
           git add HarmonyBot-V72/V72_BREAKTHROUGH_HANDOFF.md
-          git commit -m "promote(v72): harmonic reaction alpha breakthrough"
+          git commit -m "promote(v72): harmonic 0618 pullback alpha breakthrough"
           git push origin "$BR"
