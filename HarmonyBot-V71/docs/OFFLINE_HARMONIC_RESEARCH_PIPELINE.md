@@ -23,3 +23,18 @@ The first post-Atlas alpha hypothesis is `R_V72_FAMILY_NATIVE_CAUSAL`:
 - PASS requires every burned year to have at least 39 independent census outcomes, mean R > 0, PF_R > 1, conservative LCB > 0, plus lane non-regression for lanes with at least 20 observations.
 
 A shadow PASS is not V72 promotion. It only authorizes the later execution-conversion/DEV experiment.
+
+## Eliminated candidate: broad family-native D/PRZ reversal
+
+The three burned years rejected the broad reversal-capital architecture despite very high supply:
+2021 399 events mean R -0.0541 PF_R 0.923; 2022 418 events mean R -0.0939 PF_R 0.866; 2023 388 events mean R -0.0222 PF_R 0.967.
+No threshold rescue is permitted.
+
+## Next atomic hypothesis: Harmonic Failure Auction
+
+Only structural harmonic failures are monetized. A legal research event requires:
+1. a completed close beyond the family structural invalidation after PRZ contact;
+2. a later completed M1 bar that retests the invalidation boundary and closes on the failure side;
+3. a still later completed M1 close that breaks the retest bar extreme in the continuation direction.
+
+The entry anchor is that third completed-bar close. The stop is the retest extreme plus the existing cost buffer and the target is fixed cost-adjusted Net 2R. Reversal capital is disabled, AB=CD standalone remains excluded, Grid is off, and the experiment is shadow-only at 1% qualification semantics. Validation/Fresh stay locked.

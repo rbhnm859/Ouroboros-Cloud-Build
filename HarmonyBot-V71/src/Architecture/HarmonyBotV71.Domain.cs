@@ -71,7 +71,7 @@ namespace cAlgo.Robots
         public double TrendStrength;
     }
 
-    public enum V71ExpansionState { WAIT_PRZ, CONFIRMING, PROOF_WAIT, PROOF_ACTIVE, ARMED, EXECUTED, EXPIRED, REJECTED, INVALIDATED }
+    public enum V71ExpansionState { WAIT_PRZ, CONFIRMING, FAILURE_WAIT, PROOF_WAIT, PROOF_ACTIVE, ARMED, EXECUTED, EXPIRED, REJECTED, INVALIDATED }
 
     public sealed class V72PayoffAccumulator
     {
@@ -89,12 +89,12 @@ namespace cAlgo.Robots
         public V71ExpansionState State;
         public bool IsActive, Executed, ShadowStarted, ShadowFinished;
         public DateTime DetectedUtc, ExpiryUtc;
-        public DateTime? PrzTouchUtc, ArmedUtc, ReactionProofUtc, VirtualProofStartUtc, FailureBreakUtc;
+        public DateTime? PrzTouchUtc, ArmedUtc, ReactionProofUtc, VirtualProofStartUtc, FailureBreakUtc, FailureRetestUtc;
         public DateTime PullbackExpiryUtc, VirtualProofExpiryUtc, FailureRetestExpiryUtc;
         public double ConfirmationScore, NetRR, RegimeScore;
         public double ReactionProofPrice, ReactionExtremePrice, ReactionScore;
         public double VirtualEntryAnchor, VirtualStructuralStop, VirtualRiskDistance, VirtualProofPrice;
-        public double FailureBoundary, FailureBreakPrice;
+        public double FailureBoundary, FailureBreakPrice, FailureRetestHigh, FailureRetestLow;
         public double AsymmetryCompression = 1.0;
         public TradeDirection CapitalDirection = TradeDirection.Neutral;
         public double EntryAnchor, StructuralStop, CanonicalTarget, RiskDistance, TargetR;
@@ -106,7 +106,7 @@ namespace cAlgo.Robots
         public bool SupportEligible = true;
         public bool CoreOverlapObserved, CapitalEligible = true, NativeExitCaptured, PathUsable;
         public bool ReactionProved, ReactionExtremeInitialized, AwaitingPullbackFill, PullbackFilled;
-        public bool AwaitingVirtualProofFill, VirtualProofActive, TrendProofConfirmed, FailureContinuation, FailureBreakObserved, CapitalReady;
+        public bool AwaitingVirtualProofFill, VirtualProofActive, TrendProofConfirmed, FailureContinuation, FailureBreakObserved, FailureRetestObserved, CapitalReady;
         public string CapitalLane = "NONE";
         public string AbcdRole = "PARENT_FAMILY", NativeExitResult;
         public double NativeExitR, ShadowPeakR, ShadowProtectionR = -1.0;

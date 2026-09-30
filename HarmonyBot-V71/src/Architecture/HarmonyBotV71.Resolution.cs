@@ -452,6 +452,9 @@ namespace cAlgo.Robots
 
                 if (!e.ShadowStarted && !e.FailureContinuation && PatternInvalidatedBeforeEntry(e.Signal))
                 {
+                    if (EnableV72FailureAuctionCausalAlpha && e.PrzTouchUtc.HasValue &&
+                        V72StartFailureAuction(i, utc, e))
+                        continue;
                     if (EnableV72FamilyNativeCausalAlpha && e.PrzTouchUtc.HasValue &&
                         V72StartFamilyNativeFailureRetest(i, utc, e))
                         continue;
@@ -495,7 +498,7 @@ namespace cAlgo.Robots
                     double score;
                     if (V71ExpansionM1Confirmation(i, e, out score))
                     {
-                        if (!EnableV72BifurcationAlpha && !EnableV72FamilyNativeCausalAlpha)
+                        if (!EnableV72BifurcationAlpha && !EnableV72FamilyNativeCausalAlpha && !EnableV72FailureAuctionCausalAlpha)
                         {
                             e.IsActive = false;
                             e.State = V71ExpansionState.REJECTED;
@@ -508,6 +511,16 @@ namespace cAlgo.Robots
                         Print("[V72-REACTION-PROVED] cid={0} family={1} route={2} score={3:F3} proof={4:F5} extreme={5:F5}",
                             e.CandidateId, V71FamilyKey(e.Signal.PatternName), e.Route, score,
                             e.ReactionProofPrice, e.ReactionExtremePrice);
+
+                        if (EnableV72FailureAuctionCausalAlpha)
+                        {
+                            e.State = V71ExpansionState.FAILURE_WAIT;
+                            e.CapitalReady = false;
+                            e.CapitalLane = "FAILURE_AUCTION_WAIT_FAILURE";
+                            Print("[V72-FAILURE-AUCTION-WAIT] cid={0} family={1} proofUtc={2:o} structuralInvalidation={3:F5}",
+                                e.CandidateId, V71FamilyKey(e.Signal.PatternName), utc, e.Signal.StructuralInvalidation);
+                            continue;
+                        }
 
                         bool prepared = false;
                         if (EnableV72FamilyNativeCausalAlpha)
@@ -532,8 +545,17 @@ namespace cAlgo.Robots
                     continue;
                 }
 
+                if (e.State == V71ExpansionState.FAILURE_WAIT)
+                    continue;
+
                 if (e.State == V71ExpansionState.PROOF_WAIT)
                 {
+                    if (EnableV72FailureAuctionCausalAlpha && e.FailureContinuation && e.FailureBreakObserved)
+                    {
+                        V72ProcessFailureAuction(i, utc, e);
+                        continue;
+                    }
+
                     if (EnableV72FamilyNativeCausalAlpha && e.FailureContinuation && e.FailureBreakObserved)
                     {
                         V72ProcessFamilyNativeFailureRetest(i, utc, e);
@@ -718,7 +740,9 @@ namespace cAlgo.Robots
                         if (hitTarget)
                         {
                             e.PathState = 1; e.PathUsable = true;
-                            if (EnableV72FamilyNativeCausalAlpha)
+                            if (EnableV72FailureAuctionCausalAlpha)
+                                V71FinalizeExpansionShadow(e, i, "FAILURE_AUCTION_TARGET", e.NetRR);
+                            else if (EnableV72FamilyNativeCausalAlpha)
                                 V71FinalizeExpansionShadow(e, i, "FAMILY_NATIVE_TARGET", e.NetRR);
                             else
                                 V71FinalizeExpansionShadow(e, i, "V72_FIXED_2R_TARGET", 2.0);
@@ -728,9 +752,10 @@ namespace cAlgo.Robots
 
                     if (e.ShadowBars >= Math.Max(30, V71ExpansionShadowHorizonM1Bars))
                     {
-                        if (EnableV72FamilyNativeCausalAlpha) e.PathUsable = true;
+                        if (EnableV72FamilyNativeCausalAlpha || EnableV72FailureAuctionCausalAlpha) e.PathUsable = true;
                         V71FinalizeExpansionShadow(e, i,
-                            EnableV72FamilyNativeCausalAlpha ? "FAMILY_NATIVE_HORIZON" : "STRUCTURAL_HORIZON");
+                            EnableV72FailureAuctionCausalAlpha ? "FAILURE_AUCTION_HORIZON" :
+                            (EnableV72FamilyNativeCausalAlpha ? "FAMILY_NATIVE_HORIZON" : "STRUCTURAL_HORIZON"));
                     }
                 }
             }

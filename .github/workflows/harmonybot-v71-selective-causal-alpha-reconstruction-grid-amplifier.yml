@@ -72,7 +72,7 @@ jobs:
 
           sha256sum HarmonyBot-V71/src/HarmonyBotV71.cs "$A" HarmonyBot-V71/reference/*.algo > HarmonyBot-V71/final/SHA256SUMS
           printf '%s\n' "$GITHUB_SHA" > HarmonyBot-V71/final/SOURCE_COMMIT.txt
-          python3 -c 'import json,pathlib; pathlib.Path("HarmonyBot-V71/final/V71_PREREGISTERED_FREEZE_MANIFEST.json").write_text(json.dumps({"version":"HarmonyBot V71 -> V72","architecture":"IMMUTABLE_V51_ECONOMIC_SPINE_PLUS_FROZEN_12_FAMILY_EVENT_PLUS_FAMILY_NATIVE_CAUSAL_CONVERSION","trusted_v51_parent":"1b670a0f43ba8ecaa637febfdacf605b1b146f01","control":"DIRECT_TRUSTED_V51_BINARY","capital_variants":["B_V72_FAMILY_NATIVE_CAUSAL_ALPHA"],"shadow_windows":["Y2021","Y2022","Y2023"],"calibration_windows":["Y2021","Y2022","Y2023"],"promotion_dev_windows":["H2024H2","H2025H1","H2025H2"],"core_risk_pct":1.0,"alpha_qualification_risk_pct":1.0,"minimum_net_rr":2.0,"max_active_basket":1,"candidate_source":"FAMILY_SPECIFIC_COMPLETED_BAR_PROOF_THEN_OWN_D_PRZ_RETEST_OR_STRUCTURAL_BREAK_RETEST","selector_model":"NONE","detector_policy":"FROZEN_REGION_HASH_CHANGE_ONLY_REVALIDATION","pullback_expiry":"EXISTING_HARMONIC_THESIS_TTL","core_preemption":True,"pareto_non_regression":True,"validation_locked":True,"fresh_locked":True,"v72_auto_promotion_only_after_breakthrough":True},indent=2))'
+          python3 -c 'import json,pathlib; pathlib.Path("HarmonyBot-V71/final/V71_PREREGISTERED_FREEZE_MANIFEST.json").write_text(json.dumps({"version":"HarmonyBot V71 -> V72","architecture":"IMMUTABLE_V51_ECONOMIC_SPINE_PLUS_FROZEN_12_FAMILY_EVENT_PLUS_HARMONIC_FAILURE_AUCTION_CAUSAL_RESEARCH","trusted_v51_parent":"1b670a0f43ba8ecaa637febfdacf605b1b146f01","control":"DIRECT_TRUSTED_V51_BINARY","capital_variants":[],"shadow_windows":["Y2021","Y2022","Y2023"],"calibration_windows":["Y2021","Y2022","Y2023"],"promotion_dev_windows":["H2024H2","H2025H1","H2025H2"],"core_risk_pct":1.0,"alpha_qualification_risk_pct":1.0,"minimum_net_rr":2.0,"max_active_basket":1,"candidate_source":"HARMONIC_STRUCTURAL_FAILURE_BREAK_THEN_BOUNDARY_RETEST_THEN_SECOND_COMPLETED_BAR_CONTINUATION_BOS","selector_model":"NONE","detector_policy":"FROZEN_REGION_HASH_CHANGE_ONLY_REVALIDATION","pullback_expiry":"EXISTING_HARMONIC_THESIS_TTL","core_preemption":True,"pareto_non_regression":True,"validation_locked":True,"fresh_locked":True,"v72_auto_promotion_only_after_breakthrough":True},indent=2))'
       - uses: actions/upload-artifact@v4
         with:
           name: v71-build
@@ -164,9 +164,88 @@ jobs:
           path: atlas
           retention-days: 30
 
-  family_native_shadow:
+  failure_auction_shadow:
     needs: [build, v51_reference, replay_gate]
     if: ${{ needs.replay_gate.outputs.pass == 'true' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      max-parallel: 3
+      matrix:
+        window: [Y2021, Y2022, Y2023]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: control
+      - uses: actions/download-artifact@v4
+        with:
+          name: v71-build
+          path: control/HarmonyBot-V71/shared
+      - uses: actions/download-artifact@v4
+        with:
+          name: v71-data-seed-${{ matrix.window }}
+          path: control/HarmonyBot-V71/data-seed
+      - name: Prepare failure-auction research algo and dates
+        id: d
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p control/HarmonyBot-V71/dist
+          A=$(find control/HarmonyBot-V71/shared -type f -name 'HarmonyBot_V71_Protected_Champion_Core_Incremental_Alpha.algo' | head -1)
+          cp "$A" control/HarmonyBot-V71/dist/
+          case "${{ matrix.window }}" in
+            Y2021) echo "start=04/01/2021" >> "$GITHUB_OUTPUT"; echo "eval=2021-01-11T00:00:00Z" >> "$GITHUB_OUTPUT"; echo "end=31/12/2021" >> "$GITHUB_OUTPUT";;
+            Y2022) echo "start=03/01/2022" >> "$GITHUB_OUTPUT"; echo "eval=2022-01-10T00:00:00Z" >> "$GITHUB_OUTPUT"; echo "end=30/12/2022" >> "$GITHUB_OUTPUT";;
+            Y2023) echo "start=02/01/2023" >> "$GITHUB_OUTPUT"; echo "eval=2023-01-09T00:00:00Z" >> "$GITHUB_OUTPUT"; echo "end=29/12/2023" >> "$GITHUB_OUTPUT";;
+          esac
+      - name: Run harmonic failure-auction shadow
+        env:
+          CTRADER_PASSWORD: ${{ secrets.CTRADER_PASSWORD }}
+          CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+          CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+        run: |
+          chmod +x control/HarmonyBot-V71/tools/*.sh
+          V71_DATA_SEED_DIR="$GITHUB_WORKSPACE/control/HarmonyBot-V71/data-seed" control/HarmonyBot-V71/tools/run_window.sh R_V72_FAILURE_AUCTION_CAUSAL "${{ matrix.window }}" "${{ steps.d.outputs.start }}" "${{ steps.d.outputs.eval }}" "${{ steps.d.outputs.end }}" 1.0
+      - uses: actions/upload-artifact@v4
+        with:
+          name: v71-failure-auction-${{ matrix.window }}
+          path: control/HarmonyBot-V71/output-R_V72_FAILURE_AUCTION_CAUSAL-${{ matrix.window }}
+          retention-days: 30
+
+  failure_auction_gate:
+    needs: failure_auction_shadow
+    runs-on: ubuntu-24.04
+    outputs:
+      pass: ${{ steps.g.outputs.pass }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: control
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: 'v71-failure-auction-*'
+          path: merged
+          merge-multiple: true
+      - name: Evaluate deterministic harmonic failure-auction gate
+        id: g
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p failure-auction
+          python3 control/HarmonyBot-V71/tools/evaluate_v72_failure_auction.py merged failure-auction
+          echo "pass=$(python3 -c 'import json; print(str(json.load(open("failure-auction/FAILURE_AUCTION_MANIFEST.json"))["failure_auction_gate"]).lower())')" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: V72-FAILURE-AUCTION-CAUSAL-GATE
+          path: failure-auction
+          retention-days: 30
+
+  family_native_shadow:
+    needs: [build, v51_reference, replay_gate]
+    if: ${{ false }}
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     strategy:
