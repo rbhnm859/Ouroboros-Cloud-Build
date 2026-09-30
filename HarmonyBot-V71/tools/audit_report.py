@@ -42,18 +42,83 @@ pipeline_sha,pipeline_fingerprint_lines=core_pipeline_fingerprint(t)
 core_pres=re.findall(r"\[V71-CORE-PRESERVATION\]\s+executed=(\d+)\s+fnv64=([0-9A-Fa-f]+)",t)
 core_execution_fingerprint={"executed":int(core_pres[-1][0]),"fnv64":core_pres[-1][1].upper()} if core_pres else None
 
-rx=re.compile(r"\[V51-BASKET-CLOSED\].*?cid=(\S+)\s+setup=(\S+)\s+pattern=(.*?)\s+subtype=(\S+)\s+route=(\S+)\s+dir=(\S+).*?mfeR=([-0-9.]+)\s+maeR=([-0-9.]+)\s+realizedR=([-0-9.]+)\s+net=([-0-9.]+)\s+reason=(\S+)")
+rx=re.compile(r"\\[V51-BASKET-CLOSED\\]\\s+basket=(?P<basket>\\S+)\\s+cid=(?P<cid>\\S+)\\s+setup=(?P<setup>\\S+)\\s+pattern=(?P<pattern>.*?)\\s+subtype=(?P<subtype>\\S+)\\s+route=(?P<route>\\S+)\\s+dir=(?P<direction>\\S+).*?mfeR=(?P<mfe>[-0-9.]+)\\s+maeR=(?P<mae>[-0-9.]+)\\s+realizedR=(?P<r>[-0-9.]+)\\s+net=(?P<net>[-0-9.]+)\\s+reason=(?P<reason>\\S+)")
+log_rows=[]
+for q in rx.finditer(t):
+ g=q.groupdict()
+ log_rows.append({"basket_id":g["basket"],"cid":g["cid"],"setup":g["setup"],"pattern":g["pattern"],"subtype":g["subtype"],
+                  "route":g["route"],"direction":g["direction"],"mfe":float(g["mfe"]),"mae":float(g["mae"]),
+                  "r":float(g["r"]),"net":float(g["net"]),"reason":g["reason"]})
+log_by_basket={x["basket_id"]:x for x in log_rows}
+
+def comment_meta(x):
+ z={}
+ if not x: return z
+ for part in str(x).split(";"):
+  if "=" in part:
+   k,v=part.split("=",1); z[k.strip()]=v.strip()
+ return z
+
+# Economic truth comes from the completed cTrader report. Console telemetry is
+# intentionally forensic-only because long OnStop/shadow output can truncate
+# earlier [V51-BASKET-CLOSED] lines in the cTrader log.
+history=d.get("history",{}).get("items",[])
+groups={}; unmapped_history=[]; comment_basket_mismatch=[]
+for h in history:
+ label=str(h.get("label") or "")
+ lm=re.fullmatch(r"HB\\d+\\|([^|]+)\\|L(\\d+)",label)
+ if not lm:
+  unmapped_history.append(label); continue
+ bid=lm.group(1)
+ entry=int(h.get("entryTime",0) or 0)
+ z=groups.setdefault(bid,{"basket_id":bid,"net":0.0,"fills":0,"first_entry":entry,
+                          "cid":"","pattern":"","route":"","setup":"","direction":str(h.get("direction") or "")})
+ z["net"]+=float(h.get("net",0) or 0); z["fills"]+=1
+ if entry and (not z["first_entry"] or entry<z["first_entry"]): z["first_entry"]=entry
+ meta=comment_meta(h.get("comment"))
+ if meta.get("basket") and meta["basket"]!=bid: comment_basket_mismatch.append({"label":label,"comment_basket":meta["basket"]})
+ for k in ("cid","pattern","route","setup"):
+  if meta.get(k) and not z[k]: z[k]=meta[k]
+
 rows=[]
-for m in rx.finditer(t):
- rows.append({"cid":m.group(1),"setup":m.group(2),"pattern":m.group(3),"subtype":m.group(4),"route":m.group(5),"direction":m.group(6),
-              "mfe":float(m.group(7)),"mae":float(m.group(8)),"r":float(m.group(9)),"net":float(m.group(10)),"reason":m.group(11)})
+for bid,z in sorted(groups.items(),key=lambda kv:(kv[1]["first_entry"],kv[0])):
+ q=log_by_basket.get(bid,{})
+ cid=z["cid"] or q.get("cid") or ("CORE-REPORT-"+bid)
+ rows.append({"cid":cid,"basket_id":bid,
+              "setup":z["setup"] or q.get("setup") or ("BASKET:"+bid),
+              "pattern":z["pattern"] or q.get("pattern") or "UNKNOWN",
+              "subtype":q.get("subtype","UNKNOWN"),
+              "route":z["route"] or q.get("route") or "UNKNOWN",
+              "direction":z["direction"] or q.get("direction","UNKNOWN"),
+              "mfe":q.get("mfe",0.0),"mae":q.get("mae",0.0),"r":q.get("r",0.0),
+              "net":z["net"],"reason":q.get("reason","RAW_REPORT_HISTORY"),
+              "fills":z["fills"],"economic_source":"RAW_REPORT_HISTORY"})
+
 def metrics(z):
  v=[x["net"] for x in z]; gp=sum(x for x in v if x>0); gl=-sum(x for x in v if x<0)
  return {"baskets":len(z),"net":sum(v),"pf":gp/gl if gl else (999 if gp else 0),
          "expectancy":sum(v)/len(v) if v else 0,"win_rate":sum(x>0 for x in v)/len(v) if v else 0}
+
+report_history_net=sum(float(h.get("net",0) or 0) for h in history)
+ts=d.get("tradeStatistics",{})
+ts_net_field=ts.get("netProfit",{}) if isinstance(ts,dict) else {}
+ts_total_field=ts.get("totalTrades",{}) if isinstance(ts,dict) else {}
+trade_statistics_net=float(ts_net_field.get("all",report_history_net) or 0) if isinstance(ts_net_field,dict) else report_history_net
+trade_statistics_total=int(ts_total_field.get("all",len(history)) or 0) if isinstance(ts_total_field,dict) else len(history)
+report_economic_integrity=(not unmapped_history and not comment_basket_mismatch and
+                           abs(report_history_net-trade_statistics_net)<=0.011 and
+                           len(history)==trade_statistics_total)
+if not report_economic_integrity:
+ raise SystemExit("raw report economic integrity failure: unmapped=%d commentBasketMismatch=%d historyNet=%.9f statsNet=%.9f historyItems=%d statsTrades=%d" %
+                  (len(unmapped_history),len(comment_basket_mismatch),report_history_net,trade_statistics_net,len(history),trade_statistics_total))
+
 core=[x for x in rows if not x["cid"].startswith("V71EXP-")]
 exp=[x for x in rows if x["cid"].startswith("V71EXP-")]
 allm=metrics(rows); corem=metrics(core); expm=metrics(exp)
+log_basket_ids={x["basket_id"] for x in log_rows}
+report_basket_ids=set(groups)
+log_basket_telemetry_complete=(log_basket_ids==report_basket_ids)
+logm=metrics(log_rows)
 
 pat=(r"\[V51-SUMMARY\].*?executionErrors=(\d+)\s+gridRiskViolations=(\d+)\s+duplicateGridLegs=(\d+)\s+"
  r"orphanPendingOrders=(\d+)\s+stopWideningViolations=(\d+)\s+gapThroughInvalidations=(\d+)\s+gapThroughSurvivors=(\d+)\s+"
@@ -68,7 +133,7 @@ if m:
  for k,z in zip(keys,map(int,m[-1])): c[k]=z
 clean_keys=["execution_errors","grid_risk_violations","duplicate_grid_legs","orphan_pending_orders","stop_widening_violations","gap_through_survivors",
 "unprotected_survivors","post_fill_protection_failures","actual_basket_risk_violations","execution_state_violations","margin_risk_violations"]
-clean=bool(m) and all(c[k]==0 for k in clean_keys)
+clean=bool(m) and all(c[k]==0 for k in clean_keys) and report_economic_integrity
 
 srx=re.compile(r"\[V71-EXP-SHADOW\]\s+cid=(\S+)\s+setup=(\S+)\s+family=(\S+)\s+role=(\S+)\s+route=(\S+)\s+coreOverlap=(True|False)\s+capitalEligible=(True|False)\s+g=([-0-9.]+)\s+prz=([-0-9.]+)\s+conf=([-0-9.]+)\s+ts=([-0-9.]+)\s+pv=([-0-9.]+)\s+m1=([-0-9.]+)\s+rr=([-0-9.]+)\s+reg=([-0-9.]+)\s+eff=([-0-9.]+)\s+atr=([-0-9.]+)\s+ext=([-0-9.]+)\s+mtf=([-0-9.]+)\s+atp=([-0-9.]+)\s+adx1=([-0-9.]+)\s+adx4=([-0-9.]+)\s+adxs=([-0-9.]+)\s+trend=([-0-9.]+)\s+spr=([-0-9.]+)\s+ses=([-0-9.]+)\s+przc=([-0-9.]+)\s+trans=([-0-9.]+)\s+survival=([-0-9.]+)\s+structuralR=([-0-9.]+)\s+nativeR=([-0-9.]+)\s+nativeResult=(\S+)\s+pathState=(-?\d+)\s+pathUsable=(True|False)\s+mfeR=([-0-9.]+)\s+maeR=([-0-9.]+)\s+t05=(-?\d+)\s+t1=(-?\d+)\s+t2=(-?\d+)\s+tstop=(-?\d+)\s+tmfe=(-?\d+)\s+givebackR=([-0-9.]+)\s+result=(\S+)\s+bars=(\d+)(?:\s+costR=([-0-9.]+))?(?:\s+lane=(\S+))?")
 shadow=[]
@@ -122,6 +187,13 @@ out={"variant":a.variant,"window":a.window,"years":a.years,"starting_balance":a.
  **allm,"frequency":allm["baskets"]/a.years if a.years else 0,
  "max_dd_pct":float(eq.get("maxEquityDrawdownPercent",0) or 0),
  "engineering_clean":clean,"summary_present":bool(m),"basket_outcomes":rows,
+ "economic_metrics_source":"RAW_REPORT_HISTORY_GROUPED_BY_BASKET_LABEL",
+ "report_economic_integrity":report_economic_integrity,
+ "report_history_net":report_history_net,"trade_statistics_net":trade_statistics_net,
+ "report_history_items":len(history),"trade_statistics_total_trades":trade_statistics_total,
+ "report_baskets":len(rows),"log_basket_rows_seen":len(log_rows),
+ "log_basket_telemetry_complete":log_basket_telemetry_complete,"log_basket_metrics":logm,
+ "log_basket_outcomes":log_rows,
  "canonical_report_sha256":report_sha,"canonical_report_history_items":report_history_items,
  "core_pipeline_sha256":pipeline_sha,"core_pipeline_fingerprint_lines":pipeline_fingerprint_lines,
  "core_execution_fingerprint":core_execution_fingerprint,
