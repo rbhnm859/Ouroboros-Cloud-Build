@@ -153,9 +153,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p model
-          python3 control/HarmonyBot-V71/tools/evaluate_v72_reaction.py merged model
-          echo "pass=$(python3 -c 'import json; print(str(json.load(open("model/PAYOFF_MANIFEST.json"))["payoff_gate"]).lower())')" >> "$GITHUB_OUTPUT"
+          mkdir -p payoff
+          python3 control/HarmonyBot-V71/tools/evaluate_v72_reaction.py merged payoff
+          echo "pass=$(python3 -c 'import json; print(str(json.load(open("payoff/PAYOFF_MANIFEST.json"))["payoff_gate"]).lower())')" >> "$GITHUB_OUTPUT"
       - uses: actions/upload-artifact@v4
         with:
           name: V72-PAYOFF-GATE
