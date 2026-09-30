@@ -1850,13 +1850,16 @@ namespace cAlgo.Robots
                     continue;
                 }
 
-                if (basket.PeakR >= BreakEvenTriggerR)
+                double protectTriggerR = basket.Candidate != null && basket.Candidate.V72ReactionAlpha ? .50 : BreakEvenTriggerR;
+                double protectLockR = basket.Candidate != null && basket.Candidate.V72ReactionAlpha ? .10 : Math.Max(0, BreakEvenLockR);
+                if (basket.PeakR >= protectTriggerR)
                 {
                     double span = Math.Abs(basket.AverageEntry - basket.StructuralStop);
                     double lockPrice = basket.Direction == TradeDirection.Buy
-                        ? basket.AverageEntry + span * Math.Max(0, BreakEvenLockR)
-                        : basket.AverageEntry - span * Math.Max(0, BreakEvenLockR);
-                    AdvanceBasketProtectionFrontier(basket, lockPrice, "COLLECTIVE_PROTECT");
+                        ? basket.AverageEntry + span * protectLockR
+                        : basket.AverageEntry - span * protectLockR;
+                    AdvanceBasketProtectionFrontier(basket, lockPrice,
+                        basket.Candidate != null && basket.Candidate.V72ReactionAlpha ? "V72_EARLY_CAPITAL_PROTECT" : "COLLECTIVE_PROTECT");
                 }
 
                 if (basket.PeakR >= TrailTriggerR)
@@ -3473,6 +3476,27 @@ namespace cAlgo.Robots
                         : (e.EntryAnchor - close) / risk;
                     double priorPeak = e.ShadowPeakR;
 
+                    // V72 payoff-preservation kernel. Protection can only have been armed
+                    // by a PRIOR completed M1 bar, so this never resolves same-bar ordering
+                    // with future information.
+                    if (EnableV72ReactionAlpha && e.PathState == 0 && e.V72ProtectionActive)
+                    {
+                        double protectedR = .10;
+                        double protectedPrice = e.Signal.Direction == TradeDirection.Buy
+                            ? e.EntryAnchor + protectedR * risk
+                            : e.EntryAnchor - protectedR * risk;
+                        bool protectedExit = e.Signal.Direction == TradeDirection.Buy
+                            ? low <= protectedPrice
+                            : high >= protectedPrice;
+                        if (protectedExit)
+                        {
+                            e.PathState = 2;
+                            e.PathUsable = true;
+                            V71FinalizeExpansionShadow(e, i, "V72_EARLY_CAPITAL_PROTECT", protectedR);
+                            continue;
+                        }
+                    }
+
                     // Native-exit counterfactual is recorded once but no longer terminates
                     // the structural path study. This separates Entry Alpha from Exit Alpha.
                     if (!e.NativeExitCaptured)
@@ -3526,7 +3550,8 @@ namespace cAlgo.Robots
 
                     if (e.PathState == 0)
                     {
-                        bool hit2 = favR >= 2.00;
+                        double targetPathR = EnableV72ReactionAlpha ? Math.Max(2.0, e.TargetR) : 2.00;
+                        bool hit2 = favR >= targetPathR;
                         bool hitStop = adverseR >= 1.00;
                         if (hit2 && hitStop)
                         {
@@ -3546,7 +3571,19 @@ namespace cAlgo.Robots
                         {
                             e.PathState = 1;
                             e.PathUsable = true;
+                            if (EnableV72ReactionAlpha)
+                            {
+                                V71FinalizeExpansionShadow(e, i, "V72_FIXED_2R_TARGET", 2.0);
+                                continue;
+                            }
                         }
+                    }
+
+                    if (EnableV72ReactionAlpha && !e.V72ProtectionActive && e.PathState == 0 &&
+                        favR >= .50 && adverseR < 1.00)
+                    {
+                        e.V72ProtectionActive = true;
+                        e.ShadowProtectionR = Math.Max(e.ShadowProtectionR, .10);
                     }
 
                     if (!e.NativeExitCaptured)
@@ -3972,6 +4009,7 @@ namespace cAlgo.Robots
                 NetRR = e.NetRR,
                 SelectedTarget = e.CanonicalTarget,
                 V71Expansion = true,
+                V72ReactionAlpha = EnableV72ReactionAlpha,
                 V71RiskPercent = riskPct
             };
 
@@ -5928,7 +5966,7 @@ namespace cAlgo.Robots
         public double ModeledCostR, PathProbability, PathLcb, RunnerProbability, RunnerLcb, CoreArrivalHazard;
         public bool SupportEligible = true;
         public bool CoreOverlapObserved, CapitalEligible = true, NativeExitCaptured, PathUsable;
-        public bool ReactionProved, ReactionExtremeInitialized, AwaitingPullbackFill, PullbackFilled;
+        public bool ReactionProved, ReactionExtremeInitialized, AwaitingPullbackFill, PullbackFilled, V72ProtectionActive;
         public string AbcdRole = "PARENT_FAMILY", NativeExitResult;
         public double NativeExitR, ShadowPeakR, ShadowProtectionR = -1.0;
         public double ShadowMfeR, ShadowMaeR, ShadowMaxGivebackR;
@@ -5965,6 +6003,7 @@ namespace cAlgo.Robots
         public bool TemporalDirectional, TemporalReclaim, TemporalBos1, TemporalBos2, TemporalRejection, TemporalFailedExtension, TemporalDisplacement;
         public bool CapitalFeasible;
         public bool V71Expansion;
+        public bool V72ReactionAlpha;
         public double V71RiskPercent = 1.0;
         public FibonacciGridPlan GridPlan;
         public long PositionId;
