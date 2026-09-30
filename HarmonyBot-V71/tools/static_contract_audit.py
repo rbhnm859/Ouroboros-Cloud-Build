@@ -46,6 +46,10 @@ checks={
  "h5_no_hard_context_gate":'if (h5 || _v71AllowedFamilyRouteContexts.Count == 0) return true;' in s,
  "h5_no_hard_pair_gate":'if (_v71AllowedFamilyRoutes.Count == 0) return h5;' in s,
  "h5_actual_reaction_rr":'c.GridPlan.ExpectedNetRR = (PriceToPips(Math.Abs(target - entry)) - ModeledCostPips())' in s,
+ "v72_reaction_state_machine":"V72ReactionRetestConfirmed" in s and "V71ExpansionState.RETEST_READY" in s and "[V72-REACTION-PROVED]" in s and "[V72-REACTION-RETEST]" in s,
+ "v72_reaction_no_selector":"(!EnableV72ReactionAlpha && !_v71ModelReady)" in s and "e.ReactionProved && e.ReactionRetestConfirmed" in execblk,
+ "v72_structural_stop_fixed_2r":"double stop = e.Signal.StructuralInvalidation;" in s and "2.0 * risk + costPrice" in s and "netRr + 1e-9 < MinimumNetRR" in s,
+ "v72_core_priority_preserved":"V71CoreHasActiveThesis()" in execblk and "V51_CORE_PREEMPT" in s,
  "fixed_edge_lcb_threshold":'[Parameter("V71 Expansion Min Edge LCB R", DefaultValue = 0.015' in s,
  "completed_m1":"private int LastClosedIndex(Bars b) { return b == null ? -1 : b.Count - 2; }" in s,
  "minimum_rr":'[Parameter("Minimum Net RR", DefaultValue = 2.0' in s,
@@ -53,7 +57,7 @@ checks={
  "no_stop_widening":"stopWideningViolations" in s,
  "dst_aware":'ResolveTimeZone("Europe/London"' in s and 'ResolveTimeZone("America/New_York"' in s
 }
-out={"version":"HarmonyBot V71","audit":"protected_champion_core_h5_posterior_expansion_fail_closed",
+out={"version":"HarmonyBot V71","audit":"protected_core_frozen_detector_v72_reaction_alpha_fail_closed",
  "source_sha256":hashlib.sha256(p.read_bytes()).hexdigest(),"checks":checks,"pass":all(checks.values())}
 pathlib.Path("V71_STATIC_CONTRACT_AUDIT.json").write_text(json.dumps(out,indent=2)); print(json.dumps(out,indent=2))
 raise SystemExit(0 if out["pass"] else 2)
