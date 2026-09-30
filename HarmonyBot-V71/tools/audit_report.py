@@ -42,7 +42,7 @@ pipeline_sha,pipeline_fingerprint_lines=core_pipeline_fingerprint(t)
 core_pres=re.findall(r"\[V71-CORE-PRESERVATION\]\s+executed=(\d+)\s+fnv64=([0-9A-Fa-f]+)",t)
 core_execution_fingerprint={"executed":int(core_pres[-1][0]),"fnv64":core_pres[-1][1].upper()} if core_pres else None
 
-rx=re.compile(r"\\[V51-BASKET-CLOSED\\]\\s+basket=(?P<basket>\\S+)\\s+cid=(?P<cid>\\S+)\\s+setup=(?P<setup>\\S+)\\s+pattern=(?P<pattern>.*?)\\s+subtype=(?P<subtype>\\S+)\\s+route=(?P<route>\\S+)\\s+dir=(?P<direction>\\S+).*?mfeR=(?P<mfe>[-0-9.]+)\\s+maeR=(?P<mae>[-0-9.]+)\\s+realizedR=(?P<r>[-0-9.]+)\\s+net=(?P<net>[-0-9.]+)\\s+reason=(?P<reason>\\S+)")
+rx=re.compile(r"\[V51-BASKET-CLOSED\]\s+basket=(?P<basket>\S+)\s+cid=(?P<cid>\S+)\s+setup=(?P<setup>\S+)\s+pattern=(?P<pattern>.*?)\s+subtype=(?P<subtype>\S+)\s+route=(?P<route>\S+)\s+dir=(?P<direction>\S+).*?mfeR=(?P<mfe>[-0-9.]+)\s+maeR=(?P<mae>[-0-9.]+)\s+realizedR=(?P<r>[-0-9.]+)\s+net=(?P<net>[-0-9.]+)\s+reason=(?P<reason>\S+)")
 log_rows=[]
 for q in rx.finditer(t):
  g=q.groupdict()
@@ -66,7 +66,7 @@ history=d.get("history",{}).get("items",[])
 groups={}; unmapped_history=[]; comment_basket_mismatch=[]
 for h in history:
  label=str(h.get("label") or "")
- lm=re.fullmatch(r"HB\\d+\\|([^|]+)\\|L(\\d+)",label)
+ lm=re.fullmatch(r"HB\d+\|([^|]+)\|L(\d+)",label)
  if not lm:
   unmapped_history.append(label); continue
  bid=lm.group(1)
