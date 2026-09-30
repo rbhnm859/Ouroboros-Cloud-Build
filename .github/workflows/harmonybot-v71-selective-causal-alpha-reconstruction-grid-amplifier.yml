@@ -133,11 +133,11 @@ jobs:
           path: control/HarmonyBot-V71/output-SHADOW_PREPASS-${{ matrix.window }}
           retention-days: 30
 
-  fit_model:
+  payoff_gate:
     needs: shadow
     runs-on: ubuntu-24.04
     outputs:
-      crossfit_gate: ${{ steps.m.outputs.crossfit_gate }}
+      pass: ${{ steps.m.outputs.pass }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -148,18 +148,18 @@ jobs:
           pattern: 'v71-shadow-*'
           path: merged
           merge-multiple: true
-      - name: Evaluate deterministic V72 0.618 pullback calibration
+      - name: Evaluate deterministic V72 0.618 payoff gate
         id: m
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p model
           python3 control/HarmonyBot-V71/tools/evaluate_v72_reaction.py merged model
-          echo "crossfit_gate=$(python3 -c 'import json; print(str(json.load(open("model/MODEL_MANIFEST.json"))["crossfit_gate"]).lower())')" >> "$GITHUB_OUTPUT"
+          echo "pass=$(python3 -c 'import json; print(str(json.load(open("model/PAYOFF_MANIFEST.json"))["payoff_gate"]).lower())')" >> "$GITHUB_OUTPUT"
       - uses: actions/upload-artifact@v4
         with:
-          name: V72-PULLBACK-GATE
-          path: model
+          name: V72-PAYOFF-GATE
+          path: payoff
           retention-days: 30
 
   v51_reference:
@@ -328,8 +328,8 @@ jobs:
           retention-days: 30
 
   calibration:
-    needs: [build, fit_model, v51_reference, replay_gate]
-    if: ${{ needs.replay_gate.outputs.pass == 'true' && needs.fit_model.outputs.crossfit_gate == 'true' }}
+    needs: [build, payoff_gate, v51_reference, replay_gate]
+    if: ${{ needs.replay_gate.outputs.pass == 'true' && needs.payoff_gate.outputs.pass == 'true' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     strategy:
@@ -349,8 +349,8 @@ jobs:
           path: control/HarmonyBot-V71/shared
       - uses: actions/download-artifact@v4
         with:
-          name: V72-PULLBACK-GATE
-          path: control/HarmonyBot-V71/model
+          name: V72-PAYOFF-GATE
+          path: control/HarmonyBot-V71/payoff
       - uses: actions/download-artifact@v4
         with:
           name: v71-data-seed-${{ matrix.window }}
@@ -383,8 +383,8 @@ jobs:
           retention-days: 30
 
   calibration_analyze:
-    needs: [calibration, v51_reference, fit_model, replay_gate]
-    if: ${{ always() && needs.v51_reference.result == 'success' && needs.fit_model.result == 'success' && needs.replay_gate.result == 'success' && (needs.calibration.result == 'success' || needs.fit_model.outputs.crossfit_gate != 'true') }}
+    needs: [calibration, v51_reference, payoff_gate, replay_gate]
+    if: ${{ always() && needs.v51_reference.result == 'success' && needs.payoff_gate.result == 'success' && needs.replay_gate.result == 'success' && (needs.calibration.result == 'success' || needs.payoff_gate.outputs.pass != 'true') }}
     runs-on: ubuntu-24.04
     outputs:
       candidate: ${{ steps.pick.outputs.candidate }}
@@ -395,7 +395,7 @@ jobs:
           ref: ${{ github.sha }}
           path: control
       - uses: actions/download-artifact@v4
-        if: ${{ needs.fit_model.outputs.crossfit_gate == 'true' }}
+        if: ${{ needs.payoff_gate.outputs.pass == 'true' }}
         with:
           pattern: 'v71-cal-*'
           path: merged
@@ -407,7 +407,7 @@ jobs:
           merge-multiple: true
       - uses: actions/download-artifact@v4
         with:
-          name: V72-PULLBACK-GATE
+          name: V72-PAYOFF-GATE
           path: model
       - name: Freeze candidate
         id: pick
@@ -415,7 +415,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p final
-          python3 control/HarmonyBot-V71/tools/calibrate_v71.py merged final model/MODEL_MANIFEST.json
+          python3 control/HarmonyBot-V71/tools/calibrate_v71.py merged final payoff/PAYOFF_MANIFEST.json
           echo "candidate=$(cat final/candidate.txt)" >> "$GITHUB_OUTPUT"
           echo "dev_matrix=$(tr -d '\n' < final/dev_matrix.json)" >> "$GITHUB_OUTPUT"
       - uses: actions/upload-artifact@v4
@@ -497,7 +497,7 @@ jobs:
           path: control/HarmonyBot-V71/shared
       - uses: actions/download-artifact@v4
         with:
-          name: V72-PULLBACK-GATE
+          name: V72-PAYOFF-GATE
           path: control/HarmonyBot-V71/model
       - uses: actions/download-artifact@v4
         with:
