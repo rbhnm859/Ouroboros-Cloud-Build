@@ -36,7 +36,7 @@ namespace cAlgo.Robots
             public double HcapQ, HcapLcb, HcapHoldBars;
             public double ProofBodyAtr, ProofRejectionRatio, ProofSweepDepthAtr, ProofReclaimAtr, ProofBosAtr, ProofRetestAtr;
             public bool HcapSelected = true;
-            public string HcapFeatureCsv = "", V74FeatureCsv = "", V74LiveProtectionKey = "NONE";
+            public string HcapFeatureCsv = "", V74FeatureCsv = "", V74LiveProtectionKey = "NONE", V74LiveReactionKey = "NONE";
             public int BarsActive;
             public int[] V74ProtectionTriggerBar = Enumerable.Repeat(-1, 5).ToArray();
             public double[] V74ProtectionOutcomeR = Enumerable.Repeat(double.NaN, 5).ToArray();
@@ -195,7 +195,8 @@ namespace cAlgo.Robots
             Print("[V72-HCOG-PROVED] id={0} family={1} lane={2} dir={3} entry={4:F5} stop={5:F5} target={6:F5} netRR={7:F4} coreOverlap={8} abcd={9}",
                 o.Id,o.Family,o.Lane,o.Direction,o.Entry,o.Stop,o.Target,o.NetRr,o.CoreOverlapAtEntry,o.HasAbcdConfluence);
             bool v74StandaloneCapital=o.StandaloneAbcd&&(EnableV74ExternalPolicy||EnableV74EmbeddedPolicy)&&o.HcapSelected;
-            if((o.CapitalSemantic||v74StandaloneCapital)&&EnableV71ExpansionExecution&&((!EnableV72HcapAlpha&&!EnableV74ExternalPolicy&&!EnableV74EmbeddedPolicy)||o.HcapSelected))V72HcogQueueCapital(o,utc);
+            bool deferForReaction=(EnableV74ExternalPolicy||EnableV74EmbeddedPolicy)&&o.HcapSelected&&!string.IsNullOrWhiteSpace(o.V74LiveReactionKey)&&o.V74LiveReactionKey!="NONE";
+            if(!deferForReaction&&(o.CapitalSemantic||v74StandaloneCapital)&&EnableV71ExpansionExecution&&((!EnableV72HcapAlpha&&!EnableV74ExternalPolicy&&!EnableV74EmbeddedPolicy)||o.HcapSelected))V72HcogQueueCapital(o,utc);
             return true;
         }
 
@@ -365,6 +366,20 @@ namespace cAlgo.Robots
         }
 
 
+        private void V74QueueReactionCapital(V72HcogOpportunity o,DateTime utc,double entry,double stop,double target,double risk,double rr,string reactionKey)
+        {
+            if(o==null||o.CapitalQueued||!EnableV71ExpansionExecution||!o.HcapSelected)return;
+            if(string.IsNullOrWhiteSpace(o.V74LiveReactionKey)||o.V74LiveReactionKey=="NONE"||
+               !string.Equals(o.V74LiveReactionKey,reactionKey,StringComparison.OrdinalIgnoreCase))return;
+            double oldEntry=o.Entry,oldStop=o.Stop,oldTarget=o.Target,oldRisk=o.RiskDistance,oldRr=o.NetRr;
+            DateTime oldEntryUtc=o.EntryUtc;
+            o.Entry=entry;o.Stop=stop;o.Target=target;o.RiskDistance=risk;o.NetRr=rr;o.EntryUtc=utc;
+            V72HcogQueueCapital(o,utc);
+            o.Entry=oldEntry;o.Stop=oldStop;o.Target=oldTarget;o.RiskDistance=oldRisk;o.NetRr=oldRr;o.EntryUtc=oldEntryUtc;
+            if(o.CapitalQueued)Print("[V74-RCR-CAPITAL-QUEUE] id={0} setup={1} key={2} entry={3:F5} stop={4:F5} target={5:F5} rr={6:F4}",
+                o.Id,o.SetupKey,reactionKey,entry,stop,target,rr);
+        }
+
         private void V74UpdateReactionConfirmedReentry(V72HcogOpportunity o,int i,bool nativeStop,bool nativeTarget)
         {
             if(o==null||o.RiskDistance<=0||i<0||i>=_m1Bars.Count)return;
@@ -400,6 +415,8 @@ namespace cAlgo.Robots
                     o.V74RcrRisk[k]=risk;o.V74RcrNetRr[k]=rr;o.V74RcrBars[k]=0;
                     Print("[V74-RCR-ARM] id={0} setup={1} family={2} lane={3} key={4} entry={5:F5} stop={6:F5} target={7:F5} rr={8:F4}",
                         o.Id,o.SetupKey,o.Family,o.Lane,V74RcrKey[k],entry,stop,o.Target,rr);
+                    DateTime reactionEntryUtc=DateTime.SpecifyKind(_m1Bars.OpenTimes[i],DateTimeKind.Utc);
+                    V74QueueReactionCapital(o,reactionEntryUtc,entry,stop,o.Target,risk,rr,V74RcrKey[k]);
                     continue; // completed-bar entry: no same-bar outcome
                 }
                 o.V74RcrBars[k]++;
