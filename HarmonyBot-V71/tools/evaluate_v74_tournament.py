@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 import json,math,pathlib,statistics,sys
-from v74_model_lib import load_rows,metrics,TRAINERS,predict
+from v74_model_lib import load_rows,metrics,TRAINERS,predict,train_protection,apply_protection,PROTECTION_KEYS
 
 root=pathlib.Path(sys.argv[1]); out=pathlib.Path(sys.argv[2]); out.mkdir(parents=True,exist_ok=True)
 RESEARCH=[f"Y{y}" for y in range(2016,2021)]
@@ -45,19 +45,34 @@ def calibrate_threshold(name,model,tr):
     selected=[x for x in selected if x["base_eligible"] and x["score"]>=threshold]
     return threshold,selected
 
-models_blob={"architecture":"V74_ALPHA_TOURNAMENT_CAUSAL_STATE_40D","models":{}}
-summary={"version":"HarmonyBot V74 Candidate","architecture":"CAUSAL_STATE_40D_FIXED_TRAINING_QUANTILE_TOURNAMENT",
+def protection_summary(xs):
+    d={k:0 for k in ["NONE"]+PROTECTION_KEYS}
+    for r in xs:d[r.get("protection_key","NONE")]=d.get(r.get("protection_key","NONE"),0)+1
+    return d
+
+def gate_metrics(m):
+    return bool(m["n"]>=MIN_N and m["mean_r"]>=MIN_MEAN and m["pf_r"]>=MIN_PF and
+                m["win_rate"]>=MIN_WR and m["average_rr"]>=MIN_RR and m["lcb_r"]>0)
+
+models_blob={"architecture":"V74_ALPHA_TOURNAMENT_CAUSAL_STATE_40D_PLUS_SEQUENTIAL_PROTECTION","models":{}}
+summary={"version":"HarmonyBot V74 Candidate",
+         "architecture":"CAUSAL_STATE_40D_FIXED_TRAINING_QUANTILE_PLUS_COMPLETED_BAR_SEQUENTIAL_PROTECTION",
          "research_training_windows":RESEARCH,"burned_oof_windows":BURNED,
          "selection_policy":{"training_score_quantile":SELECTION_QUANTILE,
                              "test_year_never_sets_threshold":True,
                              "pre_entry_features_only":True},
+         "protection_policy":{"keys":PROTECTION_KEYS,
+                              "decision":"TRAINING_ONLY_DELTA_MODEL_LCB95_GT_0_AND_SUPPORT_GE_20",
+                              "activation":"NEXT_COMPLETED_M1_BAR_AFTER_MILESTONE",
+                              "same_bar_ambiguity":"PROTECTIVE_FLOOR_FIRST_CONSERVATIVE",
+                              "no_stop_widening":True},
          "gate":{"min_selected_per_year":MIN_N,"min_mean_r":MIN_MEAN,"min_pf_r":MIN_PF,
                  "min_win_rate":MIN_WR,"min_average_rr":MIN_RR,"lcb95_gt":0.0},
          "models":{},"validation_used":False,"fresh_used":False}
 
 passers=[]
 for name,trainer in TRAINERS.items():
-    folds={}; fold_models={}
+    folds={}; fold_models={}; fold_protection={}
     for test in BURNED:
         train_windows=RESEARCH+[w for w in BURNED if w!=test]
         tr=[r for r in rows if r["window"] in train_windows]
@@ -65,10 +80,15 @@ for name,trainer in TRAINERS.items():
         model=trainer(tr)
         threshold,training_selected=calibrate_threshold(name,model,tr)
         fold_models[test]=model
+
+        protection_models={k:train_protection(training_selected,k) for k in PROTECTION_KEYS}
+        fold_protection[test]=protection_models
+
         abcd_train=metrics([r for r in training_selected if r["family"]=="ABCD"])
         abcd_training_capital_eligible=bool(abcd_train["n"]>=ABCD_TRAIN_MIN_N and abcd_train["mean_r"]>0 and
                                             abcd_train["pf_r"]>=ABCD_TRAIN_MIN_PF and abcd_train["lcb_r"]>0)
-        selected=[]
+
+        selected_native=[]
         for r in te:
             z=predict(name,model,r)
             if not z.get("selected"):continue
@@ -76,32 +96,48 @@ for name,trainer in TRAINERS.items():
             q=dict(r); q.update({"pred_mean":z.get("mean",0.0),"pred_win":z.get("win",0.0),
                                  "pred_lcb":z.get("lcb",-999.0),"pred_hold":z.get("hold",180.0),
                                  "support":z.get("support",0),"score":z.get("score",-999.0)})
-            selected.append(q)
+            selected_native.append(q)
+
+        native_metrics=metrics(selected_native)
+        selected=[apply_protection(protection_models,r) for r in selected_native]
         m=metrics(selected)
-        m["pass"]=bool(m["n"]>=MIN_N and m["mean_r"]>=MIN_MEAN and m["pf_r"]>=MIN_PF and
-                       m["win_rate"]>=MIN_WR and m["average_rr"]>=MIN_RR and m["lcb_r"]>0)
+        m["pass"]=gate_metrics(m)
+        m["native_metrics"]=native_metrics
         m["training_windows"]=train_windows
         m["selection_threshold"]=threshold
         m["training_selected_metrics"]=metrics(training_selected)
+        m["protection_counts"]=protection_summary(selected)
+        m["protection_delta_mean_r"]=m["mean_r"]-native_metrics["mean_r"]
+        m["protection_delta_pf_r"]=m["pf_r"]-native_metrics["pf_r"]
+        m["protection_delta_win_rate"]=m["win_rate"]-native_metrics["win_rate"]
         m["abcd_training_metrics"]=abcd_train
         m["abcd_training_capital_eligible"]=abcd_training_capital_eligible
-        m["abcd_oof_selected_metrics"]=metrics([r for r in selected if r["family"]=="ABCD"])
+        m["abcd_oof_native_metrics"]=metrics([r for r in selected_native if r["family"]=="ABCD"])
+        m["abcd_oof_protected_metrics"]=metrics([r for r in selected if r["family"]=="ABCD"])
         folds[test]=m
+
     model_pass=all(folds[w]["pass"] for w in BURNED)
     worst_lcb=min(folds[w]["lcb_r"] for w in BURNED)
     avg_hold=statistics.mean(max(.25,folds[w]["median_hold_bars"]/60.0) for w in BURNED)
     score=worst_lcb/max(.25,avg_hold)
+
     final_model=trainer(rows)
     final_threshold,final_training_selected=calibrate_threshold(name,final_model,rows)
+    final_protection={k:train_protection(final_training_selected,k) for k in PROTECTION_KEYS}
+    final_protected=[apply_protection(final_protection,r) for r in final_training_selected]
     abcd_final_train=metrics([r for r in final_training_selected if r["family"]=="ABCD"])
     abcd_final_eligible=bool(abcd_final_train["n"]>=ABCD_TRAIN_MIN_N and abcd_final_train["mean_r"]>0 and
                              abcd_final_train["pf_r"]>=ABCD_TRAIN_MIN_PF and abcd_final_train["lcb_r"]>0)
     final_model["abcd_training_capital_eligible"]=abcd_final_eligible
-    models_blob["models"][name]={"folds":fold_models,"final":final_model,
+
+    models_blob["models"][name]={"folds":fold_models,"protection_folds":fold_protection,
+                                  "final":final_model,"protection_final":final_protection,
                                   "abcd_final_capital_eligible":abcd_final_eligible}
     summary["models"][name]={"folds":folds,"pass":model_pass,
                               "final_selection_threshold":final_threshold,
                               "final_training_selected_metrics":metrics(final_training_selected),
+                              "final_training_protected_metrics":metrics(final_protected),
+                              "final_protection_counts":protection_summary(final_protected),
                               "abcd_final_training_metrics":abcd_final_train,
                               "abcd_final_capital_eligible":abcd_final_eligible,
                               "champion_score_worst_lcb_per_slot_hour":score}
@@ -111,12 +147,12 @@ passers.sort(key=lambda x:(x[0],x[1]),reverse=True)
 champion=passers[0][1] if passers else None
 summary["v74_gate"]=champion is not None
 summary["champion"]=champion
-summary["champion_selection"]="HIGHEST_WORST_YEAR_LCB_PER_EXPECTED_SLOT_HOUR_AMONG_3OF3_PASSERS"
+summary["champion_selection"]="HIGHEST_WORST_YEAR_PROTECTED_LCB_PER_EXPECTED_SLOT_HOUR_AMONG_3OF3_PASSERS"
 summary["abcd_policy"]={"training_selected_subset_eligibility":True,"min_training_n":ABCD_TRAIN_MIN_N,
                         "min_training_pf_r":ABCD_TRAIN_MIN_PF,"mean_r_gt":0.0,"lcb95_gt":0.0,
-                        "rule":"STANDALONE_ABCD_CAN_ENTER_TEST_YEAR_ONLY_IF_THE_FROZEN_MODEL_SELECTED_ABCD_SUBSET_IN_PRIOR_TRAINING_WINDOWS_PROVES_POSITIVE_MEAN_PF_AND_LCB;_TEST_YEAR_NEVER_CONTROLS_ELIGIBILITY"}
-summary["gate_semantics"]="EACH_BURNED_YEAR_N_GE_250_MEAN_R_GE_0P90_PF_R_GE_3P30_WR_GE_70PCT_AVG_RR_GE_2P30_LCB95_GT_0__FIXED_TRAINING_SCORE_QUANTILE__ABCD_SUBSET_REQUIRES_PRIOR_TRAINING_PROOF"
-summary["positive_asset"]="A_FORMALLY_OOF_ALPHA_CHAMPION_WITH_BUFFER_ABOVE_FINAL_COMMERCIAL_TARGETS" if champion else "NO_MODEL_EARNED_VERSION_PROMOTION"
+                        "rule":"STANDALONE_ABCD_CAN_ENTER_TEST_YEAR_ONLY_IF_FROZEN_ENTRY_MODEL_SELECTED_ABCD_SUBSET_IN_PRIOR_TRAINING_WINDOWS_PROVES_POSITIVE_NATIVE_MEAN_PF_AND_LCB;_TEST_YEAR_NEVER_CONTROLS_ELIGIBILITY"}
+summary["gate_semantics"]="EACH_BURNED_YEAR_N_GE_250_PROTECTED_MEAN_R_GE_0P90_PF_R_GE_3P30_WR_GE_70PCT_AVG_RR_GE_2P30_LCB95_GT_0__ENTRY_AND_PROTECTION_BOTH_TRAIN_ONLY__NO_LOOKAHEAD"
+summary["positive_asset"]="A_FORMALLY_OOF_ALPHA_PLUS_PROTECTION_CHAMPION_WITH_BUFFER_ABOVE_FINAL_COMMERCIAL_TARGETS" if champion else "NO_MODEL_EARNED_VERSION_PROMOTION"
 
 (out/"V74_TOURNAMENT_MANIFEST.json").write_text(json.dumps(summary,indent=2))
 (out/"V74_MODELS.json").write_text(json.dumps(models_blob,separators=(",",":")))
