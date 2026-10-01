@@ -67,7 +67,19 @@ jobs:
               HarmonyBot-V71/tools/generate_v74_embedded_cs.py|\
               HarmonyBot-V71/evidence/V74_FAST_REPLAY_SOURCE.json|\
               .github/workflows/harmonybot-v74-fast-replay.yml|\
+              .github/workflows/harmonybot-v74-rapid-decision.yml|\
               .github/workflows/harmonybot-v73-v80-autonomous-evidence-pipeline.yml)
+                ;;
+              HarmonyBot-V71/src/*.cs)
+                if git diff -w --ignore-blank-lines \
+                     -I '^[[:space:]]*//' \
+                     -I '^[[:space:]]*/\*' \
+                     -I '^[[:space:]]*\*' \
+                     --quiet "$BEFORE" "$AFTER" -- "$p"; then
+                  echo "[SEMANTIC-CHANGE-GATE] comment/whitespace-only C# change ignored: $p"
+                else
+                  FULL=true
+                fi
                 ;;
               HarmonyBot-V71/*|HarmonyBot-V73/*)
                 FULL=true
