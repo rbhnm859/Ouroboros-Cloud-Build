@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 import json,math,pathlib,statistics,sys
-from v74_model_lib import load_rows,metrics,TRAINERS,predict,train_protection,apply_protection,PROTECTION_KEYS,RCR_KEYS
+from v74_model_lib import load_rows,metrics,TRAINERS,predict,train_protection,apply_protection,PROTECTION_KEYS,RCR_KEYS,HYBRID_KEYS
 
 root=pathlib.Path(sys.argv[1]); out=pathlib.Path(sys.argv[2]); out.mkdir(parents=True,exist_ok=True)
 RESEARCH=[f"Y{y}" for y in range(2016,2021)]
@@ -72,7 +72,13 @@ summary={"version":"HarmonyBot V74 Candidate",
          "rcr_policy":{"routes":RCR_KEYS,
                        "capital_entry":"REACTION_THEN_COMPLETED_BAR_RETRACE_RECLAIM",
                        "route_selection":"TRAINING_ONLY",
-                       "minimum_net_rr_unchanged":True}}
+                       "minimum_net_rr_unchanged":True},
+         "hybrid_survival_policy":{"routes":HYBRID_KEYS,
+                                   "early_adverse_cut":"COMPLETED_M1_CLOSE_ONLY_BEFORE_POSITIVE_REACTION",
+                                   "profit_frontier":"NEXT_BAR_ARMED_025_050_075_100_150_STAIRCASE",
+                                   "runner_target":"UNCHANGED_CANONICAL_TARGET",
+                                   "selection":"TRAINING_ONLY_WORST_YEAR_LCB_WITH_AVG_RR_GE_2P30",
+                                   "no_stop_widening":True}}
 
 passers=[]
 for name,trainer in TRAINERS.items():
@@ -242,6 +248,93 @@ for rcr_name,hierarchical in [("D_REACTION_CONFIRMED_REENTRY_GLOBAL",False),
                                  "champion_score_worst_lcb_per_slot_hour":score}
     if model_pass:passers.append((score,rcr_name))
 
+
+def with_hybrid_outcome(r,key):
+    v=r.get("hybrid",{}).get(key)
+    if v is None or not math.isfinite(float(v)):return None
+    q=dict(r);q["native_r"]=r["r"];q["r"]=float(v);q["hybrid_key"]=key
+    return q
+
+def hybrid_metric_rows(xs,key,family=None,action=None):
+    out=[]
+    for r in xs:
+        if family is not None and r["family"]!=family:continue
+        if action is not None and r["action"]!=action:continue
+        q=with_hybrid_outcome(r,key)
+        if q is not None:out.append(q)
+    return out
+
+def choose_hybrid_policy(train_selected,train_windows):
+    candidates=[]
+    for key in HYBRID_KEYS:
+        agg=metrics(hybrid_metric_rows(train_selected,key))
+        yearly=[]
+        for w in train_windows:
+            ym=metrics(hybrid_metric_rows([r for r in train_selected if r["window"]==w],key))
+            if ym["n"]>=80:yearly.append(ym)
+        if agg["n"]<300 or agg["average_rr"]<MIN_RR or len(yearly)<4:continue
+        worst_lcb=min(z["lcb_r"] for z in yearly)
+        worst_mean=min(z["mean_r"] for z in yearly)
+        candidates.append((worst_lcb,worst_mean,agg["lcb_r"],agg["mean_r"],agg["pf_r"],agg["win_rate"],key,agg))
+    candidates.sort(reverse=True)
+    return candidates[0][6] if candidates else None
+
+def base_selected_rows(base_name,model,xs):
+    return [r for r in xs if predict(base_name,model,r).get("selected")]
+
+for hybrid_name,base_name in [
+    ("F_HYBRID_SURVIVAL_HIERARCHICAL","A_HIERARCHICAL_COMPETING_RISK"),
+    ("G_HYBRID_SURVIVAL_STUMPS","B_BOUNDED_GRADIENT_STUMPS"),
+    ("H_HYBRID_SURVIVAL_MANIFOLD","C_CONFORMAL_STATE_MANIFOLD")]:
+    folds={};fold_policies={}
+    base_pack=models_blob["models"][base_name]
+    for test in BURNED:
+        train_windows=RESEARCH+[w for w in BURNED if w!=test]
+        tr=[r for r in rows if r["window"] in train_windows]
+        te=[r for r in rows if r["window"]==test]
+        base_model=base_pack["folds"][test]
+        training_selected=base_selected_rows(base_name,base_model,tr)
+        hybrid_key=choose_hybrid_policy(training_selected,train_windows)
+        hybrid_train=hybrid_metric_rows(training_selected,hybrid_key) if hybrid_key else [dict(r) for r in training_selected]
+        abcd_train=metrics([r for r in hybrid_train if r["family"]=="ABCD"])
+        abcd_allowed=bool(abcd_train["n"]>=ABCD_TRAIN_MIN_N and abcd_train["mean_r"]>0 and
+                          abcd_train["pf_r"]>=ABCD_TRAIN_MIN_PF and abcd_train["lcb_r"]>0)
+        test_native=base_selected_rows(base_name,base_model,te)
+        if not abcd_allowed:test_native=[r for r in test_native if r["family"]!="ABCD"]
+        selected=hybrid_metric_rows(test_native,hybrid_key) if hybrid_key else [dict(r) for r in test_native]
+        m=metrics(selected);m["pass"]=gate_metrics(m);m["training_windows"]=train_windows
+        m["base_model"]=base_name;m["hybrid_key"]=hybrid_key
+        m["training_selected_native_metrics"]=metrics(training_selected)
+        m["training_selected_hybrid_metrics"]=metrics(hybrid_train)
+        m["native_oof_metrics"]=metrics(test_native)
+        m["abcd_training_metrics"]=abcd_train
+        m["abcd_training_capital_eligible"]=abcd_allowed
+        folds[test]=m
+        fold_policies[test]={"base_model":base_name,"hybrid_key":hybrid_key,"abcd_capital_eligible":abcd_allowed}
+    model_pass=all(folds[w]["pass"] for w in BURNED)
+    worst_lcb=min(folds[w]["lcb_r"] for w in BURNED)
+    avg_hold=statistics.mean(max(.25,folds[w]["median_hold_bars"]/60.0) for w in BURNED)
+    score=worst_lcb/max(.25,avg_hold)
+    final_model=base_pack["final"]
+    final_native=base_selected_rows(base_name,final_model,rows)
+    final_key=choose_hybrid_policy(final_native,ALL)
+    final_selected=hybrid_metric_rows(final_native,final_key) if final_key else [dict(r) for r in final_native]
+    final_abcd=metrics([r for r in final_selected if r["family"]=="ABCD"])
+    final_abcd_allowed=bool(final_abcd["n"]>=ABCD_TRAIN_MIN_N and final_abcd["mean_r"]>0 and
+                            final_abcd["pf_r"]>=ABCD_TRAIN_MIN_PF and final_abcd["lcb_r"]>0)
+    models_blob["models"][hybrid_name]={"type":"HYBRID_SURVIVAL_FRONTIER",
+                                        "base_model":base_name,
+                                        "folds":fold_policies,
+                                        "final":{"base_model":base_name,"hybrid_key":final_key},
+                                        "abcd_final_capital_eligible":final_abcd_allowed}
+    summary["models"][hybrid_name]={"folds":folds,"pass":model_pass,
+                                    "base_model":base_name,"final_hybrid_key":final_key,
+                                    "final_training_metrics":metrics(final_selected),
+                                    "abcd_final_training_metrics":final_abcd,
+                                    "abcd_final_capital_eligible":final_abcd_allowed,
+                                    "champion_score_worst_lcb_per_slot_hour":score}
+    if model_pass:passers.append((score,hybrid_name))
+
 passers.sort(key=lambda x:(x[0],x[1]),reverse=True)
 champion=passers[0][1] if passers else None
 summary["v74_gate"]=champion is not None
@@ -250,7 +343,7 @@ summary["champion_selection"]="HIGHEST_WORST_YEAR_PROTECTED_LCB_PER_EXPECTED_SLO
 summary["abcd_policy"]={"training_selected_subset_eligibility":True,"min_training_n":ABCD_TRAIN_MIN_N,
                         "min_training_pf_r":ABCD_TRAIN_MIN_PF,"mean_r_gt":0.0,"lcb95_gt":0.0,
                         "rule":"STANDALONE_ABCD_CAN_ENTER_TEST_YEAR_ONLY_IF_FROZEN_ENTRY_MODEL_SELECTED_ABCD_SUBSET_IN_PRIOR_TRAINING_WINDOWS_PROVES_POSITIVE_NATIVE_MEAN_PF_AND_LCB;_TEST_YEAR_NEVER_CONTROLS_ELIGIBILITY"}
-summary["gate_semantics"]="EACH_BURNED_YEAR_N_GE_250_PROTECTED_MEAN_R_GE_0P90_PF_R_GE_3P30_WR_GE_70PCT_AVG_RR_GE_2P30_LCB95_GT_0__ENTRY_AND_PROTECTION_BOTH_TRAIN_ONLY__NO_LOOKAHEAD"
+summary["gate_semantics"]="EACH_BURNED_YEAR_N_GE_250_PROTECTED_MEAN_R_GE_0P90_PF_R_GE_3P30_WR_GE_70PCT_AVG_RR_GE_2P30_LCB95_GT_0__ENTRY_EXIT_AND_HYBRID_POLICY_ALL_TRAIN_ONLY__NO_LOOKAHEAD"
 summary["positive_asset"]="A_FORMALLY_OOF_ALPHA_PLUS_PROTECTION_CHAMPION_WITH_BUFFER_ABOVE_FINAL_COMMERCIAL_TARGETS" if champion else "NO_MODEL_EARNED_VERSION_PROMOTION"
 
 (out/"V74_TOURNAMENT_MANIFEST.json").write_text(json.dumps(summary,indent=2))
