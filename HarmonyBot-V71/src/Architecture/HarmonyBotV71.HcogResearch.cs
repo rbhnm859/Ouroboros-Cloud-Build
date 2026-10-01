@@ -38,14 +38,15 @@ namespace cAlgo.Robots
         private static readonly bool[] V74HighConvictionRequireDirectional = { false, true, false, true };
         private static readonly string[] V74HighConvictionKey = { "HC175_HOLD", "HC175_DIR", "HC200_HOLD", "HC200_DIR" };
 
-        // V74 early-capital causal survival ladder.
-        // Run #68 proves any second-shadow delayed-capital semantics is infeasible even
-        // under label-only oracle selection (2023 top-250 MeanR ~0.55, WR ~23%).
-        // Capital therefore returns to the earlier causal 0.25R/0.50R reaction + later
-        // completed-M1 hold. The INITIAL noise budget is widened to legal 2.4/2.6/2.8R
-        // geometry, bounded by structural invalidation. After entry, completed-bar
-        // first-passage persistence can only tighten a monotone floor while the canonical
-        // target remains unchanged. No partial exit, no Grid/DCA/recovery, no stop widening.
+        // V74 close-only profit-frontier reconstruction.
+        // Run #69 proves the early 2.4R/2.6R/2.8R noise budget is directionally correct,
+        // but intrabar protective floors cut too much right-tail payoff: even label-only
+        // best-route-per-setup top-250 reaches only ~0.779R in 2023. Run #66's sparse
+        // protection retained ~0.894R, so the next falsifiable change is execution
+        // semantics, not classifier complexity: first-passage + later persistence still
+        // arms a monotone frontier, but the frontier exits ONLY on a completed M1 close.
+        // Structural stop and canonical target remain real intrabar orders (stop-first on
+        // ambiguous bars). No partial exit, Grid/DCA/recovery, or post-entry stop widening.
         private static readonly double[] V74SequentialReactionR = {
             .25,.25,.50,.50, .25,.25,.50,.50, .25,.25,.50,.50
         };
@@ -65,9 +66,9 @@ namespace cAlgo.Robots
             -.20,-.20,-.20,-.20, -.20,-.20,-.20,-.20, -.20,-.20,-.20,-.20
         };
         private static readonly string[] V74SequentialKey = {
-            "L_R025_H_RR24","L_R025_D_RR24","L_R050_H_RR24","L_R050_D_RR24",
-            "L_R025_H_RR26","L_R025_D_RR26","L_R050_H_RR26","L_R050_D_RR26",
-            "L_R025_H_RR28","L_R025_D_RR28","L_R050_H_RR28","L_R050_D_RR28"
+            "PF_R025_H_RR24","PF_R025_D_RR24","PF_R050_H_RR24","PF_R050_D_RR24",
+            "PF_R025_H_RR26","PF_R025_D_RR26","PF_R050_H_RR26","PF_R050_D_RR26",
+            "PF_R025_H_RR28","PF_R025_D_RR28","PF_R050_H_RR28","PF_R050_D_RR28"
         };
 
         private sealed class V72HcogOpportunity
@@ -757,22 +758,23 @@ namespace cAlgo.Robots
                                    :(o.V74SequentialEntry[k]-low)/o.V74SequentialRisk[k];
                 double routeCloseR=(buy?close-o.V74SequentialEntry[k]:o.V74SequentialEntry[k]-close)/o.V74SequentialRisk[k];
 
-                // An already-active floor resolves before any later same-bar favorable
-                // evidence. Each floor is activated only after a prior first-passage bar
-                // and a later completed close proves persistence.
-                if(o.V74SequentialActiveStage[k]>=0&&o.V74SequentialBars[k]>o.V74SequentialLockBar[k])
-                {
-                    double floorR=o.V74SequentialActiveFloorR[k];
-                    double floor=buy?o.V74SequentialEntry[k]+o.V74SequentialRisk[k]*floorR
-                                    :o.V74SequentialEntry[k]-o.V74SequentialRisk[k]*floorR;
-                    bool floorHit=buy?low<=floor:high>=floor;
-                    if(floorHit){o.V74SequentialOutcomeR[k]=floorR;o.V74SequentialActive[k]=false;continue;}
-                }
-
+                // Real broker-risk orders resolve first. If structural stop and target
+                // share a bar, stop is conservatively first. A soft profit frontier never
+                // assumes an intrabar fill and therefore cannot pre-empt a target hit.
                 bool stopHit=buy?low<=o.V74SequentialStop[k]:high>=o.V74SequentialStop[k];
                 bool targetHit=buy?high>=o.V74SequentialTarget[k]:low<=o.V74SequentialTarget[k];
                 if(stopHit){o.V74SequentialOutcomeR[k]=-1.0;o.V74SequentialActive[k]=false;continue;}
                 if(targetHit){o.V74SequentialOutcomeR[k]=o.V74SequentialNetRr[k];o.V74SequentialActive[k]=false;continue;}
+
+                // Once a frontier was armed by PRIOR completed-bar evidence, only a later
+                // completed close below that frontier can terminate the runner. Exit is
+                // recorded at the actual close R, never at an optimistic floor price.
+                if(o.V74SequentialActiveStage[k]>=0&&o.V74SequentialBars[k]>o.V74SequentialLockBar[k]
+                   &&routeCloseR+1e-12<o.V74SequentialActiveFloorR[k])
+                {
+                    o.V74SequentialOutcomeR[k]=Math.Max(-1.0,Math.Min(o.V74SequentialNetRr[k],routeCloseR));
+                    o.V74SequentialActive[k]=false;continue;
+                }
 
                 if(o.V74SequentialActiveStage[k]<0&&routeCloseR<=V74SequentialAdverseCutR[k])
                 {
