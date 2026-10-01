@@ -17,6 +17,9 @@ namespace cAlgo.Robots
         [Parameter("Enable V74 External Frozen Policy", DefaultValue = false)]
         public bool EnableV74ExternalPolicy { get; set; }
 
+        [Parameter("Enable V74 Embedded Frozen Policy", DefaultValue = false)]
+        public bool EnableV74EmbeddedPolicy { get; set; }
+
         [Parameter("V74 Allowed Setup Hashes", DefaultValue = "")]
         public string V74AllowedSetupHashes { get; set; }
 
@@ -72,6 +75,27 @@ namespace cAlgo.Robots
             _v74HoldBars=V74ParseMap(V74PolicyHoldBars);
             Print("[V74-EXTERNAL-POLICY] allowed={0} utility={1} hold={2}",
                 _v74AllowedHashes.Count,_v74Utility.Count,_v74HoldBars.Count);
+        }
+
+        // Optional generated implementation is compiled into the post-V77 .algo.
+        // With no generated implementation the call is erased by the compiler.
+        partial void V74EmbeddedScore(V72HcogOpportunity o, ref bool handled, ref bool selected,
+            ref double mean, ref double lcb, ref double holdBars);
+
+        private void V74FrozenPolicyScoreOpportunity(V72HcogOpportunity o)
+        {
+            if(o==null)return;
+            bool handled=false,selected=false; double mean=0,lcb=0,hold=180;
+            if(EnableV74EmbeddedPolicy)
+                V74EmbeddedScore(o,ref handled,ref selected,ref mean,ref lcb,ref hold);
+            if(handled)
+            {
+                o.HcapQ=mean;o.HcapLcb=lcb;o.HcapHoldBars=Math.Max(1,hold);o.HcapSelected=selected;
+                Print("[V74-EMBEDDED-POLICY] id={0} setupHash={1} family={2} lane={3} mean={4:F9} lcb={5:F9} holdBars={6:F3} selected={7}",
+                    o.Id,V74SetupHash(o.SetupKey),o.Family,o.Lane,mean,lcb,o.HcapHoldBars,selected);
+                return;
+            }
+            V74ExternalPolicyScoreOpportunity(o);
         }
 
         private void V74ExternalPolicyScoreOpportunity(V72HcogOpportunity o)
