@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-import argparse,json,pathlib,re,statistics,hashlib
+import argparse,json,pathlib,re,statistics,hashlib,datetime
 ap=argparse.ArgumentParser()
 for x in ("report","log","out","window","variant"): ap.add_argument("--"+x,required=True)
 ap.add_argument("--years",type=float,required=True); ap.add_argument("--balance",type=float,required=True)
@@ -84,6 +84,14 @@ rows=[]
 for bid,z in sorted(groups.items(),key=lambda kv:(kv[1]["first_entry"],kv[0])):
  q=log_by_basket.get(bid,{})
  cid=z["cid"] or q.get("cid") or ("CORE-REPORT-"+bid)
+ ts_ms=int(z.get("first_entry",0) or 0)
+ month=""
+ if ts_ms>0:
+  try:
+   sec=ts_ms/1000.0 if ts_ms>100000000000 else float(ts_ms)
+   month=datetime.datetime.fromtimestamp(sec,datetime.timezone.utc).strftime("%Y-%m")
+  except Exception:
+   month=""
  rows.append({"cid":cid,"basket_id":bid,
               "setup":z["setup"] or q.get("setup") or ("BASKET:"+bid),
               "pattern":z["pattern"] or q.get("pattern") or "UNKNOWN",
@@ -92,7 +100,8 @@ for bid,z in sorted(groups.items(),key=lambda kv:(kv[1]["first_entry"],kv[0])):
               "direction":z["direction"] or q.get("direction","UNKNOWN"),
               "mfe":q.get("mfe",0.0),"mae":q.get("mae",0.0),"r":q.get("r",0.0),
               "net":z["net"],"reason":q.get("reason","RAW_REPORT_HISTORY"),
-              "fills":z["fills"],"economic_source":"RAW_REPORT_HISTORY"})
+              "fills":z["fills"],"first_entry_ms":ts_ms,"month":month,
+              "economic_source":"RAW_REPORT_HISTORY"})
 
 def metrics(z):
  v=[x["net"] for x in z]; gp=sum(x for x in v if x>0); gl=-sum(x for x in v if x<0)
@@ -119,6 +128,22 @@ log_basket_ids={x["basket_id"] for x in log_rows}
 report_basket_ids=set(groups)
 log_basket_telemetry_complete=(log_basket_ids==report_basket_ids)
 logm=metrics(log_rows)
+
+# Commercial performance telemetry. Independent baskets, rather than grid legs,
+# are the anti-gaming definition of "trades" for the >=200/year release target.
+main=d.get("main",{}) if isinstance(d.get("main",{}),dict) else {}
+report_roi_pct=float(main.get("roi", allm["net"]/a.balance*100.0 if a.balance else 0.0) or 0.0)
+monthly_net={}
+for r in rows:
+ if r.get("month"): monthly_net[r["month"]]=monthly_net.get(r["month"],0.0)+float(r.get("net",0.0) or 0.0)
+positive_months=sum(v>0 for v in monthly_net.values())
+active_months=len(monthly_net)
+rr_values=[float(x.get("r",0.0) or 0.0) for x in log_rows]
+rr_wins=[x for x in rr_values if x>0]
+rr_losses=[-x for x in rr_values if x<0]
+avg_win_r=sum(rr_wins)/len(rr_wins) if rr_wins else 0.0
+avg_loss_r=sum(rr_losses)/len(rr_losses) if rr_losses else 0.0
+average_realized_rr=(avg_win_r/avg_loss_r) if avg_loss_r>0 else (999.0 if avg_win_r>0 else 0.0)
 
 pat=(r"\[V51-SUMMARY\].*?executionErrors=(\d+)\s+gridRiskViolations=(\d+)\s+duplicateGridLegs=(\d+)\s+"
  r"orphanPendingOrders=(\d+)\s+stopWideningViolations=(\d+)\s+gapThroughInvalidations=(\d+)\s+gapThroughSurvivors=(\d+)\s+"
@@ -201,6 +226,10 @@ out={"variant":a.variant,"window":a.window,"years":a.years,"starting_balance":a.
  "report_economic_integrity":report_economic_integrity,
  "report_history_net":report_history_net,"trade_statistics_net":trade_statistics_net,
  "report_history_items":len(history),"trade_statistics_total_trades":trade_statistics_total,
+ "report_baskets":len(rows),"independent_trades":len(rows),
+ "return_pct":report_roi_pct,"annualized_independent_trades":len(rows)/a.years if a.years else 0.0,
+ "monthly_net":monthly_net,"positive_months":positive_months,"active_months":active_months,
+ "avg_win_r":avg_win_r,"avg_loss_r":avg_loss_r,"average_realized_rr":average_realized_rr,
  "report_baskets":len(rows),"log_basket_rows_seen":len(log_rows),
  "log_basket_telemetry_complete":log_basket_telemetry_complete,"log_basket_metrics":logm,
  "log_basket_outcomes":log_rows,
@@ -213,4 +242,4 @@ out={"variant":a.variant,"window":a.window,"years":a.years,"starting_balance":a.
  "oracle_census":oracle_census,"oracle_summary":oracle_summary,"reject_attribution":reject_attribution,
  "expansion_summary":exp_summary,"payoff_census":payoff_census,"hcog_census":hcog_census,"hcog_summary":hcog_summary,**c}
 pathlib.Path(a.out).write_text(json.dumps(out,indent=2))
-print(json.dumps({k:out[k] for k in ["variant","window","baskets","net","pf","expectancy","win_rate","frequency","max_dd_pct","engineering_clean"]},indent=2))
+print(json.dumps({k:out[k] for k in ["variant","window","baskets","net","return_pct","pf","expectancy","win_rate","frequency","max_dd_pct","average_realized_rr","positive_months","engineering_clean"]},indent=2))
