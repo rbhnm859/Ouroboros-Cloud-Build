@@ -5,6 +5,7 @@ champ=tm.get("champion")
 if not champ: raise SystemExit("no V74 champion")
 pack=mb["models"][champ]
 m=pack["final"]
+protection=pack.get("protection_final",{})
 abcd_allowed=bool(pack.get("abcd_final_capital_eligible",
                   tm.get("models",{}).get(champ,{}).get("abcd_final_capital_eligible",False)))
 
@@ -91,6 +92,27 @@ elif champ=="C_CONFORMAL_STATE_MANIFOLD":
     ]
 else:
     raise SystemExit("unsupported champion "+champ)
+
+PROTECTION_KEYS=["025","050","075","100","150"]
+lines += [
+"        private readonly struct V74PStump { public readonly int J,LN,RN; public readonly double T,L,R; public V74PStump(int j,double t,double l,double r,int ln,int rn){J=j;T=t;L=l;R=r;LN=ln;RN=rn;} }",
+"        private sealed class V74PModel { public double Base,Sigma; public int MinSupport; public V74PStump[] S; }"
+]
+def pstumps(z):
+    return "new V74PStump[]{"+",".join(f"new V74PStump({int(v['j'])},{csnum(v['t'])},{csnum(v['l'])},{csnum(v['r'])},{int(v['ln'])},{int(v['rn'])})" for v in z.get("stumps",[]))+"}"
+for key in PROTECTION_KEYS:
+    pm=protection.get(key,{"base":0.0,"sigma":10.0,"min_support":20,"stumps":[]})
+    lines.append(f"        private static readonly V74PModel V74P{key}=new V74PModel{{Base={csnum(pm.get('base',0.0))},Sigma={csnum(pm.get('sigma',10.0))},MinSupport={int(pm.get('min_support',20))},S={pstumps(pm)}}};")
+lines += [
+"        private double V74PPred(V74PModel m,double[] x,out int support){double v=m.Base;support=int.MaxValue;foreach(var s in m.S){bool left=x[s.J]<=s.T;v+=left?s.L:s.R;support=Math.Min(support,left?s.LN:s.RN);}if(support==int.MaxValue)support=0;return v;}",
+"        partial void V74EmbeddedProtect(V72HcogOpportunity o, int milestoneIndex, double[] milestoneFeatures, ref bool handled, ref bool protect, ref double delta, ref double lcb)",
+"        {",
+"            handled=true;protect=false;delta=0;lcb=-999;if(o==null||milestoneFeatures==null||milestoneFeatures.Length!=12)return;",
+"            var a=V74ResearchFeatures(o);var x=new double[a.Length+milestoneFeatures.Length];Array.Copy(a,0,x,0,a.Length);Array.Copy(milestoneFeatures,0,x,a.Length,milestoneFeatures.Length);",
+"            V74PModel pm=milestoneIndex==0?V74P025:milestoneIndex==1?V74P050:milestoneIndex==2?V74P075:milestoneIndex==3?V74P100:V74P150;",
+"            int support;delta=V74PPred(pm,x,out support);double se=Math.Max(.05,pm.Sigma)/Math.Sqrt(Math.Max(1,support));lcb=delta-1.645*se;protect=support>=pm.MinSupport&&lcb>0;",
+"        }"
+]
 
 lines += [
 "        partial void V74EmbeddedScore(V72HcogOpportunity o, ref bool handled, ref bool selected, ref double mean, ref double lcb, ref double holdBars)",
