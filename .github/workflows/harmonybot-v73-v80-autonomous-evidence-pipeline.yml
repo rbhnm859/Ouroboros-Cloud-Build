@@ -366,7 +366,7 @@ jobs:
           eval "$(bash control/HarmonyBot-V71/tools/resolve_window.sh ${{ matrix.window }})"
           mkdir -p control/HarmonyBot-V71/dist milestone
           A=$(find control/HarmonyBot-V71/shared -type f -name 'HarmonyBot_V71_Protected_Champion_Core_Incremental_Alpha.algo' | head -1); cp "$A" control/HarmonyBot-V71/dist/
-          V74_ALLOWED_HASHES="$(cat policy/allowed_hashes.txt)" V74_POLICY_UTILITY="$(cat policy/utility_map.txt)" V74_POLICY_PROTECTION="$(cat policy/protection_map.txt)"           V71_DATA_SEED_DIR="$GITHUB_WORKSPACE/control/HarmonyBot-V71/data-seed"           control/HarmonyBot-V71/tools/run_window.sh B_V75_FROZEN_POLICY_ALPHA ${{ matrix.window }} "$START" "$EVAL" "$END" "$YEARS"
+          V74_ALLOWED_HASHES="$(cat policy/allowed_hashes.txt)" V74_POLICY_UTILITY="$(cat policy/utility_map.txt)" V74_POLICY_PROTECTION="$(cat policy/protection_map.txt)" V74_POLICY_REACTION="$(cat policy/reaction_map.txt)"           V71_DATA_SEED_DIR="$GITHUB_WORKSPACE/control/HarmonyBot-V71/data-seed"           control/HarmonyBot-V71/tools/run_window.sh B_V75_FROZEN_POLICY_ALPHA ${{ matrix.window }} "$START" "$EVAL" "$END" "$YEARS"
           cp control/HarmonyBot-V71/output-B_V75_FROZEN_POLICY_ALPHA-${{ matrix.window }}/B_V75_FROZEN_POLICY_ALPHA-${{ matrix.window }}.json milestone/V75_BASELINE-${{ matrix.window }}.json
       - uses: actions/upload-artifact@v4
         with:
