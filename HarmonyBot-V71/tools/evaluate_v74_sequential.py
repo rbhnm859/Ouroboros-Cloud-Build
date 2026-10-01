@@ -24,12 +24,12 @@ MASKS={
  "H_RR40":lambda b:"_H_" in b and b.endswith("RR40"),
 }
 CONFIGS=[]
+# Eight architecture-level variants only. Threshold density is still selected
+# by nested cross-fit; redundant micro-grid tuning is deliberately excluded.
 for mask in MASKS:
-  for bins in (3,4):
-    for shrink in (16.0,32.0):
-      for kfeat in (14,22):
-        CONFIGS.append({"mask":mask,"bins":bins,"shrink":shrink,"kfeat":kfeat,
-                        "effect_w":0.85,"win_w":1.10,"lcb_w":0.55})
+  for effect_w in (0.65,1.00):
+    CONFIGS.append({"mask":mask,"bins":4,"shrink":24.0,"kfeat":18,
+                    "effect_w":effect_w,"win_w":1.10,"lcb_w":0.55})
 QGRID=[i/100.0 for i in (0,5,10,15,20,25,30,35,40,45,50)]
 
 rows=load_rows(root,ALL)
