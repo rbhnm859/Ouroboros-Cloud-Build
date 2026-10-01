@@ -185,7 +185,7 @@ summary={
          "min_win_rate":MIN_WR,"min_average_rr":MIN_RR,"lcb95_gt":0.0},
  "policy":{
    "capital":"LATER_COMPLETED_M1_HOLD_AFTER_ORIGINAL_0P25_OR_0P50_FIRST_PASSAGE",
-   "entry_risk_geometry":"CANONICAL_TARGET_BACKSOLVES_INITIAL_STOP_AT_2P4R_2P6R_2P8R_BOUNDED_BY_STRUCTURAL_INVALIDATION",
+   "entry_risk_geometry":"CANONICAL_TARGET_BACKSOLVES_INITIAL_STOP_AT_3P5R_OR_4P0R_BOUNDED_BY_STRUCTURAL_INVALIDATION",
    "post_entry_barbell":"MICRO_FIRST_PASSAGE_PLUS_LATER_COMPLETED_HOLD_CRYSTALLIZES_F00_F10_F20_F30__RUNNER_KEEPS_STRUCTURAL_STOP_AND_CANONICAL_TARGET__EXIT_ONLY_ON_LATER_COMPLETED_CLOSE_BELOW_ENTRY",
    "candidates":EVAL_KEYS,"adverse_cut":"COMPLETED_CLOSE_ONLY_BEFORE_POSITIVE_ARM",
    "same_bar":"STRUCTURAL_STOP_THEN_TARGET_THEN_CLOSE_ONLY_FRONTIER_THEN_ADVERSE_CLOSE_THEN_NEW_ARM",
@@ -228,13 +228,25 @@ for name,q in [("AT_CLOSE_KEEP100",0.0),("AU_CLOSE_KEEP95",.05),("AV_CLOSE_KEEP9
     models_blob["models"][name]={"type":"CAUSAL_MICRO_ARM_CLOSE_ONLY_RUNNER","folds":policies}
     if passed:passers.append((champ_score,name))
 
-passers.sort(key=lambda x:(x[0],x[1]),reverse=True);champion=passers[0][1] if passers else None
-summary["v74_gate"]=champion is not None;summary["champion"]=champion
+passers.sort(key=lambda x:(x[0],x[1]),reverse=True);alpha_champion=passers[0][1] if passers else None
+# FAIL-CLOSED: the sequential OOF Alpha and the live V75/embedded execution policy are
+# separate contracts. Current downstream policy code still expects legacy final/base models
+# and cannot yet reproduce the selected delayed-entry route/fraction semantics exactly.
+# Preserve any 3/3 OOF Alpha result as evidence, but do not promote it until runtime parity is frozen.
+EXECUTION_SEMANTICS_READY=False
+summary["alpha_gate"]=alpha_champion is not None
+summary["alpha_champion"]=alpha_champion
+summary["execution_semantics_ready"]=EXECUTION_SEMANTICS_READY
+summary["v74_gate"]=bool(alpha_champion is not None and EXECUTION_SEMANTICS_READY)
+summary["champion"]=alpha_champion if summary["v74_gate"] else None
+summary["promotion_blocker"]="SEQUENTIAL_RUNTIME_POLICY_NOT_FROZEN" if alpha_champion else "ALPHA_OOF_GATE_FAIL"
 summary["champion_selection"]="HIGHEST_WORST_YEAR_CAUSAL_LCB_PER_SLOT_HOUR_AMONG_3OF3_PASSERS"
-summary["gate_semantics"]="EACH_BURNED_YEAR_N_GE_250_MEAN_R_GE_0P90_PF_R_GE_3P30_WR_GE_70PCT_AVG_RR_GE_2P30_LCB95_GT_0__TRAIN_ONLY_ROUTE_THRESHOLD__NO_LOOKAHEAD"
-summary["positive_asset"]="CAUSAL_MICRO_ARM_CLOSE_ONLY_RUNNER_OOF_CHAMPION" if champion else "NO_MODEL_EARNED_VERSION_PROMOTION"
+summary["gate_semantics"]="EACH_BURNED_YEAR_N_GE_250_MEAN_R_GE_0P90_PF_R_GE_3P30_WR_GE_70PCT_AVG_RR_GE_2P30_LCB95_GT_0__TRAIN_ONLY_ROUTE_THRESHOLD__NO_LOOKAHEAD__RUNTIME_PARITY_REQUIRED_FOR_PROMOTION"
+summary["positive_asset"]="CAUSAL_MICRO_ARM_CLOSE_ONLY_RUNNER_OOF_ALPHA" if alpha_champion else "NO_MODEL_EARNED_VERSION_PROMOTION"
 (out/"V74_TOURNAMENT_MANIFEST.json").write_text(json.dumps(summary,indent=2))
 (out/"V74_MODELS.json").write_text(json.dumps(models_blob,separators=(",",":")))
-(out/"champion.txt").write_text(champion or "")
-(out/"pass.txt").write_text("true" if champion else "false")
+(out/"champion.txt").write_text(summary["champion"] or "")
+(out/"alpha_champion.txt").write_text(alpha_champion or "")
+(out/"alpha_pass.txt").write_text("true" if alpha_champion else "false")
+(out/"pass.txt").write_text("true" if summary["v74_gate"] else "false")
 print(json.dumps(summary,indent=2))

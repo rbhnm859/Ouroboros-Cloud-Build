@@ -9,6 +9,8 @@ if not champ: raise SystemExit("no frozen V74 champion")
 rows=load_rows(root,[window])
 if not rows: raise SystemExit(f"no census rows for {window}")
 pack=mb["models"][champ]
+if pack.get("type")=="CAUSAL_MICRO_ARM_CLOSE_ONLY_RUNNER":
+    raise SystemExit("FAIL-CLOSED: sequential V74 runtime route/fraction execution semantics are not frozen; promotion is blocked")
 hybrid_mode=pack.get("type")=="HYBRID_SURVIVAL_FRONTIER"
 predictor_name=pack.get("base_model",champ) if hybrid_mode else champ
 predictor_pack=mb["models"][predictor_name] if hybrid_mode else pack

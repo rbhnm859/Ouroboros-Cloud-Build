@@ -4,6 +4,8 @@ tm=json.load(open(sys.argv[1])); mb=json.load(open(sys.argv[2])); out=pathlib.Pa
 champ=tm.get("champion")
 if not champ: raise SystemExit("no V74 champion")
 pack=mb["models"][champ]
+if pack.get("type")=="CAUSAL_MICRO_ARM_CLOSE_ONLY_RUNNER":
+    raise SystemExit("FAIL-CLOSED: sequential V74 embedded route/fraction execution semantics are not frozen; promotion is blocked")
 hybrid_mode=pack.get("type")=="HYBRID_SURVIVAL_FRONTIER"
 base_champ=pack.get("base_model",champ) if hybrid_mode else champ
 base_pack=mb["models"][base_champ]
