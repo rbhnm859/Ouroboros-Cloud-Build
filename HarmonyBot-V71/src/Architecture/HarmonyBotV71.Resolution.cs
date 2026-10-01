@@ -1153,7 +1153,8 @@ namespace cAlgo.Robots
                 V71Expansion = true,
                 V72BifurcationAlpha = EnableV72BifurcationAlpha,
                 V72FamilyNativeCausalAlpha = EnableV72FamilyNativeCausalAlpha,
-                V71RiskPercent = riskPct
+                V71RiskPercent = riskPct,
+                V74ProtectionKey = e.V74ProtectionKey
             };
 
             bool v77Grid = EnableV71ExpansionGrid && (EnableV74ExternalPolicy || EnableV74EmbeddedPolicy);
