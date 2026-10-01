@@ -19,15 +19,59 @@ on:
 
 concurrency:
   group: harmonybot-v74-rapid-decision-${{ github.head_ref || github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 permissions:
   contents: read
   actions: read
 
 jobs:
+  rapid_change_gate:
+    runs-on: ubuntu-24.04
+    outputs:
+      full: ${{ steps.c.outputs.full }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - id: c
+        name: Classify only the latest synchronize delta
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            echo "full=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          BEFORE="${{ github.event.before }}"
+          AFTER="${{ github.event.pull_request.head.sha }}"
+          if [[ -z "$BEFORE" || "$BEFORE" =~ ^0+$ ]]; then
+            echo "full=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          git cat-file -e "$BEFORE^{commit}"
+          git cat-file -e "$AFTER^{commit}"
+          FULL=false
+          while IFS= read -r p; do
+            case "$p" in
+              HarmonyBot-V71/src/*|\
+              HarmonyBot-V71/HarmonyBotV71.csproj|\
+              HarmonyBot-V71/tools/run_window.sh|\
+              HarmonyBot-V71/tools/run_backtest.sh|\
+              HarmonyBot-V71/tools/resolve_window.sh|\
+              HarmonyBot-V71/final/V71_BURNED_CALIBRATION_CUSTODY.json|\
+              HarmonyBot-V73/V73_RESEARCH_CUSTODY.json)
+                FULL=true
+                ;;
+            esac
+          done < <(git diff --name-only "$BEFORE" "$AFTER")
+          echo "full=$FULL" >> "$GITHUB_OUTPUT"
+          echo "[V74-RAPID-CHANGE-GATE] full=$FULL"
+
   rapid_build:
-    if: ${{ github.event_name == 'workflow_dispatch' || github.head_ref == 'harmonybot/v73-opportunity-universe' }}
+    needs: rapid_change_gate
+    if: ${{ needs.rapid_change_gate.outputs.full == 'true' && (github.event_name == 'workflow_dispatch' || github.head_ref == 'harmonybot/v73-opportunity-universe') }}
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
