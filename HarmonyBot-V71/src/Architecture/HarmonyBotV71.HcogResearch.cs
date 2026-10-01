@@ -103,20 +103,25 @@ namespace cAlgo.Robots
             if(direction==TradeDirection.Neutral||rr+1e-9<MinimumNetRR||!GeometryValid(direction,entry,stop,target))return false;
             double risk=Math.Abs(entry-stop);if(PriceToPips(risk)<MinStopLossPips)return false;
             o.Direction=direction;o.Entry=entry;o.Stop=stop;o.Target=target;o.RiskDistance=risk;o.NetRr=rr;o.EntryUtc=utc;o.ProofUtc=utc;o.State=V72HcogState.ACTIVE;
-            o.Lane=o.StandaloneAbcd?"HCOG_ABCD_STANDALONE_SHADOW":lane;
+            o.Lane=o.StandaloneAbcd
+                ? (lane=="HCOG_FAILURE_CONTINUATION"?"HCOG_ABCD_STANDALONE_CONTINUATION_SHADOW":"HCOG_ABCD_STANDALONE_REVERSAL_SHADOW")
+                : lane;
             o.Regime=BuildRegimeSnapshot();
             if(EnableV74ExternalPolicy||EnableV74EmbeddedPolicy)V74FrozenPolicyScoreOpportunity(o); else V72HcapScoreOpportunity(o);
             o.CoreOverlapAtEntry=V71CoreHasActiveThesis()||_activeSetupOwners.ContainsKey(o.SetupKey)||_executedSetupKeys.Contains(o.SetupKey);
             if(o.CoreOverlapAtEntry)_v72HcogCoreOverlapAtEntry++;_v72HcogProofs++;_v72HcogArmed++;if(lane=="HCOG_FAILURE_CONTINUATION")_v72HcogFailureArmed++;
             Print("[V72-HCOG-PROVED] id={0} family={1} lane={2} dir={3} entry={4:F5} stop={5:F5} target={6:F5} netRR={7:F4} coreOverlap={8} abcd={9}",
                 o.Id,o.Family,o.Lane,o.Direction,o.Entry,o.Stop,o.Target,o.NetRr,o.CoreOverlapAtEntry,o.HasAbcdConfluence);
-            if(o.CapitalSemantic&&EnableV71ExpansionExecution&&((!EnableV72HcapAlpha&&!EnableV74ExternalPolicy&&!EnableV74EmbeddedPolicy)||o.HcapSelected))V72HcogQueueCapital(o,utc);
+            bool v74StandaloneCapital=o.StandaloneAbcd&&(EnableV74ExternalPolicy||EnableV74EmbeddedPolicy)&&o.HcapSelected;
+            if((o.CapitalSemantic||v74StandaloneCapital)&&EnableV71ExpansionExecution&&((!EnableV72HcapAlpha&&!EnableV74ExternalPolicy&&!EnableV74EmbeddedPolicy)||o.HcapSelected))V72HcogQueueCapital(o,utc);
             return true;
         }
 
         private void V72HcogQueueCapital(V72HcogOpportunity o,DateTime utc)
         {
-            if(o==null||o.CapitalQueued||o.StandaloneAbcd)return;
+            if(o==null||o.CapitalQueued)return;
+            bool v74StandaloneCapital=o.StandaloneAbcd&&(EnableV74ExternalPolicy||EnableV74EmbeddedPolicy)&&o.HcapSelected;
+            if(o.StandaloneAbcd&&!v74StandaloneCapital)return;
             DateTime exp=V72NextM15Boundary(utc).AddMinutes(15);if(exp>o.OverallExpiryUtc)exp=o.OverallExpiryUtc;if(exp<=utc.AddSeconds(1))return;
             string cid=((EnableV74ExternalPolicy||EnableV74EmbeddedPolicy)?"V71EXP-V74-":(EnableV72HcapAlpha?"V71EXP-HCAP-":"V71EXP-HCOG-"))+o.Id.Substring(Math.Max(0,o.Id.Length-7));if(_v71Expansion.ContainsKey(cid))return;
             var e=new V71ExpansionCandidate{CandidateId=cid,IdentityKey=o.SetupKey+((EnableV74ExternalPolicy||EnableV74EmbeddedPolicy)?"|V74":(EnableV72HcapAlpha?"|HCAP":"|HCOG")),SetupKey=o.SetupKey,Signal=o.Signal,Conflict=o.Conflict,
@@ -125,7 +130,7 @@ namespace cAlgo.Robots
                 ConfirmationScore=1.0,NetRR=o.NetRr,EntryAnchor=o.Entry,StructuralStop=o.Stop,CanonicalTarget=o.Target,RiskDistance=o.RiskDistance,
                 TargetR=Math.Abs(o.Target-o.Entry)/Math.Max(o.RiskDistance,_symbol.PipSize),CapitalDirection=o.Direction,CapitalEligible=true,CoreOverlapObserved=false,
                 CapitalReady=true,AwaitingPullbackFill=true,PullbackFilled=false,PullbackExpiryUtc=exp,CapitalLane=o.Lane,
-                AbcdRole=o.HasAbcdConfluence?"PARENT_PLUS_ABCD_CONFLUENCE":"PARENT_FAMILY",AsymmetryCompression=(EnableV72HcapAlpha||EnableV74ExternalPolicy||EnableV74EmbeddedPolicy)?Math.Max(.0001,o.HcapLcb/Math.Max(.25,o.HcapHoldBars/60.0)):Math.Max(.10,Math.Abs(o.Signal.D.Price-o.Stop)/Math.Max(o.RiskDistance,_symbol.PipSize)),
+                AbcdRole=o.StandaloneAbcd?"ABCD_STANDALONE_OOF_PROVED":(o.HasAbcdConfluence?"PARENT_PLUS_ABCD_CONFLUENCE":"PARENT_FAMILY"),AsymmetryCompression=(EnableV72HcapAlpha||EnableV74ExternalPolicy||EnableV74EmbeddedPolicy)?Math.Max(.0001,o.HcapLcb/Math.Max(.25,o.HcapHoldBars/60.0)):Math.Max(.10,Math.Abs(o.Signal.D.Price-o.Stop)/Math.Max(o.RiskDistance,_symbol.PipSize)),
                 EdgeMean=(EnableV72HcapAlpha||EnableV74ExternalPolicy||EnableV74EmbeddedPolicy)?o.HcapQ:o.NetRr,EdgeLcb=(EnableV72HcapAlpha||EnableV74ExternalPolicy||EnableV74EmbeddedPolicy)?o.HcapLcb:o.NetRr};
             _v71Expansion[cid]=e;_v71ExpansionDetected++;o.CapitalQueued=true;_v72HcogCapitalQueued++;
             Print("[V72-HCOG-CAPITAL-QUEUE] id={0} cid={1} setup={2} family={3} lane={4} expiry={5:o}",o.Id,cid,o.SetupKey,o.Family,o.Lane,exp);
