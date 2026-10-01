@@ -19,7 +19,7 @@ concurrency:
   # evaluator cancellation left the previous group occupied. Future runs in this
   # pipeline still cancel obsolete runs within the same generation.
   group: harmonybot-v73-v80-autonomous-evidence-g2
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 permissions:
   contents: write
