@@ -35,6 +35,16 @@ RCR_KEYS=["R050_010","R075_025","R100_040"]
 HYBRID_KEYS=["HS20","HS30","HS40","HS50"]
 REACTION_COMMIT_KEYS=["RC075_C20","RC075_C30","RC100_C20","RC100_C30"]
 HIGH_CONVICTION_KEYS=["HC175_HOLD","HC175_DIR","HC200_HOLD","HC200_DIR"]
+SEQUENTIAL_KEYS=["S125_HOLD_PURE","S125_DIR_PURE","S150_HOLD_PURE","S150_DIR_PURE",
+                 "S125_HOLD_FRONTIER","S125_DIR_FRONTIER","S150_HOLD_FRONTIER","S150_DIR_FRONTIER"]
+SEQ_RX=re.compile(
+ r"\[V74-SEQUENTIAL-PATH\]\s+setup=(\S+)\s+family=(\S+)\s+lane=(\S+)\s+"
+ r"m125=(\S+)\s+m150=(\S+)\s+"
+ r"s125hp=(\S+)\s+rr125hp=([-0-9.]+)\s+s125dp=(\S+)\s+rr125dp=([-0-9.]+)\s+"
+ r"s150hp=(\S+)\s+rr150hp=([-0-9.]+)\s+s150dp=(\S+)\s+rr150dp=([-0-9.]+)\s+"
+ r"s125hf=(\S+)\s+rr125hf=([-0-9.]+)\s+s125df=(\S+)\s+rr125df=([-0-9.]+)\s+"
+ r"s150hf=(\S+)\s+rr150hf=([-0-9.]+)\s+s150df=(\S+)\s+rr150df=([-0-9.]+)"
+)
 
 def window_of(path,windows):
     s=str(path)
@@ -90,7 +100,33 @@ def load_rows(root,windows):
                         if math.isfinite(v):high_conviction[key]=v
                     except Exception:pass
             paths[pm.group(1)]={"protect_r":protect,"milestones":miles,"rcr":rcr,"hybrid":hybrid,
-                                "reaction_commit":reaction_commit,"high_conviction":high_conviction}
+                                "reaction_commit":reaction_commit,"high_conviction":high_conviction,
+                                "sequential":{},"sequential_rr":{},"sequential_state":{}}
+        for sm in SEQ_RX.finditer(txt):
+            p=paths.setdefault(sm.group(1),{"protect_r":{},"milestones":{},"rcr":{},"hybrid":{},
+                                            "reaction_commit":{},"high_conviction":{},
+                                            "sequential":{},"sequential_rr":{},"sequential_state":{}})
+            states={}
+            for label,gi in (("125",4),("150",5)):
+                raw=sm.group(gi)
+                if raw not in (None,"NONE","NA","NaN","nan"):
+                    try:
+                        vv=[float(x) for x in raw.split(",")]
+                        if len(vv)==MILESTONE_FEATURE_COUNT and all(math.isfinite(x) for x in vv):states[label]=vv
+                    except Exception:pass
+            seq={};seq_rr={}
+            for key,ogi,rgi in zip(SEQUENTIAL_KEYS,(6,8,10,12,14,16,18,20),(7,9,11,13,15,17,19,21)):
+                raw=sm.group(ogi);rawrr=sm.group(rgi)
+                if raw not in (None,"NA","NaN","nan"):
+                    try:
+                        v=float(raw)
+                        if math.isfinite(v):seq[key]=v
+                    except Exception:pass
+                try:
+                    rv=float(rawrr)
+                    if math.isfinite(rv):seq_rr[key]=rv
+                except Exception:pass
+            p["sequential"]=seq;p["sequential_rr"]=seq_rr;p["sequential_state"]=states
         for m in RX.finditer(txt):
             fam=m.group(3); lane=m.group(4); raw=m.group(17) if m.group(17) not in (None,"NONE") else m.group(16)
             if fam not in FAMILIES or lane not in (
@@ -102,7 +138,7 @@ def load_rows(root,windows):
             if len(fv)==12: fv=fv+[0.0]*(len(FEATURE_NAMES)-12)
             if len(fv)!=len(FEATURE_NAMES) or not all(math.isfinite(x) for x in fv): continue
             action="CONTINUATION" if lane in ("HCOG_FAILURE_CONTINUATION","HCOG_ABCD_STANDALONE_CONTINUATION_SHADOW") else "REVERSAL"
-            path=paths.get(m.group(2),{"protect_r":{},"milestones":{},"rcr":{},"hybrid":{},"reaction_commit":{},"high_conviction":{}})
+            path=paths.get(m.group(2),{"protect_r":{},"milestones":{},"rcr":{},"hybrid":{},"reaction_commit":{},"high_conviction":{},"sequential":{},"sequential_rr":{},"sequential_state":{}})
             rows.append({"window":w,"id":m.group(1),"setup":m.group(2),"family":fam,
                          "action":action,
                          "r":float(m.group(7)),"mfe":float(m.group(8)),"mae":float(m.group(9)),
@@ -110,7 +146,10 @@ def load_rows(root,windows):
                          "protect_r":path.get("protect_r",{}),"milestones":path.get("milestones",{}),
                          "rcr":path.get("rcr",{}),"hybrid":path.get("hybrid",{}),
                          "reaction_commit":path.get("reaction_commit",{}),
-                         "high_conviction":path.get("high_conviction",{})})
+                         "high_conviction":path.get("high_conviction",{}),
+                         "sequential":path.get("sequential",{}),
+                         "sequential_rr":path.get("sequential_rr",{}),
+                         "sequential_state":path.get("sequential_state",{})})
     # HCOG setup identity is the anti-duplicate truth. Last copy is equivalent if repeated artifact paths exist.
     d={}
     for r in rows:d[(r["window"],r["setup"])]=r
