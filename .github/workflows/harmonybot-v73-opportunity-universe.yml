@@ -64,9 +64,9 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p control/HarmonyBot-V71/reference
-          git show 1b670a0f43ba8ecaa637febfdacf605b1b146f01:HarmonyBot-V51/HarmonyBotV51.csproj > /tmp/HarmonyBotV51.csproj
+          git -C control show 1b670a0f43ba8ecaa637febfdacf605b1b146f01:HarmonyBot-V51/HarmonyBotV51.csproj > /tmp/HarmonyBotV51.csproj
           mkdir -p /tmp/src
-          git show 1b670a0f43ba8ecaa637febfdacf605b1b146f01:HarmonyBot-V51/src/HarmonyBotV51.cs > /tmp/src/HarmonyBotV51.cs
+          git -C control show 1b670a0f43ba8ecaa637febfdacf605b1b146f01:HarmonyBot-V51/src/HarmonyBotV51.cs > /tmp/src/HarmonyBotV51.cs
           dotnet restore /tmp/HarmonyBotV51.csproj
           dotnet build /tmp/HarmonyBotV51.csproj -c Release --no-restore --nologo
           R=$(find /tmp/bin/Release -type f -name '*.algo' | head -1); cp "$R" control/HarmonyBot-V71/reference/HarmonyBot_V51_Family_Native_Math_Geometry_Economic_Conversion_RC.algo
