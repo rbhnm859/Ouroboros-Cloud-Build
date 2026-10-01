@@ -85,27 +85,34 @@ def hvec(r):
     delta=[float(e[j])-float(s[j]) for j in range(SEQUENTIAL_STATE_FEATURE_COUNT)]
     return f+list(s)+list(e)+delta
 
-def stat(xs):
+def stat_target(xs,win_field=None):
     if not xs:return {"n":0,"mean":0.0,"win":0.0,"sigma":10.0}
     v=[float(r["r"]) for r in xs];n=len(v);sd=statistics.stdev(v) if n>1 else 10.0
-    return {"n":n,"mean":sum(v)/n,"win":sum(x>0 for x in v)/n,"sigma":max(.05,sd)}
+    if win_field is None:
+        win=sum(x>0 for x in v)/n
+    else:
+        win=sum(float(r.get(win_field,r["r"]))>0 for r in xs)/n
+    return {"n":n,"mean":sum(v)/n,"win":win,"sigma":max(.05,sd)}
 
-def train_labeled(q,key):
+def stat(xs):
+    return stat_target(xs,None)
+
+def train_labeled(q,key,win_field=None):
     pairs=[(r,hvec(r)) for r in q];pairs=[z for z in pairs if z[1] is not None]
     q=[z[0] for z in pairs];vec=[z[1] for z in pairs]
-    if not q:return {"key":key,"medians":[],"global":stat([]),"family_action":{},"bins":[]}
+    if not q:return {"key":key,"medians":[],"global":stat_target([],win_field),"family_action":{},"bins":[],"win_target":win_field or "r"}
     p=len(vec[0]);med=[statistics.median(v[j] for v in vec) for j in range(p)]
-    glob=stat(q);fa={}
+    glob=stat_target(q,win_field);fa={}
     for fam in sorted({r["family"] for r in q}):
         for action in ("REVERSAL","CONTINUATION"):
             z=[r for r in q if r["family"]==fam and r["action"]==action]
-            if z:fa[fam+"|"+action]=stat(z)
+            if z:fa[fam+"|"+action]=stat_target(z,win_field)
     bins=[]
     for j in range(p):
         lo=[r for r,v in zip(q,vec) if v[j]<med[j]]
         hi=[r for r,v in zip(q,vec) if v[j]>=med[j]]
-        bins.append({"lo":stat(lo),"hi":stat(hi)})
-    return {"key":key,"medians":med,"global":glob,"family_action":fa,"bins":bins}
+        bins.append({"lo":stat_target(lo,win_field),"hi":stat_target(hi,win_field)})
+    return {"key":key,"medians":med,"global":glob,"family_action":fa,"bins":bins,"win_target":win_field or "r"}
 
 def train(xs,key):
     return train_labeled(seq_rows(xs,key),key)
@@ -126,7 +133,7 @@ def train_advantage(xs,key,baselines):
         b=baselines.get((r["window"],r["setup"]))
         if b is None:continue
         z=dict(r);z["route_actual_r"]=float(r["r"]);z["r"]=float(r["r"])-float(b);q.append(z)
-    return train_labeled(q,key)
+    return train_labeled(q,key,"route_actual_r")
 
 def score(model,r):
     v=hvec(r);g=model.get("global",{})
@@ -220,12 +227,8 @@ passers=[]
 # Fixed, preregistered burned-calibration candidates. These vary only training-only
 # retention and the relative-vs-absolute action-value blend; no Validation/Fresh.
 VARIANTS=[
- ("CA_UPLIFT60_KEEP100",0.00,0.60),
- ("CB_UPLIFT60_KEEP97",0.03,0.60),
- ("CC_UPLIFT60_KEEP95",0.05,0.60),
- ("CD_UPLIFT75_KEEP100",0.00,0.75),
- ("CE_UPLIFT75_KEEP97",0.03,0.75),
- ("CF_UPLIFT75_KEEP95",0.05,0.75)
+ ("CG_ACTUALWIN_AUTO_U65",None,0.65),
+ ("CH_ACTUALWIN_AUTO_U80",None,0.80)
 ]
 _eval_t0=time.perf_counter()
 
@@ -331,7 +334,7 @@ def train_advantage_cached(q,key,baselines):
         b=baselines.get((r["window"],r["setup"]))
         if b is None:continue
         x=dict(r);x["route_actual_r"]=float(r["r"]);x["r"]=float(r["r"])-float(b);z.append(x)
-    return train_labeled(z,key)
+    return train_labeled(z,key,"route_actual_r")
 
 def route_year_stability_cached(q,train_windows):
     out={}
@@ -370,10 +373,15 @@ def build_scored_cache(cache,raw_models,adv_models):
         out[key]=z
     return out
 
+def route_stability_prior(rst):
+    sy=max(1,int(rst.get("supported_years",0)))
+    pos=float(rst.get("positive_years",0))/sy
+    return float(rst.get("mean_floor",-999.0))+0.75*float(rst.get("win_floor",0.0))+0.10*pos
+
 def opportunity_ranked_cached(scored_cache,route_stability,fam_stability,adv_weight):
     by_setup={}
     for key in EVAL_KEYS:
-        rst=route_stability[key];fst=fam_stability[key]
+        rst=route_stability[key];fst=fam_stability[key];prior=route_stability_prior(rst)
         for r in scored_cache[key]:
             raw=r["_raw_score"];adv=r["_adv_score"]
             if min(raw["support"],adv["support"])<20:continue
@@ -383,24 +391,63 @@ def opportunity_ranked_cached(scored_cache,route_stability,fam_stability,adv_wei
                 cn=int(cell["overall"]["n"]);sh=cn/(cn+80.0)
                 fam_mean=sh*float(cell["mean_floor"]);fam_win=sh*float(cell["win_floor"])
             else:fam_mean=fam_win=0.0
-            year_penalty=min(0.0,float(rst["mean_floor"]))
-            raw_u=float(raw["lcb"])+0.55*float(raw["mean"])+0.65*float(raw["win"])
-            adv_u=float(adv["lcb"])+0.70*float(adv["mean"])+0.55*float(adv["win"])
-            utility=adv_weight*adv_u+(1.0-adv_weight)*raw_u+0.15*fam_mean+0.10*fam_win+0.35*year_penalty
-            q=dict(r);q["_raw"]=raw;q["_adv"]=adv;q["_route_utility"]=utility
+            # Route arbitration and capital admission are different decisions.
+            # Advantage mean/lcb choose among counterfactual actions; its win target is
+            # ACTUAL route R>0 (never "advantage > median"). Stable route priors prevent
+            # high-dimensional local noise from overwhelming cross-year evidence.
+            choice_local=float(adv["lcb"])+0.85*float(adv["mean"])
+            choice=0.60*prior+0.40*choice_local+0.08*fam_mean+0.04*fam_win
+            actual_win=min(float(raw["win"]),float(adv["win"]))
+            quality=float(raw["lcb"])+0.80*float(raw["mean"])+1.20*actual_win+0.15*max(0.0,float(adv["mean"]))
+            q=dict(r);q["_raw"]=raw;q["_adv"]=adv;q["_choice_score"]=choice;q["_selection_score"]=quality
             q.pop("_raw_score",None);q.pop("_adv_score",None)
             by_setup.setdefault((r["window"],r["setup"]),[]).append(q)
     winners=[]
     for _,cand in by_setup.items():
-        cand.sort(key=lambda r:(r["_route_utility"],r["_adv"]["lcb"],r["_raw"]["lcb"],r["sequential_key"]),reverse=True)
+        cand.sort(key=lambda r:(r["_choice_score"],r["_adv"]["lcb"],r["_raw"]["win"],r["sequential_key"]),reverse=True)
         if not cand:continue
-        best=cand[0];second=cand[1]["_route_utility"] if len(cand)>1 else -999.0
+        best=cand[0];second=cand[1]["_choice_score"] if len(cand)>1 else -999.0
         q=dict(best);raw=q.pop("_raw");adv=q.pop("_adv")
-        q["route_utility"]=q.pop("_route_utility");q["route_margin"]=q["route_utility"]-second
+        q["route_utility"]=q.pop("_choice_score");q["selection_score"]=q.pop("_selection_score")
+        q["route_margin"]=q["route_utility"]-second
         q["raw_pred_mean"]=raw["mean"];q["raw_pred_win"]=raw["win"];q["raw_pred_lcb"]=raw["lcb"]
-        q["adv_pred_mean"]=adv["mean"];q["adv_pred_win"]=adv["win"];q["adv_pred_lcb"]=adv["lcb"]
+        q["adv_pred_mean"]=adv["mean"];q["adv_pred_actual_win"]=adv["win"];q["adv_pred_lcb"]=adv["lcb"]
         q["route_support"]=min(raw["support"],adv["support"]);winners.append(q)
     return winners
+
+def select_ranked(ranked,threshold):
+    return [r for r in ranked if r.get("selection_score",-999.0)+1e-12>=threshold]
+
+def optimize_training_threshold(ranked,train_windows):
+    vals=[r["selection_score"] for r in ranked if math.isfinite(r.get("selection_score",-999.0))]
+    if not vals:return {"q":None,"threshold":math.inf,"selected":[],"yearly":[],"objective":-999.0}
+    best=None
+    # Training-only scan. Test-year scores/results are never read here.
+    for qi in range(0,29):
+        q=qi*.025
+        th=quantile(vals,q)
+        sel=select_ranked(ranked,th)
+        yearly=[metrics([r for r in sel if r["window"]==w]) for w in train_windows]
+        if not all(m["n"]>=MIN_N for m in yearly):continue
+        margins=[gate_margin(m) for m in yearly]
+        obj=min(margins)+0.20*statistics.median(margins)
+        tie=(obj,min(m["lcb_r"] for m in yearly),min(m["mean_r"] for m in yearly),
+             min(m["win_rate"] for m in yearly),-len(sel))
+        if best is None or tie>best[0]:
+            best=(tie,{"q":q,"threshold":th,"selected":sel,"yearly":yearly,"objective":obj})
+    return best[1] if best else {"q":None,"threshold":math.inf,"selected":[],"yearly":[],"objective":-999.0}
+
+def assert_ranked_integrity(ranked,allowed_windows):
+    seen=set()
+    for r in ranked:
+        ident=(r["window"],r["setup"])
+        if ident in seen:raise SystemExit("V74 ranked duplicate setup identity: "+repr(ident))
+        seen.add(ident)
+        if r["window"] not in allowed_windows:raise SystemExit("V74 ranked window leakage: "+str(r["window"]))
+        if r["sequential_key"] not in EVAL_KEYS:raise SystemExit("V74 illegal ranked route: "+str(r["sequential_key"]))
+        if not math.isfinite(float(r["route_utility"])):raise SystemExit("V74 non-finite route choice utility")
+        if not math.isfinite(float(r["selection_score"])):raise SystemExit("V74 non-finite setup selection score")
+        if float(r["route_margin"]) < -1e-12:raise SystemExit("V74 negative route winner margin")
 
 fold_results={name:{} for name,_,_ in VARIANTS}
 fold_policies={name:{} for name,_,_ in VARIANTS}
@@ -434,11 +481,9 @@ for test in BURNED:
     print(f"[V74-EVAL] fold={test} phase=rank-cache elapsed={time.perf_counter()-fold_t0:.3f}",flush=True)
     for name,q,aw in VARIANTS:
         tr_rank,te_rank=rank_cache[aw]
-        vals=[r["route_utility"] for r in tr_rank if math.isfinite(r["route_utility"])]
-        th=quantile(vals,q) if vals else math.inf
-        train_sel=select_ranked(tr_rank,th)
-        yearly=[metrics([r for r in train_sel if r["window"]==w]) for w in train_windows]
-        feasible=bool(len(train_sel)>=MIN_N*len(train_windows) and all(m["n"]>=MIN_N for m in yearly))
+        opt=optimize_training_threshold(tr_rank,train_windows)
+        th=opt["threshold"];train_sel=opt["selected"];yearly=opt["yearly"];chosen_q=opt["q"]
+        feasible=bool(chosen_q is not None and len(train_sel)>=MIN_N*len(train_windows) and all(m["n"]>=MIN_N for m in yearly))
         sel=select_ranked(te_rank,th) if feasible else []
         m=metrics(sel);routes={};fams={}
         for r in sel:
@@ -446,8 +491,9 @@ for test in BURNED:
             fams[r["family"]]=fams.get(r["family"],0)+1
         abcd=metrics([r for r in train_sel if r["family"]=="ABCD"])
         m.update({"pass":bool(feasible and gate_metrics(m)),"training_windows":train_windows,
-                  "policy":"FAMILY_NATIVE_COUNTERFACTUAL_PER_OPPORTUNITY_ROUTE_WINNER",
-                  "selection_quantile":q,"selection_threshold":th,"advantage_weight":aw,
+                  "policy":"COUNTERFACTUAL_ROUTE_CHOICE_PLUS_ACTUAL_OUTCOME_CAPITAL_ADMISSION",
+                  "selection_quantile":chosen_q,"selection_threshold":th,"advantage_weight":aw,
+                  "training_threshold_objective":opt["objective"],
                   "training_feasible":feasible,"training_selected_metrics":metrics(train_sel),
                   "training_year_metrics":dict(zip(train_windows,yearly)),
                   "abcd_training_metrics_descriptive_only":abcd,
@@ -455,9 +501,10 @@ for test in BURNED:
                   "selected_route_counts":routes,"selected_family_counts":fams,
                   "median_planned_route_rr":statistics.median([r["sequential_planned_rr"] for r in sel]) if sel else 0.0})
         fold_results[name][test]=m
-        fold_policies[name][test]={"policy":"FAMILY_NATIVE_COUNTERFACTUAL_PER_OPPORTUNITY_ROUTE_WINNER",
-                                   "selection_quantile":q,"selection_threshold":th,
+        fold_policies[name][test]={"policy":"COUNTERFACTUAL_ROUTE_CHOICE_PLUS_ACTUAL_OUTCOME_CAPITAL_ADMISSION",
+                                   "selection_quantile":chosen_q,"selection_threshold":th,
                                    "advantage_weight":aw,"fold_ref":test,
+                                   "advantage_win_target":"ACTUAL_ROUTE_R_GT_0",
                                    "canonical_family_blanket_blacklist":False}
     print(f"[V74-EVAL] fold={test} phase=complete elapsed={time.perf_counter()-fold_t0:.3f}",flush=True)
 
@@ -469,16 +516,19 @@ for name,q,aw in VARIANTS:
     champ_score=worst/max(.25,avg_hold)
     summary["models"][name]={"folds":folds,"pass":passed,
                              "champion_score_worst_lcb_per_slot_hour":champ_score}
-    models_blob["models"][name]={"type":"CAUSAL_FAMILY_NATIVE_COUNTERFACTUAL_ACTION_RANKER","folds":policies}
+    models_blob["models"][name]={"type":"CAUSAL_DUAL_HEAD_ACTION_CHOICE_AND_CAPITAL_ADMISSION","folds":policies}
     if passed:passers.append((champ_score,name))
 
-summary["architecture"]="CAUSAL_FAMILY_NATIVE_COUNTERFACTUAL_ACTION_RANKER"
-summary["policy"]["selection"]="TRAINING_ONLY_COUNTERFACTUAL_UPLIFT_PLUS_ABSOLUTE_ROUTE_VALUE__FAMILY_NATIVE_SHRINKAGE__NO_CANONICAL_FAMILY_BLACKLIST"
-summary["policy"]["route_arbitration"]="PER_SETUP_ALL_LEGAL_ROUTES__46D_BASE_PLUS_24D_REACTION_PLUS_24D_COMPLETED_ENTRY_PLUS_CAUSAL_DELTA__CENTERED_ACTION_ADVANTAGE_AND_ABSOLUTE_VALUE__NO_TRIGGER_OR_DECISION_FUTURE_STATE__NO_TEST_YEAR_SELECTION"
+summary["architecture"]="CAUSAL_DUAL_HEAD_ACTION_CHOICE_AND_CAPITAL_ADMISSION"
+summary["policy"]["selection"]="DUAL_HEAD__ROUTE_CHOICE_USES_RELATIVE_UPLIFT_AND_STABILITY__CAPITAL_ADMISSION_USES_ACTUAL_R_AND_ACTUAL_WIN__TRAINING_ONLY_AUTO_WORST_YEAR_THRESHOLD"
+summary["policy"]["route_arbitration"]="PER_SETUP_ALL_LEGAL_ROUTES__RELATIVE_UPLIFT_FOR_CHOICE_ONLY__ADVANTAGE_WIN_TARGET_IS_ACTUAL_R_GT_0__STABLE_TRAINING_PRIOR__NO_TRIGGER_OR_DECISION_FUTURE_STATE__NO_TEST_YEAR_SELECTION"
 summary["policy"]["abcd_contract"]="ABCD_NEVER_BLANKET_BLACKLISTED__TRAINING_ONLY_FAMILY_ACTION_SHRINKAGE"
 summary["engineering_invariants"]={"unique_setup_winner":True,"legal_route_only":True,
                                    "test_window_excluded_from_training":True,
                                    "counterfactual_baseline_training_only":True,
+                                   "advantage_win_is_actual_route_win":True,
+                                   "route_choice_separated_from_capital_admission":True,
+                                   "training_only_auto_threshold":True,
                                    "canonical_family_blanket_blacklist":False,
                                    "deduplicated_model_pack":True,
                                    "fold_route_vector_cache_exact_semantics":True,
