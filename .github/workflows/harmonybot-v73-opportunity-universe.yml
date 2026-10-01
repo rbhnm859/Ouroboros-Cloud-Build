@@ -45,7 +45,7 @@ jobs:
   custody_seed:
     needs: build
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
@@ -53,34 +53,42 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with: {fetch-depth: 0, path: control}
-      - uses: actions/download-artifact@v4
-        with: {name: v73-build, path: control/HarmonyBot-V71/shared}
-      - name: Build immutable observed seed
-        id: d
-        env:
-          CTRADER_PASSWORD: ${{ secrets.CTRADER_PASSWORD }}
-          CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
-          CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+      - name: Resolve immutable burned-calibration custody source
+        id: custody
+        shell: bash
         run: |
           set -euo pipefail
-          mkdir -p control/HarmonyBot-V71/reference
-          git -C control show 1b670a0f43ba8ecaa637febfdacf605b1b146f01:HarmonyBot-V51/HarmonyBotV51.csproj > /tmp/HarmonyBotV51.csproj
-          mkdir -p /tmp/src
-          git -C control show 1b670a0f43ba8ecaa637febfdacf605b1b146f01:HarmonyBot-V51/src/HarmonyBotV51.cs > /tmp/src/HarmonyBotV51.cs
-          dotnet restore /tmp/HarmonyBotV51.csproj
-          dotnet build /tmp/HarmonyBotV51.csproj -c Release --no-restore --nologo
-          R=$(find /tmp/bin/Release -type f -name '*.algo' | head -1); cp "$R" control/HarmonyBot-V71/reference/HarmonyBot_V51_Family_Native_Math_Geometry_Economic_Conversion_RC.algo
-          case "${{ matrix.window }}" in
-            Y2021) S=04/01/2021; E=2021-01-11T00:00:00Z; X=31/12/2021;;
-            Y2022) S=03/01/2022; E=2022-01-10T00:00:00Z; X=30/12/2022;;
-            Y2023) S=02/01/2023; E=2023-01-09T00:00:00Z; X=29/12/2023;;
-          esac
-          chmod +x control/HarmonyBot-V71/tools/*.sh
-          control/HarmonyBot-V71/tools/run_v51_reference.sh "${{ matrix.window }}" "$S" "$E" "$X" 1.0
+          M=control/HarmonyBot-V71/final/V71_BURNED_CALIBRATION_CUSTODY.json
+          test -s "$M"
+          RUN_ID=$(python3 -c 'import json; print(json.load(open("control/HarmonyBot-V71/final/V71_BURNED_CALIBRATION_CUSTODY.json"))["source_run_id"])')
+          EXPECTED=$(python3 -c 'import json; d=json.load(open("control/HarmonyBot-V71/final/V71_BURNED_CALIBRATION_CUSTODY.json")); print(d["windows"]["${{ matrix.window }}"]["sha256"])')
+          ARTIFACT=$(python3 -c 'import json; d=json.load(open("control/HarmonyBot-V71/final/V71_BURNED_CALIBRATION_CUSTODY.json")); print(d["windows"]["${{ matrix.window }}"]["artifact"])')
+          test -n "$RUN_ID"; test -n "$EXPECTED"; test -n "$ARTIFACT"
+          echo "run_id=$RUN_ID" >> "$GITHUB_OUTPUT"
+          echo "expected_sha256=$EXPECTED" >> "$GITHUB_OUTPUT"
+          echo "artifact=$ARTIFACT" >> "$GITHUB_OUTPUT"
+      - uses: actions/download-artifact@v4
+        with:
+          name: ${{ steps.custody.outputs.artifact }}
+          path: control/HarmonyBot-V71/immutable-seed-${{ matrix.window }}
+          github-token: ${{ github.token }}
+          run-id: ${{ steps.custody.outputs.run_id }}
+      - name: Verify immutable custody bytes
+        shell: bash
+        run: |
+          set -euo pipefail
+          D=control/HarmonyBot-V71/immutable-seed-${{ matrix.window }}
+          test -d "$D"
+          H=$(cd "$D" && find . -type f -print0 | LC_ALL=C sort -z | xargs -0 sha256sum | sha256sum | cut -d' ' -f1)
+          test "$H" = "${{ steps.custody.outputs.expected_sha256 }}" || {
+            echo "[V73-DATA-CUSTODY-FAIL] window=${{ matrix.window }} expected=${{ steps.custody.outputs.expected_sha256 }} actual=$H"
+            exit 48
+          }
+          echo "[V73-DATA-CUSTODY] window=${{ matrix.window }} sha256=$H immutable=true"
       - uses: actions/upload-artifact@v4
         with:
           name: v73-data-${{ matrix.window }}
-          path: control/HarmonyBot-V71/reference-window-${{ matrix.window }}/seal/data
+          path: control/HarmonyBot-V71/immutable-seed-${{ matrix.window }}
           retention-days: 30
 
   census:
