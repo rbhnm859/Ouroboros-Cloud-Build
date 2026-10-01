@@ -388,6 +388,163 @@ def assert_stage_ranked_integrity(stage_ranked,allowed_windows):
             if float(r["route_margin"]) < -1e-12:raise SystemExit("V74 negative stage route winner margin")
 
 
+def build_route_cache(xs):
+    # Exact-semantics optimization: materialize each legal route once per fold/split.
+    # No outcome, threshold, model or ordering rule changes.
+    cache={key:[] for key in EVAL_KEYS}
+    for r in xs:
+        for key in EVAL_KEYS:
+            q=with_outcome(r,key)
+            if q is None:continue
+            v=hvec(q)
+            if v is None:continue
+            q["_hvec"]=v
+            cache[key].append(q)
+    return cache
+
+def action_baselines_cached(cache):
+    by_setup={}
+    for key in EVAL_KEYS:
+        for r in cache[key]:
+            by_setup.setdefault((r["window"],r["setup"]),[]).append(float(r["r"]))
+    return {k:statistics.median(v) for k,v in by_setup.items() if v}
+
+def train_advantage_cached(q,key,baselines,feature_frontier=None):
+    z=[]
+    for r in q:
+        b=baselines.get((r["window"],r["setup"]))
+        if b is None:continue
+        x=dict(r);x["route_actual_r"]=float(r["r"]);x["r"]=float(r["r"])-float(b);z.append(x)
+    return train_labeled(z,key,"route_actual_r",feature_frontier)
+
+def _stat_arrays(targets,wins):
+    n=len(targets)
+    if n==0:return {"n":0,"mean":0.0,"win":0.0,"sigma":10.0}
+    sd=statistics.stdev(targets) if n>1 else 10.0
+    return {"n":n,"mean":sum(targets)/n,"win":sum(x>0 for x in wins)/n,"sigma":max(.05,sd)}
+
+def _training_design(q,feature_frontier):
+    rows=[];vec=[]
+    for r in q:
+        v=hvec(r)
+        if v is not None:rows.append(r);vec.append(v)
+    if not rows:return {"rows":[],"indices":[],"weights":[],"medians":[],"family_action":{},"bins":[]}
+    p=len(vec[0]);idx=list(feature_frontier.get("indices",[])) if feature_frontier else list(range(p))
+    if not idx:idx=list(range(p))
+    weights=list(feature_frontier.get("weights",[])) if feature_frontier else [1.0/len(idx)]*len(idx)
+    if len(weights)!=len(idx):weights=[1.0/len(idx)]*len(idx)
+    med=[statistics.median(v[j] for v in vec) for j in idx]
+    fa={}
+    for i,r in enumerate(rows):fa.setdefault(r["family"]+"|"+r["action"],[]).append(i)
+    bins=[]
+    for pos,j in enumerate(idx):
+        lo=[];hi=[];m=med[pos]
+        for i,v in enumerate(vec):(hi if v[j]>=m else lo).append(i)
+        bins.append((lo,hi))
+    return {"rows":rows,"indices":idx,"weights":weights,"medians":med,"family_action":fa,"bins":bins}
+
+def _model_from_design(design,key,targets,wins,win_target):
+    rows=design["rows"];n=len(rows)
+    if n==0:return {"key":key,"medians":[],"global":_stat_arrays([],[]),"family_action":{},"bins":[],"feature_indices":[],"feature_weights":[],"win_target":win_target}
+    all_ids=range(n)
+    def S(ids):
+        ids=list(ids)
+        return _stat_arrays([targets[i] for i in ids],[wins[i] for i in ids])
+    glob=S(all_ids)
+    fa={k:S(ids) for k,ids in design["family_action"].items()}
+    bins=[{"lo":S(lo),"hi":S(hi)} for lo,hi in design["bins"]]
+    return {"key":key,"medians":design["medians"],"global":glob,"family_action":fa,"bins":bins,
+            "feature_indices":design["indices"],"feature_weights":design["weights"],"win_target":win_target}
+
+def train_raw_adv_paired_cached(q,key,baselines,feature_frontier):
+    design=_training_design(q,feature_frontier);rows=design["rows"]
+    raw=[float(r["r"]) for r in rows];adv=[]
+    for r,v in zip(rows,raw):
+        b=baselines.get((r["window"],r["setup"]))
+        if b is None:raise SystemExit("V74 paired-training baseline missing")
+        adv.append(v-float(b))
+    return (_model_from_design(design,key,raw,raw,"r"),
+            _model_from_design(design,key,adv,raw,"route_actual_r"))
+
+def score_pair(raw_model,adv_model,r):
+    v=hvec(r)
+    if v is None:return score(raw_model,r),score(adv_model,r)
+    if (raw_model.get("feature_indices")!=adv_model.get("feature_indices") or
+        raw_model.get("medians")!=adv_model.get("medians")):
+        return score(raw_model,r),score(adv_model,r)
+    idx=raw_model.get("feature_indices") or list(range(len(v)))
+    def init(model):
+        g=model.get("global",{})
+        if not model.get("medians") or int(g.get("n",0))<80:return None
+        gm=float(g.get("mean",0.0));gw=float(g.get("win",0.0));gs=float(g.get("sigma",10.0))
+        fa=model.get("family_action",{}).get(r["family"]+"|"+r["action"],{"n":0,"mean":gm,"win":gw})
+        fn=int(fa.get("n",0));fw=fn/(fn+80.0)
+        pm=gm+fw*(float(fa.get("mean",gm))-gm);pw=gw+fw*(float(fa.get("win",gw))-gw)
+        return [g,gm,gw,gs,fn,pm,pw,[],[],[]]
+    a=init(raw_model);b=init(adv_model)
+    if a is None or b is None:return score(raw_model,r),score(adv_model,r)
+    for pos,j in enumerate(idx):
+        side="hi" if v[j]>=raw_model["medians"][pos] else "lo"
+        for model,z in ((raw_model,a),(adv_model,b)):
+            g,gm,gw,gs,fn,pm,pw,ms,ws,supp=z
+            cell=model["bins"][pos][side];n=int(cell.get("n",0));sh=n/(n+60.0)
+            ms.append(pm+sh*(float(cell.get("mean",gm))-gm))
+            ws.append(pw+sh*(float(cell.get("win",gw))-gw));supp.append(n)
+    out=[]
+    for model,z in ((raw_model,a),(adv_model,b)):
+        g,gm,gw,gs,fn,pm,pw,ms,ws,supp=z
+        fwts=model.get("feature_weights") or ([1.0/len(idx)]*len(idx) if idx else [])
+        sw=sum(fwts) or 1.0;wm=sum(w*x for w,x in zip(fwts,ms))/sw if ms else pm
+        ww=sum(w*x for w,x in zip(fwts,ws))/sw if ws else pw
+        mean=(pm+wm)/2.0;win=max(0.0,min(1.0,(pw+ww)/2.0))
+        support=max(1,min([fn if fn>0 else int(g.get("n",1))]+supp));lcb=mean-Z*gs/math.sqrt(support)
+        out.append({"score":lcb+.75*win,"mean":mean,"win":win,"lcb":lcb,"support":support})
+    return out[0],out[1]
+
+def route_year_stability_cached(q,train_windows):
+    buckets={w:[] for w in train_windows}
+    for r in q:
+        if r["window"] in buckets:buckets[r["window"]].append(r)
+    out={w:stat(buckets[w]) for w in train_windows}
+    valid=[z for z in out.values() if z["n"]>=120]
+    return {"years":out,
+            "mean_floor":min((z["mean"] for z in valid),default=-999.0),
+            "win_floor":min((z["win"] for z in valid),default=0.0),
+            "positive_years":sum(z["mean"]>0 for z in valid),
+            "supported_years":len(valid)}
+
+def family_action_route_stability_cached(q,train_windows):
+    cells={}
+    for r in q:
+        k=r["family"]+"|"+r["action"]
+        c=cells.setdefault(k,{"all":[],"years":{w:[] for w in train_windows}})
+        c["all"].append(r)
+        if r["window"] in c["years"]:c["years"][r["window"]].append(r)
+    res={}
+    for k,c in cells.items():
+        overall=stat(c["all"]);ys={w:stat(v) for w,v in c["years"].items() if v}
+        supported=[z for z in ys.values() if z["n"]>=20]
+        res[k]={"overall":overall,"years":ys,
+                "mean_floor":min((z["mean"] for z in supported),default=overall["mean"]),
+                "win_floor":min((z["win"] for z in supported),default=overall["win"]),
+                "supported_years":len(supported)}
+    return res
+
+def build_scored_cache(cache,raw_models,adv_models):
+    out={}
+    for key in EVAL_KEYS:
+        rm=raw_models[key];am=adv_models[key];z=[]
+        for r in cache[key]:
+            raw,adv=score_pair(rm,am,r)
+            r["_raw_score"]=raw;r["_adv_score"]=adv;z.append(r)
+        out[key]=z
+    return out
+
+def route_stability_prior(rst):
+    sy=max(1,int(rst.get("supported_years",0)))
+    pos=float(rst.get("positive_years",0))/sy
+    return float(rst.get("mean_floor",-999.0))+0.75*float(rst.get("win_floor",0.0))+0.10*pos
+
 fold_results={name:{} for name,_,_ in VARIANTS}
 fold_policies={name:{} for name,_,_ in VARIANTS}
 for test in BURNED:
