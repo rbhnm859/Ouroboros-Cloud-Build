@@ -77,6 +77,8 @@ def seq_rows(xs,key):
     return z
 
 def hvec(r):
+    cached=r.get("_hvec")
+    if cached is not None:return cached
     s=r.get("sequential_state_vector");e=r.get("sequential_entry_state_vector")
     if s is None or e is None or len(s)!=SEQUENTIAL_STATE_FEATURE_COUNT or len(e)!=SEQUENTIAL_STATE_FEATURE_COUNT:return None
     f=list(r.get("features",[]))
@@ -302,26 +304,134 @@ def assert_ranked_integrity(ranked,allowed_windows):
         if not math.isfinite(float(r["route_utility"])):raise SystemExit("V74 non-finite route utility")
         if float(r["route_margin"]) < -1e-12:raise SystemExit("V74 negative route winner margin")
 
+def build_route_cache(xs):
+    # Exact-semantics optimization: materialize each legal route once per fold/split.
+    # No outcome, threshold, model or ordering rule changes.
+    cache={key:[] for key in EVAL_KEYS}
+    for r in xs:
+        for key in EVAL_KEYS:
+            q=with_outcome(r,key)
+            if q is None:continue
+            v=hvec(q)
+            if v is None:continue
+            q["_hvec"]=v
+            cache[key].append(q)
+    return cache
+
+def action_baselines_cached(cache):
+    by_setup={}
+    for key in EVAL_KEYS:
+        for r in cache[key]:
+            by_setup.setdefault((r["window"],r["setup"]),[]).append(float(r["r"]))
+    return {k:statistics.median(v) for k,v in by_setup.items() if v}
+
+def train_advantage_cached(q,key,baselines):
+    z=[]
+    for r in q:
+        b=baselines.get((r["window"],r["setup"]))
+        if b is None:continue
+        x=dict(r);x["route_actual_r"]=float(r["r"]);x["r"]=float(r["r"])-float(b);z.append(x)
+    return train_labeled(z,key)
+
+def route_year_stability_cached(q,train_windows):
+    out={}
+    for w in train_windows:out[w]=stat([r for r in q if r["window"]==w])
+    valid=[z for z in out.values() if z["n"]>=120]
+    return {"years":out,
+            "mean_floor":min((z["mean"] for z in valid),default=-999.0),
+            "win_floor":min((z["win"] for z in valid),default=0.0),
+            "positive_years":sum(z["mean"]>0 for z in valid),
+            "supported_years":len(valid)}
+
+def family_action_route_stability_cached(q,train_windows):
+    res={}
+    fams=sorted({r["family"] for r in q})
+    for fam in fams:
+        for action in ("REVERSAL","CONTINUATION"):
+            cell=[r for r in q if r["family"]==fam and r["action"]==action]
+            if not cell:continue
+            overall=stat(cell);ys={}
+            for w in train_windows:
+                z=[r for r in cell if r["window"]==w]
+                if z:ys[w]=stat(z)
+            supported=[z for z in ys.values() if z["n"]>=20]
+            res[fam+"|"+action]={"overall":overall,"years":ys,
+                "mean_floor":min((z["mean"] for z in supported),default=overall["mean"]),
+                "win_floor":min((z["win"] for z in supported),default=overall["win"]),
+                "supported_years":len(supported)}
+    return res
+
+def build_scored_cache(cache,raw_models,adv_models):
+    out={}
+    for key in EVAL_KEYS:
+        rm=raw_models[key];am=adv_models[key];z=[]
+        for r in cache[key]:
+            q=dict(r);q["_raw_score"]=score(rm,q);q["_adv_score"]=score(am,q);z.append(q)
+        out[key]=z
+    return out
+
+def opportunity_ranked_cached(scored_cache,route_stability,fam_stability,adv_weight):
+    by_setup={}
+    for key in EVAL_KEYS:
+        rst=route_stability[key];fst=fam_stability[key]
+        for r in scored_cache[key]:
+            raw=r["_raw_score"];adv=r["_adv_score"]
+            if min(raw["support"],adv["support"])<20:continue
+            if raw["score"]<=-900 or adv["score"]<=-900:continue
+            cell=fst.get(r["family"]+"|"+r["action"])
+            if cell:
+                cn=int(cell["overall"]["n"]);sh=cn/(cn+80.0)
+                fam_mean=sh*float(cell["mean_floor"]);fam_win=sh*float(cell["win_floor"])
+            else:fam_mean=fam_win=0.0
+            year_penalty=min(0.0,float(rst["mean_floor"]))
+            raw_u=float(raw["lcb"])+0.55*float(raw["mean"])+0.65*float(raw["win"])
+            adv_u=float(adv["lcb"])+0.70*float(adv["mean"])+0.55*float(adv["win"])
+            utility=adv_weight*adv_u+(1.0-adv_weight)*raw_u+0.15*fam_mean+0.10*fam_win+0.35*year_penalty
+            q=dict(r);q["_raw"]=raw;q["_adv"]=adv;q["_route_utility"]=utility
+            q.pop("_raw_score",None);q.pop("_adv_score",None)
+            by_setup.setdefault((r["window"],r["setup"]),[]).append(q)
+    winners=[]
+    for _,cand in by_setup.items():
+        cand.sort(key=lambda r:(r["_route_utility"],r["_adv"]["lcb"],r["_raw"]["lcb"],r["sequential_key"]),reverse=True)
+        if not cand:continue
+        best=cand[0];second=cand[1]["_route_utility"] if len(cand)>1 else -999.0
+        q=dict(best);raw=q.pop("_raw");adv=q.pop("_adv")
+        q["route_utility"]=q.pop("_route_utility");q["route_margin"]=q["route_utility"]-second
+        q["raw_pred_mean"]=raw["mean"];q["raw_pred_win"]=raw["win"];q["raw_pred_lcb"]=raw["lcb"]
+        q["adv_pred_mean"]=adv["mean"];q["adv_pred_win"]=adv["win"];q["adv_pred_lcb"]=adv["lcb"]
+        q["route_support"]=min(raw["support"],adv["support"]);winners.append(q)
+    return winners
+
 fold_results={name:{} for name,_,_ in VARIANTS}
 fold_policies={name:{} for name,_,_ in VARIANTS}
 for test in BURNED:
+    fold_t0=time.perf_counter()
     train_windows=RESEARCH+[w for w in BURNED if w!=test]
     tr=[r for r in rows if r["window"] in train_windows];te=[r for r in rows if r["window"]==test]
-    baselines=action_baselines(tr)
-    raw_models={key:train(tr,key) for key in EVAL_KEYS}
-    adv_models={key:train_advantage(tr,key,baselines) for key in EVAL_KEYS}
-    route_stability={key:route_year_stability(tr,key,train_windows) for key in EVAL_KEYS}
-    fam_stability={key:family_action_route_stability(tr,key,train_windows) for key in EVAL_KEYS}
+    print(f"[V74-EVAL] fold={test} phase=route-cache train_rows={len(tr)} test_rows={len(te)}",flush=True)
+    tr_cache=build_route_cache(tr);te_cache=build_route_cache(te)
+    print(f"[V74-EVAL] fold={test} phase=baselines elapsed={time.perf_counter()-fold_t0:.3f}",flush=True)
+    baselines=action_baselines_cached(tr_cache)
+    raw_models={key:train_labeled(tr_cache[key],key) for key in EVAL_KEYS}
+    print(f"[V74-EVAL] fold={test} phase=raw-models elapsed={time.perf_counter()-fold_t0:.3f}",flush=True)
+    adv_models={key:train_advantage_cached(tr_cache[key],key,baselines) for key in EVAL_KEYS}
+    print(f"[V74-EVAL] fold={test} phase=adv-models elapsed={time.perf_counter()-fold_t0:.3f}",flush=True)
+    route_stability={key:route_year_stability_cached(tr_cache[key],train_windows) for key in EVAL_KEYS}
+    fam_stability={key:family_action_route_stability_cached(tr_cache[key],train_windows) for key in EVAL_KEYS}
     models_blob["shared_folds"][test]={"training_windows":train_windows,
         "raw_route_models":raw_models,"advantage_route_models":adv_models,
         "route_stability":route_stability,"family_action_route_stability":fam_stability}
+    tr_scored=build_scored_cache(tr_cache,raw_models,adv_models)
+    te_scored=build_scored_cache(te_cache,raw_models,adv_models)
+    print(f"[V74-EVAL] fold={test} phase=scored-cache elapsed={time.perf_counter()-fold_t0:.3f}",flush=True)
     rank_cache={}
     for _,_,aw in VARIANTS:
         if aw not in rank_cache:
-            trr=opportunity_ranked(tr,raw_models,adv_models,route_stability,fam_stability,aw)
-            ter=opportunity_ranked(te,raw_models,adv_models,route_stability,fam_stability,aw)
+            trr=opportunity_ranked_cached(tr_scored,route_stability,fam_stability,aw)
+            ter=opportunity_ranked_cached(te_scored,route_stability,fam_stability,aw)
             assert_ranked_integrity(trr,set(train_windows));assert_ranked_integrity(ter,{test})
             rank_cache[aw]=(trr,ter)
+    print(f"[V74-EVAL] fold={test} phase=rank-cache elapsed={time.perf_counter()-fold_t0:.3f}",flush=True)
     for name,q,aw in VARIANTS:
         tr_rank,te_rank=rank_cache[aw]
         vals=[r["route_utility"] for r in tr_rank if math.isfinite(r["route_utility"])]
@@ -349,6 +459,7 @@ for test in BURNED:
                                    "selection_quantile":q,"selection_threshold":th,
                                    "advantage_weight":aw,"fold_ref":test,
                                    "canonical_family_blanket_blacklist":False}
+    print(f"[V74-EVAL] fold={test} phase=complete elapsed={time.perf_counter()-fold_t0:.3f}",flush=True)
 
 for name,q,aw in VARIANTS:
     folds=fold_results[name];policies=fold_policies[name]
@@ -369,7 +480,9 @@ summary["engineering_invariants"]={"unique_setup_winner":True,"legal_route_only"
                                    "test_window_excluded_from_training":True,
                                    "counterfactual_baseline_training_only":True,
                                    "canonical_family_blanket_blacklist":False,
-                                   "deduplicated_model_pack":True}
+                                   "deduplicated_model_pack":True,
+                                   "fold_route_vector_cache_exact_semantics":True,
+                                   "raw_adv_score_reuse_exact_semantics":True}
 summary["evaluator_runtime_seconds"]=round(time.perf_counter()-_eval_t0,6)
 passers.sort(key=lambda x:(x[0],x[1]),reverse=True);alpha_champion=passers[0][1] if passers else None
 # FAIL-CLOSED: the sequential OOF Alpha and the live V75/embedded execution policy are
