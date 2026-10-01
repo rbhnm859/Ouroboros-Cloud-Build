@@ -28,7 +28,7 @@ def load_rows(root,windows):
         if not w: continue
         txt=p.read_text(errors="ignore")
         for m in RX.finditer(txt):
-            fam=m.group(3); lane=m.group(4); raw=m.group(15)
+            fam=m.group(3); lane=m.group(4); raw=m.group(16)
             if fam not in FAMILIES or lane not in (
                 "HCOG_REVERSAL","HCOG_FAILURE_CONTINUATION",
                 "HCOG_ABCD_STANDALONE_REVERSAL_SHADOW",
