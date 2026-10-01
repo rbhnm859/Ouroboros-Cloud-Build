@@ -125,7 +125,7 @@ namespace cAlgo.Robots
         };
 
 
-        // V74 true late-entry stage auction. Unlike V74SequentialKey, these arms DO NOT
+        // V74_LATE_ENTRY_TELEMETRY_SCHEMA_V1\n        // V74 true late-entry stage auction. Unlike V74SequentialKey, these arms DO NOT
         // commit capital at the first R025/R050 hold. They freeze that completed-bar
         // geometry as an observable anchor, then wait uninvested for M05/M10/M15
         // first-passage plus a later completed-M1 hold. Only then is a NEW entry/stop
