@@ -334,247 +334,59 @@ def opportunity_ranked(rows_,raw_models,adv_models,route_stability,fam_stability
         q["route_support"]=min(raw["support"],adv["support"]);winners.append(q)
     return winners
 
-def select_ranked(ranked,threshold):
-    return [r for r in ranked if r["route_utility"]+1e-12>=threshold]
-
-def assert_ranked_integrity(ranked,allowed_windows):
-    seen=set()
-    for r in ranked:
-        ident=(r["window"],r["setup"])
-        if ident in seen:raise SystemExit("V74 ranked duplicate setup identity: "+repr(ident))
-        seen.add(ident)
-        if r["window"] not in allowed_windows:raise SystemExit("V74 ranked window leakage: "+str(r["window"]))
-        if r["sequential_key"] not in EVAL_KEYS:raise SystemExit("V74 illegal ranked route: "+str(r["sequential_key"]))
-        if not math.isfinite(float(r["route_utility"])):raise SystemExit("V74 non-finite route utility")
-        if float(r["route_margin"]) < -1e-12:raise SystemExit("V74 negative route winner margin")
-
-def build_route_cache(xs):
-    # Exact-semantics optimization: materialize each legal route once per fold/split.
-    # No outcome, threshold, model or ordering rule changes.
-    cache={key:[] for key in EVAL_KEYS}
-    for r in xs:
-        for key in EVAL_KEYS:
-            q=with_outcome(r,key)
-            if q is None:continue
-            v=hvec(q)
-            if v is None:continue
-            q["_hvec"]=v
-            cache[key].append(q)
-    return cache
-
-def action_baselines_cached(cache):
-    by_setup={}
-    for key in EVAL_KEYS:
-        for r in cache[key]:
-            by_setup.setdefault((r["window"],r["setup"]),[]).append(float(r["r"]))
-    return {k:statistics.median(v) for k,v in by_setup.items() if v}
-
-def train_advantage_cached(q,key,baselines,feature_frontier=None):
-    z=[]
-    for r in q:
-        b=baselines.get((r["window"],r["setup"]))
-        if b is None:continue
-        x=dict(r);x["route_actual_r"]=float(r["r"]);x["r"]=float(r["r"])-float(b);z.append(x)
-    return train_labeled(z,key,"route_actual_r",feature_frontier)
-
-def _stat_arrays(targets,wins):
-    n=len(targets)
-    if n==0:return {"n":0,"mean":0.0,"win":0.0,"sigma":10.0}
-    sd=statistics.stdev(targets) if n>1 else 10.0
-    return {"n":n,"mean":sum(targets)/n,"win":sum(x>0 for x in wins)/n,"sigma":max(.05,sd)}
-
-def _training_design(q,feature_frontier):
-    rows=[];vec=[]
-    for r in q:
-        v=hvec(r)
-        if v is not None:rows.append(r);vec.append(v)
-    if not rows:return {"rows":[],"indices":[],"weights":[],"medians":[],"family_action":{},"bins":[]}
-    p=len(vec[0]);idx=list(feature_frontier.get("indices",[])) if feature_frontier else list(range(p))
-    if not idx:idx=list(range(p))
-    weights=list(feature_frontier.get("weights",[])) if feature_frontier else [1.0/len(idx)]*len(idx)
-    if len(weights)!=len(idx):weights=[1.0/len(idx)]*len(idx)
-    med=[statistics.median(v[j] for v in vec) for j in idx]
-    fa={}
-    for i,r in enumerate(rows):fa.setdefault(r["family"]+"|"+r["action"],[]).append(i)
-    bins=[]
-    for pos,j in enumerate(idx):
-        lo=[];hi=[];m=med[pos]
-        for i,v in enumerate(vec):(hi if v[j]>=m else lo).append(i)
-        bins.append((lo,hi))
-    return {"rows":rows,"indices":idx,"weights":weights,"medians":med,"family_action":fa,"bins":bins}
-
-def _model_from_design(design,key,targets,wins,win_target):
-    rows=design["rows"];n=len(rows)
-    if n==0:return {"key":key,"medians":[],"global":_stat_arrays([],[]),"family_action":{},"bins":[],"feature_indices":[],"feature_weights":[],"win_target":win_target}
-    all_ids=range(n)
-    def S(ids):
-        ids=list(ids)
-        return _stat_arrays([targets[i] for i in ids],[wins[i] for i in ids])
-    glob=S(all_ids)
-    fa={k:S(ids) for k,ids in design["family_action"].items()}
-    bins=[{"lo":S(lo),"hi":S(hi)} for lo,hi in design["bins"]]
-    return {"key":key,"medians":design["medians"],"global":glob,"family_action":fa,"bins":bins,
-            "feature_indices":design["indices"],"feature_weights":design["weights"],"win_target":win_target}
-
-def train_raw_adv_paired_cached(q,key,baselines,feature_frontier):
-    design=_training_design(q,feature_frontier);rows=design["rows"]
-    raw=[float(r["r"]) for r in rows];adv=[]
-    for r,v in zip(rows,raw):
-        b=baselines.get((r["window"],r["setup"]))
-        if b is None:raise SystemExit("V74 paired-training baseline missing")
-        adv.append(v-float(b))
-    return (_model_from_design(design,key,raw,raw,"r"),
-            _model_from_design(design,key,adv,raw,"route_actual_r"))
-
-def score_pair(raw_model,adv_model,r):
-    v=hvec(r)
-    if v is None:return score(raw_model,r),score(adv_model,r)
-    if (raw_model.get("feature_indices")!=adv_model.get("feature_indices") or
-        raw_model.get("medians")!=adv_model.get("medians")):
-        return score(raw_model,r),score(adv_model,r)
-    idx=raw_model.get("feature_indices") or list(range(len(v)))
-    def init(model):
-        g=model.get("global",{})
-        if not model.get("medians") or int(g.get("n",0))<80:return None
-        gm=float(g.get("mean",0.0));gw=float(g.get("win",0.0));gs=float(g.get("sigma",10.0))
-        fa=model.get("family_action",{}).get(r["family"]+"|"+r["action"],{"n":0,"mean":gm,"win":gw})
-        fn=int(fa.get("n",0));fw=fn/(fn+80.0)
-        pm=gm+fw*(float(fa.get("mean",gm))-gm);pw=gw+fw*(float(fa.get("win",gw))-gw)
-        return [g,gm,gw,gs,fn,pm,pw,[],[],[]]
-    a=init(raw_model);b=init(adv_model)
-    if a is None or b is None:return score(raw_model,r),score(adv_model,r)
-    for pos,j in enumerate(idx):
-        side="hi" if v[j]>=raw_model["medians"][pos] else "lo"
-        for model,z in ((raw_model,a),(adv_model,b)):
-            g,gm,gw,gs,fn,pm,pw,ms,ws,supp=z
-            cell=model["bins"][pos][side];n=int(cell.get("n",0));sh=n/(n+60.0)
-            ms.append(pm+sh*(float(cell.get("mean",gm))-gm))
-            ws.append(pw+sh*(float(cell.get("win",gw))-gw));supp.append(n)
+def select_stagewise(stage_ranked,thresholds):
+    # Earliest admitted stage owns the setup. R050 is considered only if R025 deferred.
+    a025={(r["window"],r["setup"]):r for r in stage_ranked.get("025",[])}
+    a050={(r["window"],r["setup"]):r for r in stage_ranked.get("050",[])}
     out=[]
-    for model,z in ((raw_model,a),(adv_model,b)):
-        g,gm,gw,gs,fn,pm,pw,ms,ws,supp=z
-        fwts=model.get("feature_weights") or ([1.0/len(idx)]*len(idx) if idx else [])
-        sw=sum(fwts) or 1.0;wm=sum(w*x for w,x in zip(fwts,ms))/sw if ms else pm
-        ww=sum(w*x for w,x in zip(fwts,ws))/sw if ws else pw
-        mean=(pm+wm)/2.0;win=max(0.0,min(1.0,(pw+ww)/2.0))
-        support=max(1,min([fn if fn>0 else int(g.get("n",1))]+supp));lcb=mean-Z*gs/math.sqrt(support)
-        out.append({"score":lcb+.75*win,"mean":mean,"win":win,"lcb":lcb,"support":support})
-    return out[0],out[1]
-
-def route_year_stability_cached(q,train_windows):
-    buckets={w:[] for w in train_windows}
-    for r in q:
-        if r["window"] in buckets:buckets[r["window"]].append(r)
-    out={w:stat(buckets[w]) for w in train_windows}
-    valid=[z for z in out.values() if z["n"]>=120]
-    return {"years":out,
-            "mean_floor":min((z["mean"] for z in valid),default=-999.0),
-            "win_floor":min((z["win"] for z in valid),default=0.0),
-            "positive_years":sum(z["mean"]>0 for z in valid),
-            "supported_years":len(valid)}
-
-def family_action_route_stability_cached(q,train_windows):
-    cells={}
-    for r in q:
-        k=r["family"]+"|"+r["action"]
-        c=cells.setdefault(k,{"all":[],"years":{w:[] for w in train_windows}})
-        c["all"].append(r)
-        if r["window"] in c["years"]:c["years"][r["window"]].append(r)
-    res={}
-    for k,c in cells.items():
-        overall=stat(c["all"]);ys={w:stat(v) for w,v in c["years"].items() if v}
-        supported=[z for z in ys.values() if z["n"]>=20]
-        res[k]={"overall":overall,"years":ys,
-                "mean_floor":min((z["mean"] for z in supported),default=overall["mean"]),
-                "win_floor":min((z["win"] for z in supported),default=overall["win"]),
-                "supported_years":len(supported)}
-    return res
-
-def build_scored_cache(cache,raw_models,adv_models):
-    out={}
-    for key in EVAL_KEYS:
-        rm=raw_models[key];am=adv_models[key];z=[]
-        for r in cache[key]:
-            raw,adv=score_pair(rm,am,r)
-            r["_raw_score"]=raw;r["_adv_score"]=adv;z.append(r)
-        out[key]=z
+    for ident in sorted(set(a025)|set(a050)):
+        r=a025.get(ident)
+        if r is not None and r.get("selection_score",-999.0)+1e-12>=thresholds["025"]:
+            q=dict(r);q["stopping_decision"]="ENTER_R025";out.append(q);continue
+        r=a050.get(ident)
+        if r is not None and r.get("selection_score",-999.0)+1e-12>=thresholds["050"]:
+            q=dict(r);q["stopping_decision"]="DEFER_R025_ENTER_R050";out.append(q)
     return out
 
-def route_stability_prior(rst):
-    sy=max(1,int(rst.get("supported_years",0)))
-    pos=float(rst.get("positive_years",0))/sy
-    return float(rst.get("mean_floor",-999.0))+0.75*float(rst.get("win_floor",0.0))+0.10*pos
-
-def opportunity_ranked_cached(scored_cache,route_stability,fam_stability,adv_weight):
-    by_setup={}
-    for key in EVAL_KEYS:
-        rst=route_stability[key];fst=fam_stability[key];prior=route_stability_prior(rst)
-        for r in scored_cache[key]:
-            raw=r["_raw_score"];adv=r["_adv_score"]
-            if min(raw["support"],adv["support"])<20:continue
-            if raw["score"]<=-900 or adv["score"]<=-900:continue
-            cell=fst.get(r["family"]+"|"+r["action"])
-            if cell:
-                cn=int(cell["overall"]["n"]);sh=cn/(cn+80.0)
-                fam_mean=sh*float(cell["mean_floor"]);fam_win=sh*float(cell["win_floor"])
-            else:fam_mean=fam_win=0.0
-            # Route arbitration and capital admission are different decisions.
-            # Advantage mean/lcb choose among counterfactual actions; its win target is
-            # ACTUAL route R>0 (never "advantage > median"). Stable route priors prevent
-            # high-dimensional local noise from overwhelming cross-year evidence.
-            choice_local=float(adv["lcb"])+0.85*float(adv["mean"])
-            choice=0.60*prior+0.40*choice_local+0.08*fam_mean+0.04*fam_win
-            actual_win=min(float(raw["win"]),float(adv["win"]))
-            quality=float(raw["lcb"])+0.80*float(raw["mean"])+1.20*actual_win+0.15*max(0.0,float(adv["mean"]))
-            q=dict(r);q["_raw"]=raw;q["_adv"]=adv;q["_choice_score"]=choice;q["_selection_score"]=quality
-            q.pop("_raw_score",None);q.pop("_adv_score",None)
-            by_setup.setdefault((r["window"],r["setup"]),[]).append(q)
-    winners=[]
-    for _,cand in by_setup.items():
-        cand.sort(key=lambda r:(r["_choice_score"],r["_adv"]["lcb"],r["_raw"]["win"],r["sequential_key"]),reverse=True)
-        if not cand:continue
-        best=cand[0];second=cand[1]["_choice_score"] if len(cand)>1 else -999.0
-        q=dict(best);raw=q.pop("_raw");adv=q.pop("_adv")
-        q["route_utility"]=q.pop("_choice_score");q["selection_score"]=q.pop("_selection_score")
-        q["route_margin"]=q["route_utility"]-second
-        q["raw_pred_mean"]=raw["mean"];q["raw_pred_win"]=raw["win"];q["raw_pred_lcb"]=raw["lcb"]
-        q["adv_pred_mean"]=adv["mean"];q["adv_pred_actual_win"]=adv["win"];q["adv_pred_lcb"]=adv["lcb"]
-        q["route_support"]=min(raw["support"],adv["support"]);winners.append(q)
-    return winners
-
-def select_ranked(ranked,threshold):
-    return [r for r in ranked if r.get("selection_score",-999.0)+1e-12>=threshold]
-
-def optimize_training_threshold(ranked,train_windows):
-    vals=[r["selection_score"] for r in ranked if math.isfinite(r.get("selection_score",-999.0))]
-    if not vals:return {"q":None,"threshold":math.inf,"selected":[],"yearly":[],"objective":-999.0}
+def optimize_stage_thresholds(stage_ranked,train_windows):
+    vals={st:[r["selection_score"] for r in stage_ranked.get(st,[]) if math.isfinite(r.get("selection_score",-999.0))]
+          for st in ("025","050")}
+    if not vals["025"] or not vals["050"]:
+        return {"q":None,"thresholds":{"025":math.inf,"050":math.inf},"selected":[],"yearly":[],"objective":-999.0}
+    # Joint training-only optimal-stopping scan. No burned test outcome enters this search.
+    qs=[i*.05 for i in range(0,15)]
     best=None
-    # Training-only scan. Test-year scores/results are never read here.
-    for qi in range(0,29):
-        q=qi*.025
-        th=quantile(vals,q)
-        sel=select_ranked(ranked,th)
-        yearly=[metrics([r for r in sel if r["window"]==w]) for w in train_windows]
-        if not all(m["n"]>=MIN_N for m in yearly):continue
-        margins=[gate_margin(m) for m in yearly]
-        obj=min(margins)+0.20*statistics.median(margins)
-        tie=(obj,min(m["lcb_r"] for m in yearly),min(m["mean_r"] for m in yearly),
-             min(m["win_rate"] for m in yearly),-len(sel))
-        if best is None or tie>best[0]:
-            best=(tie,{"q":q,"threshold":th,"selected":sel,"yearly":yearly,"objective":obj})
-    return best[1] if best else {"q":None,"threshold":math.inf,"selected":[],"yearly":[],"objective":-999.0}
+    for q25 in qs:
+        t25=quantile(vals["025"],q25)
+        for q50 in qs:
+            t50=quantile(vals["050"],q50)
+            th={"025":t25,"050":t50};sel=select_stagewise(stage_ranked,th)
+            yearly=[metrics([r for r in sel if r["window"]==w]) for w in train_windows]
+            if not all(m["n"]>=MIN_N for m in yearly):continue
+            margins=[gate_margin(m) for m in yearly]
+            obj=min(margins)+0.20*statistics.median(margins)
+            # Prefer stronger worst-year evidence, then fewer late/deferred entries.
+            late=sum(r.get("decision_stage")=="050" for r in sel)
+            tie=(obj,min(m["lcb_r"] for m in yearly),min(m["mean_r"] for m in yearly),
+                 min(m["win_rate"] for m in yearly),-late,-len(sel))
+            if best is None or tie>best[0]:
+                best=(tie,{"q":{"025":q25,"050":q50},"thresholds":th,"selected":sel,"yearly":yearly,"objective":obj})
+    return best[1] if best else {"q":None,"thresholds":{"025":math.inf,"050":math.inf},"selected":[],"yearly":[],"objective":-999.0}
 
-def assert_ranked_integrity(ranked,allowed_windows):
-    seen=set()
-    for r in ranked:
-        ident=(r["window"],r["setup"])
-        if ident in seen:raise SystemExit("V74 ranked duplicate setup identity: "+repr(ident))
-        seen.add(ident)
-        if r["window"] not in allowed_windows:raise SystemExit("V74 ranked window leakage: "+str(r["window"]))
-        if r["sequential_key"] not in EVAL_KEYS:raise SystemExit("V74 illegal ranked route: "+str(r["sequential_key"]))
-        if not math.isfinite(float(r["route_utility"])):raise SystemExit("V74 non-finite route choice utility")
-        if not math.isfinite(float(r["selection_score"])):raise SystemExit("V74 non-finite setup selection score")
-        if float(r["route_margin"]) < -1e-12:raise SystemExit("V74 negative route winner margin")
+def assert_stage_ranked_integrity(stage_ranked,allowed_windows):
+    for stage in ("025","050"):
+        seen=set()
+        for r in stage_ranked.get(stage,[]):
+            ident=(r["window"],r["setup"])
+            if ident in seen:raise SystemExit("V74 stage-ranked duplicate setup identity: "+repr((stage,ident)))
+            seen.add(ident)
+            if r["window"] not in allowed_windows:raise SystemExit("V74 stage-ranked window leakage: "+str(r["window"]))
+            if r["sequential_key"] not in EVAL_KEYS:raise SystemExit("V74 illegal stage-ranked route: "+str(r["sequential_key"]))
+            if route_meta(r["sequential_key"])[0]!=stage:raise SystemExit("V74 route maturity/stage mismatch")
+            if not math.isfinite(float(r["route_utility"])):raise SystemExit("V74 non-finite stage route choice utility")
+            if not math.isfinite(float(r["selection_score"])):raise SystemExit("V74 non-finite stage setup selection score")
+            if float(r["route_margin"]) < -1e-12:raise SystemExit("V74 negative stage route winner margin")
+
 
 fold_results={name:{} for name,_,_ in VARIANTS}
 fold_policies={name:{} for name,_,_ in VARIANTS}
@@ -612,37 +424,39 @@ for test in BURNED:
     rank_cache={}
     for _,_,aw in VARIANTS:
         if aw not in rank_cache:
-            trr=opportunity_ranked_cached(tr_scored,route_stability,fam_stability,aw)
-            ter=opportunity_ranked_cached(te_scored,route_stability,fam_stability,aw)
-            assert_ranked_integrity(trr,set(train_windows));assert_ranked_integrity(ter,{test})
+            trr=opportunity_stage_ranked_cached(tr_scored,route_stability,fam_stability,aw)
+            ter=opportunity_stage_ranked_cached(te_scored,route_stability,fam_stability,aw)
+            assert_stage_ranked_integrity(trr,set(train_windows));assert_stage_ranked_integrity(ter,{test})
             rank_cache[aw]=(trr,ter)
-    print(f"[V74-EVAL] fold={test} phase=rank-cache elapsed={time.perf_counter()-fold_t0:.3f}",flush=True)
+    print(f"[V74-EVAL] fold={test} phase=stage-rank-cache elapsed={time.perf_counter()-fold_t0:.3f}",flush=True)
     for name,q,aw in VARIANTS:
         tr_rank,te_rank=rank_cache[aw]
-        opt=optimize_training_threshold(tr_rank,train_windows)
-        th=opt["threshold"];train_sel=opt["selected"];yearly=opt["yearly"];chosen_q=opt["q"]
+        opt=optimize_stage_thresholds(tr_rank,train_windows)
+        th=opt["thresholds"];train_sel=opt["selected"];yearly=opt["yearly"];chosen_q=opt["q"]
         feasible=bool(chosen_q is not None and len(train_sel)>=MIN_N*len(train_windows) and all(m["n"]>=MIN_N for m in yearly))
-        sel=select_ranked(te_rank,th) if feasible else []
-        m=metrics(sel);routes={};fams={}
+        sel=select_stagewise(te_rank,th) if feasible else []
+        m=metrics(sel);routes={};fams={};stages={}
         for r in sel:
             routes[r["sequential_key"]]=routes.get(r["sequential_key"],0)+1
             fams[r["family"]]=fams.get(r["family"],0)+1
+            stages[r["decision_stage"]]=stages.get(r["decision_stage"],0)+1
         abcd=metrics([r for r in train_sel if r["family"]=="ABCD"])
         m.update({"pass":bool(feasible and gate_metrics(m)),"training_windows":train_windows,
-                  "policy":"COUNTERFACTUAL_ROUTE_CHOICE_PLUS_ACTUAL_OUTCOME_CAPITAL_ADMISSION",
-                  "selection_quantile":chosen_q,"selection_threshold":th,"advantage_weight":aw,
+                  "policy":"STAGEWISE_CAUSAL_OPTIMAL_STOPPING__R025_ENTER_OR_DEFER__R050_FINAL_AUCTION",
+                  "selection_quantile_by_stage":chosen_q,"selection_threshold_by_stage":th,"advantage_weight":aw,
                   "training_threshold_objective":opt["objective"],
                   "training_feasible":feasible,"training_selected_metrics":metrics(train_sel),
                   "training_year_metrics":dict(zip(train_windows,yearly)),
                   "abcd_training_metrics_descriptive_only":abcd,
                   "canonical_family_blanket_blacklist":False,
-                  "selected_route_counts":routes,"selected_family_counts":fams,
+                  "selected_route_counts":routes,"selected_family_counts":fams,"selected_stage_counts":stages,
                   "median_planned_route_rr":statistics.median([r["sequential_planned_rr"] for r in sel]) if sel else 0.0})
         fold_results[name][test]=m
-        fold_policies[name][test]={"policy":"COUNTERFACTUAL_ROUTE_CHOICE_PLUS_ACTUAL_OUTCOME_CAPITAL_ADMISSION",
-                                   "selection_quantile":chosen_q,"selection_threshold":th,
+        fold_policies[name][test]={"policy":"STAGEWISE_CAUSAL_OPTIMAL_STOPPING__R025_ENTER_OR_DEFER__R050_FINAL_AUCTION",
+                                   "selection_quantile_by_stage":chosen_q,"selection_threshold_by_stage":th,
                                    "advantage_weight":aw,"fold_ref":test,
                                    "advantage_win_target":"ACTUAL_ROUTE_R_GT_0",
+                                   "r050_hidden_until_r025_defers":True,
                                    "canonical_family_blanket_blacklist":False}
     print(f"[V74-EVAL] fold={test} phase=complete elapsed={time.perf_counter()-fold_t0:.3f}",flush=True)
 
@@ -654,12 +468,12 @@ for name,q,aw in VARIANTS:
     champ_score=worst/max(.25,avg_hold)
     summary["models"][name]={"folds":folds,"pass":passed,
                              "champion_score_worst_lcb_per_slot_hour":champ_score}
-    models_blob["models"][name]={"type":"CAUSAL_DUAL_HEAD_ACTION_CHOICE_AND_CAPITAL_ADMISSION","folds":policies}
+    models_blob["models"][name]={"type":"STAGEWISE_CAUSAL_OPTIMAL_STOPPING_DUAL_HEAD","folds":policies}
     if passed:passers.append((champ_score,name))
 
-summary["architecture"]="CAUSAL_DUAL_HEAD_ACTION_CHOICE_AND_CAPITAL_ADMISSION"
-summary["policy"]["selection"]="DUAL_HEAD__TRAINING_ONLY_CROSS_YEAR_STABLE_FEATURE_FRONTIER_TOP24__ROUTE_CHOICE_USES_RELATIVE_UPLIFT_AND_STABILITY__CAPITAL_ADMISSION_USES_ACTUAL_R_AND_ACTUAL_WIN__TRAINING_ONLY_AUTO_WORST_YEAR_THRESHOLD"
-summary["policy"]["route_arbitration"]="PER_SETUP_ALL_LEGAL_ROUTES__RELATIVE_UPLIFT_FOR_CHOICE_ONLY__ADVANTAGE_WIN_TARGET_IS_ACTUAL_R_GT_0__STABLE_TRAINING_PRIOR__NO_TRIGGER_OR_DECISION_FUTURE_STATE__NO_TEST_YEAR_SELECTION"
+summary["architecture"]="STAGEWISE_CAUSAL_OPTIMAL_STOPPING_DUAL_HEAD"
+summary["policy"]["selection"]="STAGEWISE_DUAL_HEAD__R025_ENTER_OR_DEFER__R050_REEVALUATE_ONLY_AFTER_DEFER__TRAINING_ONLY_JOINT_THRESHOLDS__CROSS_YEAR_STABLE_FEATURES"
+summary["policy"]["route_arbitration"]="PER_SETUP_PER_MATURITY_STAGE__R050_INVISIBLE_AT_R025__RELATIVE_UPLIFT_FOR_ROUTE_CHOICE__ACTUAL_OUTCOME_FOR_ADMISSION__NO_TRIGGER_OR_DECISION_FUTURE_STATE__NO_TEST_YEAR_SELECTION"
 summary["policy"]["abcd_contract"]="ABCD_NEVER_BLANKET_BLACKLISTED__TRAINING_ONLY_FAMILY_ACTION_SHRINKAGE"
 summary["engineering_invariants"]={"unique_setup_winner":True,"legal_route_only":True,
                                    "test_window_excluded_from_training":True,
@@ -675,7 +489,10 @@ summary["engineering_invariants"]={"unique_setup_winner":True,"legal_route_only"
                                    "raw_adv_score_reuse_exact_semantics":True,
                                    "raw_adv_shared_feature_partition_exact_semantics":True,
                                    "single_pass_stability_grouping_exact_semantics":True,
-                                   "dead_variant_eliminated":True}
+                                   "dead_variant_eliminated":True,
+                                   "stagewise_optimal_stopping":True,
+                                   "r050_hidden_until_r025_defers":True,
+                                   "trigger_and_decision_future_state_excluded":True}
 summary["evaluator_runtime_seconds"]=round(time.perf_counter()-_eval_t0,6)
 passers.sort(key=lambda x:(x[0],x[1]),reverse=True);alpha_champion=passers[0][1] if passers else None
 # FAIL-CLOSED: the sequential OOF Alpha and the live V75/embedded execution policy are
