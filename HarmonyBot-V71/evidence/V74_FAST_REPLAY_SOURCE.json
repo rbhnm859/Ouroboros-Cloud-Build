@@ -1,0 +1,27 @@
+{
+  "version": 1,
+  "source_run_id": 36918752956,
+  "source_head_sha": "a7e83045b78a653b4cfa512b09952e98dac92d3e",
+  "branch": "harmonybot/v73-opportunity-universe",
+  "required_artifacts": [
+    "v73-universe-Y2016",
+    "v73-universe-Y2017",
+    "v73-universe-Y2018",
+    "v73-universe-Y2019",
+    "v73-universe-Y2020",
+    "v73-universe-Y2021",
+    "v73-universe-Y2022",
+    "v73-universe-Y2023"
+  ],
+  "semantic_guard_paths": [
+    "HarmonyBot-V71/src",
+    "HarmonyBot-V71/HarmonyBotV71.csproj",
+    "HarmonyBot-V71/tools/run_window.sh",
+    "HarmonyBot-V71/tools/run_backtest.sh",
+    "HarmonyBot-V71/tools/resolve_window.sh",
+    "HarmonyBot-V71/tools/run_v51_reference.sh"
+  ],
+  "validation_used": false,
+  "fresh_used": false,
+  "note": "Fast replay may reuse these universe artifacts only when the semantic guard diff is empty; otherwise the full evidence pipeline is mandatory."
+}

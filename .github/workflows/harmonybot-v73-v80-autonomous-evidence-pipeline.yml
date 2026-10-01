@@ -6,6 +6,11 @@ on:
     branches: [main]
     paths:
       - 'HarmonyBot-V71/**'
+      - '!HarmonyBot-V71/tools/evaluate_v74_sequential.py'
+      - '!HarmonyBot-V71/tools/v74_model_lib.py'
+      - '!HarmonyBot-V71/tools/apply_v74_champion.py'
+      - '!HarmonyBot-V71/tools/generate_v74_embedded_cs.py'
+      - '!HarmonyBot-V71/evidence/V74_FAST_REPLAY_SOURCE.json'
       - 'HarmonyBot-V73/**'
       - '.github/workflows/harmonybot-v73-v80-autonomous-evidence-pipeline.yml'
 

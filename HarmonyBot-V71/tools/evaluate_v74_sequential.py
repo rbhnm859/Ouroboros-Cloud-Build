@@ -9,7 +9,7 @@ creates another N<250/year ceiling. This evaluator tests only the preregistered
 micro-positive-arm +0.05R/+0.10R/+0.15R single-basket runner routes. Every route and score
 threshold is selected from training windows only. Validation/Fresh are never loaded here.
 """
-import json,math,pathlib,statistics,sys
+import json,math,pathlib,statistics,sys,time
 from v74_model_lib import load_rows,metrics,SEQUENTIAL_KEYS
 
 BASE_KEYS=[]
@@ -194,21 +194,54 @@ summary={
  "models":{},"validation_used":False,"fresh_used":False}
 models_blob={"architecture":"V74_CAUSAL_MICRO_ARM_CLOSE_ONLY_RUNNER","models":{}}
 passers=[]
+VARIANTS=[("AT_CLOSE_KEEP100",0.0),("AU_CLOSE_KEEP95",.05),("AV_CLOSE_KEEP90",.10),("AW_CLOSE_KEEP85",.15),("AX_CLOSE_KEEP80",.20),("AY_CLOSE_KEEP75",.25),("AZ_CLOSE_KEEP70",.30)]
+fold_results={name:{} for name,_ in VARIANTS}
+fold_policies={name:{} for name,_ in VARIANTS}
+_eval_t0=time.perf_counter()
 
-for name,q in [("AT_CLOSE_KEEP100",0.0),("AU_CLOSE_KEEP95",.05),("AV_CLOSE_KEEP90",.10),("AW_CLOSE_KEEP85",.15),("AX_CLOSE_KEEP80",.20),("AY_CLOSE_KEEP75",.25),("AZ_CLOSE_KEEP70",.30)]:
-    folds={};policies={}
-    for test in BURNED:
-        train_windows=RESEARCH+[w for w in BURNED if w!=test]
-        tr=[r for r in rows if r["window"] in train_windows];te=[r for r in rows if r["window"]==test]
-        ch=choose(tr,train_windows,q)
+def choose_cached(route_cache,train_windows,q):
+    candidates=[]
+    for key in EVAL_KEYS:
+        rc=route_cache.get(key)
+        if not rc or not rc["vals"]:continue
+        th=quantile(rc["vals"],q);sel=apply(rc["tr_sc"],th,True);agg=metrics(sel);yearly=[]
+        for w in train_windows:
+            ym=metrics([r for r in sel if r["window"]==w])
+            if ym["n"]>=180:yearly.append(ym)
+        if agg["n"]<1000 or len(yearly)<len(train_windows):continue
+        margins=[gate_margin(z) for z in yearly]
+        robust=min(margins)+.25*statistics.median(margins)
+        wl=min(z["lcb_r"] for z in yearly);wm=min(z["mean_r"] for z in yearly)
+        ww=min(z["win_rate"] for z in yearly);wr=min(z["average_rr"] for z in yearly)
+        candidates.append((robust,wl,wm,ww,wr,agg["n"],key,rc["model"],th,agg))
+    candidates.sort(key=lambda z:(z[0],z[1],z[2],z[3],z[4],z[5],z[6]),reverse=True)
+    return candidates[0] if candidates else None
+
+# Each burned fold has one deterministic training set. Train/score every route once,
+# then reuse those exact scores for all seven preregistered selection quantiles.
+# This is semantics-equivalent to the former loop, which retrained the same model
+# seven times per fold.
+for test in BURNED:
+    train_windows=RESEARCH+[w for w in BURNED if w!=test]
+    tr=[r for r in rows if r["window"] in train_windows];te=[r for r in rows if r["window"]==test]
+    route_cache={}
+    for key in EVAL_KEYS:
+        model=train(tr,key)
+        tr_sc=scored_rows(tr,key,model)
+        vals=[r["_hz"]["score"] for r in tr_sc if math.isfinite(r["_hz"]["score"]) and r["_hz"]["score"]>-900]
+        route_cache[key]={"model":model,"tr_sc":tr_sc,"te_sc":scored_rows(te,key,model),"vals":vals}
+
+    for name,q in VARIANTS:
+        ch=choose_cached(route_cache,train_windows,q)
         if ch is None:
             m=metrics([]);m.update({"pass":False,"training_windows":train_windows,"route":None,"selection_quantile":q})
-            folds[test]=m;policies[test]={"route":None,"selection_quantile":q};continue
+            fold_results[name][test]=m;fold_policies[name][test]={"route":None,"selection_quantile":q}
+            continue
         robust,wl,wm,ww,wr,_,key,model,th,_=ch
-        tr_sc=scored_rows(tr,key,model);train_sel=apply(tr_sc,th,True)
+        tr_sc=route_cache[key]["tr_sc"];train_sel=apply(tr_sc,th,True)
         abcd=metrics([r for r in train_sel if r["family"]=="ABCD"])
         abcd_ok=bool(abcd["n"]>=ABCD_TRAIN_MIN_N and abcd["mean_r"]>0 and abcd["pf_r"]>=ABCD_TRAIN_MIN_PF and abcd["lcb_r"]>0)
-        te_sc=scored_rows(te,key,model);sel=apply(te_sc,th,abcd_ok);m=metrics(sel)
+        te_sc=route_cache[key]["te_sc"];sel=apply(te_sc,th,abcd_ok);m=metrics(sel)
         m.update({"pass":gate_metrics(m),"training_windows":train_windows,"route":key,
                   "selection_quantile":q,"selection_threshold":th,
                   "training_selected_metrics":metrics(train_sel),"training_robust_gate_margin":robust,
@@ -216,9 +249,12 @@ for name,q in [("AT_CLOSE_KEEP100",0.0),("AU_CLOSE_KEEP95",.05),("AV_CLOSE_KEEP9
                   "training_worst_year_win_rate":ww,"training_worst_year_average_rr":wr,
                   "abcd_training_metrics":abcd,"abcd_training_capital_eligible":abcd_ok,
                   "median_planned_route_rr":statistics.median([r["sequential_planned_rr"] for r in sel]) if sel else 0.0})
-        folds[test]=m
-        policies[test]={"route":key,"selection_quantile":q,"selection_threshold":th,
-                        "hazard_model":model,"abcd_capital_eligible":abcd_ok}
+        fold_results[name][test]=m
+        fold_policies[name][test]={"route":key,"selection_quantile":q,"selection_threshold":th,
+                                   "hazard_model":model,"abcd_capital_eligible":abcd_ok}
+
+for name,q in VARIANTS:
+    folds=fold_results[name];policies=fold_policies[name]
     passed=all(folds[w]["pass"] for w in BURNED)
     worst=min(folds[w]["lcb_r"] for w in BURNED)
     avg_hold=statistics.mean(max(.25,folds[w]["median_hold_bars"]/60.0) for w in BURNED)
@@ -228,6 +264,7 @@ for name,q in [("AT_CLOSE_KEEP100",0.0),("AU_CLOSE_KEEP95",.05),("AV_CLOSE_KEEP9
     models_blob["models"][name]={"type":"CAUSAL_MICRO_ARM_CLOSE_ONLY_RUNNER","folds":policies}
     if passed:passers.append((champ_score,name))
 
+summary["evaluator_runtime_seconds"]=round(time.perf_counter()-_eval_t0,6)
 passers.sort(key=lambda x:(x[0],x[1]),reverse=True);alpha_champion=passers[0][1] if passers else None
 # FAIL-CLOSED: the sequential OOF Alpha and the live V75/embedded execution policy are
 # separate contracts. Current downstream policy code still expects legacy final/base models
