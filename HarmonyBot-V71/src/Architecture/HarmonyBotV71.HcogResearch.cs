@@ -38,21 +38,35 @@ namespace cAlgo.Robots
         private static readonly bool[] V74HighConvictionRequireDirectional = { false, true, false, true };
         private static readonly string[] V74HighConvictionKey = { "HC175_HOLD", "HC175_DIR", "HC200_HOLD", "HC200_DIR" };
 
-        // V74 causal-sequential early first-passage reconstruction. Capital is explicitly
-        // absent on the 0.25R/0.50R first-passage bar and may enter only on a later completed
-        // M1 close that preserves a positive reaction floor. Run #60 proved 1.25R/1.50R
-        // observation has an N<250/year cardinality ceiling, so those routes are frozen as
-        // negative feasibility evidence rather than retuned.
-        private static readonly double[] V74SequentialReactionR = { .25, .25, .50, .50, .25, .25, .50, .50 };
-        private static readonly double[] V74SequentialHoldR = { .10, .10, .25, .25, .10, .10, .25, .25 };
-        private static readonly bool[] V74SequentialRequireDirectional = { false, true, false, true, false, true, false, true };
-        private static readonly bool[] V74SequentialFrontier = { false, false, false, false, true, true, true, true };
-        private static readonly string[] V74SequentialKey = {
-            "S025_HOLD_PURE","S025_DIR_PURE","S050_HOLD_PURE","S050_DIR_PURE",
-            "S025_HOLD_FRONTIER","S025_DIR_FRONTIER","S050_HOLD_FRONTIER","S050_DIR_FRONTIER"
+        // V74 barbell survival reconstruction. Entry remains absent on the original
+        // 0.25R/0.50R first-passage bar and can occur only on a later completed M1 hold.
+        // After capital entry, a PRIOR completed route first-passage can tighten risk to
+        // a small positive floor while the full canonical target remains untouched.
+        // Before that proof, completed-close adverse cuts reduce loss magnitude only.
+        // There is no stop widening, partial exit, DCA, recovery, Grid, or same-bar benefit.
+        private static readonly double[] V74SequentialReactionR = {
+            .25,.25,.50,.50, .25,.25,.50,.50, .25,.25,.50,.50
         };
-        private static readonly double[] V74SequentialStageR = { .75, 1.25, 1.75 };
-        private static readonly double[] V74SequentialFloorR = { .25, .65, 1.00 };
+        private static readonly double[] V74SequentialHoldR = {
+            .10,.10,.25,.25, .10,.10,.25,.25, .10,.10,.25,.25
+        };
+        private static readonly bool[] V74SequentialRequireDirectional = {
+            false,true,false,true, false,true,false,true, false,true,false,true
+        };
+        private static readonly double[] V74SequentialTriggerR = {
+            .25,.25,.25,.25, .25,.25,.25,.25, .50,.50,.50,.50
+        };
+        private static readonly double[] V74SequentialAdverseCutR = {
+            -.10,-.10,-.10,-.10, -.15,-.15,-.15,-.15, -.15,-.15,-.15,-.15
+        };
+        private static readonly double[] V74SequentialFloorR = {
+            .02,.02,.02,.02, .05,.05,.05,.05, .05,.05,.05,.05
+        };
+        private static readonly string[] V74SequentialKey = {
+            "B_R025_H_T025_C010_F002","B_R025_D_T025_C010_F002","B_R050_H_T025_C010_F002","B_R050_D_T025_C010_F002",
+            "B_R025_H_T025_C015_F005","B_R025_D_T025_C015_F005","B_R050_H_T025_C015_F005","B_R050_D_T025_C015_F005",
+            "B_R025_H_T050_C015_F005","B_R025_D_T050_C015_F005","B_R050_H_T050_C015_F005","B_R050_D_T050_C015_F005"
+        };
 
         private sealed class V72HcogOpportunity
         {
@@ -104,19 +118,20 @@ namespace cAlgo.Robots
             public double[] V74HighConvictionRisk = new double[4];
             public double[] V74HighConvictionNetRr = new double[4];
             public double[] V74HighConvictionOutcomeR = Enumerable.Repeat(double.NaN, 4).ToArray();
-            public int[] V74SequentialReactionBar = Enumerable.Repeat(-1, 8).ToArray();
-            public bool[] V74SequentialActive = new bool[8];
-            public bool[] V74SequentialPositiveArmed = new bool[8];
-            public int[] V74SequentialBars = new int[8];
-            public int[] V74SequentialStage = Enumerable.Repeat(-1, 8).ToArray();
-            public int[] V74SequentialStageBar = Enumerable.Repeat(-1, 8).ToArray();
-            public double[] V74SequentialEntry = new double[8];
-            public double[] V74SequentialStop = new double[8];
-            public double[] V74SequentialTarget = new double[8];
-            public double[] V74SequentialRisk = new double[8];
-            public double[] V74SequentialNetRr = new double[8];
-            public double[] V74SequentialOutcomeR = Enumerable.Repeat(double.NaN, 8).ToArray();
+            public int[] V74SequentialReactionBar = Enumerable.Repeat(-1, 12).ToArray();
+            public bool[] V74SequentialActive = new bool[12];
+            public bool[] V74SequentialPositiveArmed = new bool[12];
+            public int[] V74SequentialBars = new int[12];
+            public int[] V74SequentialLockBar = Enumerable.Repeat(-1, 12).ToArray();
+            public double[] V74SequentialEntry = new double[12];
+            public double[] V74SequentialStop = new double[12];
+            public double[] V74SequentialTarget = new double[12];
+            public double[] V74SequentialRisk = new double[12];
+            public double[] V74SequentialNetRr = new double[12];
+            public double[] V74SequentialOutcomeR = Enumerable.Repeat(double.NaN, 12).ToArray();
             public string V74SequentialState025Csv = "", V74SequentialState050Csv = "";
+            public string V74SequentialEntry025HoldCsv = "", V74SequentialEntry025DirCsv = "";
+            public string V74SequentialEntry050HoldCsv = "", V74SequentialEntry050DirCsv = "";
         }
 
         private readonly Dictionary<string,V72HcogOpportunity> _v72Hcog = new Dictionary<string,V72HcogOpportunity>(StringComparer.Ordinal);
@@ -703,7 +718,25 @@ namespace cAlgo.Robots
                     o.V74SequentialActive[k]=true;
                     o.V74SequentialEntry[k]=entry;o.V74SequentialStop[k]=stop;o.V74SequentialTarget[k]=o.Target;
                     o.V74SequentialRisk[k]=risk;o.V74SequentialNetRr[k]=rr;o.V74SequentialBars[k]=0;
-                    o.V74SequentialStage[k]=-1;o.V74SequentialStageBar[k]=-1;o.V74SequentialPositiveArmed[k]=false;
+                    o.V74SequentialLockBar[k]=-1;o.V74SequentialPositiveArmed[k]=false;
+                    string entryState=string.Join(",",V74MilestoneFeatures(o,i,reactionR)
+                        .Select(v=>v.ToString("R",System.Globalization.CultureInfo.InvariantCulture)));
+                    if(reactionR<.40)
+                    {
+                        if(V74SequentialRequireDirectional[k])
+                        {
+                            if(string.IsNullOrWhiteSpace(o.V74SequentialEntry025DirCsv))o.V74SequentialEntry025DirCsv=entryState;
+                        }
+                        else if(string.IsNullOrWhiteSpace(o.V74SequentialEntry025HoldCsv))o.V74SequentialEntry025HoldCsv=entryState;
+                    }
+                    else
+                    {
+                        if(V74SequentialRequireDirectional[k])
+                        {
+                            if(string.IsNullOrWhiteSpace(o.V74SequentialEntry050DirCsv))o.V74SequentialEntry050DirCsv=entryState;
+                        }
+                        else if(string.IsNullOrWhiteSpace(o.V74SequentialEntry050HoldCsv))o.V74SequentialEntry050HoldCsv=entryState;
+                    }
                     continue;
                 }
 
@@ -712,14 +745,14 @@ namespace cAlgo.Robots
                                    :(o.V74SequentialEntry[k]-low)/o.V74SequentialRisk[k];
                 double routeCloseR=(buy?close-o.V74SequentialEntry[k]:o.V74SequentialEntry[k]-close)/o.V74SequentialRisk[k];
 
-                // An already-armed frontier is resolved before later same-bar favorable evidence.
-                int stage=o.V74SequentialStage[k];
-                if(V74SequentialFrontier[k]&&stage>=0&&o.V74SequentialBars[k]>o.V74SequentialStageBar[k])
+                // A previously armed positive floor is resolved before any later same-bar
+                // target evidence. The floor is never active on its trigger bar.
+                if(o.V74SequentialPositiveArmed[k]&&o.V74SequentialBars[k]>o.V74SequentialLockBar[k])
                 {
-                    double floor=buy?o.V74SequentialEntry[k]+o.V74SequentialRisk[k]*V74SequentialFloorR[stage]
-                                    :o.V74SequentialEntry[k]-o.V74SequentialRisk[k]*V74SequentialFloorR[stage];
+                    double floor=buy?o.V74SequentialEntry[k]+o.V74SequentialRisk[k]*V74SequentialFloorR[k]
+                                    :o.V74SequentialEntry[k]-o.V74SequentialRisk[k]*V74SequentialFloorR[k];
                     bool floorHit=buy?low<=floor:high>=floor;
-                    if(floorHit){o.V74SequentialOutcomeR[k]=V74SequentialFloorR[stage];o.V74SequentialActive[k]=false;continue;}
+                    if(floorHit){o.V74SequentialOutcomeR[k]=V74SequentialFloorR[k];o.V74SequentialActive[k]=false;continue;}
                 }
 
                 bool stopHit=buy?low<=o.V74SequentialStop[k]:high>=o.V74SequentialStop[k];
@@ -728,26 +761,19 @@ namespace cAlgo.Robots
                 if(stopHit){o.V74SequentialOutcomeR[k]=-1.0;o.V74SequentialActive[k]=false;continue;}
                 if(targetHit){o.V74SequentialOutcomeR[k]=o.V74SequentialNetRr[k];o.V74SequentialActive[k]=false;continue;}
 
-                // Close-only early invalidation is legal only before a PRIOR completed bar
-                // proves +0.50R. It reduces loss magnitude and can never widen the stop.
-                if(!o.V74SequentialPositiveArmed[k]&&routeCloseR<=-.25)
+                // Before a prior completed bar proves the post-entry first passage, an
+                // adverse completed close can only reduce loss magnitude; it cannot widen risk.
+                // If favorable and adverse evidence share this bar, the adverse close wins.
+                if(!o.V74SequentialPositiveArmed[k]&&routeCloseR<=V74SequentialAdverseCutR[k])
                 {
                     o.V74SequentialOutcomeR[k]=Math.Max(-1.0,routeCloseR);
                     o.V74SequentialActive[k]=false;continue;
                 }
 
-                if(routeFav+1e-12>=.50)o.V74SequentialPositiveArmed[k]=true;
-
-                if(V74SequentialFrontier[k])
+                if(!o.V74SequentialPositiveArmed[k]&&routeFav+1e-12>=V74SequentialTriggerR[k])
                 {
-                    int newStage=o.V74SequentialStage[k];
-                    for(int s=0;s<V74SequentialStageR.Length;s++)
-                        if(routeFav+1e-12>=V74SequentialStageR[s])newStage=s;
-                    if(newStage>o.V74SequentialStage[k])
-                    {
-                        o.V74SequentialStage[k]=newStage;
-                        o.V74SequentialStageBar[k]=o.V74SequentialBars[k];
-                    }
+                    o.V74SequentialPositiveArmed[k]=true;
+                    o.V74SequentialLockBar[k]=o.V74SequentialBars[k];
                 }
             }
         }
@@ -830,18 +856,22 @@ namespace cAlgo.Robots
                 double.IsFinite(o.V74HighConvictionOutcomeR[1])?o.V74HighConvictionOutcomeR[1].ToString("R",System.Globalization.CultureInfo.InvariantCulture):"NA",
                 double.IsFinite(o.V74HighConvictionOutcomeR[2])?o.V74HighConvictionOutcomeR[2].ToString("R",System.Globalization.CultureInfo.InvariantCulture):"NA",
                 double.IsFinite(o.V74HighConvictionOutcomeR[3])?o.V74HighConvictionOutcomeR[3].ToString("R",System.Globalization.CultureInfo.InvariantCulture):"NA");
-            Print("[V74-SEQUENTIAL-PATH] setup={0} family={1} lane={2} m025={3} m050={4} s025hp={5} rr025hp={6:F6} s025dp={7} rr025dp={8:F6} s050hp={9} rr050hp={10:F6} s050dp={11} rr050dp={12:F6} s025hf={13} rr025hf={14:F6} s025df={15} rr025df={16:F6} s050hf={17} rr050hf={18:F6} s050df={19} rr050df={20:F6}",
-                o.SetupKey,o.Family,o.Lane,
-                string.IsNullOrWhiteSpace(o.V74SequentialState025Csv)?"NONE":o.V74SequentialState025Csv,
-                string.IsNullOrWhiteSpace(o.V74SequentialState050Csv)?"NONE":o.V74SequentialState050Csv,
-                double.IsFinite(o.V74SequentialOutcomeR[0])?o.V74SequentialOutcomeR[0].ToString("R",System.Globalization.CultureInfo.InvariantCulture):"NA",o.V74SequentialNetRr[0],
-                double.IsFinite(o.V74SequentialOutcomeR[1])?o.V74SequentialOutcomeR[1].ToString("R",System.Globalization.CultureInfo.InvariantCulture):"NA",o.V74SequentialNetRr[1],
-                double.IsFinite(o.V74SequentialOutcomeR[2])?o.V74SequentialOutcomeR[2].ToString("R",System.Globalization.CultureInfo.InvariantCulture):"NA",o.V74SequentialNetRr[2],
-                double.IsFinite(o.V74SequentialOutcomeR[3])?o.V74SequentialOutcomeR[3].ToString("R",System.Globalization.CultureInfo.InvariantCulture):"NA",o.V74SequentialNetRr[3],
-                double.IsFinite(o.V74SequentialOutcomeR[4])?o.V74SequentialOutcomeR[4].ToString("R",System.Globalization.CultureInfo.InvariantCulture):"NA",o.V74SequentialNetRr[4],
-                double.IsFinite(o.V74SequentialOutcomeR[5])?o.V74SequentialOutcomeR[5].ToString("R",System.Globalization.CultureInfo.InvariantCulture):"NA",o.V74SequentialNetRr[5],
-                double.IsFinite(o.V74SequentialOutcomeR[6])?o.V74SequentialOutcomeR[6].ToString("R",System.Globalization.CultureInfo.InvariantCulture):"NA",o.V74SequentialNetRr[6],
-                double.IsFinite(o.V74SequentialOutcomeR[7])?o.V74SequentialOutcomeR[7].ToString("R",System.Globalization.CultureInfo.InvariantCulture):"NA",o.V74SequentialNetRr[7]);
+            var seqParts=new List<string>{
+                "setup="+o.SetupKey,"family="+o.Family,"lane="+o.Lane,
+                "m025="+(string.IsNullOrWhiteSpace(o.V74SequentialState025Csv)?"NONE":o.V74SequentialState025Csv),
+                "m050="+(string.IsNullOrWhiteSpace(o.V74SequentialState050Csv)?"NONE":o.V74SequentialState050Csv),
+                "e025h="+(string.IsNullOrWhiteSpace(o.V74SequentialEntry025HoldCsv)?"NONE":o.V74SequentialEntry025HoldCsv),
+                "e025d="+(string.IsNullOrWhiteSpace(o.V74SequentialEntry025DirCsv)?"NONE":o.V74SequentialEntry025DirCsv),
+                "e050h="+(string.IsNullOrWhiteSpace(o.V74SequentialEntry050HoldCsv)?"NONE":o.V74SequentialEntry050HoldCsv),
+                "e050d="+(string.IsNullOrWhiteSpace(o.V74SequentialEntry050DirCsv)?"NONE":o.V74SequentialEntry050DirCsv)
+            };
+            for(int k=0;k<V74SequentialKey.Length;k++)
+            {
+                seqParts.Add("b"+k+"="+(double.IsFinite(o.V74SequentialOutcomeR[k])
+                    ?o.V74SequentialOutcomeR[k].ToString("R",System.Globalization.CultureInfo.InvariantCulture):"NA"));
+                seqParts.Add("rr"+k+"="+o.V74SequentialNetRr[k].ToString("R",System.Globalization.CultureInfo.InvariantCulture));
+            }
+            Print("[V74-SEQUENTIAL-PATH] "+string.Join(" ",seqParts));
         }
 
         private void V72HcogProcessActive(int i,DateTime utc,V72HcogOpportunity o)
