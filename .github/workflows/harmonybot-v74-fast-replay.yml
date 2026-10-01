@@ -57,7 +57,20 @@ jobs:
               HarmonyBot-V71/tools/apply_v74_champion.py|\
               HarmonyBot-V71/tools/generate_v74_embedded_cs.py|\
               HarmonyBot-V71/evidence/V74_FAST_REPLAY_SOURCE.json|\
-              .github/workflows/harmonybot-v74-fast-replay.yml)
+              .github/workflows/harmonybot-v74-fast-replay.yml|\
+              .github/workflows/harmonybot-v74-rapid-decision.yml|\
+              .github/workflows/harmonybot-v73-v80-autonomous-evidence-pipeline.yml)
+                ;;
+              HarmonyBot-V71/src/*.cs)
+                if git diff -w --ignore-blank-lines \
+                     -I '^[[:space:]]*//' \
+                     -I '^[[:space:]]*/\*' \
+                     -I '^[[:space:]]*\*' \
+                     --quiet "$BEFORE" "$AFTER" -- "$p"; then
+                  echo "[V74-FAST-CHANGE-GATE] comment/whitespace-only C# change ignored: $p"
+                else
+                  FAST=false
+                fi
                 ;;
               *)
                 FAST=false
@@ -97,7 +110,36 @@ jobs:
           set -euo pipefail
           SOURCE="${{ steps.source.outputs.sha }}"
           git -C control cat-file -e "$SOURCE^{commit}"
-          if ! git -C control diff --quiet "$SOURCE" HEAD --             HarmonyBot-V71/src             HarmonyBot-V71/HarmonyBotV71.csproj             HarmonyBot-V71/tools/run_window.sh             HarmonyBot-V71/tools/run_backtest.sh             HarmonyBot-V71/tools/resolve_window.sh             HarmonyBot-V71/tools/run_v51_reference.sh; then
+          DRIFT=false
+          while IFS= read -r p; do
+            case "$p" in
+              HarmonyBot-V71/src/*.cs)
+                if ! git -C control diff -w --ignore-blank-lines \
+                     -I '^[[:space:]]*//' \
+                     -I '^[[:space:]]*/\*' \
+                     -I '^[[:space:]]*\*' \
+                     --quiet "$SOURCE" HEAD -- "$p"; then
+                  DRIFT=true
+                  echo "[V74-FAST-REPLAY-DRIFT] executable C# change: $p"
+                fi
+                ;;
+              HarmonyBot-V71/HarmonyBotV71.csproj|\
+              HarmonyBot-V71/tools/run_window.sh|\
+              HarmonyBot-V71/tools/run_backtest.sh|\
+              HarmonyBot-V71/tools/resolve_window.sh|\
+              HarmonyBot-V71/tools/run_v51_reference.sh)
+                DRIFT=true
+                echo "[V74-FAST-REPLAY-DRIFT] execution/data support change: $p"
+                ;;
+            esac
+          done < <(git -C control diff --name-only "$SOURCE" HEAD -- \
+            HarmonyBot-V71/src \
+            HarmonyBot-V71/HarmonyBotV71.csproj \
+            HarmonyBot-V71/tools/run_window.sh \
+            HarmonyBot-V71/tools/run_backtest.sh \
+            HarmonyBot-V71/tools/resolve_window.sh \
+            HarmonyBot-V71/tools/run_v51_reference.sh)
+          if [[ "$DRIFT" == "true" ]]; then
             echo "[V74-FAST-REPLAY-BLOCK] execution/data semantics changed; full evidence pipeline required"
             exit 91
           fi
