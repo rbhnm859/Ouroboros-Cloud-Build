@@ -14,6 +14,10 @@ namespace cAlgo.Robots
 
         private enum V72HcogState { WAIT_PRZ, WAIT_LIQUIDITY, WAIT_RECLAIM, WAIT_BOS, WAIT_RETEST, FAILURE_WAIT_RETEST, ACTIVE, CLOSED, EXPIRED }
 
+        private static readonly double[] V74ProtectionTriggerR = { .25, .50, .75, 1.00, 1.50 };
+        private static readonly double[] V74ProtectionFloorR = { .05, .10, .20, .40, .80 };
+        private static readonly string[] V74ProtectionKey = { "025", "050", "075", "100", "150" };
+
         private sealed class V72HcogOpportunity
         {
             public string Id, SetupKey, Family, Hypotheses, Lane, Result;
@@ -31,6 +35,9 @@ namespace cAlgo.Robots
             public bool HcapSelected = true;
             public string HcapFeatureCsv = "", V74FeatureCsv = "";
             public int BarsActive;
+            public int[] V74ProtectionTriggerBar = Enumerable.Repeat(-1, 5).ToArray();
+            public double[] V74ProtectionOutcomeR = Enumerable.Repeat(double.NaN, 5).ToArray();
+            public string[] V74MilestoneFeatureCsv = new string[5];
         }
 
         private readonly Dictionary<string,V72HcogOpportunity> _v72Hcog = new Dictionary<string,V72HcogOpportunity>(StringComparer.Ordinal);
@@ -254,16 +261,82 @@ namespace cAlgo.Robots
             if(r>0){z.GrossProfitR+=r;z.Wins++;}else if(r<0)z.GrossLossR+=-r;
         }
 
+        private double[] V74MilestoneFeatures(V72HcogOpportunity o,int i,double milestoneR)
+        {
+            if(o==null||o.RiskDistance<=0||i<0||i>=_m1Bars.Count)return Enumerable.Repeat(0.0,12).ToArray();
+            double open=_m1Bars.OpenPrices[i],close=_m1Bars.ClosePrices[i],high=_m1Bars.HighPrices[i],low=_m1Bars.LowPrices[i];
+            double atr=Math.Max(_symbol.PipSize,Atr(_m1Bars,14,i)),body=Math.Max(_symbol.PipSize,Math.Abs(close-open));
+            bool buy=o.Direction==TradeDirection.Buy;
+            double closeR=(buy?close-o.Entry:o.Entry-close)/o.RiskDistance;
+            double favWick=buy?Math.Max(0,high-Math.Max(open,close)):Math.Max(0,Math.Min(open,close)-low);
+            double adverseWick=buy?Math.Max(0,Math.Min(open,close)-low):Math.Max(0,high-Math.Max(open,close));
+            bool directional=buy?close>open:close<open;
+            double remainingR=Math.Abs(o.Target-close)/Math.Max(o.RiskDistance,_symbol.PipSize);
+            var rr=BuildRegimeSnapshot();
+            return new[]
+            {
+                VClamp(milestoneR/2.0),
+                VClamp(o.BarsActive/180.0),
+                VClamp((closeR+1.0)/4.0),
+                VClamp(o.MfeR/3.0),
+                VClamp(o.MaeR/2.0),
+                VClamp((body/atr)/2.0),
+                VClamp((favWick/body)/3.0),
+                VClamp((adverseWick/body)/3.0),
+                VClamp(Math.Max(0.0,o.MfeR-closeR)/2.0),
+                VClamp(remainingR/4.0),
+                directional?1.0:0.0,
+                rr==null?0.0:VClamp(rr.Efficiency)
+            };
+        }
+
+        private void V74UpdateProtectionCounterfactuals(V72HcogOpportunity o,int i,bool stop,bool target)
+        {
+            if(o==null||o.RiskDistance<=0||i<0||i>=_m1Bars.Count)return;
+            double high=_m1Bars.HighPrices[i],low=_m1Bars.LowPrices[i];
+            bool buy=o.Direction==TradeDirection.Buy;
+            double fav=buy?(high-o.Entry)/o.RiskDistance:(o.Entry-low)/o.RiskDistance;
+            for(int k=0;k<V74ProtectionTriggerR.Length;k++)
+            {
+                if(o.V74ProtectionTriggerBar[k]<0&&!stop&&fav+1e-12>=V74ProtectionTriggerR[k])
+                {
+                    o.V74ProtectionTriggerBar[k]=o.BarsActive;
+                    o.V74MilestoneFeatureCsv[k]=string.Join(",",V74MilestoneFeatures(o,i,V74ProtectionTriggerR[k])
+                        .Select(v=>v.ToString("R",System.Globalization.CultureInfo.InvariantCulture)));
+                }
+                if(o.V74ProtectionTriggerBar[k]<0||!double.IsNaN(o.V74ProtectionOutcomeR[k]))continue;
+                if(o.BarsActive<=o.V74ProtectionTriggerBar[k])continue; // completed-bar activation: never same-bar protect
+                double floor=o.Direction==TradeDirection.Buy
+                    ?o.Entry+o.RiskDistance*V74ProtectionFloorR[k]
+                    :o.Entry-o.RiskDistance*V74ProtectionFloorR[k];
+                bool floorHit=buy?low<=floor:high>=floor;
+                // Conservative OHLC ambiguity: if floor and target are both touched after activation, protection fires first.
+                if(floorHit){o.V74ProtectionOutcomeR[k]=V74ProtectionFloorR[k];continue;}
+                if(target){o.V74ProtectionOutcomeR[k]=o.NetRr;continue;}
+                if(stop){o.V74ProtectionOutcomeR[k]=-1.0;continue;}
+            }
+        }
+
+        private int V74ProtectionOutcomeRLength(V72HcogOpportunity o){return o==null||o.V74ProtectionOutcomeR==null?0:o.V74ProtectionOutcomeR.Length;}
+
         private void V72HcogFinalizeOutcome(V72HcogOpportunity o,int i,string result,double? forcedR=null)
         {
             if(o==null||!o.Active||o.State!=V72HcogState.ACTIVE||o.RiskDistance<=0)return;
             double close=i>=0&&i<_m1Bars.Count?_m1Bars.ClosePrices[i]:(o.Direction==TradeDirection.Buy?_symbol.Bid:_symbol.Ask);
             double closeR=(o.Direction==TradeDirection.Buy?close-o.Entry:o.Entry-close)/o.RiskDistance,r=forcedR.HasValue?forcedR.Value:Math.Max(-1.0,Math.Min(o.NetRr,closeR));
+            for(int k=0;k<V74ProtectionOutcomeRLength(o);k++)if(double.IsNaN(o.V74ProtectionOutcomeR[k]))o.V74ProtectionOutcomeR[k]=r;
             o.Result=result;o.Active=false;o.State=V72HcogState.CLOSED;_v72HcogClosed++;V72HcogRecord(o,r);
             Print("[V72-HCOG-OUTCOME] id={0} setup={1} family={2} lane={3} abcd={4} coreOverlap={5} r={6:F6} mfeR={7:F6} maeR={8:F6} bars={9} result={10} hcapSelected={11} q={12:F9} lcb={13:F9} hold={14:F3} features={15} v74features={16}",
                 o.Id,o.SetupKey,o.Family,o.Lane,o.HasAbcdConfluence,o.CoreOverlapAtEntry,r,o.MfeR,o.MaeR,o.BarsActive,result,
                 o.HcapSelected,o.HcapQ,o.HcapLcb,o.HcapHoldBars,string.IsNullOrWhiteSpace(o.HcapFeatureCsv)?"NONE":o.HcapFeatureCsv,
                 string.IsNullOrWhiteSpace(o.V74FeatureCsv)?"NONE":o.V74FeatureCsv);
+            Print("[V74-PROTECTION-PATH] setup={0} family={1} lane={2} p025={3:F6} p050={4:F6} p075={5:F6} p100={6:F6} p150={7:F6} m025={8} m050={9} m075={10} m100={11} m150={12}",
+                o.SetupKey,o.Family,o.Lane,o.V74ProtectionOutcomeR[0],o.V74ProtectionOutcomeR[1],o.V74ProtectionOutcomeR[2],o.V74ProtectionOutcomeR[3],o.V74ProtectionOutcomeR[4],
+                string.IsNullOrWhiteSpace(o.V74MilestoneFeatureCsv[0])?"NONE":o.V74MilestoneFeatureCsv[0],
+                string.IsNullOrWhiteSpace(o.V74MilestoneFeatureCsv[1])?"NONE":o.V74MilestoneFeatureCsv[1],
+                string.IsNullOrWhiteSpace(o.V74MilestoneFeatureCsv[2])?"NONE":o.V74MilestoneFeatureCsv[2],
+                string.IsNullOrWhiteSpace(o.V74MilestoneFeatureCsv[3])?"NONE":o.V74MilestoneFeatureCsv[3],
+                string.IsNullOrWhiteSpace(o.V74MilestoneFeatureCsv[4])?"NONE":o.V74MilestoneFeatureCsv[4]);
         }
 
         private void V72HcogProcessActive(int i,DateTime utc,V72HcogOpportunity o)
@@ -271,6 +344,7 @@ namespace cAlgo.Robots
             if(utc<=o.EntryUtc)return;o.BarsActive++;double high=_m1Bars.HighPrices[i],low=_m1Bars.LowPrices[i];
             double fav=o.Direction==TradeDirection.Buy?(high-o.Entry)/o.RiskDistance:(o.Entry-low)/o.RiskDistance,adv=o.Direction==TradeDirection.Buy?(o.Entry-low)/o.RiskDistance:(high-o.Entry)/o.RiskDistance;
             o.MfeR=Math.Max(o.MfeR,fav);o.MaeR=Math.Max(o.MaeR,adv);bool stop=o.Direction==TradeDirection.Buy?low<=o.Stop:high>=o.Stop,target=o.Direction==TradeDirection.Buy?high>=o.Target:low<=o.Target;
+            V74UpdateProtectionCounterfactuals(o,i,stop,target);
             if(stop&&target){V72HcogFinalizeOutcome(o,i,"AMBIGUOUS_STOP_FIRST_CONSERVATIVE",-1.0);return;}if(stop){V72HcogFinalizeOutcome(o,i,"STRUCTURAL_STOP",-1.0);return;}
             if(target){V72HcogFinalizeOutcome(o,i,"CANONICAL_TARGET",o.NetRr);return;}if(o.BarsActive>=180)V72HcogFinalizeOutcome(o,i,"FIXED_180M_HORIZON");
         }
