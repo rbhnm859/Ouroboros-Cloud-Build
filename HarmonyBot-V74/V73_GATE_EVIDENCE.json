@@ -1,0 +1,85 @@
+{
+  "version": "HarmonyBot V73 Candidate",
+  "architecture": "OPPORTUNITY_UNIVERSE_2",
+  "purpose": "SUPPLY_AND_INFORMATION_CAPACITY_ONLY_NO_PNL_SELECTION",
+  "commercial_trade_target_per_year": 200,
+  "raw_supply_floor_per_year": 400,
+  "required_unique_counterfactual_outcomes_per_year": 200,
+  "windows": {
+    "Y2021": {
+      "raw_detected": 3248,
+      "causal_proofs": 922,
+      "reversal_armed": 922,
+      "failure_armed": 366,
+      "closed_counterfactual": 922,
+      "unique_setup_outcomes": 826,
+      "core_overlap_at_entry": 100,
+      "abcd_primitive": 2482,
+      "family_outcomes": {
+        "Cypher": 24,
+        "ABCD": 574,
+        "DeepGartley": 23,
+        "Rat": 85,
+        "FiveZero": 32,
+        "Shark": 73,
+        "DeepCrab": 4,
+        "Bat": 3,
+        "Gartley": 4,
+        "Crab": 3,
+        "Butterfly": 1
+      }
+    },
+    "Y2022": {
+      "raw_detected": 3360,
+      "causal_proofs": 1052,
+      "reversal_armed": 1052,
+      "failure_armed": 368,
+      "closed_counterfactual": 1052,
+      "unique_setup_outcomes": 933,
+      "core_overlap_at_entry": 107,
+      "abcd_primitive": 2668,
+      "family_outcomes": {
+        "ABCD": 658,
+        "FiveZero": 38,
+        "Rat": 111,
+        "Shark": 51,
+        "DeepGartley": 32,
+        "DeepCrab": 4,
+        "Cypher": 33,
+        "AltBat": 1,
+        "Gartley": 3,
+        "Butterfly": 1,
+        "Bat": 1
+      }
+    },
+    "Y2023": {
+      "raw_detected": 2984,
+      "causal_proofs": 808,
+      "reversal_armed": 808,
+      "failure_armed": 280,
+      "closed_counterfactual": 808,
+      "unique_setup_outcomes": 578,
+      "core_overlap_at_entry": 72,
+      "abcd_primitive": 2282,
+      "family_outcomes": {
+        "ABCD": 364,
+        "Rat": 84,
+        "FiveZero": 34,
+        "Cypher": 22,
+        "Shark": 46,
+        "DeepGartley": 23,
+        "Gartley": 1,
+        "Bat": 2,
+        "Butterfly": 1,
+        "DeepCrab": 1
+      }
+    }
+  },
+  "gate": true,
+  "detector_mutated": false,
+  "capital_execution_used": false,
+  "validation_used": false,
+  "fresh_used": false,
+  "next_stage": "V74_ALPHA_TOURNAMENT",
+  "failure_policy": "NO_FORMAL_VERSION_PROMOTION_ON_FAIL__NO_THRESHOLD_RESCUE"
+}
