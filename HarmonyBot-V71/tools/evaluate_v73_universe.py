@@ -53,7 +53,7 @@ for p in root.rglob("R_V73_OPPORTUNITY_UNIVERSE-*.json"):
  w=d.get("window")
  if w in WINDOWS:audit[w]=d
 
-manifest={"version":"HarmonyBot V73 Candidate","architecture":"MULTISCALE_FROZEN_DETECTOR_OPPORTUNITY_UNIVERSE",
+manifest={"version":"HarmonyBot V73 Candidate","architecture":"MULTISCALE_FROZEN_DETECTOR_OPPORTUNITY_UNIVERSE_WITH_CANONICAL_ABCD_SUPPLY",
           "swing_depths":[2,3,4,5,6,7,8],"minimum_independent_causal_opportunities_per_year":MIN_CAUSAL,
           "minimum_parent_family_causal_opportunities_per_year":MIN_PARENT_CAUSAL,
           "minimum_visible_families_per_year":MIN_FAMILIES,"windows":{},"validation_used":False,"fresh_used":False}
