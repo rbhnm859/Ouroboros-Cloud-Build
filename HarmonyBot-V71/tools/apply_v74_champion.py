@@ -69,7 +69,7 @@ if not selected: raise SystemExit(f"frozen V74 champion selected zero opportunit
 (out/"utility_map.txt").write_text(";".join(f'{x["hash"]}={x["pred_lcb"]:.12g}' for x in selected))
 (out/"hold_map.txt").write_text(";".join(f'{x["hash"]}={max(1.0,x["pred_hold"]):.12g}' for x in selected))
 (out/"protection_map.txt").write_text(";".join(f'{x["hash"]}={x["protection_key"]}' for x in selected))
-(out/"reaction_map.txt").write_text(";".join(f'{x["hash"]}={x["reaction_key"]}' for x in selected))
+(out/"reaction_map.txt").write_text(";".join(f'{x["hash"]}={x["reaction_key"]}' for x in selected if x.get("reaction_key") not in (None,"","NONE")))
 manifest={"version":"HarmonyBot V74 Frozen Policy","champion":champ,"window":window,
           "model_source":"OOF_FOLD" if window in pack.get("folds",{}) else "FROZEN_FINAL_2016_2023",
           "selected_n":len(selected),"abcd_capital_allowed":abcd_allowed,"selected":selected,
