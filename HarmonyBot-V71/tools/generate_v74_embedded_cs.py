@@ -27,7 +27,8 @@ lines += [
 "{",
 "    public partial class HarmonyBotV71",
 "    {",
-f"        private const string V74EmbeddedChampionName = {q(champ)};"
+f"        private const string V74EmbeddedChampionName = {q(champ)};",
+f"        private const double V74SelectionThreshold = {csnum(m.get('selection_threshold',1e99))};"
 ]
 
 if champ=="A_HIERARCHICAL_COMPETING_RISK":
@@ -45,13 +46,13 @@ if champ=="A_HIERARCHICAL_COMPETING_RISK":
     lines += [
 "        private void V74AShrink(V74AStat z,double pm,double pw,double k,out double mean,out double win,out int n,out double hold){n=z==null?0:z.N; double zm=z==null?pm:z.Mean, zw=z==null?pw:z.Win; hold=z==null?180.0:z.Hold; mean=(zm*n+pm*k)/(n+k); win=(zw*n+pw*k)/(n+k);}",
 "        private void V74AScore(V72HcogOpportunity o,ref bool selected,ref double mean,ref double lcb,ref double hold){",
-"            var x=V72HcapRawFeatures(o); bool cont=o.Lane==\"HCOG_FAILURE_CONTINUATION\"; var mm=cont?V74ACont:V74ARev;",
+"            var x=V74ResearchFeatures(o); bool cont=o.Lane==\"HCOG_FAILURE_CONTINUATION\"; var mm=cont?V74ACont:V74ARev;",
 "            int[] idx={0,6,7,9,11}; string state=string.Concat(idx.Select(i=>x[i]>=mm.Med[i]?\"1\":\"0\"));",
 "            V74AStat f=null,st=null,cell=null; mm.Family.TryGetValue(o.Family,out f); mm.State.TryGetValue(state,out st); mm.FamilyState.TryGetValue(o.Family+\"|\"+state,out cell);",
 "            double fm,fw,fh,sm,sw,sh; int fn,sn; V74AShrink(f,mm.Global.Mean,mm.Global.Win,30.0,out fm,out fw,out fn,out fh); V74AShrink(st,mm.Global.Mean,mm.Global.Win,30.0,out sm,out sw,out sn,out sh);",
 "            double pm=(fm+sm)/2.0,pw=(fw+sw)/2.0; int support;",
-"            if(cell!=null){int n; V74AShrink(cell,pm,pw,40.0,out mean,out var win,out n,out hold); support=cell.N; double se=Math.Max(.05,mm.Global.Sigma)/Math.Sqrt(Math.Max(1,support)); lcb=mean-1.645*se; selected=support>=12&&mean>=.90&&win>=.70&&lcb>.15;}",
-"            else {mean=pm; double win=pw; support=Math.Min(fn,sn); hold=(fh+sh)/2.0; double se=Math.Max(.05,mm.Global.Sigma)/Math.Sqrt(Math.Max(1,support)); lcb=mean-1.645*se; selected=support>=12&&mean>=.90&&win>=.70&&lcb>.15;}",
+"            if(cell!=null){int n; V74AShrink(cell,pm,pw,40.0,out mean,out var win,out n,out hold); support=cell.N; double se=Math.Max(.05,mm.Global.Sigma)/Math.Sqrt(Math.Max(1,support)); lcb=mean-1.645*se; double score=mean+2.0*win+0.5*lcb-0.05*Math.Log(1.0+Math.Max(1.0,hold)); selected=support>=12&&score>=V74SelectionThreshold;}",
+"            else {mean=pm; double win=pw; support=Math.Min(fn,sn); hold=(fh+sh)/2.0; double se=Math.Max(.05,mm.Global.Sigma)/Math.Sqrt(Math.Max(1,support)); lcb=mean-1.645*se; double score=mean+2.0*win+0.5*lcb-0.05*Math.Log(1.0+Math.Max(1.0,hold)); selected=support>=12&&score>=V74SelectionThreshold;}",
 "        }"
     ]
 
@@ -68,7 +69,7 @@ elif champ=="B_BOUNDED_GRADIENT_STUMPS":
         lines.append(f"        private static readonly V74BAction V74B{key}=new V74BAction{{RBase={csnum(a['r']['base'])},WBase={csnum(a['w']['base'])},RSigma={csnum(a['r']['sigma'])},Hold={csnum(a['hold'])},R={stumps(a['r'])},W={stumps(a['w'])},Fam={fam}}};")
     lines += [
 "        private double V74BPred(double b,V74Stump[] ss,double[] x,out int support){double v=b; support=int.MaxValue; foreach(var s in ss){bool left=x[s.J]<=s.T; v+=left?s.L:s.R; support=Math.Min(support,left?s.LN:s.RN);} if(support==int.MaxValue)support=0; return v;}",
-"        private void V74BScore(V72HcogOpportunity o,ref bool selected,ref double mean,ref double lcb,ref double hold){var x=V72HcapRawFeatures(o); bool cont=o.Lane==\"HCOG_FAILURE_CONTINUATION\"; var m=cont?V74BCont:V74BRev; int s1,s2; mean=V74BPred(m.RBase,m.R,x,out s1); double win=V74BPred(m.WBase,m.W,x,out s2); win=Math.Max(0,Math.Min(1,win)); double[] f; int fs=0; if(m.Fam.TryGetValue(o.Family,out f)){fs=(int)Math.Round(f[0]);mean+=f[1];hold=f[2];}else hold=m.Hold; int support=Math.Max(1,Math.Min(Math.Min(s1==0?1:s1,s2==0?1:s2),fs==0?int.MaxValue:fs)); double se=Math.Max(.05,m.RSigma)/Math.Sqrt(support); lcb=mean-1.645*se; selected=support>=15&&mean>=.90&&win>=.70&&lcb>.10;}"
+"        private void V74BScore(V72HcogOpportunity o,ref bool selected,ref double mean,ref double lcb,ref double hold){var x=V74ResearchFeatures(o); bool cont=o.Lane==\"HCOG_FAILURE_CONTINUATION\"; var m=cont?V74BCont:V74BRev; int s1,s2; mean=V74BPred(m.RBase,m.R,x,out s1); double win=V74BPred(m.WBase,m.W,x,out s2); win=Math.Max(0,Math.Min(1,win)); double[] f; int fs=0; if(m.Fam.TryGetValue(o.Family,out f)){fs=(int)Math.Round(f[0]);mean+=f[1];hold=f[2];}else hold=m.Hold; int support=Math.Max(1,Math.Min(Math.Min(s1==0?1:s1,s2==0?1:s2),fs==0?int.MaxValue:fs)); double se=Math.Max(.05,m.RSigma)/Math.Sqrt(support); lcb=mean-1.645*se; double score=mean+2.0*win+0.5*lcb-0.05*Math.Log(1.0+Math.Max(1.0,hold));selected=support>=15&&score>=V74SelectionThreshold;}"
     ]
 
 elif champ=="C_CONFORMAL_STATE_MANIFOLD":
@@ -81,11 +82,11 @@ elif champ=="C_CONFORMAL_STATE_MANIFOLD":
     lines.append(f"        private static readonly V74Point[] V74CPoints={pts};")
     lines += [
 "        private void V74CScore(V72HcogOpportunity o,ref bool selected,ref double mean,ref double lcb,ref double hold){",
-"            var raw=V72HcapRawFeatures(o); var x=new double[raw.Length]; for(int i=0;i<x.Length;i++)x[i]=(raw[i]-V74CMean[i])/V74CScale[i]; string action=o.Lane==\"HCOG_FAILURE_CONTINUATION\"?\"CONTINUATION\":\"REVERSAL\";",
+"            var raw=V74ResearchFeatures(o); var x=new double[raw.Length]; for(int i=0;i<x.Length;i++)x[i]=(raw[i]-V74CMean[i])/V74CScale[i]; string action=o.Lane==\"HCOG_FAILURE_CONTINUATION\"?\"CONTINUATION\":\"REVERSAL\";",
 "            int same=V74CPoints.Count(p=>p.A==action&&p.F==o.Family); bool familyOnly=same>=31; var ds=new List<Tuple<double,V74Point>>();",
 "            foreach(var p in V74CPoints){if(p.A!=action)continue;if(familyOnly&&p.F!=o.Family)continue;double d=0;for(int j=0;j<x.Length;j++){double z=x[j]-p.X[j];d+=z*z;}if(p.F!=o.Family)d+=.75;ds.Add(Tuple.Create(d,p));}",
 "            var q=ds.OrderBy(z=>z.Item1).Take(31).Select(z=>z.Item2).ToList(); if(q.Count<12){selected=false;mean=0;lcb=-999;hold=180;return;}",
-"            var rv=q.Select(p=>p.R).ToList(); mean=rv.Average(); double win=rv.Count(v=>v>0)/(double)rv.Count; double sd=Math.Sqrt(rv.Sum(v=>(v-mean)*(v-mean))/Math.Max(1,rv.Count-1)); lcb=mean-1.645*sd/Math.Sqrt(rv.Count); double gp=rv.Where(v=>v>0).Sum(),gl=-rv.Where(v=>v<0).Sum(); double pf=gl>0?gp/gl:(gp>0?999:0); var wins=rv.Where(v=>v>0).ToList();var losses=rv.Where(v=>v<0).Select(v=>-v).ToList();double rr=wins.Count>0&&losses.Count>0?wins.Average()/losses.Average():0;hold=q.Select(p=>p.Bars).OrderBy(v=>v).ElementAt(q.Count/2);selected=mean>=.90&&win>=.70&&pf>=3.30&&rr>=2.30&&lcb>0;",
+"            var rv=q.Select(p=>p.R).ToList(); mean=rv.Average(); double win=rv.Count(v=>v>0)/(double)rv.Count; double sd=Math.Sqrt(rv.Sum(v=>(v-mean)*(v-mean))/Math.Max(1,rv.Count-1)); lcb=mean-1.645*sd/Math.Sqrt(rv.Count); double gp=rv.Where(v=>v>0).Sum(),gl=-rv.Where(v=>v<0).Sum(); double pf=gl>0?gp/gl:(gp>0?999:0); var wins=rv.Where(v=>v>0).ToList();var losses=rv.Where(v=>v<0).Select(v=>-v).ToList();double rr=wins.Count>0&&losses.Count>0?wins.Average()/losses.Average():0;hold=q.Select(p=>p.Bars).OrderBy(v=>v).ElementAt(q.Count/2);double score=mean+2.0*win+0.5*lcb-0.05*Math.Log(1.0+Math.Max(1.0,hold));selected=score>=V74SelectionThreshold;",
 "        }"
     ]
 else:
