@@ -54,8 +54,8 @@ def lev(b):return "025" if b.startswith("R025_") else "050"
 
 def out_r(r,m,b,f):
     k20=key(m,b,"20");k30=key(m,b,"30")
-    a=r.get("sequential",{}).get(k20);c=r.get("sequential",{}).get(k30)
-    rr=r.get("sequential_rr",{}).get(k20)
+    a=r.get("late_auction",{}).get(k20);c=r.get("late_auction",{}).get(k30)
+    rr=r.get("late_auction_rr",{}).get(k20)
     if a is None or c is None or rr is None:return None
     a=float(a);c=float(c);rr=float(rr)
     if not all(math.isfinite(x) for x in (a,c,rr)) or rr+1e-9<MIN_RR:return None
@@ -64,15 +64,18 @@ def out_r(r,m,b,f):
     d=c-a
     return a-(2.0 if f=="00" else 1.0)*d
 
-def state(r,m,b):
-    v=r.get("sequential_entry_state",{}).get(key(m,b,"20"))
+def entry_state(r,m,b):
+    v=r.get("late_auction_entry_state",{}).get(key(m,b,"20"))
     return list(v) if v is not None and len(v)==SEQUENTIAL_STATE_FEATURE_COUNT else None
-def reaction(r,b):
-    v=r.get("late_auction_maturity_state",{}).get(src("15",b))
+def maturity_state(r,m,b):
+    v=r.get("late_auction_maturity_state",{}).get(key(m,b,"20"))
     return list(v) if v is not None and len(v)==SEQUENTIAL_STATE_FEATURE_COUNT else None
 def ebar(r,m,b):
-    try:return int(r.get("sequential_entry_bar",{}).get(key(m,b,"20"),-1))
+    try:return int(r.get("late_auction_entry_bars",{}).get(key(m,b,"20"),-1))
     except:return -1
+def route_bars(r,m,b):
+    try:return max(1,int(r.get("late_auction_bars",{}).get(key(m,b,"20"),r.get("bars",1)) or 1))
+    except:return max(1,int(r.get("bars",1) or 1))
 
 def cats(r,b):
     return [1.0 if r["family"]==f else 0.0 for f in FAMILIES]+[
@@ -82,9 +85,10 @@ def cats(r,b):
       1.0 if b.endswith("RR40") else 0.0]
 
 def xvec(r,b,m):
-    a=reaction(r,b);e=state(r,m,b)
+    a=maturity_state(r,m,b);e=entry_state(r,m,b)
     if a is None or e is None:return None
-    # Strictly observable through the completed entry bar.
+    # V2 contract: maturity + completed entry state only. Trigger/post-trigger/
+    # lock fields are deliberately excluded from admission features.
     return list(r.get("features",[]))+cats(r,b)+a+e+[e[i]-a[i] for i in range(SEQUENTIAL_STATE_FEATURE_COUNT)]
 
 def telemetry_guard():
@@ -93,7 +97,7 @@ def telemetry_guard():
       for b in BASES:
         for m in MSTAGES:
           k20=key(m,b,"20");k30=key(m,b,"30")
-          for fld in ("sequential_entry_bar","sequential_entry_state"):
+          for fld in ("late_auction_entry_bars","late_auction_maturity_state","late_auction_entry_state"):
             a=r.get(fld,{}).get(k20);c=r.get(fld,{}).get(k30)
             if a is not None and c is not None and a!=c:
               raise SystemExit(f"V74 F20/F30 pre-entry mismatch {fld} {r['setup']} {m} {b}")
@@ -169,7 +173,7 @@ def make_samples(xs,pol):
         rk,m,f,y=pr;x=xvec(r,b,m)
         if x is None:continue
         out.append({"window":r["window"],"setup":r["setup"],"family":r["family"],"action":r["action"],
-                    "base":b,"route":rk,"m":m,"f":f,"x":x,"y":float(y),"row":r})
+                    "base":b,"route":rk,"m":m,"f":f,"x":x,"y":float(y),"route_bars":route_bars(r,m,b),"row":r})
     return out
 
 def stable_idx(samples,k):
@@ -298,7 +302,7 @@ def metric_selected(events,th):
     rr=[]
     for e in events:
       if e["score"]+1e-12<th:continue
-      s=e["s"];q=dict(s["row"]);q["r"]=s["y"];q["bars"]=max(1,int(q.get("bars",1) or 1));q["sequential_key"]=s["route"];rr.append(q)
+      s=e["s"];q=dict(s["row"]);q["r"]=s["y"];q["bars"]=s["route_bars"];q["sequential_key"]=s["route"];rr.append(q)
     return metrics(rr),rr
 
 def choose_config(train_rows,train_years):
