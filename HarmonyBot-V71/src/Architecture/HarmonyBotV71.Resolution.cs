@@ -1156,15 +1156,25 @@ namespace cAlgo.Robots
                 V71RiskPercent = riskPct
             };
 
-            if (!V72BuildPullbackSingleLeg(candidate, e) || candidate.GridPlan == null || candidate.NetRR < MinimumNetRR)
+            bool v77Grid = EnableV71ExpansionGrid && (EnableV74ExternalPolicy || EnableV74EmbeddedPolicy);
+            bool planOk = v77Grid ? V77BuildExpansionGrid(candidate, e) : V72BuildPullbackSingleLeg(candidate, e);
+            if (!planOk || candidate.GridPlan == null || candidate.NetRR < MinimumNetRR)
                 return;
 
-            Print("[V72-ALPHA-EXECUTE] architecture={0} cid={1} setup={2} family={3} lane={4} route={5} dir={6} rr={7:F3} asym={8:F3} riskPct={9:F2}",
+            Print("[V72-ALPHA-EXECUTE] architecture={0} cid={1} setup={2} family={3} lane={4} route={5} dir={6} rr={7:F3} asym={8:F3} riskPct={9:F2} grid={10}",
                 (EnableV74ExternalPolicy || EnableV74EmbeddedPolicy) ? "V74_FROZEN_ALPHA_TOURNAMENT_CHAMPION" : (EnableV72HcapAlpha ? "HARMONIC_COUNTERFACTUAL_ACTION_POLICY" : (EnableV72HcogAlpha ? "HARMONIC_CAUSAL_OPPORTUNITY_GRAPH" : (EnableV72FamilyNativeCausalAlpha ? "FAMILY_NATIVE_CAUSAL" : "LEGACY_BIFURCATION"))),
                 e.CandidateId, e.SetupKey, V71FamilyKey(e.Signal.PatternName), e.CapitalLane, e.Route,
-                V72CapitalDirection(e), e.NetRR, e.AsymmetryCompression, riskPct);
+                V72CapitalDirection(e), e.NetRR, e.AsymmetryCompression, riskPct, v77Grid);
 
-            if (V72SubmitPullbackSingleLeg(candidate))
+            bool submitted;
+            if (v77Grid)
+            {
+                ExecuteFibonacciGridPlan(candidate);
+                submitted = candidate.State == CandidateState.EXECUTED;
+            }
+            else submitted = V72SubmitPullbackSingleLeg(candidate);
+
+            if (submitted)
             {
                 e.Executed = true;
                 e.IsActive = false;
