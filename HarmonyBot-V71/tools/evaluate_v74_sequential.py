@@ -34,7 +34,7 @@ QGRID=[i/100.0 for i in (0,5,10,15,20,25,30,35,40,45,50)]
 
 rows=load_rows(root,ALL)
 if not rows:raise SystemExit("no V74 rows")
-if sum(len(r.get("sequential_entry_bar",{})) for r in rows)==0:raise SystemExit("V74 exact-event telemetry missing")
+if sum(len(r.get("late_auction_entry_bars",{})) for r in rows)==0:raise SystemExit("V74 v2 late-auction telemetry missing")
 
 def gate(m):
     return bool(m["n"]>=MIN_N and m["mean_r"]>=MIN_MEAN and m["pf_r"]>=MIN_PF and
@@ -68,7 +68,7 @@ def state(r,m,b):
     v=r.get("sequential_entry_state",{}).get(key(m,b,"20"))
     return list(v) if v is not None and len(v)==SEQUENTIAL_STATE_FEATURE_COUNT else None
 def reaction(r,b):
-    v=r.get("sequential_state",{}).get(lev(b))
+    v=r.get("late_auction_maturity_state",{}).get(src("15",b))
     return list(v) if v is not None and len(v)==SEQUENTIAL_STATE_FEATURE_COUNT else None
 def ebar(r,m,b):
     try:return int(r.get("sequential_entry_bar",{}).get(key(m,b,"20"),-1))
