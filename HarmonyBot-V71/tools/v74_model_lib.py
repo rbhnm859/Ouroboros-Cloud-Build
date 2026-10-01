@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 import json,math,pathlib,re,statistics
 
-FAMILIES=["Gartley","Bat","AltBat","Butterfly","Crab","DeepCrab","DeepGartley","Rat","Cypher","Shark","FiveZero"]
+FAMILIES=["Gartley","Bat","AltBat","Butterfly","Crab","DeepCrab","DeepGartley","Rat","Cypher","Shark","FiveZero","ABCD"]
 ACTIONS=["REVERSAL","CONTINUATION"]
 FEATURE_NAMES=["geometry","prz","confidence","time_symmetry","pivot_quality","net_rr_scaled",
                "efficiency","atr_fit","extension_scaled","trend_strength","adx_slope_norm","mtf_score"]
@@ -29,7 +29,7 @@ def load_rows(root,windows):
         txt=p.read_text(errors="ignore")
         for m in RX.finditer(txt):
             fam=m.group(3); lane=m.group(4); raw=m.group(15)
-            if fam=="ABCD" or fam not in FAMILIES or lane not in ("HCOG_REVERSAL","HCOG_FAILURE_CONTINUATION") or raw=="NONE":
+            if fam not in FAMILIES or lane not in ("HCOG_REVERSAL","HCOG_FAILURE_CONTINUATION") or raw=="NONE":
                 continue
             fv=[float(x) for x in raw.split(",")]
             if len(fv)!=len(FEATURE_NAMES) or not all(math.isfinite(x) for x in fv): continue

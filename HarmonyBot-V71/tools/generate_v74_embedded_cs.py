@@ -3,7 +3,10 @@ import json,pathlib,sys
 tm=json.load(open(sys.argv[1])); mb=json.load(open(sys.argv[2])); out=pathlib.Path(sys.argv[3])
 champ=tm.get("champion")
 if not champ: raise SystemExit("no V74 champion")
-m=mb["models"][champ]["final"]
+pack=mb["models"][champ]
+m=pack["final"]
+abcd_allowed=bool(pack.get("abcd_final_capital_eligible",
+                  tm.get("models",{}).get(champ,{}).get("abcd_final_capital_eligible",False)))
 
 def csnum(x):
     x=float(x)
@@ -96,6 +99,8 @@ lines += [
 if champ=="A_HIERARCHICAL_COMPETING_RISK": lines.append("            V74AScore(o,ref selected,ref mean,ref lcb,ref holdBars);")
 elif champ=="B_BOUNDED_GRADIENT_STUMPS": lines.append("            V74BScore(o,ref selected,ref mean,ref lcb,ref holdBars);")
 else: lines.append("            V74CScore(o,ref selected,ref mean,ref lcb,ref holdBars);")
+if not abcd_allowed:
+    lines.append("            if(o.Family==\"ABCD\") selected=false;")
 lines += ["        }","    }","}"]
 out.parent.mkdir(parents=True,exist_ok=True); out.write_text("\n".join(lines)+"\n")
 print(json.dumps({"champion":champ,"output":str(out),"lines":len(lines),"bytes":out.stat().st_size},indent=2))

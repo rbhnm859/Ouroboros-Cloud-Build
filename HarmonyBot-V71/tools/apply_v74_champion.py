@@ -10,10 +10,15 @@ rows=load_rows(root,[window])
 if not rows: raise SystemExit(f"no census rows for {window}")
 pack=mb["models"][champ]
 model=pack["folds"].get(window,pack["final"])
+fold_meta=tm.get("models",{}).get(champ,{}).get("folds",{}).get(window,{})
+abcd_allowed=bool(fold_meta.get("abcd_training_capital_eligible",
+                  pack.get("abcd_final_capital_eligible",
+                           tm.get("models",{}).get(champ,{}).get("abcd_final_capital_eligible",False))))
 selected=[]
 for r in rows:
     z=predict(champ,model,r)
     if not z.get("selected"):continue
+    if r["family"]=="ABCD" and not abcd_allowed: continue
     h=fnv64_utf16(r["setup"])
     selected.append({"setup":r["setup"],"hash":h,"family":r["family"],"action":r["action"],
                      "pred_mean":float(z.get("mean",0.0)),"pred_win":float(z.get("win",0.0)),
@@ -31,7 +36,7 @@ if not selected: raise SystemExit(f"frozen V74 champion selected zero opportunit
 (out/"hold_map.txt").write_text(";".join(f'{x["hash"]}={max(1.0,x["pred_hold"]):.12g}' for x in selected))
 manifest={"version":"HarmonyBot V74 Frozen Policy","champion":champ,"window":window,
           "model_source":"OOF_FOLD" if window in pack["folds"] else "FROZEN_FINAL_2016_2023",
-          "selected_n":len(selected),"selected":selected,
+          "selected_n":len(selected),"abcd_capital_allowed":abcd_allowed,"selected":selected,
           "outcome_fields_used_for_selection":False,
           "selection_inputs":"PRE_ENTRY_FEATURES_FAMILY_ACTION_ONLY",
           "validation_used":window.startswith("Q1") or window.startswith("Q2"),
