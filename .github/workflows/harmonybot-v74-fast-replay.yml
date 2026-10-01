@@ -128,7 +128,15 @@ jobs:
             exit 92
           }
 
+      - name: Restore pinned universe cache
+        id: universe_cache
+        uses: actions/cache@v4
+        with:
+          path: merged
+          key: v74-universe-${{ runner.os }}-${{ steps.source.outputs.run }}-${{ steps.source.outputs.sha }}
+
       - uses: actions/download-artifact@v4
+        if: steps.universe_cache.outputs.cache-hit != 'true'
         with:
           pattern: v73-universe-*
           path: merged
