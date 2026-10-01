@@ -71,6 +71,10 @@ namespace cAlgo.Robots
 
         private void Ledger(CandidateRecord c, CandidateState state, string reason)
         {
+            // V73/V74 census emits compact terminal evidence separately. Suppress only
+            // high-volume state-transition chatter in shadow research so GitHub/cTrader
+            // log throttling cannot drop HCOG outcome/RCR evidence.
+            if (EnableV73OpportunityUniverse && !EnableV71ExpansionExecution) return;
             double wait = c.ParkedUtc.HasValue ? Math.Max(0, (Server.Time.ToUniversalTime() - c.ParkedUtc.Value).TotalMinutes) : 0;
             Print("[V51-EVENT] cid={0} setup={1} pattern={2} subtype={3} scale={4} tf={5} dir={6} state={7} route={8} conflict={9} waitMin={10:F2} reason={11}",
                 c.CandidateId, c.SetupKey ?? "", c.Signal.PatternName, c.Signal.HarmonicSubtype ?? c.Signal.PatternName,
