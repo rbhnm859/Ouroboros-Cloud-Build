@@ -11,6 +11,8 @@ FEATURE_NAMES=["geometry","prz","confidence","time_symmetry","pivot_quality","ne
                "abcd_confluence","completion_latency","proof_body_atr","proof_rejection_ratio",
                "proof_sweep_depth_atr","proof_reclaim_atr","proof_bos_atr","proof_retest_atr"]
 STATE_IDXS=[0,6,9,34,38]
+PROTECTION_KEYS=["025","050","075","100","150"]
+MILESTONE_FEATURE_COUNT=12
 Z=1.645
 
 RX=re.compile(
@@ -18,6 +20,11 @@ RX=re.compile(
  r"abcd=(True|False)\s+coreOverlap=(True|False)\s+r=([-0-9.]+)\s+mfeR=([-0-9.]+)\s+"
  r"maeR=([-0-9.]+)\s+bars=(\d+)\s+result=(\S+)\s+hcapSelected=(True|False)\s+"
  r"q=([-0-9.]+)\s+lcb=([-0-9.]+)\s+hold=([-0-9.]+)\s+features=(\S+)(?:\s+v74features=(\S+))?"
+)
+PATH_RX=re.compile(
+ r"\[V74-PROTECTION-PATH\]\s+setup=(\S+)\s+family=(\S+)\s+lane=(\S+)\s+"
+ r"p025=([-0-9.]+)\s+p050=([-0-9.]+)\s+p075=([-0-9.]+)\s+p100=([-0-9.]+)\s+p150=([-0-9.]+)\s+"
+ r"m025=(\S+)\s+m050=(\S+)\s+m075=(\S+)\s+m100=(\S+)\s+m150=(\S+)"
 )
 
 def window_of(path,windows):
@@ -32,6 +39,16 @@ def load_rows(root,windows):
         w=window_of(p,windows)
         if not w: continue
         txt=p.read_text(errors="ignore")
+        paths={}
+        for pm in PATH_RX.finditer(txt):
+            protect={k:float(pm.group(4+i)) for i,k in enumerate(PROTECTION_KEYS)}
+            miles={}
+            for i,k in enumerate(PROTECTION_KEYS):
+                rawm=pm.group(9+i)
+                if rawm=="NONE": continue
+                fv=[float(x) for x in rawm.split(",")]
+                if len(fv)==MILESTONE_FEATURE_COUNT and all(math.isfinite(x) for x in fv): miles[k]=fv
+            paths[pm.group(1)]={"protect_r":protect,"milestones":miles}
         for m in RX.finditer(txt):
             fam=m.group(3); lane=m.group(4); raw=m.group(17) if m.group(17) not in (None,"NONE") else m.group(16)
             if fam not in FAMILIES or lane not in (
@@ -43,10 +60,12 @@ def load_rows(root,windows):
             if len(fv)==12: fv=fv+[0.0]*(len(FEATURE_NAMES)-12)
             if len(fv)!=len(FEATURE_NAMES) or not all(math.isfinite(x) for x in fv): continue
             action="CONTINUATION" if lane in ("HCOG_FAILURE_CONTINUATION","HCOG_ABCD_STANDALONE_CONTINUATION_SHADOW") else "REVERSAL"
+            path=paths.get(m.group(2),{"protect_r":{},"milestones":{}})
             rows.append({"window":w,"id":m.group(1),"setup":m.group(2),"family":fam,
                          "action":action,
                          "r":float(m.group(7)),"mfe":float(m.group(8)),"mae":float(m.group(9)),
-                         "bars":int(m.group(10)),"result":m.group(11),"features":fv})
+                         "bars":int(m.group(10)),"result":m.group(11),"features":fv,
+                         "protect_r":path.get("protect_r",{}),"milestones":path.get("milestones",{})})
     # HCOG setup identity is the anti-duplicate truth. Last copy is equivalent if repeated artifact paths exist.
     d={}
     for r in rows:d[(r["window"],r["setup"])]=r
@@ -240,6 +259,49 @@ def selection_score(z):
     mean=float(z.get("mean",0.0)); win=float(z.get("win",0.0)); lcb=float(z.get("lcb",-999.0))
     hold=max(1.0,float(z.get("hold",180.0)))
     return mean+2.0*win+0.5*lcb-0.05*math.log1p(hold)
+
+def protection_vector(r,key):
+    m=r.get("milestones",{}).get(key)
+    if m is None or len(m)!=MILESTONE_FEATURE_COUNT:return None
+    return list(r["features"])+list(m)
+
+def train_protection(rows,key):
+    q=[]
+    for r in rows:
+        x=protection_vector(r,key)
+        pr=r.get("protect_r",{}).get(key)
+        if x is None or pr is None or not math.isfinite(float(pr)):continue
+        q.append((x,float(pr)-float(r["r"])))
+    if len(q)<40:
+        return {"key":key,"base":0.0,"stumps":[],"sigma":10.0,"n":len(q),"min_support":20}
+    m=_stump_train([x for x,_ in q],[y for _,y in q],rounds=18,lr=.06)
+    m.update({"key":key,"n":len(q),"min_support":20})
+    return m
+
+def pred_protection(model,r):
+    key=model.get("key")
+    x=protection_vector(r,key)
+    if x is None:return {"delta":0.0,"lcb":-999.0,"support":0,"protect":False}
+    delta,support=_stump_pred(model,x)
+    se=max(.05,float(model.get("sigma",10.0)))/math.sqrt(max(1,support))
+    lcb=delta-Z*se
+    return {"delta":delta,"lcb":lcb,"support":support,
+            "protect":bool(support>=int(model.get("min_support",20)) and lcb>0.0)}
+
+def apply_protection(models,r):
+    for key in PROTECTION_KEYS:
+        if key not in r.get("milestones",{}):continue
+        m=models.get(key)
+        if not m:continue
+        z=pred_protection(m,r)
+        if z.get("protect"):
+            pr=r.get("protect_r",{}).get(key)
+            if pr is not None:
+                q=dict(r); q["native_r"]=r["r"]; q["r"]=float(pr); q["protection_key"]=key
+                q["protection_pred_delta"]=z.get("delta",0.0); q["protection_lcb_delta"]=z.get("lcb",-999.0)
+                return q
+    q=dict(r); q["native_r"]=r["r"]; q["protection_key"]="NONE"; q["protection_pred_delta"]=0.0; q["protection_lcb_delta"]=0.0
+    return q
 
 TRAINERS={"A_HIERARCHICAL_COMPETING_RISK":train_hier,
           "B_BOUNDED_GRADIENT_STUMPS":train_boost,
