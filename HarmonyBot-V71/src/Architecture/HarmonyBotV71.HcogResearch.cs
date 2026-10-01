@@ -55,21 +55,28 @@ namespace cAlgo.Robots
             false,true,false,true, false,true,false,true, false,true,false,true
         };
         private static readonly double[] V74SequentialDesiredRr = {
-            3.0,3.0,3.0,3.0, 3.5,3.5,3.5,3.5, 4.0,4.0,4.0,4.0
+            3.5,3.5,3.5,3.5, 4.0,4.0,4.0,4.0, 4.0,4.0,4.0,4.0
+        };
+        // Partial crystallization is a single-basket exit transform, never a new trade.
+        // A post-entry +0.25R first passage is observed; only on a later completed M1 close
+        // that still holds +0.10R do we crystallize 20%/30%, then move the remaining runner
+        // to break-even. Canonical target stays live for the runner.
+        private static readonly double[] V74SequentialPartialFraction = {
+            .20,.20,.20,.20, .20,.20,.20,.20, .30,.30,.30,.30
         };
         private static readonly double[] V74SequentialTriggerR = {
             .25,.25,.25,.25, .25,.25,.25,.25, .25,.25,.25,.25
         };
+        private static readonly double[] V74SequentialPartialHoldR = {
+            .10,.10,.10,.10, .10,.10,.10,.10, .10,.10,.10,.10
+        };
         private static readonly double[] V74SequentialAdverseCutR = {
             -.15,-.15,-.15,-.15, -.15,-.15,-.15,-.15, -.15,-.15,-.15,-.15
         };
-        private static readonly double[] V74SequentialFloorR = {
-            .05,.05,.05,.05, .05,.05,.05,.05, .05,.05,.05,.05
-        };
         private static readonly string[] V74SequentialKey = {
-            "G_R025_H_RR30","G_R025_D_RR30","G_R050_H_RR30","G_R050_D_RR30",
-            "G_R025_H_RR35","G_R025_D_RR35","G_R050_H_RR35","G_R050_D_RR35",
-            "G_R025_H_RR40","G_R025_D_RR40","G_R050_H_RR40","G_R050_D_RR40"
+            "P_R025_H_RR35_F20","P_R025_D_RR35_F20","P_R050_H_RR35_F20","P_R050_D_RR35_F20",
+            "P_R025_H_RR40_F20","P_R025_D_RR40_F20","P_R050_H_RR40_F20","P_R050_D_RR40_F20",
+            "P_R025_H_RR40_F30","P_R025_D_RR40_F30","P_R050_H_RR40_F30","P_R050_D_RR40_F30"
         };
 
         private sealed class V72HcogOpportunity
@@ -126,7 +133,9 @@ namespace cAlgo.Robots
             public bool[] V74SequentialActive = new bool[12];
             public bool[] V74SequentialPositiveArmed = new bool[12];
             public int[] V74SequentialBars = new int[12];
+            public int[] V74SequentialTriggerBar = Enumerable.Repeat(-1, 12).ToArray();
             public int[] V74SequentialLockBar = Enumerable.Repeat(-1, 12).ToArray();
+            public double[] V74SequentialLockedR = new double[12];
             public double[] V74SequentialEntry = new double[12];
             public double[] V74SequentialStop = new double[12];
             public double[] V74SequentialTarget = new double[12];
@@ -726,7 +735,8 @@ namespace cAlgo.Robots
                     o.V74SequentialActive[k]=true;
                     o.V74SequentialEntry[k]=entry;o.V74SequentialStop[k]=stop;o.V74SequentialTarget[k]=o.Target;
                     o.V74SequentialRisk[k]=risk;o.V74SequentialNetRr[k]=rr;o.V74SequentialBars[k]=0;
-                    o.V74SequentialLockBar[k]=-1;o.V74SequentialPositiveArmed[k]=false;
+                    o.V74SequentialTriggerBar[k]=-1;o.V74SequentialLockBar[k]=-1;
+                    o.V74SequentialLockedR[k]=0;o.V74SequentialPositiveArmed[k]=false;
                     string entryState=string.Join(",",V74MilestoneFeatures(o,i,reactionR)
                         .Select(v=>v.ToString("R",System.Globalization.CultureInfo.InvariantCulture)));
                     if(reactionR<.40)
@@ -753,35 +763,50 @@ namespace cAlgo.Robots
                                    :(o.V74SequentialEntry[k]-low)/o.V74SequentialRisk[k];
                 double routeCloseR=(buy?close-o.V74SequentialEntry[k]:o.V74SequentialEntry[k]-close)/o.V74SequentialRisk[k];
 
-                // A previously armed positive floor is resolved before any later same-bar
-                // target evidence. The floor is never active on its trigger bar.
+                // After a completed partial crystallization, only the remaining runner is
+                // active. Its stop is break-even and therefore strictly tighter than initial risk.
                 if(o.V74SequentialPositiveArmed[k]&&o.V74SequentialBars[k]>o.V74SequentialLockBar[k])
                 {
-                    double floor=buy?o.V74SequentialEntry[k]+o.V74SequentialRisk[k]*V74SequentialFloorR[k]
-                                    :o.V74SequentialEntry[k]-o.V74SequentialRisk[k]*V74SequentialFloorR[k];
-                    bool floorHit=buy?low<=floor:high>=floor;
-                    if(floorHit){o.V74SequentialOutcomeR[k]=V74SequentialFloorR[k];o.V74SequentialActive[k]=false;continue;}
+                    bool beHit=buy?low<=o.V74SequentialEntry[k]:high>=o.V74SequentialEntry[k];
+                    bool runnerTarget=buy?high>=o.V74SequentialTarget[k]:low<=o.V74SequentialTarget[k];
+                    // Conservative ambiguity: BE wins over target if both occur in one bar.
+                    if(beHit){o.V74SequentialOutcomeR[k]=o.V74SequentialLockedR[k];o.V74SequentialActive[k]=false;continue;}
+                    if(runnerTarget)
+                    {
+                        double remain=1.0-V74SequentialPartialFraction[k];
+                        o.V74SequentialOutcomeR[k]=o.V74SequentialLockedR[k]+remain*o.V74SequentialNetRr[k];
+                        o.V74SequentialActive[k]=false;continue;
+                    }
+                    continue;
                 }
 
                 bool stopHit=buy?low<=o.V74SequentialStop[k]:high>=o.V74SequentialStop[k];
                 bool targetHit=buy?high>=o.V74SequentialTarget[k]:low<=o.V74SequentialTarget[k];
-                // Broker stop is conservatively first if stop and target share a bar.
+                // Before partial crystallization this is still one full basket.
                 if(stopHit){o.V74SequentialOutcomeR[k]=-1.0;o.V74SequentialActive[k]=false;continue;}
                 if(targetHit){o.V74SequentialOutcomeR[k]=o.V74SequentialNetRr[k];o.V74SequentialActive[k]=false;continue;}
 
-                // Before a prior completed bar proves the post-entry first passage, an
-                // adverse completed close can only reduce loss magnitude; it cannot widen risk.
-                // If favorable and adverse evidence share this bar, the adverse close wins.
-                if(!o.V74SequentialPositiveArmed[k]&&routeCloseR<=V74SequentialAdverseCutR[k])
+                // Completed-close early invalidation applies only before any partial is taken.
+                if(routeCloseR<=V74SequentialAdverseCutR[k])
                 {
                     o.V74SequentialOutcomeR[k]=Math.Max(-1.0,routeCloseR);
                     o.V74SequentialActive[k]=false;continue;
                 }
 
-                if(!o.V74SequentialPositiveArmed[k]&&routeFav+1e-12>=V74SequentialTriggerR[k])
+                if(o.V74SequentialTriggerBar[k]<0&&routeFav+1e-12>=V74SequentialTriggerR[k])
                 {
+                    o.V74SequentialTriggerBar[k]=o.V74SequentialBars[k];
+                    continue; // first-passage bar is observation only
+                }
+
+                if(o.V74SequentialTriggerBar[k]>=0&&o.V74SequentialBars[k]>o.V74SequentialTriggerBar[k]
+                   &&routeCloseR+1e-12>=V74SequentialPartialHoldR[k])
+                {
+                    double fraction=V74SequentialPartialFraction[k];
+                    o.V74SequentialLockedR[k]=fraction*routeCloseR;
                     o.V74SequentialPositiveArmed[k]=true;
                     o.V74SequentialLockBar[k]=o.V74SequentialBars[k];
+                    continue; // BE runner activates only on the next completed bar
                 }
             }
         }
@@ -793,7 +818,13 @@ namespace cAlgo.Robots
             {
                 if(double.IsFinite(o.V74SequentialOutcomeR[k])||!o.V74SequentialActive[k]||o.V74SequentialRisk[k]<=0)continue;
                 double closeR=(o.Direction==TradeDirection.Buy?close-o.V74SequentialEntry[k]:o.V74SequentialEntry[k]-close)/o.V74SequentialRisk[k];
-                o.V74SequentialOutcomeR[k]=Math.Max(-1.0,Math.Min(o.V74SequentialNetRr[k],closeR));
+                if(o.V74SequentialPositiveArmed[k])
+                {
+                    double remain=1.0-V74SequentialPartialFraction[k];
+                    double runnerR=Math.Max(0.0,Math.Min(o.V74SequentialNetRr[k],closeR));
+                    o.V74SequentialOutcomeR[k]=o.V74SequentialLockedR[k]+remain*runnerR;
+                }
+                else o.V74SequentialOutcomeR[k]=Math.Max(-1.0,Math.Min(o.V74SequentialNetRr[k],closeR));
                 o.V74SequentialActive[k]=false;
             }
         }

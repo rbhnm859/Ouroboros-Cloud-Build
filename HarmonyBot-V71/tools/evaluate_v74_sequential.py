@@ -2,12 +2,12 @@
 """
 V74 barbell survival evaluator.
 
-Run #55 froze A-L negative evidence, Run #60 froze the 1.25R/1.50R cardinality
-ceiling, Run #63 established early-entry supply, Run #64 showed barbell exits
-still inherited over-tight entry stops, and Run #65 proved a second shadow proof
-creates another N<250/year ceiling. This evaluator tests only the preregistered
-3R/3.5R/4R risk-geometry normalized early causal routes. Every route and score
-threshold is selected from training windows only. Validation/Fresh are never loaded here.
+Run #55 froze A-L, Run #60 froze the late-reaction N ceiling, Run #65 froze the
+second-shadow N ceiling, and Run #66 proved that full-basket +0.05R floors impose
+a payoff ceiling: even future-label oracle top-250 across all risk-normalized routes
+cannot reach MeanR 0.90 in 2022/2023. This evaluator tests a single-basket partial
+crystallization + break-even runner architecture. Partial exits never count as
+independent trades. Every route/threshold is training-only; Validation/Fresh are never loaded.
 """
 import json,math,pathlib,statistics,sys
 from v74_model_lib import load_rows,metrics,SEQUENTIAL_KEYS
@@ -147,29 +147,30 @@ def choose(train_rows,train_windows,q):
 
 summary={
  "version":"HarmonyBot V74 Candidate",
- "architecture":"CAUSAL_RISK_GEOMETRY_NORMALIZED_EARLY_COMMIT",
+ "architecture":"CAUSAL_PARTIAL_CRYSTALLIZATION_BREAK_EVEN_RUNNER",
  "legacy_negative_evidence":[
   {"source_run_id":36863429034,"run":55,"result":"A-L_FAIL"},
   {"source_run_id":36870479524,"run":60,"result":"1P25_1P50_RAW_N_LT_250"},
   {"source_run_id":36873141009,"run":63,"result":"EARLY_FIRST_PASSAGE_SUPPLY_OK_BUT_WR_MEAN_PF_RR_JOINT_FAIL"},
   {"source_run_id":36876206286,"run":64,"result":"BARBELL_IMPROVED_2022_BUT_2023_FAIL__PLANNED_RR_TOO_HIGH"},
-  {"source_run_id":36877930018,"run":65,"result":"SECOND_SHADOW_RAW_SELECTED_N_BELOW_250_ALL_BURNED_YEARS__PLANNED_RR_STILL_8P8_TO_12P9"}],
+  {"source_run_id":36877930018,"run":65,"result":"SECOND_SHADOW_RAW_SELECTED_N_BELOW_250_ALL_BURNED_YEARS__PLANNED_RR_STILL_8P8_TO_12P9"},
+  {"source_run_id":36879436103,"run":66,"result":"RISK_GEOMETRY_NORMALIZED_BUT_FULL_FLOOR_PAYOFF_ORACLE_TOP250_MEAN_LT_0P90_IN_2022_2023"}],
  "research_training_windows":RESEARCH,"burned_oof_windows":BURNED,
  "gate":{"min_selected_per_year":MIN_N,"min_mean_r":MIN_MEAN,"min_pf_r":MIN_PF,
          "min_win_rate":MIN_WR,"min_average_rr":MIN_RR,"lcb95_gt":0.0},
  "policy":{
    "capital":"LATER_COMPLETED_M1_HOLD_AFTER_ORIGINAL_0P25_OR_0P50_FIRST_PASSAGE",
-   "entry_risk_geometry":"CANONICAL_TARGET_BACKSOLVES_INITIAL_STOP_AT_3R_3P5R_4R_BOUNDED_BY_STRUCTURAL_INVALIDATION",
-   "post_entry_barbell":"PRIOR_COMPLETED_0P25R_FIRST_PASSAGE_ARMS_0P05R_FLOOR_FULL_CANONICAL_RUNNER_RETAINED",
+   "entry_risk_geometry":"CANONICAL_TARGET_BACKSOLVES_INITIAL_STOP_AT_3P5R_4R_BOUNDED_BY_STRUCTURAL_INVALIDATION",
+   "post_entry_barbell":"POST_ENTRY_0P25R_FIRST_PASSAGE_THEN_LATER_COMPLETED_CLOSE_CRYSTALLIZES_20_OR_30_PCT__REMAINDER_TO_BE__CANONICAL_TARGET_RETAINED",
    "candidates":SEQUENTIAL_KEYS,"adverse_cut":"COMPLETED_CLOSE_ONLY_BEFORE_POSITIVE_ARM",
    "same_bar":"ARMED_FLOOR_THEN_STRUCTURAL_STOP_THEN_TARGET_THEN_ADVERSE_CLOSE_THEN_NEW_ARM",
-   "no_stop_widening":True,"partial_exit":False,"grid":False,"minimum_route_net_rr":MIN_RR,
+   "no_stop_widening":True,"partial_exit":"SINGLE_BASKET_ONLY_NOT_INDEPENDENT_TRADE","grid":False,"minimum_route_net_rr":MIN_RR,
    "selection":"TRAINING_ONLY_HIERARCHICAL_PARTIAL_POOLING_PLUS_ROBUST_GATE_MARGIN"},
  "models":{},"validation_used":False,"fresh_used":False}
-models_blob={"architecture":"V74_CAUSAL_RISK_GEOMETRY_NORMALIZED_EARLY_COMMIT","models":{}}
+models_blob={"architecture":"V74_CAUSAL_PARTIAL_CRYSTALLIZATION_BE_RUNNER","models":{}}
 passers=[]
 
-for name,q in [("Y_GEOMETRY_KEEP100",0.0),("Z_GEOMETRY_KEEP90",.10),("AA_GEOMETRY_KEEP80",.20)]:
+for name,q in [("AB_PARTIAL_KEEP100",0.0),("AC_PARTIAL_KEEP90",.10),("AD_PARTIAL_KEEP80",.20)]:
     folds={};policies={}
     for test in BURNED:
         train_windows=RESEARCH+[w for w in BURNED if w!=test]
@@ -199,7 +200,7 @@ for name,q in [("Y_GEOMETRY_KEEP100",0.0),("Z_GEOMETRY_KEEP90",.10),("AA_GEOMETR
     champ_score=worst/max(.25,avg_hold)
     summary["models"][name]={"folds":folds,"pass":passed,
                              "champion_score_worst_lcb_per_slot_hour":champ_score}
-    models_blob["models"][name]={"type":"CAUSAL_RISK_GEOMETRY_NORMALIZED_EARLY_COMMIT","folds":policies}
+    models_blob["models"][name]={"type":"CAUSAL_PARTIAL_CRYSTALLIZATION_BE_RUNNER","folds":policies}
     if passed:passers.append((champ_score,name))
 
 passers.sort(key=lambda x:(x[0],x[1]),reverse=True);champion=passers[0][1] if passers else None
