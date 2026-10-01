@@ -97,22 +97,57 @@ def stat_target(xs,win_field=None):
 def stat(xs):
     return stat_target(xs,None)
 
-def train_labeled(q,key,win_field=None):
+def stable_feature_frontier(anchor_rows,train_windows,top_k=24):
+    pairs=[(r,hvec(r)) for r in anchor_rows];pairs=[z for z in pairs if z[1] is not None]
+    if not pairs:return {"indices":[],"weights":[],"diagnostics":[]}
+    q=[z[0] for z in pairs];vec=[z[1] for z in pairs];p=len(vec[0])
+    meds=[statistics.median(v[j] for v in vec) for j in range(p)]
+    gs=max(.05,stat(q)["sigma"]);diag=[]
+    for j in range(p):
+        yr=[];min_side=10**9
+        for w in train_windows:
+            ids=[i for i,r in enumerate(q) if r["window"]==w]
+            lo=[q[i] for i in ids if vec[i][j]<meds[j]];hi=[q[i] for i in ids if vec[i][j]>=meds[j]]
+            if len(lo)<24 or len(hi)<24:continue
+            a=stat(lo);b=stat(hi);min_side=min(min_side,len(lo),len(hi))
+            eff=(b["mean"]-a["mean"])/gs+1.25*(b["win"]-a["win"])
+            if abs(eff)>1e-12:yr.append(eff)
+        if len(yr)<4:
+            diag.append((0.0,j,0.0,0.0,len(yr)));continue
+        medeff=statistics.median(yr);cons=abs(sum(1 if x>0 else -1 for x in yr))/len(yr)
+        floor=min(abs(x) for x in yr);support=min(1.0,math.sqrt(max(1,min_side)/120.0))
+        score=(.60*abs(medeff)+.40*floor)*cons*support
+        diag.append((score,j,medeff,cons,len(yr)))
+    diag.sort(key=lambda z:(z[0],-z[1]),reverse=True)
+    keep=[z for z in diag if z[0]>0][:top_k]
+    if len(keep)<8:
+        keep=[z for z in diag[:min(top_k,len(diag))] if z[0]>=0]
+    raw=[max(1e-6,z[0]) for z in keep];sw=sum(raw) or 1.0
+    return {"indices":[z[1] for z in keep],"weights":[x/sw for x in raw],
+            "diagnostics":[{"index":z[1],"score":z[0],"median_effect":z[2],"sign_consistency":z[3],"supported_years":z[4]} for z in keep]}
+
+def train_labeled(q,key,win_field=None,feature_frontier=None):
     pairs=[(r,hvec(r)) for r in q];pairs=[z for z in pairs if z[1] is not None]
     q=[z[0] for z in pairs];vec=[z[1] for z in pairs]
-    if not q:return {"key":key,"medians":[],"global":stat_target([],win_field),"family_action":{},"bins":[],"win_target":win_field or "r"}
-    p=len(vec[0]);med=[statistics.median(v[j] for v in vec) for j in range(p)]
+    if not q:return {"key":key,"medians":[],"global":stat_target([],win_field),"family_action":{},"bins":[],"feature_indices":[],"feature_weights":[],"win_target":win_field or "r"}
+    p=len(vec[0])
+    idx=list(feature_frontier.get("indices",[])) if feature_frontier else list(range(p))
+    if not idx:idx=list(range(p))
+    weights=list(feature_frontier.get("weights",[])) if feature_frontier else [1.0/len(idx)]*len(idx)
+    if len(weights)!=len(idx):weights=[1.0/len(idx)]*len(idx)
+    med=[statistics.median(v[j] for v in vec) for j in idx]
     glob=stat_target(q,win_field);fa={}
     for fam in sorted({r["family"] for r in q}):
         for action in ("REVERSAL","CONTINUATION"):
             z=[r for r in q if r["family"]==fam and r["action"]==action]
             if z:fa[fam+"|"+action]=stat_target(z,win_field)
     bins=[]
-    for j in range(p):
-        lo=[r for r,v in zip(q,vec) if v[j]<med[j]]
-        hi=[r for r,v in zip(q,vec) if v[j]>=med[j]]
+    for pos,j in enumerate(idx):
+        lo=[r for r,v in zip(q,vec) if v[j]<med[pos]]
+        hi=[r for r,v in zip(q,vec) if v[j]>=med[pos]]
         bins.append({"lo":stat_target(lo,win_field),"hi":stat_target(hi,win_field)})
-    return {"key":key,"medians":med,"global":glob,"family_action":fa,"bins":bins,"win_target":win_field or "r"}
+    return {"key":key,"medians":med,"global":glob,"family_action":fa,"bins":bins,
+            "feature_indices":idx,"feature_weights":weights,"win_target":win_field or "r"}
 
 def train(xs,key):
     return train_labeled(seq_rows(xs,key),key)
@@ -143,11 +178,15 @@ def score(model,r):
     fa=model.get("family_action",{}).get(r["family"]+"|"+r["action"],{"n":0,"mean":gm,"win":gw})
     fn=int(fa.get("n",0));fw=fn/(fn+80.0)
     pm=gm+fw*(float(fa.get("mean",gm))-gm);pw=gw+fw*(float(fa.get("win",gw))-gw)
-    ms=[];ws=[];supp=[]
-    for j,x in enumerate(v):
-        b=model["bins"][j]["hi" if x>=model["medians"][j] else "lo"];n=int(b.get("n",0));sh=n/(n+60.0)
+    ms=[];ws=[];supp=[];idx=model.get("feature_indices") or list(range(len(v)))
+    fwts=model.get("feature_weights") or ([1.0/len(idx)]*len(idx) if idx else [])
+    for pos,j in enumerate(idx):
+        x=v[j];b=model["bins"][pos]["hi" if x>=model["medians"][pos] else "lo"];n=int(b.get("n",0));sh=n/(n+60.0)
         ms.append(pm+sh*(float(b.get("mean",gm))-gm));ws.append(pw+sh*(float(b.get("win",gw))-gw));supp.append(n)
-    mean=(pm+sum(ms)/len(ms))/2.0;win=max(0.0,min(1.0,(pw+sum(ws)/len(ws))/2.0))
+    sw=sum(fwts) or 1.0
+    wm=sum(w*x for w,x in zip(fwts,ms))/sw if ms else pm
+    ww=sum(w*x for w,x in zip(fwts,ws))/sw if ws else pw
+    mean=(pm+wm)/2.0;win=max(0.0,min(1.0,(pw+ww)/2.0))
     support=max(1,min([fn if fn>0 else int(g.get("n",1))]+supp));lcb=mean-Z*gs/math.sqrt(support)
     return {"score":lcb+.75*win,"mean":mean,"win":win,"lcb":lcb,"support":support}
 
@@ -328,13 +367,13 @@ def action_baselines_cached(cache):
             by_setup.setdefault((r["window"],r["setup"]),[]).append(float(r["r"]))
     return {k:statistics.median(v) for k,v in by_setup.items() if v}
 
-def train_advantage_cached(q,key,baselines):
+def train_advantage_cached(q,key,baselines,feature_frontier=None):
     z=[]
     for r in q:
         b=baselines.get((r["window"],r["setup"]))
         if b is None:continue
         x=dict(r);x["route_actual_r"]=float(r["r"]);x["r"]=float(r["r"])-float(b);z.append(x)
-    return train_labeled(z,key,"route_actual_r")
+    return train_labeled(z,key,"route_actual_r",feature_frontier)
 
 def route_year_stability_cached(q,train_windows):
     out={}
@@ -459,15 +498,26 @@ for test in BURNED:
     tr_cache=build_route_cache(tr);te_cache=build_route_cache(te)
     print(f"[V74-EVAL] fold={test} phase=baselines elapsed={time.perf_counter()-fold_t0:.3f}",flush=True)
     baselines=action_baselines_cached(tr_cache)
-    raw_models={key:train_labeled(tr_cache[key],key) for key in EVAL_KEYS}
+    pre_stability={key:route_year_stability_cached(tr_cache[key],train_windows) for key in EVAL_KEYS}
+    def _anchor_score(key):
+        z=pre_stability[key];sy=max(1,int(z.get("supported_years",0)))
+        return (float(z.get("mean_floor",-999.0))+.75*float(z.get("win_floor",0.0))+
+                .10*float(z.get("positive_years",0))/sy, z.get("positive_years",0), key)
+    anchor_keys=sorted(EVAL_KEYS,key=_anchor_score,reverse=True)[:3]
+    anchor_rows=[r for key in anchor_keys for r in tr_cache[key]]
+    feature_frontier=stable_feature_frontier(anchor_rows,train_windows,24)
+    if len(feature_frontier["indices"])<8:raise SystemExit("V74 stable feature frontier under-supported")
+    print(f"[V74-EVAL] fold={test} phase=feature-frontier anchors={anchor_keys} indices={feature_frontier['indices']} elapsed={time.perf_counter()-fold_t0:.3f}",flush=True)
+    raw_models={key:train_labeled(tr_cache[key],key,None,feature_frontier) for key in EVAL_KEYS}
     print(f"[V74-EVAL] fold={test} phase=raw-models elapsed={time.perf_counter()-fold_t0:.3f}",flush=True)
-    adv_models={key:train_advantage_cached(tr_cache[key],key,baselines) for key in EVAL_KEYS}
+    adv_models={key:train_advantage_cached(tr_cache[key],key,baselines,feature_frontier) for key in EVAL_KEYS}
     print(f"[V74-EVAL] fold={test} phase=adv-models elapsed={time.perf_counter()-fold_t0:.3f}",flush=True)
-    route_stability={key:route_year_stability_cached(tr_cache[key],train_windows) for key in EVAL_KEYS}
+    route_stability=pre_stability
     fam_stability={key:family_action_route_stability_cached(tr_cache[key],train_windows) for key in EVAL_KEYS}
     models_blob["shared_folds"][test]={"training_windows":train_windows,
         "raw_route_models":raw_models,"advantage_route_models":adv_models,
-        "route_stability":route_stability,"family_action_route_stability":fam_stability}
+        "route_stability":route_stability,"family_action_route_stability":fam_stability,
+        "stable_feature_frontier":{"anchor_keys":anchor_keys,**feature_frontier}}
     tr_scored=build_scored_cache(tr_cache,raw_models,adv_models)
     te_scored=build_scored_cache(te_cache,raw_models,adv_models)
     print(f"[V74-EVAL] fold={test} phase=scored-cache elapsed={time.perf_counter()-fold_t0:.3f}",flush=True)
@@ -520,7 +570,7 @@ for name,q,aw in VARIANTS:
     if passed:passers.append((champ_score,name))
 
 summary["architecture"]="CAUSAL_DUAL_HEAD_ACTION_CHOICE_AND_CAPITAL_ADMISSION"
-summary["policy"]["selection"]="DUAL_HEAD__ROUTE_CHOICE_USES_RELATIVE_UPLIFT_AND_STABILITY__CAPITAL_ADMISSION_USES_ACTUAL_R_AND_ACTUAL_WIN__TRAINING_ONLY_AUTO_WORST_YEAR_THRESHOLD"
+summary["policy"]["selection"]="DUAL_HEAD__TRAINING_ONLY_CROSS_YEAR_STABLE_FEATURE_FRONTIER_TOP24__ROUTE_CHOICE_USES_RELATIVE_UPLIFT_AND_STABILITY__CAPITAL_ADMISSION_USES_ACTUAL_R_AND_ACTUAL_WIN__TRAINING_ONLY_AUTO_WORST_YEAR_THRESHOLD"
 summary["policy"]["route_arbitration"]="PER_SETUP_ALL_LEGAL_ROUTES__RELATIVE_UPLIFT_FOR_CHOICE_ONLY__ADVANTAGE_WIN_TARGET_IS_ACTUAL_R_GT_0__STABLE_TRAINING_PRIOR__NO_TRIGGER_OR_DECISION_FUTURE_STATE__NO_TEST_YEAR_SELECTION"
 summary["policy"]["abcd_contract"]="ABCD_NEVER_BLANKET_BLACKLISTED__TRAINING_ONLY_FAMILY_ACTION_SHRINKAGE"
 summary["engineering_invariants"]={"unique_setup_winner":True,"legal_route_only":True,
@@ -529,6 +579,8 @@ summary["engineering_invariants"]={"unique_setup_winner":True,"legal_route_only"
                                    "advantage_win_is_actual_route_win":True,
                                    "route_choice_separated_from_capital_admission":True,
                                    "training_only_auto_threshold":True,
+                                   "training_only_stable_feature_frontier":True,
+                                   "stable_feature_top_k":24,
                                    "canonical_family_blanket_blacklist":False,
                                    "deduplicated_model_pack":True,
                                    "fold_route_vector_cache_exact_semantics":True,
