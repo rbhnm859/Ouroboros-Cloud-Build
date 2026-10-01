@@ -88,15 +88,7 @@ SEQUENTIAL_KEYS=[
  "M15_R050_D_RR40_F30"
 ]
 
-LATE_AUCTION_KEYS=[
- "M05_R025_H_RR35","M05_R025_D_RR35","M05_R050_H_RR35","M05_R050_D_RR35",
- "M05_R025_H_RR40","M05_R025_D_RR40","M05_R050_H_RR40","M05_R050_D_RR40",
- "M10_R025_H_RR35","M10_R025_D_RR35","M10_R050_H_RR35","M10_R050_D_RR35",
- "M10_R025_H_RR40","M10_R025_D_RR40","M10_R050_H_RR40","M10_R050_D_RR40",
- "M15_R025_H_RR35","M15_R025_D_RR35","M15_R050_H_RR35","M15_R050_D_RR35",
- "M15_R025_H_RR40","M15_R025_D_RR40","M15_R050_H_RR40","M15_R050_D_RR40"
-]
-
+LATE_AUCTION_KEYS=list(SEQUENTIAL_KEYS)
 
 def window_of(path,windows):
     s=str(path)
@@ -166,7 +158,7 @@ def load_rows(root,windows):
                 p=paths.setdefault(setup,{"protect_r":{},"milestones":{},"rcr":{},"hybrid":{},"reaction_commit":{},"high_conviction":{},
                                           "sequential":{},"sequential_rr":{},"sequential_bars":{},"sequential_state":{},"sequential_entry_state":{},
                                           "sequential_trigger_state":{},"sequential_decision_state":{}})
-                outcomes={};rrs={};maturity={};entries={};bars={};reaction_bars={};anchor_bars={};trigger_bars={};entry_bars={}
+                outcomes={};rrs={};maturity={};entries={};bars={};reaction_bars={};anchor_bars={};trigger_bars={};entry_bars={};post_trigger_bars={};lock_bars={}
                 for idx,key in enumerate(LATE_AUCTION_KEYS):
                     for prefix,dst in (("m",maturity),("e",entries)):
                         raw=kv.get(prefix+str(idx))
@@ -186,13 +178,13 @@ def load_rows(root,windows):
                             v=float(rawrr)
                             if math.isfinite(v):rrs[key]=v
                         except Exception:pass
-                    for prefix,dst in (("rb",bars),("rx",reaction_bars),("ab",anchor_bars),("tb",trigger_bars),("eb",entry_bars)):
+                    for prefix,dst in (("rb",bars),("rx",reaction_bars),("ab",anchor_bars),("tb",trigger_bars),("eb",entry_bars),("pt",post_trigger_bars),("lb",lock_bars)):
                         try:dst[key]=int(kv.get(prefix+str(idx),"-1"))
                         except Exception:pass
                 p["late_auction"]=outcomes;p["late_auction_rr"]=rrs
                 p["late_auction_maturity_state"]=maturity;p["late_auction_entry_state"]=entries
                 p["late_auction_bars"]=bars;p["late_auction_reaction_bars"]=reaction_bars
-                p["late_auction_anchor_bars"]=anchor_bars;p["late_auction_trigger_bars"]=trigger_bars;p["late_auction_entry_bars"]=entry_bars
+                p["late_auction_anchor_bars"]=anchor_bars;p["late_auction_trigger_bars"]=trigger_bars;p["late_auction_entry_bars"]=entry_bars\n                p["late_auction_post_trigger_bars"]=post_trigger_bars;p["late_auction_lock_bars"]=lock_bars
                 continue
 
             if "[V74-SEQUENTIAL-PATH]" not in line:continue
@@ -273,7 +265,7 @@ def load_rows(root,windows):
                          "late_auction_reaction_bars":path.get("late_auction_reaction_bars",{}),
                          "late_auction_anchor_bars":path.get("late_auction_anchor_bars",{}),
                          "late_auction_trigger_bars":path.get("late_auction_trigger_bars",{}),
-                         "late_auction_entry_bars":path.get("late_auction_entry_bars",{}),
+                         "late_auction_entry_bars":path.get("late_auction_entry_bars",{}),\n                         "late_auction_post_trigger_bars":path.get("late_auction_post_trigger_bars",{}),\n                         "late_auction_lock_bars":path.get("late_auction_lock_bars",{}),
                          "sequential":path.get("sequential",{}),
                          "sequential_rr":path.get("sequential_rr",{}),
                          "sequential_bars":path.get("sequential_bars",{}),
