@@ -192,68 +192,102 @@ summary={
    "no_stop_widening":True,"partial_exit":"SINGLE_BASKET_ONLY","grid":False,"minimum_route_net_rr":MIN_RR,
    "selection":"TRAINING_ONLY_HIERARCHICAL_PARTIAL_POOLING_PLUS_ROBUST_GATE_MARGIN"},
  "models":{},"validation_used":False,"fresh_used":False}
-models_blob={"architecture":"V74_CAUSAL_MICRO_ARM_CLOSE_ONLY_RUNNER","models":{}}
+models_blob={"architecture":"V74_CAUSAL_PER_OPPORTUNITY_ACTION_RANKER","models":{}}
 passers=[]
-VARIANTS=[("AT_CLOSE_KEEP100",0.0),("AU_CLOSE_KEEP95",.05),("AV_CLOSE_KEEP90",.10),("AW_CLOSE_KEEP85",.15),("AX_CLOSE_KEEP80",.20),("AY_CLOSE_KEEP75",.25),("AZ_CLOSE_KEEP70",.30)]
-fold_results={name:{} for name,_ in VARIANTS}
-fold_policies={name:{} for name,_ in VARIANTS}
+VARIANTS=[
+ ("BA_RANK_KEEP100",0.00,0.00),
+ ("BB_RANK_KEEP95",0.05,0.00),
+ ("BC_RANK_KEEP90",0.10,0.00),
+ ("BD_RANK_KEEP85",0.15,0.00),
+ ("BE_RANK_KEEP80",0.20,0.00),
+ ("BF_RANK_KEEP75",0.25,0.00),
+ ("BG_RANK_KEEP70",0.30,0.00),
+ ("BH_RANK_KEEP90_MARGIN02",0.10,0.02),
+ ("BI_RANK_KEEP85_MARGIN02",0.15,0.02)
+]
 _eval_t0=time.perf_counter()
 
-def choose_cached(route_cache,train_windows,q):
-    candidates=[]
-    for key in EVAL_KEYS:
-        rc=route_cache.get(key)
-        if not rc or not rc["vals"]:continue
-        th=quantile(rc["vals"],q);sel=apply(rc["tr_sc"],th,True);agg=metrics(sel);yearly=[]
-        for w in train_windows:
-            ym=metrics([r for r in sel if r["window"]==w])
-            if ym["n"]>=180:yearly.append(ym)
-        if agg["n"]<1000 or len(yearly)<len(train_windows):continue
-        margins=[gate_margin(z) for z in yearly]
-        robust=min(margins)+.25*statistics.median(margins)
-        wl=min(z["lcb_r"] for z in yearly);wm=min(z["mean_r"] for z in yearly)
-        ww=min(z["win_rate"] for z in yearly);wr=min(z["average_rr"] for z in yearly)
-        candidates.append((robust,wl,wm,ww,wr,agg["n"],key,rc["model"],th,agg))
-    candidates.sort(key=lambda z:(z[0],z[1],z[2],z[3],z[4],z[5],z[6]),reverse=True)
-    return candidates[0] if candidates else None
+def train_year_route_stability(tr,key,train_windows):
+    q=seq_rows(tr,key); out={}
+    for w in train_windows:
+        z=[r for r in q if r["window"]==w];out[w]=stat(z)
+    valid=[z for z in out.values() if z["n"]>=120]
+    if not valid:return {"years":out,"mean_floor":-999.0,"win_floor":0.0,"positive_years":0}
+    return {"years":out,"mean_floor":min(z["mean"] for z in valid),
+            "win_floor":min(z["win"] for z in valid),
+            "positive_years":sum(z["mean"]>0 for z in valid)}
 
-# Each burned fold has one deterministic training set. Train/score every route once,
-# then reuse those exact scores for all seven preregistered selection quantiles.
-# This is semantics-equivalent to the former loop, which retrained the same model
-# seven times per fold.
+def opportunity_ranked(rows_,route_models,route_stability,min_margin=0.0):
+    by_setup={}
+    for key in EVAL_KEYS:
+        model=route_models[key]
+        for r in seq_rows(rows_,key):
+            h=score(model,r)
+            if h["support"]<20 or not math.isfinite(h["score"]) or h["score"]<=-900:continue
+            stab=route_stability[key]
+            # Conservative training-only utility. Year-floor penalties prevent a route
+            # with one lucky regime from dominating the per-opportunity winner.
+            year_penalty=min(0.0,float(stab["mean_floor"]))
+            stable_win=float(stab["win_floor"])
+            utility=float(h["lcb"])+0.90*float(h["win"])+0.35*float(h["mean"])+0.20*stable_win+0.50*year_penalty
+            q=dict(r);q["_hz"]=h;q["_route_utility"]=utility
+            by_setup.setdefault((r["window"],r["setup"]),[]).append(q)
+    winners=[]
+    for _,cand in by_setup.items():
+        cand.sort(key=lambda r:(r["_route_utility"],r["_hz"]["support"],r["sequential_key"]),reverse=True)
+        if not cand:continue
+        best=cand[0];second=cand[1]["_route_utility"] if len(cand)>1 else -999.0
+        margin=best["_route_utility"]-second
+        if margin+1e-12<min_margin:continue
+        q=dict(best);h=q.pop("_hz");q["route_pred_mean"]=h["mean"];q["route_pred_win"]=h["win"]
+        q["route_pred_lcb"]=h["lcb"];q["route_support"]=h["support"];q["route_utility"]=q.pop("_route_utility")
+        q["route_margin"]=margin;winners.append(q)
+    return winners
+
+def select_ranked(ranked,threshold,abcd_allowed=True):
+    z=[]
+    for r in ranked:
+        if r["family"]=="ABCD" and not abcd_allowed:continue
+        if r["route_utility"]+1e-12<threshold:continue
+        z.append(r)
+    return z
+
+fold_results={name:{} for name,_,_ in VARIANTS}
+fold_policies={name:{} for name,_,_ in VARIANTS}
 for test in BURNED:
     train_windows=RESEARCH+[w for w in BURNED if w!=test]
     tr=[r for r in rows if r["window"] in train_windows];te=[r for r in rows if r["window"]==test]
-    route_cache={}
-    for key in EVAL_KEYS:
-        model=train(tr,key)
-        tr_sc=scored_rows(tr,key,model)
-        vals=[r["_hz"]["score"] for r in tr_sc if math.isfinite(r["_hz"]["score"]) and r["_hz"]["score"]>-900]
-        route_cache[key]={"model":model,"tr_sc":tr_sc,"te_sc":scored_rows(te,key,model),"vals":vals}
-
-    for name,q in VARIANTS:
-        ch=choose_cached(route_cache,train_windows,q)
-        if ch is None:
-            m=metrics([]);m.update({"pass":False,"training_windows":train_windows,"route":None,"selection_quantile":q})
-            fold_results[name][test]=m;fold_policies[name][test]={"route":None,"selection_quantile":q}
-            continue
-        robust,wl,wm,ww,wr,_,key,model,th,_=ch
-        tr_sc=route_cache[key]["tr_sc"];train_sel=apply(tr_sc,th,True)
+    route_models={key:train(tr,key) for key in EVAL_KEYS}
+    route_stability={key:train_year_route_stability(tr,key,train_windows) for key in EVAL_KEYS}
+    for name,q,min_margin in VARIANTS:
+        tr_rank=opportunity_ranked(tr,route_models,route_stability,min_margin)
+        vals=[r["route_utility"] for r in tr_rank if math.isfinite(r["route_utility"])]
+        th=quantile(vals,q) if vals else math.inf
+        train_sel=select_ranked(tr_rank,th,True)
+        yearly=[metrics([r for r in train_sel if r["window"]==w]) for w in train_windows]
+        feasible=bool(len(train_sel)>=1750 and all(m["n"]>=220 for m in yearly))
         abcd=metrics([r for r in train_sel if r["family"]=="ABCD"])
         abcd_ok=bool(abcd["n"]>=ABCD_TRAIN_MIN_N and abcd["mean_r"]>0 and abcd["pf_r"]>=ABCD_TRAIN_MIN_PF and abcd["lcb_r"]>0)
-        te_sc=route_cache[key]["te_sc"];sel=apply(te_sc,th,abcd_ok);m=metrics(sel)
-        m.update({"pass":gate_metrics(m),"training_windows":train_windows,"route":key,
-                  "selection_quantile":q,"selection_threshold":th,
-                  "training_selected_metrics":metrics(train_sel),"training_robust_gate_margin":robust,
-                  "training_worst_year_lcb":wl,"training_worst_year_mean":wm,
-                  "training_worst_year_win_rate":ww,"training_worst_year_average_rr":wr,
+        te_rank=opportunity_ranked(te,route_models,route_stability,min_margin)
+        sel=select_ranked(te_rank,th,abcd_ok) if feasible else []
+        m=metrics(sel)
+        route_counts={}
+        for r in sel:route_counts[r["sequential_key"]]=route_counts.get(r["sequential_key"],0)+1
+        m.update({"pass":bool(feasible and gate_metrics(m)),"training_windows":train_windows,
+                  "policy":"PER_OPPORTUNITY_ROUTE_WINNER","selection_quantile":q,
+                  "selection_threshold":th,"route_margin_floor":min_margin,
+                  "training_feasible":feasible,"training_selected_metrics":metrics(train_sel),
+                  "training_year_metrics":dict(zip(train_windows,yearly)),
                   "abcd_training_metrics":abcd,"abcd_training_capital_eligible":abcd_ok,
+                  "selected_route_counts":route_counts,
                   "median_planned_route_rr":statistics.median([r["sequential_planned_rr"] for r in sel]) if sel else 0.0})
         fold_results[name][test]=m
-        fold_policies[name][test]={"route":key,"selection_quantile":q,"selection_threshold":th,
-                                   "hazard_model":model,"abcd_capital_eligible":abcd_ok}
+        fold_policies[name][test]={"policy":"PER_OPPORTUNITY_ROUTE_WINNER","selection_quantile":q,
+                                   "selection_threshold":th,"route_margin_floor":min_margin,
+                                   "route_models":route_models,"route_stability":route_stability,
+                                   "abcd_capital_eligible":abcd_ok}
 
-for name,q in VARIANTS:
+for name,q,min_margin in VARIANTS:
     folds=fold_results[name];policies=fold_policies[name]
     passed=all(folds[w]["pass"] for w in BURNED)
     worst=min(folds[w]["lcb_r"] for w in BURNED)
@@ -261,9 +295,12 @@ for name,q in VARIANTS:
     champ_score=worst/max(.25,avg_hold)
     summary["models"][name]={"folds":folds,"pass":passed,
                              "champion_score_worst_lcb_per_slot_hour":champ_score}
-    models_blob["models"][name]={"type":"CAUSAL_MICRO_ARM_CLOSE_ONLY_RUNNER","folds":policies}
+    models_blob["models"][name]={"type":"CAUSAL_PER_OPPORTUNITY_ACTION_RANKER","folds":policies}
     if passed:passers.append((champ_score,name))
 
+summary["architecture"]="CAUSAL_PER_OPPORTUNITY_ACTION_RANKER"
+summary["policy"]["selection"]="TRAINING_ONLY_PER_OPPORTUNITY_ROUTE_WINNER_WITH_YEAR_STABILITY_SHRINKAGE__THEN_CONSERVATIVE_UTILITY_THRESHOLD"
+summary["policy"]["route_arbitration"]="ALL_LEGAL_ROUTES_SCORED_FROM_PRE_ENTRY_AND_COMPLETED_ENTRY_STATE_ONLY__NO_TEST_YEAR_ROUTE_OR_THRESHOLD_SELECTION"
 summary["evaluator_runtime_seconds"]=round(time.perf_counter()-_eval_t0,6)
 passers.sort(key=lambda x:(x[0],x[1]),reverse=True);alpha_champion=passers[0][1] if passers else None
 # FAIL-CLOSED: the sequential OOF Alpha and the live V75/embedded execution policy are
@@ -279,7 +316,7 @@ summary["champion"]=alpha_champion if summary["v74_gate"] else None
 summary["promotion_blocker"]="SEQUENTIAL_RUNTIME_POLICY_NOT_FROZEN" if alpha_champion else "ALPHA_OOF_GATE_FAIL"
 summary["champion_selection"]="HIGHEST_WORST_YEAR_CAUSAL_LCB_PER_SLOT_HOUR_AMONG_3OF3_PASSERS"
 summary["gate_semantics"]="EACH_BURNED_YEAR_N_GE_250_MEAN_R_GE_0P90_PF_R_GE_3P30_WR_GE_70PCT_AVG_RR_GE_2P30_LCB95_GT_0__TRAIN_ONLY_ROUTE_THRESHOLD__NO_LOOKAHEAD__RUNTIME_PARITY_REQUIRED_FOR_PROMOTION"
-summary["positive_asset"]="CAUSAL_MICRO_ARM_CLOSE_ONLY_RUNNER_OOF_ALPHA" if alpha_champion else "NO_MODEL_EARNED_VERSION_PROMOTION"
+summary["positive_asset"]="CAUSAL_PER_OPPORTUNITY_ACTION_RANKER_OOF_ALPHA" if alpha_champion else "NO_MODEL_EARNED_VERSION_PROMOTION"
 (out/"V74_TOURNAMENT_MANIFEST.json").write_text(json.dumps(summary,indent=2))
 (out/"V74_MODELS.json").write_text(json.dumps(models_blob,separators=(",",":")))
 (out/"champion.txt").write_text(summary["champion"] or "")
