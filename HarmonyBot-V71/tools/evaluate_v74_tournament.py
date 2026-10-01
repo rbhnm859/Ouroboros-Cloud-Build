@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 import json,math,pathlib,statistics,sys
-from v74_model_lib import load_rows,metrics,TRAINERS,predict,train_protection,apply_protection,PROTECTION_KEYS
+from v74_model_lib import load_rows,metrics,TRAINERS,predict,train_protection,apply_protection,PROTECTION_KEYS,RCR_KEYS
 
 root=pathlib.Path(sys.argv[1]); out=pathlib.Path(sys.argv[2]); out.mkdir(parents=True,exist_ok=True)
 RESEARCH=[f"Y{y}" for y in range(2016,2021)]
@@ -68,7 +68,11 @@ summary={"version":"HarmonyBot V74 Candidate",
                               "no_stop_widening":True},
          "gate":{"min_selected_per_year":MIN_N,"min_mean_r":MIN_MEAN,"min_pf_r":MIN_PF,
                  "min_win_rate":MIN_WR,"min_average_rr":MIN_RR,"lcb95_gt":0.0},
-         "models":{},"validation_used":False,"fresh_used":False}
+         "models":{},"validation_used":False,"fresh_used":False,
+         "rcr_policy":{"routes":RCR_KEYS,
+                       "capital_entry":"REACTION_THEN_COMPLETED_BAR_RETRACE_RECLAIM",
+                       "route_selection":"TRAINING_ONLY",
+                       "minimum_net_rr_unchanged":True}}
 
 passers=[]
 for name,trainer in TRAINERS.items():
@@ -142,6 +146,101 @@ for name,trainer in TRAINERS.items():
                               "abcd_final_capital_eligible":abcd_final_eligible,
                               "champion_score_worst_lcb_per_slot_hour":score}
     if model_pass:passers.append((score,name))
+
+
+def with_rcr_outcome(r,key):
+    v=r.get("rcr",{}).get(key)
+    if v is None or not math.isfinite(float(v)):return None
+    q=dict(r);q["native_r"]=r["r"];q["r"]=float(v);q["rcr_key"]=key
+    return q
+
+def rcr_metric_rows(xs,key,family=None,action=None):
+    out=[]
+    for r in xs:
+        if family is not None and r["family"]!=family:continue
+        if action is not None and r["action"]!=action:continue
+        q=with_rcr_outcome(r,key)
+        if q is not None:out.append(q)
+    return out
+
+def choose_global_rcr(train_rows,train_windows):
+    candidates=[]
+    for key in RCR_KEYS:
+        agg=rcr_metric_rows(train_rows,key)
+        m=metrics(agg)
+        yearly=[]
+        for w in train_windows:
+            ym=metrics(rcr_metric_rows([r for r in train_rows if r["window"]==w],key))
+            if ym["n"]>=40: yearly.append(ym["lcb_r"])
+        if m["n"]>=300 and m["mean_r"]>0 and m["pf_r"]>=1.20 and m["average_rr"]>=2.0 and m["lcb_r"]>0 and len(yearly)>=4:
+            candidates.append((min(yearly),m["lcb_r"],m["mean_r"],key,m))
+    candidates.sort(reverse=True)
+    return candidates[0][3] if candidates else None
+
+def choose_hier_rcr(train_rows,global_key):
+    policy={}
+    for fam in sorted({r["family"] for r in train_rows}):
+        for action in ("REVERSAL","CONTINUATION"):
+            candidates=[]
+            for key in RCR_KEYS:
+                rr=rcr_metric_rows(train_rows,key,fam,action)
+                m=metrics(rr)
+                if m["n"]>=40 and m["mean_r"]>0 and m["pf_r"]>=1.20 and m["average_rr"]>=2.0 and m["lcb_r"]>0:
+                    candidates.append((m["lcb_r"],m["mean_r"],m["n"],key))
+            candidates.sort(reverse=True)
+            policy[fam+"|"+action]=candidates[0][3] if candidates else global_key
+    return policy
+
+def apply_rcr_policy(xs,policy,global_key=None,abcd_allowed=True):
+    out=[]
+    for r in xs:
+        if r["family"]=="ABCD" and not abcd_allowed:continue
+        key=policy.get(r["family"]+"|"+r["action"],global_key) if isinstance(policy,dict) else global_key
+        if not key:continue
+        q=with_rcr_outcome(r,key)
+        if q is not None:out.append(q)
+    return out
+
+for rcr_name,hierarchical in [("D_REACTION_CONFIRMED_REENTRY_GLOBAL",False),
+                              ("E_REACTION_CONFIRMED_REENTRY_HIERARCHICAL",True)]:
+    folds={}; fold_policies={}
+    for test in BURNED:
+        train_windows=RESEARCH+[w for w in BURNED if w!=test]
+        tr=[r for r in rows if r["window"] in train_windows]
+        te=[r for r in rows if r["window"]==test]
+        global_key=choose_global_rcr(tr,train_windows)
+        policy=choose_hier_rcr(tr,global_key) if hierarchical else {}
+        abcd_key=(policy.get("ABCD|REVERSAL") or policy.get("ABCD|CONTINUATION") or global_key) if hierarchical else global_key
+        abcd_train=metrics(rcr_metric_rows([r for r in tr if r["family"]=="ABCD"],abcd_key)) if abcd_key else metrics([])
+        abcd_allowed=bool(abcd_train["n"]>=ABCD_TRAIN_MIN_N and abcd_train["mean_r"]>0 and
+                          abcd_train["pf_r"]>=ABCD_TRAIN_MIN_PF and abcd_train["lcb_r"]>0)
+        selected=apply_rcr_policy(te,policy,global_key,abcd_allowed)
+        m=metrics(selected);m["pass"]=gate_metrics(m);m["training_windows"]=train_windows
+        m["global_route"]=global_key;m["route_policy"]=policy
+        m["abcd_training_metrics"]=abcd_train;m["abcd_training_capital_eligible"]=abcd_allowed
+        folds[test]=m
+        fold_policies[test]={"global_route":global_key,"route_policy":policy,"abcd_capital_eligible":abcd_allowed}
+    model_pass=all(folds[w]["pass"] for w in BURNED)
+    worst_lcb=min(folds[w]["lcb_r"] for w in BURNED)
+    avg_hold=statistics.mean(max(.25,folds[w]["median_hold_bars"]/60.0) for w in BURNED)
+    score=worst_lcb/max(.25,avg_hold)
+    final_global=choose_global_rcr(rows,ALL)
+    final_policy=choose_hier_rcr(rows,final_global) if hierarchical else {}
+    final_abcd_key=(final_policy.get("ABCD|REVERSAL") or final_policy.get("ABCD|CONTINUATION") or final_global) if hierarchical else final_global
+    final_abcd=metrics(rcr_metric_rows([r for r in rows if r["family"]=="ABCD"],final_abcd_key)) if final_abcd_key else metrics([])
+    final_abcd_allowed=bool(final_abcd["n"]>=ABCD_TRAIN_MIN_N and final_abcd["mean_r"]>0 and final_abcd["pf_r"]>=ABCD_TRAIN_MIN_PF and final_abcd["lcb_r"]>0)
+    final_selected=apply_rcr_policy(rows,final_policy,final_global,final_abcd_allowed)
+    models_blob["models"][rcr_name]={"type":"REACTION_CONFIRMED_REENTRY",
+                                     "folds":fold_policies,
+                                     "final":{"global_route":final_global,"route_policy":final_policy},
+                                     "abcd_final_capital_eligible":final_abcd_allowed}
+    summary["models"][rcr_name]={"folds":folds,"pass":model_pass,
+                                 "final_global_route":final_global,"final_route_policy":final_policy,
+                                 "final_training_metrics":metrics(final_selected),
+                                 "abcd_final_training_metrics":final_abcd,
+                                 "abcd_final_capital_eligible":final_abcd_allowed,
+                                 "champion_score_worst_lcb_per_slot_hour":score}
+    if model_pass:passers.append((score,rcr_name))
 
 passers.sort(key=lambda x:(x[0],x[1]),reverse=True)
 champion=passers[0][1] if passers else None
