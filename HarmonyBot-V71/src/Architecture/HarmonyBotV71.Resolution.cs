@@ -1084,8 +1084,21 @@ namespace cAlgo.Robots
                 EntryAnchor = plan.EntryAnchor, StructuralStop = plan.StructuralStop,
                 CanonicalTarget = plan.CanonicalTarget, InitialBasketRisk = plan.BasketRiskAmount,
                 PlannedWorstCaseRisk = plan.WorstCaseRisk, ProtectionFrontier = plan.StructuralStop,
+                V74ProtectionKey = c.V74ProtectionKey,
                 Plan = plan, Candidate = c, IsActive = true
             };
+            double v74Trigger,v74Floor,v74HybridCut;
+            if(V74ProtectionLevels(basket.V74ProtectionKey,out v74Trigger,out v74Floor))
+            {
+                basket.V74ProtectionTriggerR=v74Trigger;
+                basket.V74ProtectionFloorR=v74Floor;
+            }
+            if(V74HybridLevels(basket.V74ProtectionKey,out v74HybridCut))
+            {
+                basket.V74HybridEnabled=true;
+                basket.V74HybridAdverseCutR=v74HybridCut;
+                basket.V74HybridStage=-1;
+            }
             _baskets[basketId] = basket;
             CountPipeline(c.Signal.PatternName).BasketPlanned++;
             BasketEvent(basket, "V72_PULLBACK_BASKET_PLANNED");
