@@ -29,10 +29,14 @@ namespace cAlgo.Robots
         [Parameter("V74 Policy Hold Bars", DefaultValue = "")]
         public string V74PolicyHoldBars { get; set; }
 
+        [Parameter("V74 Policy Protection", DefaultValue = "")]
+        public string V74PolicyProtection { get; set; }
+
         private readonly int[] _v73ResearchSwingDepths = { 2, 3, 4, 5, 6, 7, 8 };
         private HashSet<string> _v74AllowedHashes;
         private Dictionary<string,double> _v74Utility;
         private Dictionary<string,double> _v74HoldBars;
+        private Dictionary<string,string> _v74Protection;
         private bool _v74PolicyParsed;
 
         private string V74SetupHash(string s)
@@ -64,6 +68,20 @@ namespace cAlgo.Robots
             return d;
         }
 
+        private Dictionary<string,string> V74ParseStringMap(string raw)
+        {
+            var d = new Dictionary<string,string>(StringComparer.OrdinalIgnoreCase);
+            if(string.IsNullOrWhiteSpace(raw)) return d;
+            foreach(var item in raw.Split(new[]{';'}, StringSplitOptions.RemoveEmptyEntries))
+            {
+                var p=item.Split('=');
+                if(p.Length!=2) continue;
+                string k=p[0].Trim(),v=p[1].Trim();
+                if(k.Length>0&&v.Length>0)d[k]=v;
+            }
+            return d;
+        }
+
         private void V74EnsurePolicyParsed()
         {
             if(_v74PolicyParsed) return;
@@ -73,8 +91,9 @@ namespace cAlgo.Robots
                 StringComparer.OrdinalIgnoreCase);
             _v74Utility=V74ParseMap(V74PolicyUtility);
             _v74HoldBars=V74ParseMap(V74PolicyHoldBars);
-            Print("[V74-EXTERNAL-POLICY] allowed={0} utility={1} hold={2}",
-                _v74AllowedHashes.Count,_v74Utility.Count,_v74HoldBars.Count);
+            _v74Protection=V74ParseStringMap(V74PolicyProtection);
+            Print("[V74-EXTERNAL-POLICY] allowed={0} utility={1} hold={2} protection={3}",
+                _v74AllowedHashes.Count,_v74Utility.Count,_v74HoldBars.Count,_v74Protection.Count);
         }
 
         // Optional generated implementation is compiled into the post-V77 .algo.
@@ -110,8 +129,10 @@ namespace cAlgo.Robots
             o.HcapLcb=u;
             o.HcapHoldBars=Math.Max(1,hold);
             o.HcapSelected=_v74AllowedHashes.Contains(h);
-            Print("[V74-POLICY-SCORE] id={0} setupHash={1} family={2} lane={3} utility={4:F9} holdBars={5:F3} selected={6}",
-                o.Id,h,o.Family,o.Lane,u,o.HcapHoldBars,o.HcapSelected);
+            string pk;
+            o.V74LiveProtectionKey=_v74Protection.TryGetValue(h,out pk)?pk:"NONE";
+            Print("[V74-POLICY-SCORE] id={0} setupHash={1} family={2} lane={3} utility={4:F9} holdBars={5:F3} selected={6} protection={7}",
+                o.Id,h,o.Family,o.Lane,u,o.HcapHoldBars,o.HcapSelected,o.V74LiveProtectionKey);
         }
 
         private List<PatternSignal> V73BuildOpportunityPool(int m15Index,int defaultLimit)
