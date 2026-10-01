@@ -1,0 +1,155 @@
+name: HarmonyBot V73 Opportunity Universe 2
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'HarmonyBot-V71/**'
+      - '.github/workflows/harmonybot-v73-opportunity-universe-2.yml'
+
+concurrency:
+  group: harmonybot-v73-opportunity-universe-2
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with: {fetch-depth: 0, ref: '${{ github.sha }}', path: control}
+      - uses: actions/setup-dotnet@v4
+        with: {dotnet-version: '8.0.x'}
+      - name: Build and frozen-core audit
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd control
+          python3 HarmonyBot-V71/tools/static_contract_audit.py HarmonyBot-V71/src/HarmonyBotV71.cs
+          python3 HarmonyBot-V71/tools/verify_frozen_harmonic_engine.py HarmonyBot-V71/src/HarmonyBotV71.cs
+          python3 -m py_compile HarmonyBot-V71/tools/*.py
+          bash -n HarmonyBot-V71/tools/run_backtest.sh
+          bash -n HarmonyBot-V71/tools/run_window.sh
+          dotnet restore HarmonyBot-V71/HarmonyBotV71.csproj
+          dotnet build HarmonyBot-V71/HarmonyBotV71.csproj -c Release --no-restore --nologo
+          mkdir -p HarmonyBot-V71/dist HarmonyBot-V71/final
+          A=$(find HarmonyBot-V71/bin/Release -type f -name '*.algo' | head -1)
+          test -s "$A"
+          cp "$A" HarmonyBot-V71/dist/HarmonyBot_V71_Protected_Champion_Core_Incremental_Alpha.algo
+          sha256sum HarmonyBot-V71/src/HarmonyBotV71.cs HarmonyBot-V71/src/Architecture/*.cs "$A" > HarmonyBot-V71/final/V73_SHA256SUMS
+          python3 - <<'PY'
+          import json,pathlib
+          pathlib.Path("HarmonyBot-V71/final/V73_PREREGISTRATION.json").write_text(json.dumps({
+            "candidate":"V73_OPPORTUNITY_UNIVERSE_2","capital_execution":False,
+            "training_windows":["Y2016","Y2017","Y2018","Y2019","Y2020"],
+            "burned_supply_windows":["Y2021","Y2022","Y2023"],
+            "minimum_independent_opportunities_per_year":400,
+            "pivot_scales":[2,3,4,5,6,8,10,12],
+            "geometry_dedup":True,"pnl_used_for_detector":False,
+            "validation_used":False,"fresh_used":False,
+            "commercial_targets":{"annual_return_pct":150,"net_multiple":1.5,"pf":3.0,"dd_pct_max":10,
+              "win_rate":0.68,"trades_per_year":200,"average_rr":2.2,"profitable_months":11}
+          },indent=2))
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: v73-build
+          path: |
+            control/HarmonyBot-V71/dist
+            control/HarmonyBot-V71/final
+            control/V71_STATIC_CONTRACT_AUDIT.json
+            control/V71_FROZEN_HARMONIC_ENGINE_GUARD.json
+          retention-days: 30
+
+  opportunity_census:
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        window: [Y2016,Y2017,Y2018,Y2019,Y2020,Y2021,Y2022,Y2023]
+    steps:
+      - uses: actions/checkout@v4
+        with: {ref: '${{ github.sha }}', path: control}
+      - uses: actions/download-artifact@v4
+        with: {name: v73-build, path: control/HarmonyBot-V71/shared}
+      - name: Resolve governed dates
+        id: d
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p control/HarmonyBot-V71/dist
+          A=$(find control/HarmonyBot-V71/shared -type f -name '*.algo' | head -1); cp "$A" control/HarmonyBot-V71/dist/
+          case "${{ matrix.window }}" in
+            Y2016) S=04/01/2016; E=2016-01-11T00:00:00Z; X=30/12/2016;;
+            Y2017) S=03/01/2017; E=2017-01-10T00:00:00Z; X=29/12/2017;;
+            Y2018) S=02/01/2018; E=2018-01-09T00:00:00Z; X=31/12/2018;;
+            Y2019) S=02/01/2019; E=2019-01-09T00:00:00Z; X=31/12/2019;;
+            Y2020) S=02/01/2020; E=2020-01-09T00:00:00Z; X=31/12/2020;;
+            Y2021) S=04/01/2021; E=2021-01-11T00:00:00Z; X=31/12/2021;;
+            Y2022) S=03/01/2022; E=2022-01-10T00:00:00Z; X=30/12/2022;;
+            Y2023) S=02/01/2023; E=2023-01-09T00:00:00Z; X=29/12/2023;;
+          esac
+          echo "start=$S" >> "$GITHUB_OUTPUT"; echo "eval=$E" >> "$GITHUB_OUTPUT"; echo "end=$X" >> "$GITHUB_OUTPUT"
+      - name: Run shadow-only OU2 census
+        env:
+          CTRADER_PASSWORD: '${{ secrets.CTRADER_PASSWORD }}'
+          CTRADER_CTID: '${{ secrets.CTRADER_CTID }}'
+          CTRADER_ACCOUNT: '${{ secrets.CTRADER_ACCOUNT }}'
+        run: |
+          chmod +x control/HarmonyBot-V71/tools/*.sh
+          control/HarmonyBot-V71/tools/run_window.sh R_V73_OPPORTUNITY_UNIVERSE "${{ matrix.window }}" "${{ steps.d.outputs.start }}" "${{ steps.d.outputs.eval }}" "${{ steps.d.outputs.end }}" 1.0
+      - uses: actions/upload-artifact@v4
+        with:
+          name: v73-ou2-${{ matrix.window }}
+          path: control/HarmonyBot-V71/output-R_V73_OPPORTUNITY_UNIVERSE-${{ matrix.window }}
+          retention-days: 30
+
+  supply_gate:
+    needs: opportunity_census
+    runs-on: ubuntu-24.04
+    outputs:
+      pass: '${{ steps.g.outputs.pass }}'
+    steps:
+      - uses: actions/checkout@v4
+        with: {ref: '${{ github.sha }}', path: control}
+      - uses: actions/download-artifact@v4
+        with: {pattern: 'v73-ou2-*', path: merged, merge-multiple: true}
+      - name: Fail-closed V73 supply gate
+        id: g
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p gate
+          python3 control/HarmonyBot-V71/tools/evaluate_v73_opportunity_universe.py merged gate
+          echo "pass=$(python3 -c 'import json;print(str(json.load(open("gate/V73_OPPORTUNITY_UNIVERSE_MANIFEST.json"))["v73_gate"]).lower())')" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: V73-OPPORTUNITY-UNIVERSE-GATE
+          path: gate
+          retention-days: 90
+
+  prepare_v74:
+    needs: supply_gate
+    if: '${{ needs.supply_gate.outputs.pass == ''true'' }}'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with: {fetch-depth: 0, ref: '${{ github.sha }}'}
+      - name: Create V74 candidate only after V73 PASS
+        env:
+          GH_TOKEN: '${{ github.token }}'
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git branch -f harmonybot/v74-candidate-causal-alpha-tournament "$GITHUB_SHA"
+          git push origin harmonybot/v74-candidate-causal-alpha-tournament
