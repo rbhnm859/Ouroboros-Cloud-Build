@@ -1,0 +1,45 @@
+{
+  "version": "HarmonyBot V74 Run67 Route Heterogeneity Forensic",
+  "source_run_id": 36880885164,
+  "source_run_number": 67,
+  "source_sha": "de87558d7fe17de427926e8f1e33104ec5d67052",
+  "workflow_conclusion": "success",
+  "v74_gate": false,
+  "champion": null,
+  "validation_used": false,
+  "fresh_used": false,
+  "latest_architecture": "CAUSAL_PARTIAL_CRYSTALLIZATION_BREAK_EVEN_RUNNER",
+  "official_result": "FAIL",
+  "oracle_label_only": {
+    "warning": "Future outcomes used only for feasibility, never Alpha or selection.",
+    "fixed_route_2023_best_top250": {
+      "mean_r": 0.573,
+      "win_rate": 0.748,
+      "lcb_r": 0.448
+    },
+    "best_route_per_setup_top250": {
+      "Y2021": {
+        "mean_r": 1.108237915,
+        "win_rate": 1,
+        "lcb_r": 0.9459405425
+      },
+      "Y2022": {
+        "mean_r": 1.1221622394,
+        "win_rate": 1,
+        "lcb_r": 0.9609063138
+      },
+      "Y2023": {
+        "mean_r": 0.9059536018,
+        "win_rate": 0.996,
+        "lcb_r": 0.7603994677
+      }
+    }
+  },
+  "diagnosis": [
+    "Any single fixed route is insufficient in 2023 even with oracle top-250 selection.",
+    "Per-setup route payoff support still exists, but simple pre/entry-state route mappings do not generalize OOF.",
+    "Run65 supplied later causal information but lost frequency because shadow micro-risk was too tight.",
+    "Next falsifiable synthesis is second shadow proof with normalized 3.0R/3.5R shadow and actual risk geometry."
+  ],
+  "gates_unchanged": true
+}
