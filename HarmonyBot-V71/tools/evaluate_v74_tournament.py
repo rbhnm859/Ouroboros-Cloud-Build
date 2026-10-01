@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 import json,math,pathlib,statistics,sys
-from v74_model_lib import load_rows,metrics,TRAINERS,predict,train_protection,apply_protection,PROTECTION_KEYS,RCR_KEYS,HYBRID_KEYS,REACTION_COMMIT_KEYS
+from v74_model_lib import load_rows,metrics,TRAINERS,predict,train_protection,apply_protection,PROTECTION_KEYS,RCR_KEYS,HYBRID_KEYS,REACTION_COMMIT_KEYS,HIGH_CONVICTION_KEYS
 
 root=pathlib.Path(sys.argv[1]); out=pathlib.Path(sys.argv[2]); out.mkdir(parents=True,exist_ok=True)
 RESEARCH=[f"Y{y}" for y in range(2016,2021)]
@@ -86,6 +86,16 @@ summary={"version":"HarmonyBot V74 Candidate",
                                    "minimum_route_net_rr":2.30,
                                    "early_adverse_cut":"COMPLETED_CLOSE_ONLY_BEFORE_FIRST_LIVE_POSITIVE_MILESTONE",
                                    "profit_frontier":"LIVE_TRADE_025_050_075_100_150_STAIRCASE",
+                                   "route_selection":"TRAINING_ONLY_WORST_YEAR_LCB",
+                                   "test_year_never_selects_route":True},
+         "high_conviction_policy":{"routes":HIGH_CONVICTION_KEYS,
+                                   "observation":"NO_CAPITAL_UNTIL_1P75R_OR_2P00R_VIRTUAL_REACTION",
+                                   "entry":"LATER_COMPLETED_M1_HOLD_OR_DIRECTIONAL_HOLD",
+                                   "stop":"COMPLETED_ENTRY_BAR_MICRO_STRUCTURE",
+                                   "minimum_route_net_rr":2.30,
+                                   "profit_target":"UNCHANGED_CANONICAL_TARGET",
+                                   "early_loss_only":"CLOSE_CUT_AT_MINUS_0P25_BEFORE_LIVE_PLUS_0P25R_PROOF",
+                                   "no_small_profit_floor":True,
                                    "route_selection":"TRAINING_ONLY_WORST_YEAR_LCB",
                                    "test_year_never_selects_route":True}}
 
@@ -442,6 +452,106 @@ for rc_name,hierarchical in [
                                "abcd_final_capital_eligible":final_abcd_allowed,
                                "champion_score_worst_lcb_per_slot_hour":score}
     if model_pass:passers.append((score,rc_name))
+
+
+def with_high_conviction_outcome(r,key):
+    v=r.get("high_conviction",{}).get(key)
+    if v is None or not math.isfinite(float(v)):return None
+    q=dict(r);q["native_r"]=r["r"];q["r"]=float(v);q["high_conviction_key"]=key
+    return q
+
+def high_conviction_rows(xs,key,family=None,action=None):
+    out=[]
+    for r in xs:
+        if family is not None and r["family"]!=family:continue
+        if action is not None and r["action"]!=action:continue
+        q=with_high_conviction_outcome(r,key)
+        if q is not None:out.append(q)
+    return out
+
+def choose_global_high_conviction(train_rows,train_windows):
+    candidates=[]
+    for key in HIGH_CONVICTION_KEYS:
+        agg=metrics(high_conviction_rows(train_rows,key))
+        yearly=[]
+        for w in train_windows:
+            ym=metrics(high_conviction_rows([r for r in train_rows if r["window"]==w],key))
+            if ym["n"]>=180:yearly.append(ym)
+        if agg["n"]<1200 or agg["average_rr"]<MIN_RR or len(yearly)<4:continue
+        candidates.append((min(z["lcb_r"] for z in yearly),
+                           min(z["mean_r"] for z in yearly),
+                           min(z["win_rate"] for z in yearly),
+                           agg["lcb_r"],agg["mean_r"],agg["pf_r"],agg["win_rate"],key))
+    candidates.sort(reverse=True)
+    return candidates[0][7] if candidates else None
+
+def choose_hier_high_conviction(train_rows,global_key):
+    policy={}
+    for fam in sorted({r["family"] for r in train_rows}):
+        for action in ("REVERSAL","CONTINUATION"):
+            candidates=[]
+            for key in HIGH_CONVICTION_KEYS:
+                m=metrics(high_conviction_rows(train_rows,key,fam,action))
+                if m["n"]>=50 and m["average_rr"]>=MIN_RR:
+                    candidates.append((m["lcb_r"],m["mean_r"],m["win_rate"],m["pf_r"],m["n"],key))
+            candidates.sort(reverse=True)
+            policy[fam+"|"+action]=candidates[0][5] if candidates else global_key
+    return policy
+
+def apply_high_conviction_policy(xs,policy,global_key,abcd_allowed=True):
+    out=[]
+    for r in xs:
+        if r["family"]=="ABCD" and not abcd_allowed:continue
+        key=policy.get(r["family"]+"|"+r["action"],global_key) if isinstance(policy,dict) else global_key
+        if not key:continue
+        q=with_high_conviction_outcome(r,key)
+        if q is not None:out.append(q)
+    return out
+
+for hc_name,hierarchical in [
+    ("K_HIGH_CONVICTION_DELAYED_COMMIT_GLOBAL",False),
+    ("L_HIGH_CONVICTION_DELAYED_COMMIT_HIERARCHICAL",True)]:
+    folds={};fold_policies={}
+    for test in BURNED:
+        train_windows=RESEARCH+[w for w in BURNED if w!=test]
+        tr=[r for r in rows if r["window"] in train_windows]
+        te=[r for r in rows if r["window"]==test]
+        global_key=choose_global_high_conviction(tr,train_windows)
+        policy=choose_hier_high_conviction(tr,global_key) if hierarchical else {}
+        train_selected=apply_high_conviction_policy(tr,policy,global_key,True)
+        abcd_train=metrics([r for r in train_selected if r["family"]=="ABCD"])
+        abcd_allowed=bool(abcd_train["n"]>=ABCD_TRAIN_MIN_N and abcd_train["mean_r"]>0 and
+                          abcd_train["pf_r"]>=ABCD_TRAIN_MIN_PF and abcd_train["lcb_r"]>0)
+        selected=apply_high_conviction_policy(te,policy,global_key,abcd_allowed)
+        m=metrics(selected);m["pass"]=gate_metrics(m);m["training_windows"]=train_windows
+        m["global_route"]=global_key;m["route_policy"]=policy
+        m["training_selected_metrics"]=metrics(train_selected)
+        m["abcd_training_metrics"]=abcd_train;m["abcd_training_capital_eligible"]=abcd_allowed
+        folds[test]=m
+        fold_policies[test]={"global_route":global_key,"route_policy":policy,
+                             "abcd_capital_eligible":abcd_allowed}
+    model_pass=all(folds[w]["pass"] for w in BURNED)
+    worst_lcb=min(folds[w]["lcb_r"] for w in BURNED)
+    avg_hold=statistics.mean(max(.25,folds[w]["median_hold_bars"]/60.0) for w in BURNED)
+    score=worst_lcb/max(.25,avg_hold)
+    final_global=choose_global_high_conviction(rows,ALL)
+    final_policy=choose_hier_high_conviction(rows,final_global) if hierarchical else {}
+    final_train=apply_high_conviction_policy(rows,final_policy,final_global,True)
+    final_abcd=metrics([r for r in final_train if r["family"]=="ABCD"])
+    final_abcd_allowed=bool(final_abcd["n"]>=ABCD_TRAIN_MIN_N and final_abcd["mean_r"]>0 and
+                            final_abcd["pf_r"]>=ABCD_TRAIN_MIN_PF and final_abcd["lcb_r"]>0)
+    final_selected=apply_high_conviction_policy(rows,final_policy,final_global,final_abcd_allowed)
+    models_blob["models"][hc_name]={"type":"HIGH_CONVICTION_DELAYED_COMMIT",
+                                    "folds":fold_policies,
+                                    "final":{"global_route":final_global,"route_policy":final_policy},
+                                    "abcd_final_capital_eligible":final_abcd_allowed}
+    summary["models"][hc_name]={"folds":folds,"pass":model_pass,
+                               "final_global_route":final_global,"final_route_policy":final_policy,
+                               "final_training_metrics":metrics(final_selected),
+                               "abcd_final_training_metrics":final_abcd,
+                               "abcd_final_capital_eligible":final_abcd_allowed,
+                               "champion_score_worst_lcb_per_slot_hour":score}
+    if model_pass:passers.append((score,hc_name))
 
 passers.sort(key=lambda x:(x[0],x[1]),reverse=True)
 champion=passers[0][1] if passers else None
