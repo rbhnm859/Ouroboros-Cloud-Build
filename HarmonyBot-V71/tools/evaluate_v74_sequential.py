@@ -295,19 +295,27 @@ def metric_selected(sel):
     return metrics(rr),rr
 
 def choose_config(train_rows,train_years):
-    cache={}
-    for mask in MASKS:
-      cache[mask]={}
-      for val in train_years:
-        tr=[r for r in train_rows if r["window"]!=val];va=[r for r in train_rows if r["window"]==val]
-        fr=fit_frontier(tr,mask,2);cache[mask][val]=(make_samples(tr,fr),make_samples(va,fr))
+    # Route ranking within a base is mask-invariant, so compute the ALL frontier
+    # once per inner fold and only change the legal base mask afterwards.
+    cache={mask:{} for mask in MASKS};base_models={}
+    for val in train_years:
+      tr=[r for r in train_rows if r["window"]!=val];va=[r for r in train_rows if r["window"]==val]
+      shared=fit_frontier(tr,"ALL",2)
+      for mask in MASKS:
+        fr={"mask":mask,"topk":shared["topk"],"choices":shared["choices"]}
+        ts,vs=make_samples(tr,fr),make_samples(va,fr)
+        cache[mask][val]=(ts,vs)
+        # Both structural variants for one mask differ only in effect_w.
+        cfg0=next(c for c in CONFIGS if c["mask"]==mask)
+        if len(ts)>=500 and len(vs)>=100:base_models[(mask,val)]=fit_admission(ts,cfg0)
     best=None
     for ci,cfg in enumerate(CONFIGS):
       inner={}
       for val in train_years:
-        ts,vs=cache[cfg["mask"]][val]
-        if len(ts)<500 or len(vs)<100:inner={};break
-        md=fit_admission(ts,cfg);inner[val]=(score_samples(ts,md),score_samples(vs,md))
+        ts,vs=cache[cfg["mask"]][val];base=base_models.get((cfg["mask"],val))
+        if base is None:inner={};break
+        md=dict(base);md["cfg"]=cfg
+        inner[val]=(score_samples(ts,md),score_samples(vs,md))
       if not inner:continue
       for q in QGRID:
         ym=[];ok=True
@@ -324,7 +332,9 @@ def choose_config(train_rows,train_years):
     return best[1]
 
 def fit_final(train_rows,choice):
-    fr=fit_frontier(train_rows,choice["cfg"]["mask"],2);ss=make_samples(train_rows,fr);md=fit_admission(ss,choice["cfg"])
+    shared=fit_frontier(train_rows,"ALL",2)
+    fr={"mask":choice["cfg"]["mask"],"topk":shared["topk"],"choices":shared["choices"]}
+    ss=make_samples(train_rows,fr);md=fit_admission(ss,choice["cfg"])
     trsc=score_samples(ss,md);th=qtile(event_score_distribution(trsc),choice["q"])
     return fr,md,th
 
