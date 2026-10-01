@@ -336,11 +336,17 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           path: control
       - uses: actions/download-artifact@v4
-        with: {name: v73-build, path: control/HarmonyBot-V71/shared}
+        with:
+          name: v73-build
+          path: control/HarmonyBot-V71/shared
       - uses: actions/download-artifact@v4
-        with: {name: v73-data-seed-${{ matrix.window }}, path: control/HarmonyBot-V71/data-seed}
+        with:
+          name: v73-data-seed-${{ matrix.window }}
+          path: control/HarmonyBot-V71/data-seed
       - uses: actions/download-artifact@v4
-        with: {name: v75-policy-${{ matrix.window }}, path: policy}
+        with:
+          name: v75-policy-${{ matrix.window }}
+          path: policy
       - name: Run V75 real broker economic conversion
         env:
           CTRADER_PASSWORD: ${{ secrets.CTRADER_PASSWORD }}
@@ -367,18 +373,29 @@ jobs:
       pass: ${{ steps.g.outputs.pass }}
     steps:
       - uses: actions/checkout@v4
-        with: {ref: ${{ github.event.pull_request.head.sha || github.sha }}, path: control}
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          path: control
       - uses: actions/download-artifact@v4
-        with: {pattern: v75-capital-*, path: merged, merge-multiple: true}
+        with:
+          pattern: v75-capital-*
+          path: merged
+          merge-multiple: true
       - uses: actions/download-artifact@v4
-        with: {pattern: v73-v51-reference-Y202*, path: merged, merge-multiple: true}
+        with:
+          pattern: v73-v51-reference-Y202*
+          path: merged
+          merge-multiple: true
       - id: g
         run: |
           mkdir -p gate
           python3 control/HarmonyBot-V71/tools/evaluate_v75_conversion.py merged gate
           echo "pass=$(cat gate/pass.txt)" >> "$GITHUB_OUTPUT"
       - uses: actions/upload-artifact@v4
-        with: {name: V75-CAPITAL-CONVERSION, path: gate, retention-days: 30}
+        with:
+          name: V75-CAPITAL-CONVERSION
+          path: gate
+          retention-days: 30
 
   promote_v75:
     needs: v75_gate
@@ -386,7 +403,9 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
-        with: {fetch-depth: 0, ref: ${{ github.event.pull_request.head.sha || github.sha }}}
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
       - run: bash HarmonyBot-V71/tools/promote_version_marker.sh V75 harmonybot/v75-economic-conversion-qualified "OOF Alpha converted to positive real cTrader economics in all burned years with Core displacement zero and zero engineering/risk violations."
 
   v76_slot:
@@ -400,13 +419,21 @@ jobs:
         window: [Y2021, Y2022, Y2023]
     steps:
       - uses: actions/checkout@v4
-        with: {ref: ${{ github.event.pull_request.head.sha || github.sha }}, path: control}
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          path: control
       - uses: actions/download-artifact@v4
-        with: {name: v73-build, path: control/HarmonyBot-V71/shared}
+        with:
+          name: v73-build
+          path: control/HarmonyBot-V71/shared
       - uses: actions/download-artifact@v4
-        with: {name: v73-data-seed-${{ matrix.window }}, path: control/HarmonyBot-V71/data-seed}
+        with:
+          name: v73-data-seed-${{ matrix.window }}
+          path: control/HarmonyBot-V71/data-seed
       - uses: actions/download-artifact@v4
-        with: {name: v75-policy-${{ matrix.window }}, path: policy}
+        with:
+          name: v75-policy-${{ matrix.window }}
+          path: policy
       - name: Run conservative edge per slot-hour scheduling
         env:
           CTRADER_PASSWORD: ${{ secrets.CTRADER_PASSWORD }}
@@ -420,7 +447,10 @@ jobs:
           V74_ALLOWED_HASHES="$(cat policy/allowed_hashes.txt)" V74_POLICY_UTILITY="$(cat policy/utility_map.txt)" V74_POLICY_HOLD="$(cat policy/hold_map.txt)"           V71_DATA_SEED_DIR="$GITHUB_WORKSPACE/control/HarmonyBot-V71/data-seed"           control/HarmonyBot-V71/tools/run_window.sh B_V75_FROZEN_POLICY_ALPHA ${{ matrix.window }} "$START" "$EVAL" "$END" "$YEARS"
           cp control/HarmonyBot-V71/output-B_V75_FROZEN_POLICY_ALPHA-${{ matrix.window }}/B_V75_FROZEN_POLICY_ALPHA-${{ matrix.window }}.json milestone/V76_SLOT-${{ matrix.window }}.json
       - uses: actions/upload-artifact@v4
-        with: {name: v76-slot-${{ matrix.window }}, path: milestone, retention-days: 30}
+        with:
+          name: v76-slot-${{ matrix.window }}
+          path: milestone
+          retention-days: 30
 
   v76_gate:
     needs: v76_slot
@@ -429,18 +459,29 @@ jobs:
       pass: ${{ steps.g.outputs.pass }}
     steps:
       - uses: actions/checkout@v4
-        with: {ref: ${{ github.event.pull_request.head.sha || github.sha }}, path: control}
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          path: control
       - uses: actions/download-artifact@v4
-        with: {pattern: v75-capital-*, path: merged, merge-multiple: true}
+        with:
+          pattern: v75-capital-*
+          path: merged
+          merge-multiple: true
       - uses: actions/download-artifact@v4
-        with: {pattern: v76-slot-*, path: merged, merge-multiple: true}
+        with:
+          pattern: v76-slot-*
+          path: merged
+          merge-multiple: true
       - id: g
         run: |
           mkdir -p gate
           python3 control/HarmonyBot-V71/tools/evaluate_v76_slot.py merged gate
           echo "pass=$(cat gate/pass.txt)" >> "$GITHUB_OUTPUT"
       - uses: actions/upload-artifact@v4
-        with: {name: V76-SLOT-EFFICIENCY, path: gate, retention-days: 30}
+        with:
+          name: V76-SLOT-EFFICIENCY
+          path: gate
+          retention-days: 30
 
   promote_v76:
     needs: v76_gate
@@ -448,7 +489,9 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
-        with: {fetch-depth: 0, ref: ${{ github.event.pull_request.head.sha || github.sha }}}
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
       - run: bash HarmonyBot-V71/tools/promote_version_marker.sh V76 harmonybot/v76-slot-efficiency-qualified ">=200 independent baskets/year in each burned year with no Net/PF/Expectancy/DD regression versus V75."
 
   v77_capacity:
@@ -465,13 +508,21 @@ jobs:
         window: [Y2021, Y2022, Y2023]
     steps:
       - uses: actions/checkout@v4
-        with: {ref: ${{ github.event.pull_request.head.sha || github.sha }}, path: control}
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          path: control
       - uses: actions/download-artifact@v4
-        with: {name: v73-build, path: control/HarmonyBot-V71/shared}
+        with:
+          name: v73-build
+          path: control/HarmonyBot-V71/shared
       - uses: actions/download-artifact@v4
-        with: {name: v73-data-seed-${{ matrix.window }}, path: control/HarmonyBot-V71/data-seed}
+        with:
+          name: v73-data-seed-${{ matrix.window }}
+          path: control/HarmonyBot-V71/data-seed
       - uses: actions/download-artifact@v4
-        with: {name: v75-policy-${{ matrix.window }}, path: policy}
+        with:
+          name: v75-policy-${{ matrix.window }}
+          path: policy
       - name: Fixed capacity and grid sweep
         env:
           CTRADER_PASSWORD: ${{ secrets.CTRADER_PASSWORD }}
@@ -499,18 +550,29 @@ jobs:
       pass: ${{ steps.g.outputs.pass }}
     steps:
       - uses: actions/checkout@v4
-        with: {ref: ${{ github.event.pull_request.head.sha || github.sha }}, path: control}
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          path: control
       - uses: actions/download-artifact@v4
-        with: {pattern: v77-capacity-*, path: merged, merge-multiple: true}
+        with:
+          pattern: v77-capacity-*
+          path: merged
+          merge-multiple: true
       - uses: actions/download-artifact@v4
-        with: {pattern: v73-v51-reference-Y202*, path: merged, merge-multiple: true}
+        with:
+          pattern: v73-v51-reference-Y202*
+          path: merged
+          merge-multiple: true
       - id: g
         run: |
           mkdir -p gate
           python3 control/HarmonyBot-V71/tools/evaluate_v77_capacity.py merged gate
           echo "pass=$(cat gate/pass.txt)" >> "$GITHUB_OUTPUT"
       - uses: actions/upload-artifact@v4
-        with: {name: V77-CAPACITY, path: gate, retention-days: 30}
+        with:
+          name: V77-CAPACITY
+          path: gate
+          retention-days: 30
 
   promote_v77:
     needs: v77_gate
@@ -518,7 +580,9 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
-        with: {fetch-depth: 0, ref: ${{ github.event.pull_request.head.sha || github.sha }}}
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
       - run: bash HarmonyBot-V71/tools/promote_version_marker.sh V77 harmonybot/v77-capacity-grid-qualified "A fixed single/grid and risk-tier configuration passed all hard burned commercial targets with internal DD <=7.5%; Grid is eligible only by Pareto non-regression."
 
   embedded_build:
@@ -528,11 +592,16 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
-        with: {ref: ${{ github.event.pull_request.head.sha || github.sha }}, path: control}
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          path: control
       - uses: actions/setup-dotnet@v4
-        with: {dotnet-version: '8.0.x'}
+        with:
+          dotnet-version: '8.0.x'
       - uses: actions/download-artifact@v4
-        with: {name: V74-ALPHA-TOURNAMENT, path: tournament}
+        with:
+          name: V74-ALPHA-TOURNAMENT
+          path: tournament
       - name: Generate and build standalone embedded Champion
         run: |
           set -euo pipefail
@@ -545,7 +614,10 @@ jobs:
           cp control/HarmonyBot-V71/src/Architecture/HarmonyBotV74.EmbeddedPolicy.Generated.cs embedded/src/
           sha256sum embedded/dist/*.algo embedded/src/*.cs > embedded/SHA256SUMS
       - uses: actions/upload-artifact@v4
-        with: {name: v78-embedded-build, path: embedded, retention-days: 30}
+        with:
+          name: v78-embedded-build
+          path: embedded
+          retention-days: 30
 
   dev_seed:
     needs: [build, v77_gate]
@@ -558,9 +630,13 @@ jobs:
         window: [H2024H2, H2025H1, H2025H2]
     steps:
       - uses: actions/checkout@v4
-        with: {ref: ${{ github.event.pull_request.head.sha || github.sha }}, path: control}
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          path: control
       - uses: actions/download-artifact@v4
-        with: {name: v73-build, path: control/HarmonyBot-V71/shared}
+        with:
+          name: v73-build
+          path: control/HarmonyBot-V71/shared
       - name: Hydrate fixed DEV and trusted V51 control
         env:
           CTRADER_PASSWORD: ${{ secrets.CTRADER_PASSWORD }}
@@ -572,9 +648,15 @@ jobs:
           R=$(find control/HarmonyBot-V71/shared -type f -name '*V51*.algo' | head -1); cp "$R" control/HarmonyBot-V71/reference/HarmonyBot_V51_Family_Native_Math_Geometry_Economic_Conversion_RC.algo
           control/HarmonyBot-V71/tools/run_v51_reference.sh ${{ matrix.window }} "$START" "$EVAL" "$END" "$YEARS"
       - uses: actions/upload-artifact@v4
-        with: {name: v78-data-${{ matrix.window }}, path: control/HarmonyBot-V71/reference-window-${{ matrix.window }}/seal/data, retention-days: 30}
+        with:
+          name: v78-data-${{ matrix.window }}
+          path: control/HarmonyBot-V71/reference-window-${{ matrix.window }}/seal/data
+          retention-days: 30
       - uses: actions/upload-artifact@v4
-        with: {name: v78-ref-${{ matrix.window }}, path: control/HarmonyBot-V71/reference-output-${{ matrix.window }}, retention-days: 30}
+        with:
+          name: v78-ref-${{ matrix.window }}
+          path: control/HarmonyBot-V71/reference-output-${{ matrix.window }}
+          retention-days: 30
 
   dev_candidate:
     needs: [embedded_build, dev_seed, v77_gate]
@@ -586,13 +668,21 @@ jobs:
         window: [H2024H2, H2025H1, H2025H2]
     steps:
       - uses: actions/checkout@v4
-        with: {ref: ${{ github.event.pull_request.head.sha || github.sha }}, path: control}
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          path: control
       - uses: actions/download-artifact@v4
-        with: {name: v78-embedded-build, path: embedded}
+        with:
+          name: v78-embedded-build
+          path: embedded
       - uses: actions/download-artifact@v4
-        with: {name: V77-CAPACITY, path: capacity}
+        with:
+          name: V77-CAPACITY
+          path: capacity
       - uses: actions/download-artifact@v4
-        with: {name: v78-data-${{ matrix.window }}, path: control/HarmonyBot-V71/data-seed}
+        with:
+          name: v78-data-${{ matrix.window }}
+          path: control/HarmonyBot-V71/data-seed
       - name: Run immutable embedded Champion on fixed DEV
         env:
           CTRADER_PASSWORD: ${{ secrets.CTRADER_PASSWORD }}
@@ -609,7 +699,10 @@ jobs:
           V74_RISK_PCT="$RISK" V71_DATA_SEED_DIR="$GITHUB_WORKSPACE/control/HarmonyBot-V71/data-seed" control/HarmonyBot-V71/tools/run_window.sh "$VAR" ${{ matrix.window }} "$START" "$EVAL" "$END" "$YEARS"
           cp control/HarmonyBot-V71/output-$VAR-${{ matrix.window }}/$VAR-${{ matrix.window }}.json milestone/CANDIDATE-${{ matrix.window }}.json
       - uses: actions/upload-artifact@v4
-        with: {name: v78-candidate-${{ matrix.window }}, path: milestone, retention-days: 30}
+        with:
+          name: v78-candidate-${{ matrix.window }}
+          path: milestone
+          retention-days: 30
 
   dev_gate:
     needs: dev_candidate
@@ -618,18 +711,29 @@ jobs:
       pass: ${{ steps.g.outputs.pass }}
     steps:
       - uses: actions/checkout@v4
-        with: {ref: ${{ github.event.pull_request.head.sha || github.sha }}, path: control}
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          path: control
       - uses: actions/download-artifact@v4
-        with: {pattern: v78-candidate-*, path: merged, merge-multiple: true}
+        with:
+          pattern: v78-candidate-*
+          path: merged
+          merge-multiple: true
       - uses: actions/download-artifact@v4
-        with: {pattern: v78-ref-*, path: merged, merge-multiple: true}
+        with:
+          pattern: v78-ref-*
+          path: merged
+          merge-multiple: true
       - id: g
         run: |
           mkdir -p gate
           python3 control/HarmonyBot-V71/tools/evaluate_commercial_windows.py merged gate DEV 1.5 H2024H2,H2025H1,H2025H2
           echo "pass=$(cat gate/pass.txt)" >> "$GITHUB_OUTPUT"
       - uses: actions/upload-artifact@v4
-        with: {name: V78-DEV-COMMERCIAL, path: gate, retention-days: 30}
+        with:
+          name: V78-DEV-COMMERCIAL
+          path: gate
+          retention-days: 30
 
   promote_v78:
     needs: dev_gate
@@ -637,7 +741,9 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
-        with: {fetch-depth: 0, ref: ${{ github.event.pull_request.head.sha || github.sha }}}
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
       - run: bash HarmonyBot-V71/tools/promote_version_marker.sh V78 harmonybot/v78-commercial-dev-qualified "Frozen embedded Champion passed 2024H2/2025H1/2025H2 hard commercial DEV targets in every window."
 
   validation_seed:
@@ -650,9 +756,13 @@ jobs:
         window: [Q12026, Q22026]
     steps:
       - uses: actions/checkout@v4
-        with: {ref: ${{ github.event.pull_request.head.sha || github.sha }}, path: control}
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          path: control
       - uses: actions/download-artifact@v4
-        with: {name: v73-build, path: control/HarmonyBot-V71/shared}
+        with:
+          name: v73-build
+          path: control/HarmonyBot-V71/shared
       - name: Hydrate locked Validation
         env:
           CTRADER_PASSWORD: ${{ secrets.CTRADER_PASSWORD }}
@@ -664,9 +774,15 @@ jobs:
           R=$(find control/HarmonyBot-V71/shared -type f -name '*V51*.algo' | head -1); cp "$R" control/HarmonyBot-V71/reference/HarmonyBot_V51_Family_Native_Math_Geometry_Economic_Conversion_RC.algo
           control/HarmonyBot-V71/tools/run_v51_reference.sh ${{ matrix.window }} "$START" "$EVAL" "$END" "$YEARS"
       - uses: actions/upload-artifact@v4
-        with: {name: v79-validation-data-${{ matrix.window }}, path: control/HarmonyBot-V71/reference-window-${{ matrix.window }}/seal/data, retention-days: 30}
+        with:
+          name: v79-validation-data-${{ matrix.window }}
+          path: control/HarmonyBot-V71/reference-window-${{ matrix.window }}/seal/data
+          retention-days: 30
       - uses: actions/upload-artifact@v4
-        with: {name: v79-validation-ref-${{ matrix.window }}, path: control/HarmonyBot-V71/reference-output-${{ matrix.window }}, retention-days: 30}
+        with:
+          name: v79-validation-ref-${{ matrix.window }}
+          path: control/HarmonyBot-V71/reference-output-${{ matrix.window }}
+          retention-days: 30
 
   validation_candidate:
     needs: [embedded_build, validation_seed, dev_gate]
@@ -677,13 +793,21 @@ jobs:
     timeout-minutes: 50
     steps:
       - uses: actions/checkout@v4
-        with: {ref: ${{ github.event.pull_request.head.sha || github.sha }}, path: control}
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          path: control
       - uses: actions/download-artifact@v4
-        with: {name: v78-embedded-build, path: embedded}
+        with:
+          name: v78-embedded-build
+          path: embedded
       - uses: actions/download-artifact@v4
-        with: {name: V77-CAPACITY, path: capacity}
+        with:
+          name: V77-CAPACITY
+          path: capacity
       - uses: actions/download-artifact@v4
-        with: {name: v79-validation-data-${{ matrix.window }}, path: control/HarmonyBot-V71/data-seed}
+        with:
+          name: v79-validation-data-${{ matrix.window }}
+          path: control/HarmonyBot-V71/data-seed
       - name: Run frozen Validation
         env:
           CTRADER_PASSWORD: ${{ secrets.CTRADER_PASSWORD }}
@@ -697,7 +821,10 @@ jobs:
           V74_RISK_PCT="$RISK" V71_DATA_SEED_DIR="$GITHUB_WORKSPACE/control/HarmonyBot-V71/data-seed" control/HarmonyBot-V71/tools/run_window.sh "$VAR" ${{ matrix.window }} "$START" "$EVAL" "$END" "$YEARS"
           cp control/HarmonyBot-V71/output-$VAR-${{ matrix.window }}/$VAR-${{ matrix.window }}.json milestone/CANDIDATE-${{ matrix.window }}.json
       - uses: actions/upload-artifact@v4
-        with: {name: v79-validation-candidate-${{ matrix.window }}, path: milestone, retention-days: 30}
+        with:
+          name: v79-validation-candidate-${{ matrix.window }}
+          path: milestone
+          retention-days: 30
 
   validation_gate:
     needs: validation_candidate
@@ -706,18 +833,29 @@ jobs:
       pass: ${{ steps.g.outputs.pass }}
     steps:
       - uses: actions/checkout@v4
-        with: {ref: ${{ github.event.pull_request.head.sha || github.sha }}, path: control}
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          path: control
       - uses: actions/download-artifact@v4
-        with: {pattern: v79-validation-candidate-*, path: merged, merge-multiple: true}
+        with:
+          pattern: v79-validation-candidate-*
+          path: merged
+          merge-multiple: true
       - uses: actions/download-artifact@v4
-        with: {pattern: v79-validation-ref-*, path: merged, merge-multiple: true}
+        with:
+          pattern: v79-validation-ref-*
+          path: merged
+          merge-multiple: true
       - id: g
         run: |
           mkdir -p gate
           python3 control/HarmonyBot-V71/tools/evaluate_commercial_windows.py merged gate VALIDATION .5 Q12026,Q22026
           echo "pass=$(cat gate/pass.txt)" >> "$GITHUB_OUTPUT"
       - uses: actions/upload-artifact@v4
-        with: {name: V79-VALIDATION, path: gate, retention-days: 30}
+        with:
+          name: V79-VALIDATION
+          path: gate
+          retention-days: 30
 
   fresh_seed:
     needs: [build, validation_gate]
@@ -726,9 +864,13 @@ jobs:
     timeout-minutes: 50
     steps:
       - uses: actions/checkout@v4
-        with: {ref: ${{ github.event.pull_request.head.sha || github.sha }}, path: control}
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          path: control
       - uses: actions/download-artifact@v4
-        with: {name: v73-build, path: control/HarmonyBot-V71/shared}
+        with:
+          name: v73-build
+          path: control/HarmonyBot-V71/shared
       - name: Hydrate independently locked Fresh Q3
         env:
           CTRADER_PASSWORD: ${{ secrets.CTRADER_PASSWORD }}
@@ -740,9 +882,15 @@ jobs:
           R=$(find control/HarmonyBot-V71/shared -type f -name '*V51*.algo' | head -1); cp "$R" control/HarmonyBot-V71/reference/HarmonyBot_V51_Family_Native_Math_Geometry_Economic_Conversion_RC.algo
           control/HarmonyBot-V71/tools/run_v51_reference.sh Q32026 "$START" "$EVAL" "$END" "$YEARS"
       - uses: actions/upload-artifact@v4
-        with: {name: v79-fresh-data-Q32026, path: control/HarmonyBot-V71/reference-window-Q32026/seal/data, retention-days: 30}
+        with:
+          name: v79-fresh-data-Q32026
+          path: control/HarmonyBot-V71/reference-window-Q32026/seal/data
+          retention-days: 30
       - uses: actions/upload-artifact@v4
-        with: {name: v79-fresh-ref-Q32026, path: control/HarmonyBot-V71/reference-output-Q32026, retention-days: 30}
+        with:
+          name: v79-fresh-ref-Q32026
+          path: control/HarmonyBot-V71/reference-output-Q32026
+          retention-days: 30
 
   fresh_candidate:
     needs: [embedded_build, fresh_seed, validation_gate]
@@ -750,13 +898,21 @@ jobs:
     timeout-minutes: 50
     steps:
       - uses: actions/checkout@v4
-        with: {ref: ${{ github.event.pull_request.head.sha || github.sha }}, path: control}
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          path: control
       - uses: actions/download-artifact@v4
-        with: {name: v78-embedded-build, path: embedded}
+        with:
+          name: v78-embedded-build
+          path: embedded
       - uses: actions/download-artifact@v4
-        with: {name: V77-CAPACITY, path: capacity}
+        with:
+          name: V77-CAPACITY
+          path: capacity
       - uses: actions/download-artifact@v4
-        with: {name: v79-fresh-data-Q32026, path: control/HarmonyBot-V71/data-seed}
+        with:
+          name: v79-fresh-data-Q32026
+          path: control/HarmonyBot-V71/data-seed
       - name: Run frozen Fresh once
         env:
           CTRADER_PASSWORD: ${{ secrets.CTRADER_PASSWORD }}
@@ -770,7 +926,10 @@ jobs:
           V74_RISK_PCT="$RISK" V71_DATA_SEED_DIR="$GITHUB_WORKSPACE/control/HarmonyBot-V71/data-seed" control/HarmonyBot-V71/tools/run_window.sh "$VAR" Q32026 "$START" "$EVAL" "$END" "$YEARS"
           cp control/HarmonyBot-V71/output-$VAR-Q32026/$VAR-Q32026.json milestone/CANDIDATE-Q32026.json
       - uses: actions/upload-artifact@v4
-        with: {name: v79-fresh-candidate-Q32026, path: milestone, retention-days: 30}
+        with:
+          name: v79-fresh-candidate-Q32026
+          path: milestone
+          retention-days: 30
 
   fresh_gate:
     needs: fresh_candidate
@@ -779,18 +938,27 @@ jobs:
       pass: ${{ steps.g.outputs.pass }}
     steps:
       - uses: actions/checkout@v4
-        with: {ref: ${{ github.event.pull_request.head.sha || github.sha }}, path: control}
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          path: control
       - uses: actions/download-artifact@v4
-        with: {name: v79-fresh-candidate-Q32026, path: merged}
+        with:
+          name: v79-fresh-candidate-Q32026
+          path: merged
       - uses: actions/download-artifact@v4
-        with: {name: v79-fresh-ref-Q32026, path: merged}
+        with:
+          name: v79-fresh-ref-Q32026
+          path: merged
       - id: g
         run: |
           mkdir -p gate
           python3 control/HarmonyBot-V71/tools/evaluate_commercial_windows.py merged gate FRESH .25 Q32026
           echo "pass=$(cat gate/pass.txt)" >> "$GITHUB_OUTPUT"
       - uses: actions/upload-artifact@v4
-        with: {name: V79-FRESH, path: gate, retention-days: 30}
+        with:
+          name: V79-FRESH
+          path: gate
+          retention-days: 30
 
   promote_v79:
     needs: fresh_gate
@@ -798,7 +966,9 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
-        with: {fetch-depth: 0, ref: ${{ github.event.pull_request.head.sha || github.sha }}}
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
       - run: bash HarmonyBot-V71/tools/promote_version_marker.sh V79 harmonybot/v79-validation-fresh-qualified "Frozen embedded Champion passed 2026 Q1/Q2 Validation and one-shot 2026 Q3 Fresh hard commercial gates without retuning."
 
   v80_package:
@@ -808,19 +978,33 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
-        with: {fetch-depth: 0, ref: ${{ github.event.pull_request.head.sha || github.sha }}, path: control}
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          path: control
       - uses: actions/setup-dotnet@v4
-        with: {dotnet-version: '8.0.x'}
+        with:
+          dotnet-version: '8.0.x'
       - uses: actions/download-artifact@v4
-        with: {name: V74-ALPHA-TOURNAMENT, path: tournament}
+        with:
+          name: V74-ALPHA-TOURNAMENT
+          path: tournament
       - uses: actions/download-artifact@v4
-        with: {name: V77-CAPACITY, path: capacity}
+        with:
+          name: V77-CAPACITY
+          path: capacity
       - uses: actions/download-artifact@v4
-        with: {name: V78-DEV-COMMERCIAL, path: evidence/dev}
+        with:
+          name: V78-DEV-COMMERCIAL
+          path: evidence/dev
       - uses: actions/download-artifact@v4
-        with: {name: V79-VALIDATION, path: evidence/validation}
+        with:
+          name: V79-VALIDATION
+          path: evidence/validation
       - uses: actions/download-artifact@v4
-        with: {name: V79-FRESH, path: evidence/fresh}
+        with:
+          name: V79-FRESH
+          path: evidence/fresh
       - name: Build commercial-default standalone V80
         shell: bash
         run: |
@@ -866,9 +1050,13 @@ PY
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
-        with: {fetch-depth: 0, ref: ${{ github.event.pull_request.head.sha || github.sha }}}
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
       - uses: actions/download-artifact@v4
-        with: {name: V80-COMMERCIAL-RELEASE, path: HarmonyBot-V80}
+        with:
+          name: V80-COMMERCIAL-RELEASE
+          path: HarmonyBot-V80
       - name: Publish immutable V80 commercial branch
         shell: bash
         run: |
