@@ -88,6 +88,16 @@ SEQUENTIAL_KEYS=[
  "M15_R050_D_RR40_F30"
 ]
 
+LATE_AUCTION_KEYS=[
+ "M05_R025_H_RR35","M05_R025_D_RR35","M05_R050_H_RR35","M05_R050_D_RR35",
+ "M05_R025_H_RR40","M05_R025_D_RR40","M05_R050_H_RR40","M05_R050_D_RR40",
+ "M10_R025_H_RR35","M10_R025_D_RR35","M10_R050_H_RR35","M10_R050_D_RR35",
+ "M10_R025_H_RR40","M10_R025_D_RR40","M10_R050_H_RR40","M10_R050_D_RR40",
+ "M15_R025_H_RR35","M15_R025_D_RR35","M15_R050_H_RR35","M15_R050_D_RR35",
+ "M15_R025_H_RR40","M15_R025_D_RR40","M15_R050_H_RR40","M15_R050_D_RR40"
+]
+
+
 def window_of(path,windows):
     s=str(path)
     for w in windows:
@@ -145,6 +155,46 @@ def load_rows(root,windows):
                                 "reaction_commit":reaction_commit,"high_conviction":high_conviction,
                                 "sequential":{},"sequential_rr":{},"sequential_bars":{},"sequential_reaction_bar":{},"sequential_entry_bar":{},"sequential_trigger_bar":{},"sequential_decision_bar":{},"sequential_state":{},"sequential_entry_state":{},"sequential_trigger_state":{},"sequential_decision_state":{}}
         for line in txt.splitlines():
+
+            if "[V74-LATE-AUCTION-PATH]" in line:
+                payload=line.split("[V74-LATE-AUCTION-PATH]",1)[1].strip();kv={}
+                for tok in payload.split():
+                    if "=" in tok:
+                        a,b=tok.split("=",1);kv[a]=b
+                setup=kv.get("setup")
+                if not setup:continue
+                p=paths.setdefault(setup,{"protect_r":{},"milestones":{},"rcr":{},"hybrid":{},"reaction_commit":{},"high_conviction":{},
+                                          "sequential":{},"sequential_rr":{},"sequential_bars":{},"sequential_state":{},"sequential_entry_state":{},
+                                          "sequential_trigger_state":{},"sequential_decision_state":{}})
+                outcomes={};rrs={};maturity={};entries={};bars={};reaction_bars={};anchor_bars={};trigger_bars={};entry_bars={}
+                for idx,key in enumerate(LATE_AUCTION_KEYS):
+                    for prefix,dst in (("m",maturity),("e",entries)):
+                        raw=kv.get(prefix+str(idx))
+                        if raw not in (None,"NONE","NA","NaN","nan"):
+                            try:
+                                vv=[float(x) for x in raw.split(",")]
+                                if len(vv)==SEQUENTIAL_STATE_FEATURE_COUNT and all(math.isfinite(x) for x in vv):dst[key]=vv
+                            except Exception:pass
+                    raw=kv.get("b"+str(idx));rawrr=kv.get("rr"+str(idx))
+                    if raw not in (None,"NA","NaN","nan"):
+                        try:
+                            v=float(raw)
+                            if math.isfinite(v):outcomes[key]=v
+                        except Exception:pass
+                    if rawrr not in (None,"NA","NaN","nan"):
+                        try:
+                            v=float(rawrr)
+                            if math.isfinite(v):rrs[key]=v
+                        except Exception:pass
+                    for prefix,dst in (("rb",bars),("rx",reaction_bars),("ab",anchor_bars),("tb",trigger_bars),("eb",entry_bars)):
+                        try:dst[key]=int(kv.get(prefix+str(idx),"-1"))
+                        except Exception:pass
+                p["late_auction"]=outcomes;p["late_auction_rr"]=rrs
+                p["late_auction_maturity_state"]=maturity;p["late_auction_entry_state"]=entries
+                p["late_auction_bars"]=bars;p["late_auction_reaction_bars"]=reaction_bars
+                p["late_auction_anchor_bars"]=anchor_bars;p["late_auction_trigger_bars"]=trigger_bars;p["late_auction_entry_bars"]=entry_bars
+                continue
+
             if "[V74-SEQUENTIAL-PATH]" not in line:continue
             payload=line.split("[V74-SEQUENTIAL-PATH]",1)[1].strip();kv={}
             for tok in payload.split():
@@ -214,6 +264,16 @@ def load_rows(root,windows):
                          "rcr":path.get("rcr",{}),"hybrid":path.get("hybrid",{}),
                          "reaction_commit":path.get("reaction_commit",{}),
                          "high_conviction":path.get("high_conviction",{}),
+
+                         "late_auction":path.get("late_auction",{}),
+                         "late_auction_rr":path.get("late_auction_rr",{}),
+                         "late_auction_maturity_state":path.get("late_auction_maturity_state",{}),
+                         "late_auction_entry_state":path.get("late_auction_entry_state",{}),
+                         "late_auction_bars":path.get("late_auction_bars",{}),
+                         "late_auction_reaction_bars":path.get("late_auction_reaction_bars",{}),
+                         "late_auction_anchor_bars":path.get("late_auction_anchor_bars",{}),
+                         "late_auction_trigger_bars":path.get("late_auction_trigger_bars",{}),
+                         "late_auction_entry_bars":path.get("late_auction_entry_bars",{}),
                          "sequential":path.get("sequential",{}),
                          "sequential_rr":path.get("sequential_rr",{}),
                          "sequential_bars":path.get("sequential_bars",{}),
