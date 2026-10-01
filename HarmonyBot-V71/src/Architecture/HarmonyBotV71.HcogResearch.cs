@@ -290,6 +290,25 @@ namespace cAlgo.Robots
             };
         }
 
+        private void V74PropagateProtectionDecision(V72HcogOpportunity o,string key)
+        {
+            if(o==null||string.IsNullOrWhiteSpace(key)||key=="NONE")return;
+            string cid="V71EXP-V74-"+o.Id.Substring(Math.Max(0,o.Id.Length-7));
+            V71ExpansionCandidate e;
+            if(_v71Expansion.TryGetValue(cid,out e))e.V74ProtectionKey=key;
+            foreach(var basket in _baskets.Values.Where(b=>b.IsActive&&b.CandidateId==cid).ToList())
+            {
+                basket.V74ProtectionKey=key;
+                double triggerR,floorR;
+                if(V74ProtectionLevels(key,out triggerR,out floorR))
+                {
+                    basket.V74ProtectionTriggerR=triggerR;
+                    basket.V74ProtectionFloorR=floorR;
+                }
+            }
+            Print("[V74-PROTECTION-DECISION] id={0} cid={1} setup={2} key={3}",o.Id,cid,o.SetupKey,key);
+        }
+
         private void V74UpdateProtectionCounterfactuals(V72HcogOpportunity o,int i,bool stop,bool target)
         {
             if(o==null||o.RiskDistance<=0||i<0||i>=_m1Bars.Count)return;
@@ -301,8 +320,24 @@ namespace cAlgo.Robots
                 if(o.V74ProtectionTriggerBar[k]<0&&!stop&&fav+1e-12>=V74ProtectionTriggerR[k])
                 {
                     o.V74ProtectionTriggerBar[k]=o.BarsActive;
-                    o.V74MilestoneFeatureCsv[k]=string.Join(",",V74MilestoneFeatures(o,i,V74ProtectionTriggerR[k])
+                    double[] mf=V74MilestoneFeatures(o,i,V74ProtectionTriggerR[k]);
+                    o.V74MilestoneFeatureCsv[k]=string.Join(",",mf
                         .Select(v=>v.ToString("R",System.Globalization.CultureInfo.InvariantCulture)));
+                    if(EnableV74EmbeddedPolicy&&o.V74LiveProtectionKey=="NONE")
+                    {
+                        bool handled=false,protect=false;double delta=0,lcb=-999;
+                        V74EmbeddedProtect(o,k,mf,ref handled,ref protect,ref delta,ref lcb);
+                        if(handled)
+                        {
+                            Print("[V74-EMBEDDED-PROTECT-SCORE] id={0} setupHash={1} key={2} delta={3:F9} lcb={4:F9} protect={5}",
+                                o.Id,V74SetupHash(o.SetupKey),V74ProtectionKey[k],delta,lcb,protect);
+                            if(protect)
+                            {
+                                o.V74LiveProtectionKey=V74ProtectionKey[k];
+                                V74PropagateProtectionDecision(o,o.V74LiveProtectionKey);
+                            }
+                        }
+                    }
                 }
                 if(o.V74ProtectionTriggerBar[k]<0||!double.IsNaN(o.V74ProtectionOutcomeR[k]))continue;
                 if(o.BarsActive<=o.V74ProtectionTriggerBar[k])continue; // completed-bar activation: never same-bar protect
