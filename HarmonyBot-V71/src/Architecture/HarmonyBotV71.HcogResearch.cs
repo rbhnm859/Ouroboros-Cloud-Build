@@ -125,7 +125,7 @@ namespace cAlgo.Robots
         };
 
 
-        // V74_LATE_ENTRY_TELEMETRY_SCHEMA_V2_1_REBUILD
+        // V74_LATE_ENTRY_TELEMETRY_SCHEMA_V2_2_REBUILD
         // True late-entry auction reuses the proven 48-route family/native payoff
         // geometry (M05/M10/M15 x R025/R050 x H/D x RR35/RR40 x F20/F30),
         // but moves capital admission to the completed-bar M-stage. Post-entry
