@@ -1,0 +1,154 @@
+name: HarmonyBot V73 Opportunity Universe 2.0
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'HarmonyBot-V71/**'
+      - '.github/workflows/harmonybot-v73-opportunity-universe.yml'
+
+concurrency:
+  group: harmonybot-v73-opportunity-universe
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with: {fetch-depth: 0, path: control}
+      - uses: actions/setup-dotnet@v4
+        with: {dotnet-version: '8.0.x'}
+      - name: Compile and freeze research binary
+        run: |
+          set -euo pipefail
+          cd control
+          python3 HarmonyBot-V71/tools/verify_frozen_harmonic_engine.py HarmonyBot-V71/src/HarmonyBotV71.cs
+          python3 -m py_compile HarmonyBot-V71/tools/*.py
+          dotnet restore HarmonyBot-V71/HarmonyBotV71.csproj
+          dotnet build HarmonyBot-V71/HarmonyBotV71.csproj -c Release --no-restore --nologo
+          mkdir -p HarmonyBot-V71/dist
+          A=$(find HarmonyBot-V71/bin/Release -type f -name '*.algo' | head -1); test -s "$A"
+          cp "$A" HarmonyBot-V71/dist/HarmonyBot_V71_Protected_Champion_Core_Incremental_Alpha.algo
+      - uses: actions/upload-artifact@v4
+        with:
+          name: v73-build
+          path: control/HarmonyBot-V71/dist
+          retention-days: 30
+
+  custody_seed:
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        window: [Y2021, Y2022, Y2023]
+    steps:
+      - uses: actions/checkout@v4
+        with: {fetch-depth: 0, path: control}
+      - uses: actions/download-artifact@v4
+        with: {name: v73-build, path: control/HarmonyBot-V71/shared}
+      - name: Build immutable observed seed
+        id: d
+        env:
+          CTRADER_PASSWORD: ${{ secrets.CTRADER_PASSWORD }}
+          CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+          CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+        run: |
+          set -euo pipefail
+          mkdir -p control/HarmonyBot-V71/reference
+          git show 1b670a0f43ba8ecaa637febfdacf605b1b146f01:HarmonyBot-V51/HarmonyBotV51.csproj > /tmp/HarmonyBotV51.csproj
+          mkdir -p /tmp/src
+          git show 1b670a0f43ba8ecaa637febfdacf605b1b146f01:HarmonyBot-V51/src/HarmonyBotV51.cs > /tmp/src/HarmonyBotV51.cs
+          dotnet restore /tmp/HarmonyBotV51.csproj
+          dotnet build /tmp/HarmonyBotV51.csproj -c Release --no-restore --nologo
+          R=$(find /tmp/bin/Release -type f -name '*.algo' | head -1); cp "$R" control/HarmonyBot-V71/reference/HarmonyBot_V51_Family_Native_Math_Geometry_Economic_Conversion_RC.algo
+          case "${{ matrix.window }}" in
+            Y2021) S=04/01/2021; E=2021-01-11T00:00:00Z; X=31/12/2021;;
+            Y2022) S=03/01/2022; E=2022-01-10T00:00:00Z; X=30/12/2022;;
+            Y2023) S=02/01/2023; E=2023-01-09T00:00:00Z; X=29/12/2023;;
+          esac
+          chmod +x control/HarmonyBot-V71/tools/*.sh
+          control/HarmonyBot-V71/tools/run_v51_reference.sh "${{ matrix.window }}" "$S" "$E" "$X" 1.0
+      - uses: actions/upload-artifact@v4
+        with:
+          name: v73-data-${{ matrix.window }}
+          path: control/HarmonyBot-V71/reference-window-${{ matrix.window }}/seal/data
+          retention-days: 30
+
+  census:
+    needs: [build, custody_seed]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        window: [Y2021, Y2022, Y2023]
+    steps:
+      - uses: actions/checkout@v4
+        with: {path: control}
+      - uses: actions/download-artifact@v4
+        with: {name: v73-build, path: control/HarmonyBot-V71/shared}
+      - uses: actions/download-artifact@v4
+        with: {name: 'v73-data-${{ matrix.window }}', path: control/HarmonyBot-V71/data-seed}
+      - name: Run counterfactual harmonic census
+        env:
+          CTRADER_PASSWORD: ${{ secrets.CTRADER_PASSWORD }}
+          CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+          CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+        run: |
+          set -euo pipefail
+          mkdir -p control/HarmonyBot-V71/dist
+          cp $(find control/HarmonyBot-V71/shared -name '*.algo' | head -1) control/HarmonyBot-V71/dist/HarmonyBot_V71_Protected_Champion_Core_Incremental_Alpha.algo
+          case "${{ matrix.window }}" in
+            Y2021) S=04/01/2021; E=2021-01-11T00:00:00Z; X=31/12/2021;;
+            Y2022) S=03/01/2022; E=2022-01-10T00:00:00Z; X=30/12/2022;;
+            Y2023) S=02/01/2023; E=2023-01-09T00:00:00Z; X=29/12/2023;;
+          esac
+          chmod +x control/HarmonyBot-V71/tools/*.sh
+          V71_DATA_SEED_DIR="$GITHUB_WORKSPACE/control/HarmonyBot-V71/data-seed" control/HarmonyBot-V71/tools/run_window.sh R_V72_HCAP_CENSUS "${{ matrix.window }}" "$S" "$E" "$X" 1.0
+      - uses: actions/upload-artifact@v4
+        with:
+          name: v73-census-${{ matrix.window }}
+          path: control/HarmonyBot-V71/output-R_V72_HCAP_CENSUS-${{ matrix.window }}
+          retention-days: 30
+
+  opportunity_gate:
+    needs: census
+    runs-on: ubuntu-24.04
+    outputs:
+      pass: ${{ steps.g.outputs.pass }}
+    steps:
+      - uses: actions/checkout@v4
+        with: {path: control}
+      - uses: actions/download-artifact@v4
+        with: {pattern: 'v73-census-*', path: merged, merge-multiple: true}
+      - name: Evaluate physical opportunity ceiling
+        id: g
+        run: |
+          set -euo pipefail
+          mkdir -p final
+          python3 control/HarmonyBot-V71/tools/evaluate_v73_opportunity_universe.py merged final
+          echo "pass=$(python3 -c 'import json; print(str(json.load(open("final/V73_OPPORTUNITY_UNIVERSE_GATE.json"))["gate"]).lower())')" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: V73-OPPORTUNITY-UNIVERSE-GATE
+          path: final
+          retention-days: 90
+
+  v74_handoff:
+    needs: opportunity_gate
+    if: ${{ needs.opportunity_gate.outputs.pass == 'true' }}
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Gate-qualified handoff only
+        run: |
+          echo "V73 supply gate PASS. V74 Alpha Tournament may be instantiated."
+          echo "No strategy promotion is implied by workflow success."
