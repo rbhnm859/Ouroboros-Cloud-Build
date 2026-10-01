@@ -38,40 +38,90 @@ namespace cAlgo.Robots
         private static readonly bool[] V74HighConvictionRequireDirectional = { false, true, false, true };
         private static readonly string[] V74HighConvictionKey = { "HC175_HOLD", "HC175_DIR", "HC200_HOLD", "HC200_DIR" };
 
-        // V74 causal per-opportunity action universe.
-        // Base route is chosen only from completed entry-state information. Fraction action
-        // is chosen only after post-entry +0.25R first passage and a later completed M1
-        // close that still holds +0.10R. F20/F30 are explicitly simulated; F00/F10 share
-        // the identical crystallization close and runner path and are exact algebraic transforms.
-        // Canonical target is unchanged. No stop widening, Grid, DCA, recovery or lookahead.
+        // V74 micro-positive-arm barbell reconstruction after Run #72.
+        // The entry remains the same completed-bar causal reaction/hold route. Only
+        // post-entry first-passage management changes: +0.05R/+0.10R/+0.15R is
+        // observed, then a later completed M1 close must still hold +0.02/+0.05/+0.08R
+        // before a single-basket 20%/30% crystallization. The remaining runner moves
+        // to break-even and keeps the unchanged canonical target. No same-bar arm,
+        // no stop widening, Grid, DCA, recovery, duplicate thesis or future label.
         private static readonly double[] V74SequentialReactionR = {
+            .25,.25,.25,.25,.50,.50,.50,.50,
+            .25,.25,.25,.25,.50,.50,.50,.50,
+            .25,.25,.25,.25,.50,.50,.50,.50,
+            .25,.25,.25,.25,.50,.50,.50,.50,
             .25,.25,.25,.25,.50,.50,.50,.50,
             .25,.25,.25,.25,.50,.50,.50,.50
         };
         private static readonly double[] V74SequentialHoldR = {
             .10,.10,.10,.10,.25,.25,.25,.25,
+            .10,.10,.10,.10,.25,.25,.25,.25,
+            .10,.10,.10,.10,.25,.25,.25,.25,
+            .10,.10,.10,.10,.25,.25,.25,.25,
+            .10,.10,.10,.10,.25,.25,.25,.25,
             .10,.10,.10,.10,.25,.25,.25,.25
         };
         private static readonly bool[] V74SequentialRequireDirectional = {
+            false,false,true,true,false,false,true,true,
+            false,false,true,true,false,false,true,true,
+            false,false,true,true,false,false,true,true,
+            false,false,true,true,false,false,true,true,
             false,false,true,true,false,false,true,true,
             false,false,true,true,false,false,true,true
         };
         private static readonly double[] V74SequentialDesiredRr = {
             3.5,3.5,3.5,3.5,3.5,3.5,3.5,3.5,
+            4.0,4.0,4.0,4.0,4.0,4.0,4.0,4.0,
+            3.5,3.5,3.5,3.5,3.5,3.5,3.5,3.5,
+            4.0,4.0,4.0,4.0,4.0,4.0,4.0,4.0,
+            3.5,3.5,3.5,3.5,3.5,3.5,3.5,3.5,
             4.0,4.0,4.0,4.0,4.0,4.0,4.0,4.0
         };
         private static readonly double[] V74SequentialPartialFraction = {
             .20,.30,.20,.30,.20,.30,.20,.30,
+            .20,.30,.20,.30,.20,.30,.20,.30,
+            .20,.30,.20,.30,.20,.30,.20,.30,
+            .20,.30,.20,.30,.20,.30,.20,.30,
+            .20,.30,.20,.30,.20,.30,.20,.30,
             .20,.30,.20,.30,.20,.30,.20,.30
         };
-        private static readonly double[] V74SequentialTriggerR = Enumerable.Repeat(.25,16).ToArray();
-        private static readonly double[] V74SequentialPartialHoldR = Enumerable.Repeat(.10,16).ToArray();
-        private static readonly double[] V74SequentialAdverseCutR = Enumerable.Repeat(-.15,16).ToArray();
+        private static readonly double[] V74SequentialTriggerR = {
+            .05,.05,.05,.05,.05,.05,.05,.05,
+            .05,.05,.05,.05,.05,.05,.05,.05,
+            .10,.10,.10,.10,.10,.10,.10,.10,
+            .10,.10,.10,.10,.10,.10,.10,.10,
+            .15,.15,.15,.15,.15,.15,.15,.15,
+            .15,.15,.15,.15,.15,.15,.15,.15
+        };
+        private static readonly double[] V74SequentialPartialHoldR = {
+            .02,.02,.02,.02,.02,.02,.02,.02,
+            .02,.02,.02,.02,.02,.02,.02,.02,
+            .05,.05,.05,.05,.05,.05,.05,.05,
+            .05,.05,.05,.05,.05,.05,.05,.05,
+            .08,.08,.08,.08,.08,.08,.08,.08,
+            .08,.08,.08,.08,.08,.08,.08,.08
+        };
+        private static readonly double[] V74SequentialAdverseCutR = {
+            -.15,-.15,-.15,-.15,-.15,-.15,-.15,-.15,
+            -.15,-.15,-.15,-.15,-.15,-.15,-.15,-.15,
+            -.15,-.15,-.15,-.15,-.15,-.15,-.15,-.15,
+            -.15,-.15,-.15,-.15,-.15,-.15,-.15,-.15,
+            -.15,-.15,-.15,-.15,-.15,-.15,-.15,-.15,
+            -.15,-.15,-.15,-.15,-.15,-.15,-.15,-.15
+        };
         private static readonly string[] V74SequentialKey = {
-            "P_R025_H_RR35_F20","P_R025_H_RR35_F30","P_R025_D_RR35_F20","P_R025_D_RR35_F30",
-            "P_R050_H_RR35_F20","P_R050_H_RR35_F30","P_R050_D_RR35_F20","P_R050_D_RR35_F30",
-            "P_R025_H_RR40_F20","P_R025_H_RR40_F30","P_R025_D_RR40_F20","P_R025_D_RR40_F30",
-            "P_R050_H_RR40_F20","P_R050_H_RR40_F30","P_R050_D_RR40_F20","P_R050_D_RR40_F30"
+            "M05_R025_H_RR35_F20","M05_R025_H_RR35_F30","M05_R025_D_RR35_F20","M05_R025_D_RR35_F30",
+            "M05_R050_H_RR35_F20","M05_R050_H_RR35_F30","M05_R050_D_RR35_F20","M05_R050_D_RR35_F30",
+            "M05_R025_H_RR40_F20","M05_R025_H_RR40_F30","M05_R025_D_RR40_F20","M05_R025_D_RR40_F30",
+            "M05_R050_H_RR40_F20","M05_R050_H_RR40_F30","M05_R050_D_RR40_F20","M05_R050_D_RR40_F30",
+            "M10_R025_H_RR35_F20","M10_R025_H_RR35_F30","M10_R025_D_RR35_F20","M10_R025_D_RR35_F30",
+            "M10_R050_H_RR35_F20","M10_R050_H_RR35_F30","M10_R050_D_RR35_F20","M10_R050_D_RR35_F30",
+            "M10_R025_H_RR40_F20","M10_R025_H_RR40_F30","M10_R025_D_RR40_F20","M10_R025_D_RR40_F30",
+            "M10_R050_H_RR40_F20","M10_R050_H_RR40_F30","M10_R050_D_RR40_F20","M10_R050_D_RR40_F30",
+            "M15_R025_H_RR35_F20","M15_R025_H_RR35_F30","M15_R025_D_RR35_F20","M15_R025_D_RR35_F30",
+            "M15_R050_H_RR35_F20","M15_R050_H_RR35_F30","M15_R050_D_RR35_F20","M15_R050_D_RR35_F30",
+            "M15_R025_H_RR40_F20","M15_R025_H_RR40_F30","M15_R025_D_RR40_F20","M15_R025_D_RR40_F30",
+            "M15_R050_H_RR40_F20","M15_R050_H_RR40_F30","M15_R050_D_RR40_F20","M15_R050_D_RR40_F30"
         };
 
         private sealed class V72HcogOpportunity
@@ -124,25 +174,25 @@ namespace cAlgo.Robots
             public double[] V74HighConvictionRisk = new double[4];
             public double[] V74HighConvictionNetRr = new double[4];
             public double[] V74HighConvictionOutcomeR = Enumerable.Repeat(double.NaN, 4).ToArray();
-            public int[] V74SequentialReactionBar = Enumerable.Repeat(-1,16).ToArray();
-            public bool[] V74SequentialActive = new bool[16];
-            public bool[] V74SequentialPositiveArmed = new bool[16];
-            public int[] V74SequentialBars = new int[16];
-            public int[] V74SequentialTriggerBar = Enumerable.Repeat(-1,16).ToArray();
-            public int[] V74SequentialLockBar = Enumerable.Repeat(-1,16).ToArray();
-            public double[] V74SequentialLockedR = new double[16];
-            public double[] V74SequentialRouteMfeR = new double[16];
-            public double[] V74SequentialRouteMaeR = new double[16];
-            public double[] V74SequentialEntry = new double[16];
-            public double[] V74SequentialStop = new double[16];
-            public double[] V74SequentialTarget = new double[16];
-            public double[] V74SequentialRisk = new double[16];
-            public double[] V74SequentialNetRr = new double[16];
-            public double[] V74SequentialOutcomeR = Enumerable.Repeat(double.NaN,16).ToArray();
+            public int[] V74SequentialReactionBar = Enumerable.Repeat(-1,V74SequentialKey.Length).ToArray();
+            public bool[] V74SequentialActive = new bool[V74SequentialKey.Length];
+            public bool[] V74SequentialPositiveArmed = new bool[V74SequentialKey.Length];
+            public int[] V74SequentialBars = new int[V74SequentialKey.Length];
+            public int[] V74SequentialTriggerBar = Enumerable.Repeat(-1,V74SequentialKey.Length).ToArray();
+            public int[] V74SequentialLockBar = Enumerable.Repeat(-1,V74SequentialKey.Length).ToArray();
+            public double[] V74SequentialLockedR = new double[V74SequentialKey.Length];
+            public double[] V74SequentialRouteMfeR = new double[V74SequentialKey.Length];
+            public double[] V74SequentialRouteMaeR = new double[V74SequentialKey.Length];
+            public double[] V74SequentialEntry = new double[V74SequentialKey.Length];
+            public double[] V74SequentialStop = new double[V74SequentialKey.Length];
+            public double[] V74SequentialTarget = new double[V74SequentialKey.Length];
+            public double[] V74SequentialRisk = new double[V74SequentialKey.Length];
+            public double[] V74SequentialNetRr = new double[V74SequentialKey.Length];
+            public double[] V74SequentialOutcomeR = Enumerable.Repeat(double.NaN,V74SequentialKey.Length).ToArray();
             public string V74SequentialState025Csv = "", V74SequentialState050Csv = "";
-            public string[] V74SequentialEntryStateCsv = new string[16];
-            public string[] V74SequentialTriggerStateCsv = new string[16];
-            public string[] V74SequentialDecisionStateCsv = new string[16];
+            public string[] V74SequentialEntryStateCsv = new string[V74SequentialKey.Length];
+            public string[] V74SequentialTriggerStateCsv = new string[V74SequentialKey.Length];
+            public string[] V74SequentialDecisionStateCsv = new string[V74SequentialKey.Length];
         }
 
         private readonly Dictionary<string,V72HcogOpportunity> _v72Hcog = new Dictionary<string,V72HcogOpportunity>(StringComparer.Ordinal);
