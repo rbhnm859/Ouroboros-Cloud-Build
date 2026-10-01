@@ -143,6 +143,7 @@ namespace cAlgo.Robots
             string pk,rk;
             o.V74LiveProtectionKey=_v74Protection.TryGetValue(h,out pk)?pk:"NONE";
             o.V74LiveReactionKey=_v74Reaction.TryGetValue(h,out rk)?rk:"NONE";
+            if(o.HcapSelected&&_v74Reaction.Count>0&&o.V74LiveReactionKey=="NONE")o.HcapSelected=false;
             Print("[V74-POLICY-SCORE] id={0} setupHash={1} family={2} lane={3} utility={4:F9} holdBars={5:F3} selected={6} protection={7} reaction={8}",
                 o.Id,h,o.Family,o.Lane,u,o.HcapHoldBars,o.HcapSelected,o.V74LiveProtectionKey,o.V74LiveReactionKey);
         }
