@@ -4,8 +4,12 @@ tm=json.load(open(sys.argv[1])); mb=json.load(open(sys.argv[2])); out=pathlib.Pa
 champ=tm.get("champion")
 if not champ: raise SystemExit("no V74 champion")
 pack=mb["models"][champ]
-m=pack["final"]
-protection=pack.get("protection_final",{})
+hybrid_mode=pack.get("type")=="HYBRID_SURVIVAL_FRONTIER"
+base_champ=pack.get("base_model",champ) if hybrid_mode else champ
+base_pack=mb["models"][base_champ]
+m=base_pack["final"]
+hybrid_key=(pack.get("final",{}) or {}).get("hybrid_key") if hybrid_mode else None
+protection={} if hybrid_mode else pack.get("protection_final",{})
 abcd_allowed=bool(pack.get("abcd_final_capital_eligible",
                   tm.get("models",{}).get(champ,{}).get("abcd_final_capital_eligible",False)))
 
@@ -29,10 +33,12 @@ lines += [
 "    public partial class HarmonyBotV71",
 "    {",
 f"        private const string V74EmbeddedChampionName = {q(champ)};",
+f"        private const string V74EmbeddedBaseChampionName = {q(base_champ)};",
+f"        private const string V74EmbeddedHybridKey = {q(hybrid_key or 'NONE')};",
 f"        private const double V74SelectionThreshold = {csnum(m.get('selection_threshold',1e99))};"
 ]
 
-if champ=="A_HIERARCHICAL_COMPETING_RISK":
+if base_champ=="A_HIERARCHICAL_COMPETING_RISK":
     lines += [
 "        private sealed class V74AStat { public int N; public double Mean,Win,Sigma,Hold; public V74AStat(int n,double m,double w,double s,double h){N=n;Mean=m;Win=w;Sigma=s;Hold=h;} }",
 "        private sealed class V74AModel { public double[] Med; public V74AStat Global; public Dictionary<string,V74AStat> Family,State,FamilyState; }"
@@ -57,7 +63,7 @@ if champ=="A_HIERARCHICAL_COMPETING_RISK":
 "        }"
     ]
 
-elif champ=="B_BOUNDED_GRADIENT_STUMPS":
+elif base_champ=="B_BOUNDED_GRADIENT_STUMPS":
     lines += [
 "        private readonly struct V74Stump { public readonly int J,LN,RN; public readonly double T,L,R; public V74Stump(int j,double t,double l,double r,int ln,int rn){J=j;T=t;L=l;R=r;LN=ln;RN=rn;} }",
 "        private sealed class V74BAction { public double RBase,WBase,RSigma,Hold; public V74Stump[] R,W; public Dictionary<string,double[]> Fam; }"
@@ -73,7 +79,7 @@ elif champ=="B_BOUNDED_GRADIENT_STUMPS":
 "        private void V74BScore(V72HcogOpportunity o,ref bool selected,ref double mean,ref double lcb,ref double hold){var x=V74ResearchFeatures(o); bool cont=o.Lane==\"HCOG_FAILURE_CONTINUATION\"; var m=cont?V74BCont:V74BRev; int s1,s2; mean=V74BPred(m.RBase,m.R,x,out s1); double win=V74BPred(m.WBase,m.W,x,out s2); win=Math.Max(0,Math.Min(1,win)); double[] f; int fs=0; if(m.Fam.TryGetValue(o.Family,out f)){fs=(int)Math.Round(f[0]);mean+=f[1];hold=f[2];}else hold=m.Hold; int support=Math.Max(1,Math.Min(Math.Min(s1==0?1:s1,s2==0?1:s2),fs==0?int.MaxValue:fs)); double se=Math.Max(.05,m.RSigma)/Math.Sqrt(support); lcb=mean-1.645*se; double score=mean+2.0*win+0.5*lcb-0.05*Math.Log(1.0+Math.Max(1.0,hold));selected=support>=15&&score>=V74SelectionThreshold;}"
     ]
 
-elif champ=="C_CONFORMAL_STATE_MANIFOLD":
+elif base_champ=="C_CONFORMAL_STATE_MANIFOLD":
     lines += [
 "        private sealed class V74Point { public string F,A; public double[] X; public double R,Bars; public V74Point(string f,string a,double[] x,double r,double b){F=f;A=a;X=x;R=r;Bars=b;} }"
     ]
@@ -91,7 +97,7 @@ elif champ=="C_CONFORMAL_STATE_MANIFOLD":
 "        }"
     ]
 else:
-    raise SystemExit("unsupported champion "+champ)
+    raise SystemExit("unsupported champion/base "+champ+"/"+base_champ)
 
 PROTECTION_KEYS=["025","050","075","100","150"]
 lines += [
@@ -119,11 +125,14 @@ lines += [
 "        {",
 "            handled=true; selected=false; mean=0; lcb=-999; holdBars=180;",
 ]
-if champ=="A_HIERARCHICAL_COMPETING_RISK": lines.append("            V74AScore(o,ref selected,ref mean,ref lcb,ref holdBars);")
-elif champ=="B_BOUNDED_GRADIENT_STUMPS": lines.append("            V74BScore(o,ref selected,ref mean,ref lcb,ref holdBars);")
+if base_champ=="A_HIERARCHICAL_COMPETING_RISK": lines.append("            V74AScore(o,ref selected,ref mean,ref lcb,ref holdBars);")
+elif base_champ=="B_BOUNDED_GRADIENT_STUMPS": lines.append("            V74BScore(o,ref selected,ref mean,ref lcb,ref holdBars);")
 else: lines.append("            V74CScore(o,ref selected,ref mean,ref lcb,ref holdBars);")
 if not abcd_allowed:
     lines.append("            if(o.Family==\"ABCD\") selected=false;")
+if hybrid_mode:
+    lines.append("            if(selected) o.V74LiveProtectionKey=V74EmbeddedHybridKey;")
 lines += ["        }","    }","}"]
 out.parent.mkdir(parents=True,exist_ok=True); out.write_text("\n".join(lines)+"\n")
-print(json.dumps({"champion":champ,"output":str(out),"lines":len(lines),"bytes":out.stat().st_size},indent=2))
+print(json.dumps({"champion":champ,"base_champion":base_champ,"hybrid_key":hybrid_key,
+                  "output":str(out),"lines":len(lines),"bytes":out.stat().st_size},indent=2))
