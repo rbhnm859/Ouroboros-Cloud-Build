@@ -1156,6 +1156,19 @@ namespace cAlgo.Robots
             }
         }
 
+        private bool V74HybridLevels(string key,out double adverseCutR)
+        {
+            adverseCutR=0;
+            switch((key??"NONE").Trim())
+            {
+                case "HS20": adverseCutR=-.20; return true;
+                case "HS30": adverseCutR=-.30; return true;
+                case "HS40": adverseCutR=-.40; return true;
+                case "HS50": adverseCutR=-.50; return true;
+                default:return false;
+            }
+        }
+
         private void ExecuteFibonacciGridPlan(CandidateRecord c)
         {
             var plan = c.GridPlan;
@@ -1191,11 +1204,17 @@ namespace cAlgo.Robots
                 Candidate = c,
                 IsActive = true
             };
-            double v74Trigger,v74Floor;
+            double v74Trigger,v74Floor,v74HybridCut;
             if(V74ProtectionLevels(basket.V74ProtectionKey,out v74Trigger,out v74Floor))
             {
                 basket.V74ProtectionTriggerR=v74Trigger;
                 basket.V74ProtectionFloorR=v74Floor;
+            }
+            if(V74HybridLevels(basket.V74ProtectionKey,out v74HybridCut))
+            {
+                basket.V74HybridEnabled=true;
+                basket.V74HybridAdverseCutR=v74HybridCut;
+                basket.V74HybridStage=-1;
             }
             _baskets[basketId] = basket;
             CountPipeline(c.Signal.PatternName).BasketPlanned++;
@@ -1436,7 +1455,7 @@ namespace cAlgo.Robots
         private void V74ProcessLiveProtectionOnClosedM1(int i,DateTime utc)
         {
             if(i<0||i>=_m1Bars.Count)return;
-            double high=_m1Bars.HighPrices[i],low=_m1Bars.LowPrices[i];
+            double high=_m1Bars.HighPrices[i],low=_m1Bars.LowPrices[i],close=_m1Bars.ClosePrices[i];
             foreach(var basket in _baskets.Values.Where(b=>b.IsActive&&!b.V74ProtectionApplied&&b.V74ProtectionTriggerR>0).ToList())
             {
                 var positions=OwnPositions().Where(p=>LabelBasketId(p.Label)==basket.BasketId).ToList();
@@ -1458,6 +1477,46 @@ namespace cAlgo.Robots
                     : basket.ProtectionFrontier-_symbol.TickSize<=floor;
                 basket.V74ProtectionApplied=applied;
                 BasketEvent(basket,applied?"V74_PROTECTION_APPLIED_"+basket.V74ProtectionKey:"V74_PROTECTION_NOT_APPLIED_"+basket.V74ProtectionKey);
+            }
+
+            foreach(var basket in _baskets.Values.Where(b=>b.IsActive&&b.V74HybridEnabled).ToList())
+            {
+                var positions=OwnPositions().Where(p=>LabelBasketId(p.Label)==basket.BasketId).ToList();
+                if(positions.Count==0)continue;
+                basket.AverageEntry=WeightedAverageEntry(positions);
+                double span=Math.Abs(basket.AverageEntry-basket.StructuralStop);
+                if(span<=_symbol.PipSize)continue;
+
+                double closeR=basket.Direction==TradeDirection.Buy
+                    ?(close-basket.AverageEntry)/span:(basket.AverageEntry-close)/span;
+
+                // Before any positive-reaction frontier is armed, a completed M1 close may
+                // cut a deteriorating thesis early. Pending grid legs are cancelled first.
+                if(basket.V74HybridStage<0&&closeR<=basket.V74HybridAdverseCutR)
+                {
+                    basket.ExitOverride="V74_HYBRID_ADVERSE_CUT_"+basket.V74ProtectionKey;
+                    CancelBasketPending(basket,basket.ExitOverride);
+                    CloseBasketPositions(basket,basket.ExitOverride);
+                    continue;
+                }
+
+                int reachedStage=basket.V74HybridStage;
+                for(int k=0;k<V74ProtectionTriggerR.Length;k++)
+                {
+                    bool reached=basket.Direction==TradeDirection.Buy
+                        ?high>=basket.AverageEntry+span*V74ProtectionTriggerR[k]
+                        :low<=basket.AverageEntry-span*V74ProtectionTriggerR[k];
+                    if(reached)reachedStage=Math.Max(reachedStage,k);
+                }
+                if(reachedStage<=basket.V74HybridStage)continue;
+
+                basket.V74HybridStage=reachedStage;
+                basket.V74ProtectionTriggerM1Utc=utc;
+                double floor=basket.Direction==TradeDirection.Buy
+                    ?basket.AverageEntry+span*V74ProtectionFloorR[reachedStage]
+                    :basket.AverageEntry-span*V74ProtectionFloorR[reachedStage];
+                AdvanceBasketProtectionFrontier(basket,floor,"V74_HYBRID_FRONTIER_"+basket.V74ProtectionKey+"_S"+reachedStage);
+                BasketEvent(basket,"V74_HYBRID_STAGE_"+basket.V74ProtectionKey+"_"+reachedStage);
             }
         }
 
