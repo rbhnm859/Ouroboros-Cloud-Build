@@ -32,11 +32,15 @@ namespace cAlgo.Robots
         [Parameter("V74 Policy Protection", DefaultValue = "")]
         public string V74PolicyProtection { get; set; }
 
+        [Parameter("V74 Policy Reaction", DefaultValue = "")]
+        public string V74PolicyReaction { get; set; }
+
         private readonly int[] _v73ResearchSwingDepths = { 2, 3, 4, 5, 6, 7, 8 };
         private HashSet<string> _v74AllowedHashes;
         private Dictionary<string,double> _v74Utility;
         private Dictionary<string,double> _v74HoldBars;
         private Dictionary<string,string> _v74Protection;
+        private Dictionary<string,string> _v74Reaction;
         private bool _v74PolicyParsed;
 
         private string V74SetupHash(string s)
@@ -92,8 +96,9 @@ namespace cAlgo.Robots
             _v74Utility=V74ParseMap(V74PolicyUtility);
             _v74HoldBars=V74ParseMap(V74PolicyHoldBars);
             _v74Protection=V74ParseStringMap(V74PolicyProtection);
-            Print("[V74-EXTERNAL-POLICY] allowed={0} utility={1} hold={2} protection={3}",
-                _v74AllowedHashes.Count,_v74Utility.Count,_v74HoldBars.Count,_v74Protection.Count);
+            _v74Reaction=V74ParseStringMap(V74PolicyReaction);
+            Print("[V74-EXTERNAL-POLICY] allowed={0} utility={1} hold={2} protection={3} reaction={4}",
+                _v74AllowedHashes.Count,_v74Utility.Count,_v74HoldBars.Count,_v74Protection.Count,_v74Reaction.Count);
         }
 
         // Optional generated implementation is compiled into the post-V77 .algo.
@@ -102,6 +107,7 @@ namespace cAlgo.Robots
             ref double mean, ref double lcb, ref double holdBars);
         partial void V74EmbeddedProtect(V72HcogOpportunity o, int milestoneIndex, double[] milestoneFeatures,
             ref bool handled, ref bool protect, ref double delta, ref double lcb);
+        partial void V74EmbeddedReaction(V72HcogOpportunity o, ref bool handled, ref string reactionKey);
 
         private void V74FrozenPolicyScoreOpportunity(V72HcogOpportunity o)
         {
@@ -112,8 +118,11 @@ namespace cAlgo.Robots
             if(handled)
             {
                 o.HcapQ=mean;o.HcapLcb=lcb;o.HcapHoldBars=Math.Max(1,hold);o.HcapSelected=selected;
-                Print("[V74-EMBEDDED-POLICY] id={0} setupHash={1} family={2} lane={3} mean={4:F9} lcb={5:F9} holdBars={6:F3} selected={7}",
-                    o.Id,V74SetupHash(o.SetupKey),o.Family,o.Lane,mean,lcb,o.HcapHoldBars,selected);
+                bool reactionHandled=false;string reactionKey="NONE";
+                if(selected)V74EmbeddedReaction(o,ref reactionHandled,ref reactionKey);
+                o.V74LiveReactionKey=reactionHandled&&!string.IsNullOrWhiteSpace(reactionKey)?reactionKey:"NONE";
+                Print("[V74-EMBEDDED-POLICY] id={0} setupHash={1} family={2} lane={3} mean={4:F9} lcb={5:F9} holdBars={6:F3} selected={7} reaction={8}",
+                    o.Id,V74SetupHash(o.SetupKey),o.Family,o.Lane,mean,lcb,o.HcapHoldBars,selected,o.V74LiveReactionKey);
                 return;
             }
             V74ExternalPolicyScoreOpportunity(o);
@@ -131,10 +140,11 @@ namespace cAlgo.Robots
             o.HcapLcb=u;
             o.HcapHoldBars=Math.Max(1,hold);
             o.HcapSelected=_v74AllowedHashes.Contains(h);
-            string pk;
+            string pk,rk;
             o.V74LiveProtectionKey=_v74Protection.TryGetValue(h,out pk)?pk:"NONE";
-            Print("[V74-POLICY-SCORE] id={0} setupHash={1} family={2} lane={3} utility={4:F9} holdBars={5:F3} selected={6} protection={7}",
-                o.Id,h,o.Family,o.Lane,u,o.HcapHoldBars,o.HcapSelected,o.V74LiveProtectionKey);
+            o.V74LiveReactionKey=_v74Reaction.TryGetValue(h,out rk)?rk:"NONE";
+            Print("[V74-POLICY-SCORE] id={0} setupHash={1} family={2} lane={3} utility={4:F9} holdBars={5:F3} selected={6} protection={7} reaction={8}",
+                o.Id,h,o.Family,o.Lane,u,o.HcapHoldBars,o.HcapSelected,o.V74LiveProtectionKey,o.V74LiveReactionKey);
         }
 
         private List<PatternSignal> V73BuildOpportunityPool(int m15Index,int defaultLimit)
