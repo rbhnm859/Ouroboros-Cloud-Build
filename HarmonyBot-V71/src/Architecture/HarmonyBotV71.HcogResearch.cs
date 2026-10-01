@@ -807,9 +807,22 @@ namespace cAlgo.Robots
                 o.V74SequentialRouteMaeR[k]=Math.Max(o.V74SequentialRouteMaeR[k],routeAdv);
                 if(o.V74SequentialPositiveArmed[k]&&o.V74SequentialBars[k]>o.V74SequentialLockBar[k])
                 {
-                    bool beHit=buy?low<=ce:high>=ce,runnerTarget=buy?high>=o.V74SequentialTarget[k]:low<=o.V74SequentialTarget[k];
-                    if(beHit){o.V74SequentialOutcomeR[k]=o.V74SequentialLockedR[k];o.V74SequentialActive[k]=false;continue;}
-                    if(runnerTarget){double remain=1.0-V74SequentialPartialFraction[k];o.V74SequentialOutcomeR[k]=o.V74SequentialLockedR[k]+remain*o.V74SequentialNetRr[k];o.V74SequentialActive[k]=false;continue;}
+                    // Run #74 proved that an intrabar BE runner preserves positive-basket
+                    // supply but destroys too much right-tail payoff. Keep the original
+                    // structural stop and canonical target as real intrabar orders, while
+                    // the runner frontier is evaluated only on a later COMPLETED M1 close.
+                    // Ambiguous stop+target remains stop-first conservative.
+                    double remain=1.0-V74SequentialPartialFraction[k];
+                    bool runnerStop=buy?low<=o.V74SequentialStop[k]:high>=o.V74SequentialStop[k];
+                    bool runnerTarget=buy?high>=o.V74SequentialTarget[k]:low<=o.V74SequentialTarget[k];
+                    if(runnerStop){o.V74SequentialOutcomeR[k]=o.V74SequentialLockedR[k]-remain;o.V74SequentialActive[k]=false;continue;}
+                    if(runnerTarget){o.V74SequentialOutcomeR[k]=o.V74SequentialLockedR[k]+remain*o.V74SequentialNetRr[k];o.V74SequentialActive[k]=false;continue;}
+                    if(routeCloseR<0.0)
+                    {
+                        double runnerR=Math.Max(-1.0,Math.Min(o.V74SequentialNetRr[k],routeCloseR));
+                        o.V74SequentialOutcomeR[k]=o.V74SequentialLockedR[k]+remain*runnerR;
+                        o.V74SequentialActive[k]=false;continue;
+                    }
                     continue;
                 }
                 bool stopHit=buy?low<=o.V74SequentialStop[k]:high>=o.V74SequentialStop[k],targetHit=buy?high>=o.V74SequentialTarget[k]:low<=o.V74SequentialTarget[k];
@@ -844,7 +857,7 @@ namespace cAlgo.Robots
                 double closeR=(o.Direction==TradeDirection.Buy?close-o.V74SequentialEntry[k]:o.V74SequentialEntry[k]-close)/o.V74SequentialRisk[k];
                 if(o.V74SequentialPositiveArmed[k])
                 {
-                    double remain=1.0-V74SequentialPartialFraction[k],runnerR=Math.Max(0.0,Math.Min(o.V74SequentialNetRr[k],closeR));
+                    double remain=1.0-V74SequentialPartialFraction[k],runnerR=Math.Max(-1.0,Math.Min(o.V74SequentialNetRr[k],closeR));
                     o.V74SequentialOutcomeR[k]=o.V74SequentialLockedR[k]+remain*runnerR;
                 }
                 else o.V74SequentialOutcomeR[k]=Math.Max(-1.0,Math.Min(o.V74SequentialNetRr[k],closeR));

@@ -12,6 +12,12 @@ threshold is selected from training windows only. Validation/Fresh are never loa
 import json,math,pathlib,statistics,sys
 from v74_model_lib import load_rows,metrics,SEQUENTIAL_KEYS
 
+BASE_KEYS=[]
+for _k in SEQUENTIAL_KEYS:
+    _b=_k.rsplit("_F",1)[0]
+    if _b not in BASE_KEYS:BASE_KEYS.append(_b)
+EVAL_KEYS=[_b+"_F"+_f for _b in BASE_KEYS for _f in ("00","10","20","30")]
+
 root=pathlib.Path(sys.argv[1]);out=pathlib.Path(sys.argv[2]);out.mkdir(parents=True,exist_ok=True)
 RESEARCH=[f"Y{y}" for y in range(2016,2021)]
 BURNED=["Y2021","Y2022","Y2023"];ALL=RESEARCH+BURNED
@@ -37,12 +43,22 @@ def route_meta(key):
     return level,level+mode
 
 def with_outcome(r,key):
-    v=r.get("sequential",{}).get(key);rr=r.get("sequential_rr",{}).get(key)
+    base=key.rsplit("_F",1)[0];frac=key.rsplit("_F",1)[1]
+    source_key=key
+    if frac in ("00","10"):
+        k20=base+"_F20";k30=base+"_F30"
+        y20=r.get("sequential",{}).get(k20);y30=r.get("sequential",{}).get(k30)
+        rr=r.get("sequential_rr",{}).get(k20);source_key=k20
+        if y20 is None or y30 is None:return None
+        d=float(y30)-float(y20);v=float(y20)-(2.0 if frac=="00" else 1.0)*d
+    else:
+        v=r.get("sequential",{}).get(key);rr=r.get("sequential_rr",{}).get(key)
     level,_=route_meta(key)
     state=r.get("sequential_state",{}).get(level)
-    # Run #73 emits per-route causal entry state as e0..e47 and v74_model_lib
-    # stores those vectors under the exact SEQUENTIAL_KEYS route key.
-    entry_state=r.get("sequential_entry_state",{}).get(key)
+    # F00/F10 share the exact causal decision time and runner path of the logged
+    # F20/F30 pair; only the crystallized fraction changes, so their payoff is an
+    # exact linear counterfactual rather than a new future-dependent action.
+    entry_state=r.get("sequential_entry_state",{}).get(source_key)
     if v is None or rr is None or state is None or entry_state is None:return None
     if len(state)!=12 or len(entry_state)!=12:return None
     try:v=float(v);rr=float(rr)
@@ -132,7 +148,7 @@ def gate_margin(m):
 
 def choose(train_rows,train_windows,q):
     candidates=[]
-    for key in SEQUENTIAL_KEYS:
+    for key in EVAL_KEYS:
         model=train(train_rows,key);sr=scored_rows(train_rows,key,model)
         vals=[r["_hz"]["score"] for r in sr if math.isfinite(r["_hz"]["score"]) and r["_hz"]["score"]>-900]
         if not vals:continue
@@ -151,7 +167,7 @@ def choose(train_rows,train_windows,q):
 
 summary={
  "version":"HarmonyBot V74 Candidate",
- "architecture":"CAUSAL_MICRO_POSITIVE_ARM_BARBELL",
+ "architecture":"CAUSAL_MICRO_ARM_CLOSE_ONLY_RUNNER",
  "legacy_negative_evidence":[
   {"source_run_id":36863429034,"run":55,"result":"A-L_FAIL"},
   {"source_run_id":36870479524,"run":60,"result":"1P25_1P50_RAW_N_LT_250"},
@@ -162,23 +178,24 @@ summary={
   {"source_run_id":36880885164,"run":67,"result":"PARTIAL_CRYSTALLIZATION_FAIL"},
   {"source_run_id":36909189452,"run":68,"result":"NORMALIZED_SECOND_SHADOW_ORACLE_TOP250_STILL_FAILS_MEAN_AND_WR"},
   {"source_run_id":36910430560,"run":69,"result":"INTRABAR_LADDER_IMPROVES_2023_SIGN_BUT_ORACLE_BEST_ROUTE_PER_SETUP_TOP250_MEAN_0P779_LT_0P90"},
-  {"source_run_id":36912836008,"run":72,"result":"ACTION_ENVELOPE_FEASIBLE_BUT_ENTRY_STATE_ARBITRATION_OOF_FAIL"}],
+  {"source_run_id":36912836008,"run":72,"result":"ACTION_ENVELOPE_FEASIBLE_BUT_ENTRY_STATE_ARBITRATION_OOF_FAIL"},
+  {"source_run_id":36915977056,"run":74,"result":"MICRO_ARM_INTRABAR_BE_FAILS_RIGHT_TAIL__OOF_WR_AND_MEAN_BELOW_GATE"}],
  "research_training_windows":RESEARCH,"burned_oof_windows":BURNED,
  "gate":{"min_selected_per_year":MIN_N,"min_mean_r":MIN_MEAN,"min_pf_r":MIN_PF,
          "min_win_rate":MIN_WR,"min_average_rr":MIN_RR,"lcb95_gt":0.0},
  "policy":{
    "capital":"LATER_COMPLETED_M1_HOLD_AFTER_ORIGINAL_0P25_OR_0P50_FIRST_PASSAGE",
    "entry_risk_geometry":"CANONICAL_TARGET_BACKSOLVES_INITIAL_STOP_AT_2P4R_2P6R_2P8R_BOUNDED_BY_STRUCTURAL_INVALIDATION",
-   "post_entry_barbell":"COMPLETED_BAR_0P25_0P50_0P75_1P00_FIRST_PASSAGE_PLUS_LATER_PERSISTENCE_ARMS_MONOTONE_SOFT_FRONTIER__EXIT_ONLY_ON_LATER_COMPLETED_M1_CLOSE__CANONICAL_TARGET_REMAINS_INTRABAR",
-   "candidates":SEQUENTIAL_KEYS,"adverse_cut":"COMPLETED_CLOSE_ONLY_BEFORE_POSITIVE_ARM",
+   "post_entry_barbell":"MICRO_FIRST_PASSAGE_PLUS_LATER_COMPLETED_HOLD_CRYSTALLIZES_F00_F10_F20_F30__RUNNER_KEEPS_STRUCTURAL_STOP_AND_CANONICAL_TARGET__EXIT_ONLY_ON_LATER_COMPLETED_CLOSE_BELOW_ENTRY",
+   "candidates":EVAL_KEYS,"adverse_cut":"COMPLETED_CLOSE_ONLY_BEFORE_POSITIVE_ARM",
    "same_bar":"STRUCTURAL_STOP_THEN_TARGET_THEN_CLOSE_ONLY_FRONTIER_THEN_ADVERSE_CLOSE_THEN_NEW_ARM",
-   "no_stop_widening":True,"partial_exit":False,"grid":False,"minimum_route_net_rr":MIN_RR,
+   "no_stop_widening":True,"partial_exit":"SINGLE_BASKET_ONLY","grid":False,"minimum_route_net_rr":MIN_RR,
    "selection":"TRAINING_ONLY_HIERARCHICAL_PARTIAL_POOLING_PLUS_ROBUST_GATE_MARGIN"},
  "models":{},"validation_used":False,"fresh_used":False}
-models_blob={"architecture":"V74_CAUSAL_MICRO_POSITIVE_ARM_BARBELL","models":{}}
+models_blob={"architecture":"V74_CAUSAL_MICRO_ARM_CLOSE_ONLY_RUNNER","models":{}}
 passers=[]
 
-for name,q in [("AQ_MICRO_KEEP100",0.0),("AR_MICRO_KEEP90",.10),("AS_MICRO_KEEP80",.20)]:
+for name,q in [("AT_CLOSE_KEEP100",0.0),("AU_CLOSE_KEEP95",.05),("AV_CLOSE_KEEP90",.10),("AW_CLOSE_KEEP85",.15),("AX_CLOSE_KEEP80",.20),("AY_CLOSE_KEEP75",.25),("AZ_CLOSE_KEEP70",.30)]:
     folds={};policies={}
     for test in BURNED:
         train_windows=RESEARCH+[w for w in BURNED if w!=test]
@@ -208,14 +225,14 @@ for name,q in [("AQ_MICRO_KEEP100",0.0),("AR_MICRO_KEEP90",.10),("AS_MICRO_KEEP8
     champ_score=worst/max(.25,avg_hold)
     summary["models"][name]={"folds":folds,"pass":passed,
                              "champion_score_worst_lcb_per_slot_hour":champ_score}
-    models_blob["models"][name]={"type":"CAUSAL_MICRO_POSITIVE_ARM_BARBELL","folds":policies}
+    models_blob["models"][name]={"type":"CAUSAL_MICRO_ARM_CLOSE_ONLY_RUNNER","folds":policies}
     if passed:passers.append((champ_score,name))
 
 passers.sort(key=lambda x:(x[0],x[1]),reverse=True);champion=passers[0][1] if passers else None
 summary["v74_gate"]=champion is not None;summary["champion"]=champion
 summary["champion_selection"]="HIGHEST_WORST_YEAR_CAUSAL_LCB_PER_SLOT_HOUR_AMONG_3OF3_PASSERS"
 summary["gate_semantics"]="EACH_BURNED_YEAR_N_GE_250_MEAN_R_GE_0P90_PF_R_GE_3P30_WR_GE_70PCT_AVG_RR_GE_2P30_LCB95_GT_0__TRAIN_ONLY_ROUTE_THRESHOLD__NO_LOOKAHEAD"
-summary["positive_asset"]="CAUSAL_MICRO_POSITIVE_ARM_OOF_CHAMPION" if champion else "NO_MODEL_EARNED_VERSION_PROMOTION"
+summary["positive_asset"]="CAUSAL_MICRO_ARM_CLOSE_ONLY_RUNNER_OOF_CHAMPION" if champion else "NO_MODEL_EARNED_VERSION_PROMOTION"
 (out/"V74_TOURNAMENT_MANIFEST.json").write_text(json.dumps(summary,indent=2))
 (out/"V74_MODELS.json").write_text(json.dumps(models_blob,separators=(",",":")))
 (out/"champion.txt").write_text(champion or "")
