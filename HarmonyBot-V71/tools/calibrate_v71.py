@@ -63,7 +63,7 @@ if payoff_gate:
         "independent_trades":R[w].get("baskets",0),"average_realized_rr":R[w].get("average_realized_rr",0),
         "profitable_months":R[w].get("positive_months",0)} for w in W}
     annual_target_3of3=all(v["pass"] for v in Z["annual_commercial_targets"].values())
-    exp=[r for w in W for r in R[w]["expansion_basket_outcomes"]
+    exp=[r for w in W for r in R[w]["expansion_basket_outcomes"]]
     exp_pf=pf(exp); exp_net=sum(r["net"] for r in exp); exp_pos=sum(R[w]["expansion_metrics"]["net"]>0 for w in W)
     Z["expansion_metrics"]={"baskets":len(exp),"net":exp_net,"pf":exp_pf,"positive_windows":exp_pos}
     breakthrough={
