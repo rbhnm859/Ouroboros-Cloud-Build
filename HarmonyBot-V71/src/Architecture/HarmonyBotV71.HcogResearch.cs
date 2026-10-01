@@ -868,21 +868,6 @@ namespace cAlgo.Robots
                 double.IsFinite(o.V74HighConvictionOutcomeR[1])?o.V74HighConvictionOutcomeR[1].ToString("R",System.Globalization.CultureInfo.InvariantCulture):"NA",
                 double.IsFinite(o.V74HighConvictionOutcomeR[2])?o.V74HighConvictionOutcomeR[2].ToString("R",System.Globalization.CultureInfo.InvariantCulture):"NA",
                 double.IsFinite(o.V74HighConvictionOutcomeR[3])?o.V74HighConvictionOutcomeR[3].ToString("R",System.Globalization.CultureInfo.InvariantCulture):"NA");
-            var seqParts=new List<string>{
-                "setup="+o.SetupKey,"family="+o.Family,"lane="+o.Lane,
-                "m025="+(string.IsNullOrWhiteSpace(o.V74SequentialState025Csv)?"NONE":o.V74SequentialState025Csv),
-                "m050="+(string.IsNullOrWhiteSpace(o.V74SequentialState050Csv)?"NONE":o.V74SequentialState050Csv),
-                "e025h="+(string.IsNullOrWhiteSpace(o.V74SequentialEntry025HoldCsv)?"NONE":o.V74SequentialEntry025HoldCsv),
-                "e025d="+(string.IsNullOrWhiteSpace(o.V74SequentialEntry025DirCsv)?"NONE":o.V74SequentialEntry025DirCsv),
-                "e050h="+(string.IsNullOrWhiteSpace(o.V74SequentialEntry050HoldCsv)?"NONE":o.V74SequentialEntry050HoldCsv),
-                "e050d="+(string.IsNullOrWhiteSpace(o.V74SequentialEntry050DirCsv)?"NONE":o.V74SequentialEntry050DirCsv)
-            };
-            for(int k=0;k<V74SequentialKey.Length;k++)
-            {
-                seqParts.Add("b"+k+"="+(double.IsFinite(o.V74SequentialOutcomeR[k])
-                    ?o.V74SequentialOutcomeR[k].ToString("R",System.Globalization.CultureInfo.InvariantCulture):"NA"));
-                seqParts.Add("rr"+k+"="+o.V74SequentialNetRr[k].ToString("R",System.Globalization.CultureInfo.InvariantCulture));
-            }
             var seqParts=new List<string>{"setup="+o.SetupKey,"family="+o.Family,"lane="+o.Lane,
                 "m025="+(string.IsNullOrWhiteSpace(o.V74SequentialState025Csv)?"NONE":o.V74SequentialState025Csv),
                 "m050="+(string.IsNullOrWhiteSpace(o.V74SequentialState050Csv)?"NONE":o.V74SequentialState050Csv)};
