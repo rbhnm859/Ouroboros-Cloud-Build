@@ -6,6 +6,7 @@ if not champ: raise SystemExit("no V74 champion")
 pack=mb["models"][champ]
 m=pack["final"]
 protection=pack.get("protection_final",{})
+is_rcr=str(pack.get("type","")).upper()=="REACTION_CONFIRMED_REENTRY" or champ.startswith(("D_REACTION_CONFIRMED_REENTRY","E_REACTION_CONFIRMED_REENTRY"))
 abcd_allowed=bool(pack.get("abcd_final_capital_eligible",
                   tm.get("models",{}).get(champ,{}).get("abcd_final_capital_eligible",False)))
 
@@ -90,6 +91,25 @@ elif champ=="C_CONFORMAL_STATE_MANIFOLD":
 "            var rv=q.Select(p=>p.R).ToList(); mean=rv.Average(); double win=rv.Count(v=>v>0)/(double)rv.Count; double sd=Math.Sqrt(rv.Sum(v=>(v-mean)*(v-mean))/Math.Max(1,rv.Count-1)); lcb=mean-1.645*sd/Math.Sqrt(rv.Count); double gp=rv.Where(v=>v>0).Sum(),gl=-rv.Where(v=>v<0).Sum(); double pf=gl>0?gp/gl:(gp>0?999:0); var wins=rv.Where(v=>v>0).ToList();var losses=rv.Where(v=>v<0).Select(v=>-v).ToList();double rr=wins.Count>0&&losses.Count>0?wins.Average()/losses.Average():0;hold=q.Select(p=>p.Bars).OrderBy(v=>v).ElementAt(q.Count/2);double score=mean+2.0*win+0.5*lcb-0.05*Math.Log(1.0+Math.Max(1.0,hold));selected=score>=V74SelectionThreshold;",
 "        }"
     ]
+elif is_rcr:
+    global_route=str(m.get("global_route") or "NONE")
+    route_policy=m.get("route_policy",{}) or {}
+    lines += [
+"        private string V74RcrEmbeddedRoute(V72HcogOpportunity o)",
+"        {",
+"            if(o==null)return \"NONE\";",
+"            string action=(o.Lane==\"HCOG_FAILURE_CONTINUATION\"||o.Lane==\"HCOG_ABCD_STANDALONE_CONTINUATION_SHADOW\")?\"CONTINUATION\":\"REVERSAL\";",
+"            string key=o.Family+\"|\"+action;",
+"            switch(key)",
+"            {"
+    ]
+    for k,v in sorted(route_policy.items()):
+        lines.append("                case "+q(k)+": return "+q(v or "NONE")+";")
+    lines += [
+"                default: return "+q(global_route)+";",
+"            }",
+"        }"
+    ]
 else:
     raise SystemExit("unsupported champion "+champ)
 
@@ -121,9 +141,21 @@ lines += [
 ]
 if champ=="A_HIERARCHICAL_COMPETING_RISK": lines.append("            V74AScore(o,ref selected,ref mean,ref lcb,ref holdBars);")
 elif champ=="B_BOUNDED_GRADIENT_STUMPS": lines.append("            V74BScore(o,ref selected,ref mean,ref lcb,ref holdBars);")
-else: lines.append("            V74CScore(o,ref selected,ref mean,ref lcb,ref holdBars);")
+elif champ=="C_CONFORMAL_STATE_MANIFOLD": lines.append("            V74CScore(o,ref selected,ref mean,ref lcb,ref holdBars);")
+elif is_rcr:
+    lines += [
+"            string rk=V74RcrEmbeddedRoute(o);selected=!string.IsNullOrWhiteSpace(rk)&&rk!=\"NONE\";mean=1.0;lcb=1.0;holdBars=180.0;"
+    ]
 if not abcd_allowed:
     lines.append("            if(o.Family==\"ABCD\") selected=false;")
-lines += ["        }","    }","}"]
+lines += ["        }"]
+if is_rcr:
+    lines += [
+"        partial void V74EmbeddedReaction(V72HcogOpportunity o, ref bool handled, ref string reactionKey)",
+"        {",
+"            handled=true; reactionKey=V74RcrEmbeddedRoute(o);",
+"        }"
+    ]
+lines += ["    }","}"]
 out.parent.mkdir(parents=True,exist_ok=True); out.write_text("\n".join(lines)+"\n")
 print(json.dumps({"champion":champ,"output":str(out),"lines":len(lines),"bytes":out.stat().st_size},indent=2))
