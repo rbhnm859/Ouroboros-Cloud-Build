@@ -17,6 +17,9 @@ namespace cAlgo.Robots
         private static readonly double[] V74ProtectionTriggerR = { .25, .50, .75, 1.00, 1.50 };
         private static readonly double[] V74ProtectionFloorR = { .05, .10, .20, .40, .80 };
         private static readonly string[] V74ProtectionKey = { "025", "050", "075", "100", "150" };
+        private static readonly double[] V74RcrReactionR = { .50, .75, 1.00 };
+        private static readonly double[] V74RcrRetraceR = { .10, .25, .40 };
+        private static readonly string[] V74RcrKey = { "R050_010", "R075_025", "R100_040" };
 
         private sealed class V72HcogOpportunity
         {
@@ -38,6 +41,15 @@ namespace cAlgo.Robots
             public int[] V74ProtectionTriggerBar = Enumerable.Repeat(-1, 5).ToArray();
             public double[] V74ProtectionOutcomeR = Enumerable.Repeat(double.NaN, 5).ToArray();
             public string[] V74MilestoneFeatureCsv = new string[5];
+            public int[] V74RcrReactionBar = Enumerable.Repeat(-1, 3).ToArray();
+            public bool[] V74RcrActive = new bool[3];
+            public int[] V74RcrBars = new int[3];
+            public double[] V74RcrEntry = new double[3];
+            public double[] V74RcrStop = new double[3];
+            public double[] V74RcrTarget = new double[3];
+            public double[] V74RcrRisk = new double[3];
+            public double[] V74RcrNetRr = new double[3];
+            public double[] V74RcrOutcomeR = Enumerable.Repeat(double.NaN, 3).ToArray();
         }
 
         private readonly Dictionary<string,V72HcogOpportunity> _v72Hcog = new Dictionary<string,V72HcogOpportunity>(StringComparer.Ordinal);
@@ -352,6 +364,64 @@ namespace cAlgo.Robots
             }
         }
 
+
+        private void V74UpdateReactionConfirmedReentry(V72HcogOpportunity o,int i,bool nativeStop,bool nativeTarget)
+        {
+            if(o==null||o.RiskDistance<=0||i<0||i>=_m1Bars.Count)return;
+            double open=_m1Bars.OpenPrices[i],close=_m1Bars.ClosePrices[i],high=_m1Bars.HighPrices[i],low=_m1Bars.LowPrices[i];
+            bool buy=o.Direction==TradeDirection.Buy;
+            bool directional=buy?close>open:close<open;
+            double fav=buy?(high-o.Entry)/o.RiskDistance:(o.Entry-low)/o.RiskDistance;
+            for(int k=0;k<V74RcrKey.Length;k++)
+            {
+                if(o.V74RcrReactionBar[k]<0&&!nativeStop&&fav+1e-12>=V74RcrReactionR[k])
+                {
+                    o.V74RcrReactionBar[k]=o.BarsActive;
+                    Print("[V74-RCR-REACTION] id={0} setup={1} key={2} bar={3} triggerR={4:F2}",
+                        o.Id,o.SetupKey,V74RcrKey[k],o.BarsActive,V74RcrReactionR[k]);
+                }
+                if(double.IsFinite(o.V74RcrOutcomeR[k]))continue;
+                if(!o.V74RcrActive[k])
+                {
+                    if(o.V74RcrReactionBar[k]<0||o.BarsActive<=o.V74RcrReactionBar[k]||nativeStop||nativeTarget)continue;
+                    double retrace=buy?o.Entry+o.RiskDistance*V74RcrRetraceR[k]:o.Entry-o.RiskDistance*V74RcrRetraceR[k];
+                    bool touched=buy?low<=retrace:high>=retrace;
+                    bool side=buy?close>retrace:close<retrace;
+                    if(!(touched&&side&&directional))continue;
+                    double buffer=Math.Max(PipsToPrice(ModeledCostPips()),_symbol.PipSize);
+                    double entry=close;
+                    double localStop=buy?low-buffer:high+buffer;
+                    double stop=buy?Math.Max(o.Stop,localStop):Math.Min(o.Stop,localStop);
+                    double risk=Math.Abs(entry-stop);
+                    if(PriceToPips(risk)<MinStopLossPips||!GeometryValid(o.Direction,entry,stop,o.Target))continue;
+                    double rr=(PriceToPips(Math.Abs(o.Target-entry))-ModeledCostPips())/Math.Max(1e-9,PriceToPips(risk));
+                    if(rr+1e-9<MinimumNetRR)continue;
+                    o.V74RcrActive[k]=true;o.V74RcrEntry[k]=entry;o.V74RcrStop[k]=stop;o.V74RcrTarget[k]=o.Target;
+                    o.V74RcrRisk[k]=risk;o.V74RcrNetRr[k]=rr;o.V74RcrBars[k]=0;
+                    Print("[V74-RCR-ARM] id={0} setup={1} family={2} lane={3} key={4} entry={5:F5} stop={6:F5} target={7:F5} rr={8:F4}",
+                        o.Id,o.SetupKey,o.Family,o.Lane,V74RcrKey[k],entry,stop,o.Target,rr);
+                    continue; // completed-bar entry: no same-bar outcome
+                }
+                o.V74RcrBars[k]++;
+                bool stopHit=buy?low<=o.V74RcrStop[k]:high>=o.V74RcrStop[k];
+                bool targetHit=buy?high>=o.V74RcrTarget[k]:low<=o.V74RcrTarget[k];
+                if(stopHit){o.V74RcrOutcomeR[k]=-1.0;o.V74RcrActive[k]=false;continue;} // conservative if both
+                if(targetHit){o.V74RcrOutcomeR[k]=o.V74RcrNetRr[k];o.V74RcrActive[k]=false;continue;}
+            }
+        }
+
+        private void V74FinalizeReactionConfirmedReentry(V72HcogOpportunity o,double close)
+        {
+            if(o==null)return;
+            for(int k=0;k<V74RcrKey.Length;k++)
+            {
+                if(double.IsFinite(o.V74RcrOutcomeR[k])||!o.V74RcrActive[k]||o.V74RcrRisk[k]<=0)continue;
+                double closeR=(o.Direction==TradeDirection.Buy?close-o.V74RcrEntry[k]:o.V74RcrEntry[k]-close)/o.V74RcrRisk[k];
+                o.V74RcrOutcomeR[k]=Math.Max(-1.0,Math.Min(o.V74RcrNetRr[k],closeR));
+                o.V74RcrActive[k]=false;
+            }
+        }
+
         private int V74ProtectionOutcomeRLength(V72HcogOpportunity o){return o==null||o.V74ProtectionOutcomeR==null?0:o.V74ProtectionOutcomeR.Length;}
 
         private void V72HcogFinalizeOutcome(V72HcogOpportunity o,int i,string result,double? forcedR=null)
@@ -360,6 +430,7 @@ namespace cAlgo.Robots
             double close=i>=0&&i<_m1Bars.Count?_m1Bars.ClosePrices[i]:(o.Direction==TradeDirection.Buy?_symbol.Bid:_symbol.Ask);
             double closeR=(o.Direction==TradeDirection.Buy?close-o.Entry:o.Entry-close)/o.RiskDistance,r=forcedR.HasValue?forcedR.Value:Math.Max(-1.0,Math.Min(o.NetRr,closeR));
             for(int k=0;k<V74ProtectionOutcomeRLength(o);k++)if(double.IsNaN(o.V74ProtectionOutcomeR[k]))o.V74ProtectionOutcomeR[k]=r;
+            V74FinalizeReactionConfirmedReentry(o,close);
             o.Result=result;o.Active=false;o.State=V72HcogState.CLOSED;_v72HcogClosed++;V72HcogRecord(o,r);
             Print("[V72-HCOG-OUTCOME] id={0} setup={1} family={2} lane={3} abcd={4} coreOverlap={5} r={6:F6} mfeR={7:F6} maeR={8:F6} bars={9} result={10} hcapSelected={11} q={12:F9} lcb={13:F9} hold={14:F3} features={15} v74features={16}",
                 o.Id,o.SetupKey,o.Family,o.Lane,o.HasAbcdConfluence,o.CoreOverlapAtEntry,r,o.MfeR,o.MaeR,o.BarsActive,result,
@@ -372,6 +443,11 @@ namespace cAlgo.Robots
                 string.IsNullOrWhiteSpace(o.V74MilestoneFeatureCsv[2])?"NONE":o.V74MilestoneFeatureCsv[2],
                 string.IsNullOrWhiteSpace(o.V74MilestoneFeatureCsv[3])?"NONE":o.V74MilestoneFeatureCsv[3],
                 string.IsNullOrWhiteSpace(o.V74MilestoneFeatureCsv[4])?"NONE":o.V74MilestoneFeatureCsv[4]);
+            Print("[V74-RCR-PATH] setup={0} family={1} lane={2} r050010={3} rr050010={4:F6} r075025={5} rr075025={6:F6} r100040={7} rr100040={8:F6}",
+                o.SetupKey,o.Family,o.Lane,
+                double.IsFinite(o.V74RcrOutcomeR[0])?o.V74RcrOutcomeR[0].ToString("R",System.Globalization.CultureInfo.InvariantCulture):"NA",o.V74RcrNetRr[0],
+                double.IsFinite(o.V74RcrOutcomeR[1])?o.V74RcrOutcomeR[1].ToString("R",System.Globalization.CultureInfo.InvariantCulture):"NA",o.V74RcrNetRr[1],
+                double.IsFinite(o.V74RcrOutcomeR[2])?o.V74RcrOutcomeR[2].ToString("R",System.Globalization.CultureInfo.InvariantCulture):"NA",o.V74RcrNetRr[2]);
         }
 
         private void V72HcogProcessActive(int i,DateTime utc,V72HcogOpportunity o)
@@ -380,6 +456,7 @@ namespace cAlgo.Robots
             double fav=o.Direction==TradeDirection.Buy?(high-o.Entry)/o.RiskDistance:(o.Entry-low)/o.RiskDistance,adv=o.Direction==TradeDirection.Buy?(o.Entry-low)/o.RiskDistance:(high-o.Entry)/o.RiskDistance;
             o.MfeR=Math.Max(o.MfeR,fav);o.MaeR=Math.Max(o.MaeR,adv);bool stop=o.Direction==TradeDirection.Buy?low<=o.Stop:high>=o.Stop,target=o.Direction==TradeDirection.Buy?high>=o.Target:low<=o.Target;
             V74UpdateProtectionCounterfactuals(o,i,stop,target);
+            V74UpdateReactionConfirmedReentry(o,i,stop,target);
             if(stop&&target){V72HcogFinalizeOutcome(o,i,"AMBIGUOUS_STOP_FIRST_CONSERVATIVE",-1.0);return;}if(stop){V72HcogFinalizeOutcome(o,i,"STRUCTURAL_STOP",-1.0);return;}
             if(target){V72HcogFinalizeOutcome(o,i,"CANONICAL_TARGET",o.NetRr);return;}if(o.BarsActive>=180)V72HcogFinalizeOutcome(o,i,"FIXED_180M_HORIZON");
         }
