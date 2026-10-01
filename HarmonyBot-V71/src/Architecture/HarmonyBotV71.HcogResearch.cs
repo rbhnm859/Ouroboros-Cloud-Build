@@ -33,7 +33,7 @@ namespace cAlgo.Robots
             public double HcapQ, HcapLcb, HcapHoldBars;
             public double ProofBodyAtr, ProofRejectionRatio, ProofSweepDepthAtr, ProofReclaimAtr, ProofBosAtr, ProofRetestAtr;
             public bool HcapSelected = true;
-            public string HcapFeatureCsv = "", V74FeatureCsv = "";
+            public string HcapFeatureCsv = "", V74FeatureCsv = "", V74LiveProtectionKey = "NONE";
             public int BarsActive;
             public int[] V74ProtectionTriggerBar = Enumerable.Repeat(-1, 5).ToArray();
             public double[] V74ProtectionOutcomeR = Enumerable.Repeat(double.NaN, 5).ToArray();
@@ -200,7 +200,7 @@ namespace cAlgo.Robots
                 ConfirmationScore=1.0,NetRR=o.NetRr,EntryAnchor=o.Entry,StructuralStop=o.Stop,CanonicalTarget=o.Target,RiskDistance=o.RiskDistance,
                 TargetR=Math.Abs(o.Target-o.Entry)/Math.Max(o.RiskDistance,_symbol.PipSize),CapitalDirection=o.Direction,CapitalEligible=true,CoreOverlapObserved=false,
                 CapitalReady=true,AwaitingPullbackFill=true,PullbackFilled=false,PullbackExpiryUtc=exp,CapitalLane=o.Lane,
-                AbcdRole=o.StandaloneAbcd?"ABCD_STANDALONE_OOF_PROVED":(o.HasAbcdConfluence?"PARENT_PLUS_ABCD_CONFLUENCE":"PARENT_FAMILY"),AsymmetryCompression=(EnableV72HcapAlpha||EnableV74ExternalPolicy||EnableV74EmbeddedPolicy)?Math.Max(.0001,o.HcapLcb/Math.Max(.25,o.HcapHoldBars/60.0)):Math.Max(.10,Math.Abs(o.Signal.D.Price-o.Stop)/Math.Max(o.RiskDistance,_symbol.PipSize)),
+                AbcdRole=o.StandaloneAbcd?"ABCD_STANDALONE_OOF_PROVED":(o.HasAbcdConfluence?"PARENT_PLUS_ABCD_CONFLUENCE":"PARENT_FAMILY"),V74ProtectionKey=o.V74LiveProtectionKey,AsymmetryCompression=(EnableV72HcapAlpha||EnableV74ExternalPolicy||EnableV74EmbeddedPolicy)?Math.Max(.0001,o.HcapLcb/Math.Max(.25,o.HcapHoldBars/60.0)):Math.Max(.10,Math.Abs(o.Signal.D.Price-o.Stop)/Math.Max(o.RiskDistance,_symbol.PipSize)),
                 EdgeMean=(EnableV72HcapAlpha||EnableV74ExternalPolicy||EnableV74EmbeddedPolicy)?o.HcapQ:o.NetRr,EdgeLcb=(EnableV72HcapAlpha||EnableV74ExternalPolicy||EnableV74EmbeddedPolicy)?o.HcapLcb:o.NetRr};
             _v71Expansion[cid]=e;_v71ExpansionDetected++;o.CapitalQueued=true;_v72HcogCapitalQueued++;
             Print("[V72-HCOG-CAPITAL-QUEUE] id={0} cid={1} setup={2} family={3} lane={4} expiry={5:o}",o.Id,cid,o.SetupKey,o.Family,o.Lane,exp);
