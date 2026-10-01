@@ -23,6 +23,7 @@ permissions:
 
 jobs:
   build:
+    if: ${{ github.event_name == 'workflow_dispatch' || github.head_ref == 'harmonybot/v72-candidate-harmonic-counterfactual-action-policy' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     steps:
