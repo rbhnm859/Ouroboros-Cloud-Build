@@ -207,9 +207,11 @@ namespace cAlgo.Robots
         public double EntryAnchor, AverageEntry, StructuralStop, CanonicalTarget;
         public double InitialBasketRisk, PlannedWorstCaseRisk, PeakR, MaxAdverseR, RealizedNet, ProtectionFrontier;
         public double V74ProtectionTriggerR, V74ProtectionFloorR;
+        public double V74HybridAdverseCutR;
         public DateTime? V74ProtectionTriggerM1Utc;
         public int FilledLegs, ClosedLegs;
-        public bool IsActive, V74ProtectionApplied;
+        public int V74HybridStage = -1;
+        public bool IsActive, V74ProtectionApplied, V74HybridEnabled;
         public FibonacciGridPlan Plan;
         public CandidateRecord Candidate;
     }
