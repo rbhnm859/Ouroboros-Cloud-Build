@@ -403,6 +403,8 @@ namespace cAlgo.Robots
                 V71ProcessExpansionM1(i, utc);
             if (EnableV72HcogAlpha || EnableV72HcapAlpha || EnableV73OpportunityUniverse || EnableV74ExternalPolicy || EnableV74EmbeddedPolicy)
                 V72HcogProcessM1(i, utc);
+            if (EnableV74ExternalPolicy || EnableV74EmbeddedPolicy)
+                V74ProcessLiveProtectionOnClosedM1(i, utc);
 
             foreach (var c in _candidates.Values.Where(x => x.IsActive).ToList())
             {
@@ -1140,6 +1142,20 @@ namespace cAlgo.Robots
             Print("[V51-CAPITAL-COMPAT] cid={0} logicalLegs={1} riskOnlyPhysicalDepths={2}", plan.CandidateId, plan.LogicalLegCount, matrix);
         }
 
+        private bool V74ProtectionLevels(string key,out double triggerR,out double floorR)
+        {
+            triggerR=0;floorR=0;
+            switch((key??"NONE").Trim())
+            {
+                case "025": triggerR=.25; floorR=.05; return true;
+                case "050": triggerR=.50; floorR=.10; return true;
+                case "075": triggerR=.75; floorR=.20; return true;
+                case "100": triggerR=1.00; floorR=.40; return true;
+                case "150": triggerR=1.50; floorR=.80; return true;
+                default:return false;
+            }
+        }
+
         private void ExecuteFibonacciGridPlan(CandidateRecord c)
         {
             var plan = c.GridPlan;
@@ -1170,10 +1186,17 @@ namespace cAlgo.Robots
                 InitialBasketRisk = plan.BasketRiskAmount,
                 PlannedWorstCaseRisk = plan.WorstCaseRisk,
                 ProtectionFrontier = plan.StructuralStop,
+                V74ProtectionKey = c.V74ProtectionKey,
                 Plan = plan,
                 Candidate = c,
                 IsActive = true
             };
+            double v74Trigger,v74Floor;
+            if(V74ProtectionLevels(basket.V74ProtectionKey,out v74Trigger,out v74Floor))
+            {
+                basket.V74ProtectionTriggerR=v74Trigger;
+                basket.V74ProtectionFloorR=v74Floor;
+            }
             _baskets[basketId] = basket;
             CountPipeline(c.Signal.PatternName).BasketPlanned++;
             BasketEvent(basket, "BASKET_PLANNED");
@@ -1410,6 +1433,34 @@ namespace cAlgo.Robots
             return Math.Max(0, SpreadPips()) + Math.Max(0, RoundTurnCommissionPips) + Math.Max(0, SlippageStressPips);
         }
 
+        private void V74ProcessLiveProtectionOnClosedM1(int i,DateTime utc)
+        {
+            if(i<0||i>=_m1Bars.Count)return;
+            double high=_m1Bars.HighPrices[i],low=_m1Bars.LowPrices[i];
+            foreach(var basket in _baskets.Values.Where(b=>b.IsActive&&!b.V74ProtectionApplied&&b.V74ProtectionTriggerR>0).ToList())
+            {
+                var positions=OwnPositions().Where(p=>LabelBasketId(p.Label)==basket.BasketId).ToList();
+                if(positions.Count==0)continue;
+                basket.AverageEntry=WeightedAverageEntry(positions);
+                double span=Math.Abs(basket.AverageEntry-basket.StructuralStop);
+                if(span<=_symbol.PipSize)continue;
+                bool reached=basket.Direction==TradeDirection.Buy
+                    ? high>=basket.AverageEntry+span*basket.V74ProtectionTriggerR
+                    : low<=basket.AverageEntry-span*basket.V74ProtectionTriggerR;
+                if(!reached)continue;
+                basket.V74ProtectionTriggerM1Utc=utc;
+                double floor=basket.Direction==TradeDirection.Buy
+                    ? basket.AverageEntry+span*basket.V74ProtectionFloorR
+                    : basket.AverageEntry-span*basket.V74ProtectionFloorR;
+                AdvanceBasketProtectionFrontier(basket,floor,"V74_OOF_PROTECT_"+basket.V74ProtectionKey);
+                bool applied=basket.Direction==TradeDirection.Buy
+                    ? basket.ProtectionFrontier+_symbol.TickSize>=floor
+                    : basket.ProtectionFrontier-_symbol.TickSize<=floor;
+                basket.V74ProtectionApplied=applied;
+                BasketEvent(basket,applied?"V74_PROTECTION_APPLIED_"+basket.V74ProtectionKey:"V74_PROTECTION_NOT_APPLIED_"+basket.V74ProtectionKey);
+            }
+        }
+
         private void ReconcileAndManageBaskets()
         {
             ReconcileGridFills();
@@ -1453,7 +1504,8 @@ namespace cAlgo.Robots
                 double age = (Server.Time.ToUniversalTime() - basket.CreatedUtc).TotalMinutes;
                 bool v72FixedPayoff = basket.Candidate != null &&
                     (basket.Candidate.V72BifurcationAlpha || basket.Candidate.V72FamilyNativeCausalAlpha ||
-                     (basket.Candidate.CandidateId ?? "").StartsWith("V71EXP-HCOG-", StringComparison.Ordinal));
+                     (basket.Candidate.CandidateId ?? "").StartsWith("V71EXP-HCOG-", StringComparison.Ordinal) ||
+                     (basket.Candidate.CandidateId ?? "").StartsWith("V71EXP-V74-", StringComparison.Ordinal));
                 if (!v72FixedPayoff && age >= NoMfeMinAgeMinutes && basket.PeakR < NoMfeProofR && currentR <= -Math.Abs(NoMfeKillR))
                 {
                     basket.ExitOverride = "NO_MFE_THESIS_FAILURE";
