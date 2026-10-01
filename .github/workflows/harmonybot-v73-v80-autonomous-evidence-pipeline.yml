@@ -267,7 +267,7 @@ jobs:
     needs: v73_gate
     if: ${{ needs.v73_gate.outputs.pass == 'true' }}
     runs-on: ubuntu-24.04
-    timeout-minutes: 8
+    timeout-minutes: 12
     outputs:
       pass: ${{ steps.g.outputs.pass }}
     steps:
