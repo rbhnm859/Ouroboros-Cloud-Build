@@ -377,8 +377,7 @@ namespace cAlgo.Robots
                 if(o.V74RcrReactionBar[k]<0&&!nativeStop&&fav+1e-12>=V74RcrReactionR[k])
                 {
                     o.V74RcrReactionBar[k]=o.BarsActive;
-                    Print("[V74-RCR-REACTION] id={0} setup={1} key={2} bar={3} triggerR={4:F2}",
-                        o.Id,o.SetupKey,V74RcrKey[k],o.BarsActive,V74RcrReactionR[k]);
+                    // RCR reaction is summarized once at finalization to preserve cTrader log budget.
                 }
                 if(double.IsFinite(o.V74RcrOutcomeR[k]))continue;
                 if(!o.V74RcrActive[k])
@@ -398,9 +397,7 @@ namespace cAlgo.Robots
                     if(rr+1e-9<MinimumNetRR)continue;
                     o.V74RcrActive[k]=true;o.V74RcrEntry[k]=entry;o.V74RcrStop[k]=stop;o.V74RcrTarget[k]=o.Target;
                     o.V74RcrRisk[k]=risk;o.V74RcrNetRr[k]=rr;o.V74RcrBars[k]=0;
-                    Print("[V74-RCR-ARM] id={0} setup={1} family={2} lane={3} key={4} entry={5:F5} stop={6:F5} target={7:F5} rr={8:F4}",
-                        o.Id,o.SetupKey,o.Family,o.Lane,V74RcrKey[k],entry,stop,o.Target,rr);
-                    continue; // completed-bar entry: no same-bar outcome
+                    continue; // completed-bar entry: no same-bar outcome; summarized at finalization
                 }
                 o.V74RcrBars[k]++;
                 bool stopHit=buy?low<=o.V74RcrStop[k]:high>=o.V74RcrStop[k];
@@ -436,15 +433,13 @@ namespace cAlgo.Robots
                 o.Id,o.SetupKey,o.Family,o.Lane,o.HasAbcdConfluence,o.CoreOverlapAtEntry,r,o.MfeR,o.MaeR,o.BarsActive,result,
                 o.HcapSelected,o.HcapQ,o.HcapLcb,o.HcapHoldBars,string.IsNullOrWhiteSpace(o.HcapFeatureCsv)?"NONE":o.HcapFeatureCsv,
                 string.IsNullOrWhiteSpace(o.V74FeatureCsv)?"NONE":o.V74FeatureCsv);
-            Print("[V74-PROTECTION-PATH] setup={0} family={1} lane={2} p025={3:F6} p050={4:F6} p075={5:F6} p100={6:F6} p150={7:F6} m025={8} m050={9} m075={10} m100={11} m150={12}",
+            Print("[V74-PROTECTION-PATH] setup={0} family={1} lane={2} p025={3:F6} p050={4:F6} p075={5:F6} p100={6:F6} p150={7:F6} m025={8} m050={9} m075={10} m100={11} m150={12} r050010={13} rr050010={14:F6} r075025={15} rr075025={16:F6} r100040={17} rr100040={18:F6}",
                 o.SetupKey,o.Family,o.Lane,o.V74ProtectionOutcomeR[0],o.V74ProtectionOutcomeR[1],o.V74ProtectionOutcomeR[2],o.V74ProtectionOutcomeR[3],o.V74ProtectionOutcomeR[4],
                 string.IsNullOrWhiteSpace(o.V74MilestoneFeatureCsv[0])?"NONE":o.V74MilestoneFeatureCsv[0],
                 string.IsNullOrWhiteSpace(o.V74MilestoneFeatureCsv[1])?"NONE":o.V74MilestoneFeatureCsv[1],
                 string.IsNullOrWhiteSpace(o.V74MilestoneFeatureCsv[2])?"NONE":o.V74MilestoneFeatureCsv[2],
                 string.IsNullOrWhiteSpace(o.V74MilestoneFeatureCsv[3])?"NONE":o.V74MilestoneFeatureCsv[3],
-                string.IsNullOrWhiteSpace(o.V74MilestoneFeatureCsv[4])?"NONE":o.V74MilestoneFeatureCsv[4]);
-            Print("[V74-RCR-PATH] setup={0} family={1} lane={2} r050010={3} rr050010={4:F6} r075025={5} rr075025={6:F6} r100040={7} rr100040={8:F6}",
-                o.SetupKey,o.Family,o.Lane,
+                string.IsNullOrWhiteSpace(o.V74MilestoneFeatureCsv[4])?"NONE":o.V74MilestoneFeatureCsv[4],
                 double.IsFinite(o.V74RcrOutcomeR[0])?o.V74RcrOutcomeR[0].ToString("R",System.Globalization.CultureInfo.InvariantCulture):"NA",o.V74RcrNetRr[0],
                 double.IsFinite(o.V74RcrOutcomeR[1])?o.V74RcrOutcomeR[1].ToString("R",System.Globalization.CultureInfo.InvariantCulture):"NA",o.V74RcrNetRr[1],
                 double.IsFinite(o.V74RcrOutcomeR[2])?o.V74RcrOutcomeR[2].ToString("R",System.Globalization.CultureInfo.InvariantCulture):"NA",o.V74RcrNetRr[2]);
