@@ -29,12 +29,16 @@ def load_rows(root,windows):
         txt=p.read_text(errors="ignore")
         for m in RX.finditer(txt):
             fam=m.group(3); lane=m.group(4); raw=m.group(15)
-            if fam not in FAMILIES or lane not in ("HCOG_REVERSAL","HCOG_FAILURE_CONTINUATION") or raw=="NONE":
+            if fam not in FAMILIES or lane not in (
+                "HCOG_REVERSAL","HCOG_FAILURE_CONTINUATION",
+                "HCOG_ABCD_STANDALONE_REVERSAL_SHADOW",
+                "HCOG_ABCD_STANDALONE_CONTINUATION_SHADOW") or raw=="NONE":
                 continue
             fv=[float(x) for x in raw.split(",")]
             if len(fv)!=len(FEATURE_NAMES) or not all(math.isfinite(x) for x in fv): continue
+            action="CONTINUATION" if lane in ("HCOG_FAILURE_CONTINUATION","HCOG_ABCD_STANDALONE_CONTINUATION_SHADOW") else "REVERSAL"
             rows.append({"window":w,"id":m.group(1),"setup":m.group(2),"family":fam,
-                         "action":"REVERSAL" if lane=="HCOG_REVERSAL" else "CONTINUATION",
+                         "action":action,
                          "r":float(m.group(7)),"mfe":float(m.group(8)),"mae":float(m.group(9)),
                          "bars":int(m.group(10)),"result":m.group(11),"features":fv})
     # HCOG setup identity is the anti-duplicate truth. Last copy is equivalent if repeated artifact paths exist.
