@@ -264,7 +264,7 @@ namespace cAlgo.Robots
         private double[] V74ResearchFeatures(V72HcogOpportunity o)
         {
             var s=o==null?null:o.Signal;var r=o==null?null:o.Regime;
-            if(s==null)return Enumerable.Repeat(0.0,40).ToArray();
+            if(s==null)return Enumerable.Repeat(0.0,46).ToArray();
             double atrPips=r==null?0.0:Math.Max(1e-9,r.AtrM15Pips);
             double riskPips=Math.Max(1e-9,PriceToPips(Math.Abs(o.Entry-o.Stop)));
             double targetPips=Math.Max(0.0,PriceToPips(Math.Abs(o.Target-o.Entry)));
@@ -277,48 +277,34 @@ namespace cAlgo.Robots
             if(o.RiskDistance>1e-12)
                 liquidityR=o.Direction==TradeDirection.Buy?(o.Entry-o.LiquidityExtreme)/o.RiskDistance:(o.LiquidityExtreme-o.Entry)/o.RiskDistance;
             double bosR=o.RiskDistance>1e-12?Math.Abs(o.Entry-o.BosBoundary)/o.RiskDistance:0.0;
+            var p=s.Profile;
+            double rxab=p==null?4.0:V72HcogRatioResidual(s.Xab,p.XabMin,p.XabMax);
+            double rabc=p==null?4.0:V72HcogRatioResidual(s.Abc,p.AbcMin,p.AbcMax);
+            double rbcd=p==null?4.0:V72HcogRatioResidual(s.Bcd,p.BcdMin,p.BcdMax);
+            double rxad=p==null?4.0:V72HcogRatioResidual(s.Xad,p.XadMin,p.XadMax);
+            double rabcd=p==null?4.0:V72HcogRatioResidual(s.AbCd,p.AbcDMin,p.AbcDMax);
+            double geometryLoss=Math.Max(0.0,V72HcogGeometryLoss(s));
             return new[]
             {
-                VClamp(s.GeometryQuality),
-                VClamp(s.PrzConfluence),
-                VClamp(s.Confidence),
-                VClamp(s.TimeSymmetry),
-                VClamp(s.PivotQuality),
-                VClamp(o.NetRr/4.0),
-                r==null?0.0:VClamp(r.Efficiency),
-                r==null?0.0:V71AtrFit(r),
-                r==null?0.0:VClamp(r.ExtensionAtr/2.0),
-                r==null?0.0:VClamp(r.TrendStrength),
-                r==null?0.5:VClamp((r.AdxH1Slope+1.0)*0.5),
-                V71MtfScore(o.Conflict),
-                VClamp(s.Xab/1.5),
-                VClamp(s.Abc/2.0),
-                VClamp(s.Bcd/4.0),
-                VClamp(s.Xad/2.0),
-                VClamp(s.AbCd/3.0),
-                VClamp(s.PivotScale/12.0),
-                VClamp((przWidthPips/atrPips)/2.0),
-                VClamp((riskPips/atrPips)/4.0),
-                VClamp((targetPips/atrPips)/8.0),
-                VClamp(detectBars/16.0),
-                VClamp(touchBars/8.0),
-                VClamp(Math.Max(0.0,liquidityR)/4.0),
-                VClamp(bosR/2.0),
-                r==null?0.0:VClamp(r.AtrRatio/3.0),
-                r==null?0.0:VClamp(r.AtrPercentile),
-                r==null?0.0:VClamp(r.AdxH1/60.0),
-                r==null?0.0:VClamp(r.AdxH4/60.0),
-                r!=null&&r.Transition?1.0:0.0,
-                VClamp((ModeledCostPips()/riskPips)*4.0),
-                o.Direction==TradeDirection.Buy?1.0:0.0,
-                o.HasAbcdConfluence?1.0:0.0,
-                VClamp(completionBars/16.0),
-                VClamp(o.ProofBodyAtr/2.0),
-                VClamp(o.ProofRejectionRatio/3.0),
-                VClamp(o.ProofSweepDepthAtr/2.0),
-                VClamp(o.ProofReclaimAtr/2.0),
-                VClamp(o.ProofBosAtr/2.0),
-                VClamp(o.ProofRetestAtr/2.0)
+                VClamp(s.GeometryQuality),VClamp(s.PrzConfluence),VClamp(s.Confidence),
+                VClamp(s.TimeSymmetry),VClamp(s.PivotQuality),VClamp(o.NetRr/4.0),
+                r==null?0.0:VClamp(r.Efficiency),r==null?0.0:V71AtrFit(r),
+                r==null?0.0:VClamp(r.ExtensionAtr/2.0),r==null?0.0:VClamp(r.TrendStrength),
+                r==null?0.5:VClamp((r.AdxH1Slope+1.0)*0.5),V71MtfScore(o.Conflict),
+                VClamp(s.Xab/1.5),VClamp(s.Abc/2.0),VClamp(s.Bcd/4.0),
+                VClamp(s.Xad/2.0),VClamp(s.AbCd/3.0),VClamp(s.PivotScale/12.0),
+                VClamp((przWidthPips/atrPips)/2.0),VClamp((riskPips/atrPips)/4.0),
+                VClamp((targetPips/atrPips)/8.0),VClamp(detectBars/16.0),VClamp(touchBars/8.0),
+                VClamp(Math.Max(0.0,liquidityR)/4.0),VClamp(bosR/2.0),
+                r==null?0.0:VClamp(r.AtrRatio/3.0),r==null?0.0:VClamp(r.AtrPercentile),
+                r==null?0.0:VClamp(r.AdxH1/60.0),r==null?0.0:VClamp(r.AdxH4/60.0),
+                r!=null&&r.Transition?1.0:0.0,VClamp((ModeledCostPips()/riskPips)*4.0),
+                o.Direction==TradeDirection.Buy?1.0:0.0,o.HasAbcdConfluence?1.0:0.0,
+                VClamp(completionBars/16.0),VClamp(o.ProofBodyAtr/2.0),
+                VClamp(o.ProofRejectionRatio/3.0),VClamp(o.ProofSweepDepthAtr/2.0),
+                VClamp(o.ProofReclaimAtr/2.0),VClamp(o.ProofBosAtr/2.0),VClamp(o.ProofRetestAtr/2.0),
+                VClamp(geometryLoss/4.0),VClamp(rxab/4.0),VClamp(rabc/4.0),
+                VClamp(rbcd/4.0),VClamp(rxad/4.0),VClamp(rabcd/4.0)
             };
         }
 
@@ -448,7 +434,7 @@ namespace cAlgo.Robots
         private double[] V74RouteStateFeatures(V72HcogOpportunity o,int i,double entry,double risk,double target,
             int bars,double mfeR,double maeR,double milestoneR)
         {
-            if(o==null||risk<=0||i<0||i>=_m1Bars.Count)return Enumerable.Repeat(0.0,12).ToArray();
+            if(o==null||risk<=0||i<0||i>=_m1Bars.Count)return Enumerable.Repeat(0.0,24).ToArray();
             double open=_m1Bars.OpenPrices[i],close=_m1Bars.ClosePrices[i],high=_m1Bars.HighPrices[i],low=_m1Bars.LowPrices[i];
             double atr=Math.Max(_symbol.PipSize,Atr(_m1Bars,14,i)),body=Math.Max(_symbol.PipSize,Math.Abs(close-open));
             bool buy=o.Direction==TradeDirection.Buy;
@@ -456,14 +442,27 @@ namespace cAlgo.Robots
             double favWick=buy?Math.Max(0,high-Math.Max(open,close)):Math.Max(0,Math.Min(open,close)-low);
             double adverseWick=buy?Math.Max(0,Math.Min(open,close)-low):Math.Max(0,high-Math.Max(open,close));
             double remainingR=Math.Abs(target-close)/Math.Max(risk,_symbol.PipSize);
+            double mom3=0.0,mom5=0.0;
+            if(i>=3){double p3=_m1Bars.ClosePrices[i-3];mom3=(buy?close-p3:p3-close)/atr;}
+            if(i>=5){double p5=_m1Bars.ClosePrices[i-5];mom5=(buy?close-p5:p5-close)/atr;}
+            double range=Math.Max(_symbol.PipSize,high-low);
+            double alignedClose=buy?(close-low)/range:(high-close)/range;
             var rr=BuildRegimeSnapshot();
+            DateTime utc=_m1Bars.OpenTimes[i].ToUniversalTime();
+            double phase=(utc.Hour*60.0+utc.Minute)/1440.0;
             return new[]
             {
-                VClamp(milestoneR/1.0),VClamp(bars/120.0),VClamp((closeR+1.0)/4.0),
+                VClamp(milestoneR),VClamp(bars/120.0),VClamp((closeR+1.0)/4.0),
                 VClamp(mfeR/3.0),VClamp(maeR/2.0),VClamp((body/atr)/2.0),
                 VClamp((favWick/body)/3.0),VClamp((adverseWick/body)/3.0),
                 VClamp(Math.Max(0.0,mfeR-closeR)/2.0),VClamp(remainingR/4.0),
-                (buy?close>open:close<open)?1.0:0.0,rr==null?0.0:VClamp(rr.Efficiency)
+                (buy?close>open:close<open)?1.0:0.0,rr==null?0.0:VClamp(rr.Efficiency),
+                VClamp((mom3+3.0)/6.0),VClamp((mom5+4.0)/8.0),VClamp((range/atr)/3.0),VClamp(alignedClose),
+                rr==null?0.0:VClamp(rr.TrendStrength),rr==null?0.0:VClamp(rr.AdxH1/60.0),
+                rr==null?0.0:VClamp(rr.AdxH4/60.0),rr==null?0.0:VClamp(rr.AtrPercentile),
+                rr==null?0.0:VClamp(rr.AtrRatio/3.0),rr!=null&&rr.Transition?1.0:0.0,
+                VClamp((Math.Sin(2.0*Math.PI*phase)+1.0)*0.5),
+                VClamp((Math.Cos(2.0*Math.PI*phase)+1.0)*0.5)
             };
         }
 
@@ -773,7 +772,7 @@ namespace cAlgo.Robots
                 if(o.V74SequentialReactionBar[k]<0&&!nativeStop&&!nativeTarget&&virtualFav+1e-12>=reactionR)
                 {
                     o.V74SequentialReactionBar[k]=o.BarsActive;
-                    string state=string.Join(",",V74MilestoneFeatures(o,i,reactionR).Select(v=>v.ToString("R",System.Globalization.CultureInfo.InvariantCulture)));
+                    string state=string.Join(",",V74RouteStateFeatures(o,i,o.Entry,o.RiskDistance,o.Target,o.BarsActive,o.MfeR,o.MaeR,reactionR).Select(v=>v.ToString("R",System.Globalization.CultureInfo.InvariantCulture)));
                     if(reactionR<.40&&string.IsNullOrWhiteSpace(o.V74SequentialState025Csv))o.V74SequentialState025Csv=state;
                     if(reactionR>=.40&&string.IsNullOrWhiteSpace(o.V74SequentialState050Csv))o.V74SequentialState050Csv=state;
                     continue;

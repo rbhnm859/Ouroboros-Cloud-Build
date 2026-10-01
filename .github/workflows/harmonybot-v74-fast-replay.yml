@@ -22,8 +22,54 @@ permissions:
   actions: read
 
 jobs:
+  fast_change_gate:
+    runs-on: ubuntu-24.04
+    outputs:
+      fast: ${{ steps.c.outputs.fast }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - id: c
+        name: Classify current update
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            echo "fast=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          BEFORE="${{ github.event.before }}"
+          AFTER="${{ github.event.pull_request.head.sha }}"
+          if [[ -z "$BEFORE" || "$BEFORE" =~ ^0+$ ]]; then
+            echo "fast=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          git cat-file -e "$BEFORE^{commit}"
+          git cat-file -e "$AFTER^{commit}"
+          FAST=true
+          while IFS= read -r p; do
+            case "$p" in
+              HarmonyBot-V71/tools/evaluate_v74_sequential.py|\
+              HarmonyBot-V71/tools/diagnose_v74_joint_oracle.py|\
+              HarmonyBot-V71/tools/v74_model_lib.py|\
+              HarmonyBot-V71/tools/apply_v74_champion.py|\
+              HarmonyBot-V71/tools/generate_v74_embedded_cs.py|\
+              HarmonyBot-V71/evidence/V74_FAST_REPLAY_SOURCE.json|\
+              .github/workflows/harmonybot-v74-fast-replay.yml)
+                ;;
+              *)
+                FAST=false
+                ;;
+            esac
+          done < <(git diff --name-only "$BEFORE" "$AFTER")
+          echo "fast=$FAST" >> "$GITHUB_OUTPUT"
+          echo "[V74-FAST-CHANGE-GATE] fast=$FAST"
+
   fast_replay:
-    if: ${{ github.event_name == 'workflow_dispatch' || github.head_ref == 'harmonybot/v73-opportunity-universe' }}
+    needs: fast_change_gate
+    if: ${{ needs.fast_change_gate.outputs.fast == 'true' && (github.event_name == 'workflow_dispatch' || github.head_ref == 'harmonybot/v73-opportunity-universe') }}
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:

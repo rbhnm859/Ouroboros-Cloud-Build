@@ -9,10 +9,12 @@ FEATURE_NAMES=["geometry","prz","confidence","time_symmetry","pivot_quality","ne
                "target_atr","detect_latency","touch_latency","liquidity_excursion_r","bos_retest_r",
                "atr_ratio","atr_percentile","adx_h1","adx_h4","transition","cost_r","direction_buy",
                "abcd_confluence","completion_latency","proof_body_atr","proof_rejection_ratio",
-               "proof_sweep_depth_atr","proof_reclaim_atr","proof_bos_atr","proof_retest_atr"]
+               "proof_sweep_depth_atr","proof_reclaim_atr","proof_bos_atr","proof_retest_atr",
+               "geometry_loss","xab_residual","abc_residual","bcd_residual","xad_residual","abcd_residual"]
 STATE_IDXS=[0,6,9,34,38]
 PROTECTION_KEYS=["025","050","075","100","150"]
 MILESTONE_FEATURE_COUNT=12
+SEQUENTIAL_STATE_FEATURE_COUNT=24
 Z=1.645
 
 RX=re.compile(
@@ -159,7 +161,7 @@ def load_rows(root,windows):
                 if raw not in (None,"NONE","NA","NaN","nan"):
                     try:
                         vv=[float(x) for x in raw.split(",")]
-                        if len(vv)==MILESTONE_FEATURE_COUNT and all(math.isfinite(x) for x in vv):states[label]=vv
+                        if len(vv)==SEQUENTIAL_STATE_FEATURE_COUNT and all(math.isfinite(x) for x in vv):states[label]=vv
                     except Exception:pass
             seq={};seq_rr={};seq_bars={};entry_states={};trigger_states={};decision_states={}
             for idx,key in enumerate(SEQUENTIAL_KEYS):
@@ -168,7 +170,7 @@ def load_rows(root,windows):
                     if raw not in (None,"NONE","NA","NaN","nan"):
                         try:
                             vv=[float(x) for x in raw.split(",")]
-                            if len(vv)==MILESTONE_FEATURE_COUNT and all(math.isfinite(x) for x in vv):dst[key]=vv
+                            if len(vv)==SEQUENTIAL_STATE_FEATURE_COUNT and all(math.isfinite(x) for x in vv):dst[key]=vv
                         except Exception:pass
                 raw=kv.get("b"+str(idx));rawrr=kv.get("rr"+str(idx));rawbars=kv.get("rb"+str(idx))
                 if raw not in (None,"NA","NaN","nan"):

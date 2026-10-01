@@ -10,7 +10,7 @@ micro-positive-arm +0.05R/+0.10R/+0.15R single-basket runner routes. Every route
 threshold is selected from training windows only. Validation/Fresh are never loaded here.
 """
 import json,math,pathlib,statistics,sys,time
-from v74_model_lib import load_rows,metrics,SEQUENTIAL_KEYS
+from v74_model_lib import load_rows,metrics,SEQUENTIAL_KEYS,SEQUENTIAL_STATE_FEATURE_COUNT
 
 BASE_KEYS=[]
 for _k in SEQUENTIAL_KEYS:
@@ -60,7 +60,7 @@ def with_outcome(r,key):
     # exact linear counterfactual rather than a new future-dependent action.
     entry_state=r.get("sequential_entry_state",{}).get(source_key)
     if v is None or rr is None or state is None or entry_state is None:return None
-    if len(state)!=12 or len(entry_state)!=12:return None
+    if len(state)!=SEQUENTIAL_STATE_FEATURE_COUNT or len(entry_state)!=SEQUENTIAL_STATE_FEATURE_COUNT:return None
     try:v=float(v);rr=float(rr)
     except Exception:return None
     if not math.isfinite(v) or not math.isfinite(rr) or rr+1e-9<MIN_RR:return None
@@ -78,10 +78,10 @@ def seq_rows(xs,key):
 
 def hvec(r):
     s=r.get("sequential_state_vector");e=r.get("sequential_entry_state_vector")
-    if s is None or e is None or len(s)!=12 or len(e)!=12:return None
-    f=r.get("features",[])
-    pre=[f[j] if j<len(f) else 0.0 for j in (25,26,29,34,35,36,37,38,39)]
-    return list(s)+list(e)+pre
+    if s is None or e is None or len(s)!=SEQUENTIAL_STATE_FEATURE_COUNT or len(e)!=SEQUENTIAL_STATE_FEATURE_COUNT:return None
+    f=list(r.get("features",[]))
+    delta=[float(e[j])-float(s[j]) for j in range(SEQUENTIAL_STATE_FEATURE_COUNT)]
+    return f+list(s)+list(e)+delta
 
 def stat(xs):
     if not xs:return {"n":0,"mean":0.0,"win":0.0,"sigma":10.0}
@@ -363,7 +363,7 @@ for name,q,aw in VARIANTS:
 
 summary["architecture"]="CAUSAL_FAMILY_NATIVE_COUNTERFACTUAL_ACTION_RANKER"
 summary["policy"]["selection"]="TRAINING_ONLY_COUNTERFACTUAL_UPLIFT_PLUS_ABSOLUTE_ROUTE_VALUE__FAMILY_NATIVE_SHRINKAGE__NO_CANONICAL_FAMILY_BLACKLIST"
-summary["policy"]["route_arbitration"]="PER_SETUP_ALL_LEGAL_ROUTES__CENTERED_ACTION_ADVANTAGE_AND_ABSOLUTE_VALUE__NO_TEST_YEAR_SELECTION"
+summary["policy"]["route_arbitration"]="PER_SETUP_ALL_LEGAL_ROUTES__46D_BASE_PLUS_24D_REACTION_PLUS_24D_COMPLETED_ENTRY_PLUS_CAUSAL_DELTA__CENTERED_ACTION_ADVANTAGE_AND_ABSOLUTE_VALUE__NO_TRIGGER_OR_DECISION_FUTURE_STATE__NO_TEST_YEAR_SELECTION"
 summary["policy"]["abcd_contract"]="ABCD_NEVER_BLANKET_BLACKLISTED__TRAINING_ONLY_FAMILY_ACTION_SHRINKAGE"
 summary["engineering_invariants"]={"unique_setup_winner":True,"legal_route_only":True,
                                    "test_window_excluded_from_training":True,
