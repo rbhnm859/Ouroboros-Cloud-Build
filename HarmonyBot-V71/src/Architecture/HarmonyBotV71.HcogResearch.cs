@@ -27,8 +27,9 @@ namespace cAlgo.Robots
             public TradeDirection Direction;
             public double LiquidityExtreme, BosBoundary, FailureBoundary, Entry, Stop, Target, RiskDistance, NetRr, MfeR, MaeR;
             public double HcapQ, HcapLcb, HcapHoldBars;
+            public double ProofBodyAtr, ProofRejectionRatio, ProofSweepDepthAtr, ProofReclaimAtr, ProofBosAtr, ProofRetestAtr;
             public bool HcapSelected = true;
-            public string HcapFeatureCsv = "";
+            public string HcapFeatureCsv = "", V74FeatureCsv = "";
             public int BarsActive;
         }
 
@@ -98,6 +99,67 @@ namespace cAlgo.Robots
             Print("[V72-HCOG-FAILURE-BREAK] id={0} family={1} boundary={2:F5} dir={3} expiry={4:o}",o.Id,o.Family,o.FailureBoundary,o.Direction,o.ProofExpiryUtc);
         }
 
+        private double[] V74ResearchFeatures(V72HcogOpportunity o)
+        {
+            var s=o==null?null:o.Signal;var r=o==null?null:o.Regime;
+            if(s==null)return Enumerable.Repeat(0.0,40).ToArray();
+            double atrPips=r==null?0.0:Math.Max(1e-9,r.AtrM15Pips);
+            double riskPips=Math.Max(1e-9,PriceToPips(Math.Abs(o.Entry-o.Stop)));
+            double targetPips=Math.Max(0.0,PriceToPips(Math.Abs(o.Target-o.Entry)));
+            double przWidthPips=Math.Max(0.0,PriceToPips(Math.Abs(s.PrzHigh-s.PrzLow)));
+            DateTime entryUtc=o.EntryUtc==default(DateTime)?Server.Time.ToUniversalTime():o.EntryUtc;
+            double detectBars=Math.Max(0.0,(entryUtc-o.DetectedUtc).TotalMinutes/15.0);
+            double touchBars=o.PrzTouchUtc.HasValue?Math.Max(0.0,(entryUtc-o.PrzTouchUtc.Value).TotalMinutes/15.0):detectBars;
+            double completionBars=Math.Max(0.0,(entryUtc-s.CompletionTime.ToUniversalTime()).TotalMinutes/15.0);
+            double liquidityR=0.0;
+            if(o.RiskDistance>1e-12)
+                liquidityR=o.Direction==TradeDirection.Buy?(o.Entry-o.LiquidityExtreme)/o.RiskDistance:(o.LiquidityExtreme-o.Entry)/o.RiskDistance;
+            double bosR=o.RiskDistance>1e-12?Math.Abs(o.Entry-o.BosBoundary)/o.RiskDistance:0.0;
+            return new[]
+            {
+                VClamp(s.GeometryQuality),
+                VClamp(s.PrzConfluence),
+                VClamp(s.Confidence),
+                VClamp(s.TimeSymmetry),
+                VClamp(s.PivotQuality),
+                VClamp(o.NetRr/4.0),
+                r==null?0.0:VClamp(r.Efficiency),
+                r==null?0.0:V71AtrFit(r),
+                r==null?0.0:VClamp(r.ExtensionAtr/2.0),
+                r==null?0.0:VClamp(r.TrendStrength),
+                r==null?0.5:VClamp((r.AdxH1Slope+1.0)*0.5),
+                V71MtfScore(o.Conflict),
+                VClamp(s.Xab/1.5),
+                VClamp(s.Abc/2.0),
+                VClamp(s.Bcd/4.0),
+                VClamp(s.Xad/2.0),
+                VClamp(s.AbCd/3.0),
+                VClamp(s.PivotScale/12.0),
+                VClamp((przWidthPips/atrPips)/2.0),
+                VClamp((riskPips/atrPips)/4.0),
+                VClamp((targetPips/atrPips)/8.0),
+                VClamp(detectBars/16.0),
+                VClamp(touchBars/8.0),
+                VClamp(Math.Max(0.0,liquidityR)/4.0),
+                VClamp(bosR/2.0),
+                r==null?0.0:VClamp(r.AtrRatio/3.0),
+                r==null?0.0:VClamp(r.AtrPercentile),
+                r==null?0.0:VClamp(r.AdxH1/60.0),
+                r==null?0.0:VClamp(r.AdxH4/60.0),
+                r!=null&&r.Transition?1.0:0.0,
+                VClamp((ModeledCostPips()/riskPips)*4.0),
+                o.Direction==TradeDirection.Buy?1.0:0.0,
+                o.HasAbcdConfluence?1.0:0.0,
+                VClamp(completionBars/16.0),
+                VClamp(o.ProofBodyAtr/2.0),
+                VClamp(o.ProofRejectionRatio/3.0),
+                VClamp(o.ProofSweepDepthAtr/2.0),
+                VClamp(o.ProofReclaimAtr/2.0),
+                VClamp(o.ProofBosAtr/2.0),
+                VClamp(o.ProofRetestAtr/2.0)
+            };
+        }
+
         private bool V72HcogArm(DateTime utc,V72HcogOpportunity o,TradeDirection direction,double entry,double stop,double target,double rr,string lane)
         {
             if(direction==TradeDirection.Neutral||rr+1e-9<MinimumNetRR||!GeometryValid(direction,entry,stop,target))return false;
@@ -107,6 +169,7 @@ namespace cAlgo.Robots
                 ? (lane=="HCOG_FAILURE_CONTINUATION"?"HCOG_ABCD_STANDALONE_CONTINUATION_SHADOW":"HCOG_ABCD_STANDALONE_REVERSAL_SHADOW")
                 : lane;
             o.Regime=BuildRegimeSnapshot();
+            o.V74FeatureCsv=string.Join(",",V74ResearchFeatures(o).Select(v=>v.ToString("R",System.Globalization.CultureInfo.InvariantCulture)));
             if(EnableV74ExternalPolicy||EnableV74EmbeddedPolicy)V74FrozenPolicyScoreOpportunity(o); else V72HcapScoreOpportunity(o);
             o.CoreOverlapAtEntry=V71CoreHasActiveThesis()||_activeSetupOwners.ContainsKey(o.SetupKey)||_executedSetupKeys.Contains(o.SetupKey);
             if(o.CoreOverlapAtEntry)_v72HcogCoreOverlapAtEntry++;_v72HcogProofs++;_v72HcogArmed++;if(lane=="HCOG_FAILURE_CONTINUATION")_v72HcogFailureArmed++;
@@ -148,6 +211,9 @@ namespace cAlgo.Robots
             double risk=Math.Abs(entry-stop);if(PriceToPips(risk)<MinStopLossPips)return;double cost=PipsToPrice(ModeledCostPips());
             double target=o.Direction==TradeDirection.Buy?entry+2.0*risk+cost:entry-2.0*risk-cost;
             double rr=(PriceToPips(Math.Abs(target-entry))-ModeledCostPips())/Math.Max(1e-9,PriceToPips(risk));
+            double atr=Atr(_m1Bars,14,i);
+            o.ProofBodyAtr=atr>0?Math.Abs(close-open)/atr:0.0;
+            o.ProofRetestAtr=atr>0?Math.Abs(close-o.FailureBoundary)/atr:0.0;
             V72HcogArm(utc,o,o.Direction,entry,stop,target,rr,"HCOG_FAILURE_CONTINUATION");
         }
 
@@ -158,20 +224,24 @@ namespace cAlgo.Robots
             double pc=_m1Bars.ClosePrices[i-1],ph=Math.Max(_m1Bars.HighPrices[i-1],_m1Bars.HighPrices[i-2]),pl=Math.Min(_m1Bars.LowPrices[i-1],_m1Bars.LowPrices[i-2]);
             double body=Math.Max(Math.Abs(close-open),_symbol.PipSize),atr=Atr(_m1Bars,14,i);bool buy=s.Direction==TradeDirection.Buy;
             bool directional=buy?close>open:close<open,reclaim=buy?(close>s.PrzLow&&close>=pc):(close<s.PrzHigh&&close<=pc),bos=buy?close>ph:close<pl;
-            bool rejection=buy?Math.Max(0,Math.Min(open,close)-low)>=body*.5:Math.Max(0,high-Math.Max(open,close))>=body*.5;
+            double rejectionWick=buy?Math.Max(0,Math.Min(open,close)-low):Math.Max(0,high-Math.Max(open,close));
+            double rejectionRatio=rejectionWick/Math.Max(body,_symbol.PipSize);
+            double sweepDepth=buy?Math.Max(0,_m1Bars.LowPrices[i-1]-low):Math.Max(0,high-_m1Bars.HighPrices[i-1]);
+            double sweepDepthAtr=atr>0?sweepDepth/atr:0.0;
+            bool rejection=rejectionRatio>=.5;
             bool failed=buy?(low<_m1Bars.LowPrices[i-1]&&close>_m1Bars.LowPrices[i-1]):(high>_m1Bars.HighPrices[i-1]&&close<_m1Bars.HighPrices[i-1]);
             bool sweep=buy?low<_m1Bars.LowPrices[i-1]:high>_m1Bars.HighPrices[i-1];
             bool inside=close>=Math.Min(s.PrzLow,s.PrzHigh)&&close<=Math.Max(s.PrzLow,s.PrzHigh),displacement=atr>0&&body>=atr*.30;
             if(buy)o.LiquidityExtreme=o.LiquidityExtreme==0?low:Math.Min(o.LiquidityExtreme,low);else o.LiquidityExtreme=o.LiquidityExtreme==0?high:Math.Max(o.LiquidityExtreme,high);
             bool extension=o.Family=="AltBat"||o.Family=="Butterfly"||o.Family=="Crab"||o.Family=="DeepCrab";
             bool transition=o.Family=="Shark"||o.Family=="FiveZero";bool liquidity=extension?(sweep&&failed):(transition?failed:(rejection||failed));
-            if(o.State==V72HcogState.WAIT_LIQUIDITY){if(!liquidity)return;o.LastStageUtc=utc;o.State=V72HcogState.WAIT_RECLAIM;return;}
-            if(o.State==V72HcogState.WAIT_RECLAIM){if(utc<=o.LastStageUtc)return;bool pass=(extension||transition)?(reclaim||inside):reclaim;if(!pass)return;o.LastStageUtc=utc;o.State=V72HcogState.WAIT_BOS;return;}
-            if(o.State==V72HcogState.WAIT_BOS){if(utc<=o.LastStageUtc)return;bool pass=transition?(bos&&directional):(bos&&displacement);if(!pass)return;o.BosBoundary=buy?ph:pl;o.LastStageUtc=utc;o.State=V72HcogState.WAIT_RETEST;return;}
+            if(o.State==V72HcogState.WAIT_LIQUIDITY){if(!liquidity)return;o.ProofBodyAtr=atr>0?body/atr:0.0;o.ProofRejectionRatio=rejectionRatio;o.ProofSweepDepthAtr=sweepDepthAtr;o.LastStageUtc=utc;o.State=V72HcogState.WAIT_RECLAIM;return;}
+            if(o.State==V72HcogState.WAIT_RECLAIM){if(utc<=o.LastStageUtc)return;bool pass=(extension||transition)?(reclaim||inside):reclaim;if(!pass)return;double reclaimDist=buy?Math.Max(0,close-s.PrzLow):Math.Max(0,s.PrzHigh-close);o.ProofReclaimAtr=atr>0?reclaimDist/atr:0.0;o.LastStageUtc=utc;o.State=V72HcogState.WAIT_BOS;return;}
+            if(o.State==V72HcogState.WAIT_BOS){if(utc<=o.LastStageUtc)return;bool pass=transition?(bos&&directional):(bos&&displacement);if(!pass)return;o.BosBoundary=buy?ph:pl;o.ProofBosAtr=atr>0?Math.Abs(close-o.BosBoundary)/atr:0.0;o.ProofBodyAtr=Math.Max(o.ProofBodyAtr,atr>0?body/atr:0.0);o.LastStageUtc=utc;o.State=V72HcogState.WAIT_RETEST;return;}
             if(o.State==V72HcogState.WAIT_RETEST)
             {
                 if(utc<=o.LastStageUtc)return;bool touched=buy?low<=o.BosBoundary:high>=o.BosBoundary,side=buy?close>o.BosBoundary:close<o.BosBoundary;
-                if(!(touched&&side&&directional))return;double buffer=Math.Max(PipsToPrice(ModeledCostPips()),_symbol.PipSize);
+                if(!(touched&&side&&directional))return;o.ProofRetestAtr=atr>0?Math.Abs(close-o.BosBoundary)/atr:0.0;double buffer=Math.Max(PipsToPrice(ModeledCostPips()),_symbol.PipSize);
                 double causalStop=buy?o.LiquidityExtreme-buffer:o.LiquidityExtreme+buffer,stop=buy?Math.Max(s.StructuralInvalidation,causalStop):Math.Min(s.StructuralInvalidation,causalStop);
                 double target,rr;if(!SelectCanonicalBasketTarget(s,close,stop,out target,out rr))return;V72HcogArm(utc,o,s.Direction,close,stop,target,rr,"HCOG_REVERSAL");
             }
@@ -190,9 +260,10 @@ namespace cAlgo.Robots
             double close=i>=0&&i<_m1Bars.Count?_m1Bars.ClosePrices[i]:(o.Direction==TradeDirection.Buy?_symbol.Bid:_symbol.Ask);
             double closeR=(o.Direction==TradeDirection.Buy?close-o.Entry:o.Entry-close)/o.RiskDistance,r=forcedR.HasValue?forcedR.Value:Math.Max(-1.0,Math.Min(o.NetRr,closeR));
             o.Result=result;o.Active=false;o.State=V72HcogState.CLOSED;_v72HcogClosed++;V72HcogRecord(o,r);
-            Print("[V72-HCOG-OUTCOME] id={0} setup={1} family={2} lane={3} abcd={4} coreOverlap={5} r={6:F6} mfeR={7:F6} maeR={8:F6} bars={9} result={10} hcapSelected={11} q={12:F9} lcb={13:F9} hold={14:F3} features={15}",
+            Print("[V72-HCOG-OUTCOME] id={0} setup={1} family={2} lane={3} abcd={4} coreOverlap={5} r={6:F6} mfeR={7:F6} maeR={8:F6} bars={9} result={10} hcapSelected={11} q={12:F9} lcb={13:F9} hold={14:F3} features={15} v74features={16}",
                 o.Id,o.SetupKey,o.Family,o.Lane,o.HasAbcdConfluence,o.CoreOverlapAtEntry,r,o.MfeR,o.MaeR,o.BarsActive,result,
-                o.HcapSelected,o.HcapQ,o.HcapLcb,o.HcapHoldBars,string.IsNullOrWhiteSpace(o.HcapFeatureCsv)?"NONE":o.HcapFeatureCsv);
+                o.HcapSelected,o.HcapQ,o.HcapLcb,o.HcapHoldBars,string.IsNullOrWhiteSpace(o.HcapFeatureCsv)?"NONE":o.HcapFeatureCsv,
+                string.IsNullOrWhiteSpace(o.V74FeatureCsv)?"NONE":o.V74FeatureCsv);
         }
 
         private void V72HcogProcessActive(int i,DateTime utc,V72HcogOpportunity o)
