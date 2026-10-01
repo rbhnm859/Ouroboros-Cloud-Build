@@ -109,6 +109,7 @@ namespace cAlgo.Robots
         public bool AwaitingVirtualProofFill, VirtualProofActive, TrendProofConfirmed, FailureContinuation, FailureBreakObserved, FailureRetestObserved, CapitalReady;
         public string CapitalLane = "NONE";
         public string AbcdRole = "PARENT_FAMILY", NativeExitResult;
+        public string V74ProtectionKey = "NONE";
         public double NativeExitR, ShadowPeakR, ShadowProtectionR = -1.0;
         public double ShadowMfeR, ShadowMaeR, ShadowMaxGivebackR;
         public int ShadowBars, NativeConfirmBars, PathState;
@@ -147,6 +148,7 @@ namespace cAlgo.Robots
         public bool V72BifurcationAlpha;
         public bool V72FamilyNativeCausalAlpha;
         public double V71RiskPercent = 1.0;
+        public string V74ProtectionKey = "NONE";
         public FibonacciGridPlan GridPlan;
         public long PositionId;
         public string LastReason;
@@ -197,14 +199,17 @@ namespace cAlgo.Robots
     public sealed class FibonacciBasket
     {
         public string BasketId, CandidateId, Pattern, ExitOverride, ExitReason;
+        public string V74ProtectionKey = "NONE";
         public TradeDirection Direction;
         public HarmonicRoute Route;
         public FibonacciBasketState State;
         public DateTime CreatedUtc, ExpirationUtc;
         public double EntryAnchor, AverageEntry, StructuralStop, CanonicalTarget;
         public double InitialBasketRisk, PlannedWorstCaseRisk, PeakR, MaxAdverseR, RealizedNet, ProtectionFrontier;
+        public double V74ProtectionTriggerR, V74ProtectionFloorR;
+        public DateTime? V74ProtectionTriggerM1Utc;
         public int FilledLegs, ClosedLegs;
-        public bool IsActive;
+        public bool IsActive, V74ProtectionApplied;
         public FibonacciGridPlan Plan;
         public CandidateRecord Candidate;
     }
