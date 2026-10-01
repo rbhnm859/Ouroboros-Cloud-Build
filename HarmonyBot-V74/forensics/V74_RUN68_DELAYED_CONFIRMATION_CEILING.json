@@ -1,0 +1,59 @@
+{
+  "version": "HarmonyBot V74 Run68 Delayed Confirmation Ceiling",
+  "source_run_id": 36909189452,
+  "source_run_number": 68,
+  "source_sha": "337342ecdaf7672cf8451e2acfb38d8b8acfe0f5",
+  "v74_gate": false,
+  "champion": null,
+  "validation_used": false,
+  "fresh_used": false,
+  "oof_best_frequency_feasible": {
+    "Y2021": {
+      "n": 311,
+      "mean_r": -0.0180305551,
+      "pf_r": 0.9596512208,
+      "win_rate": 0.1286173633,
+      "average_rr": 6.5016370211,
+      "lcb_r": -0.1469925319
+    },
+    "Y2022": {
+      "n": 329,
+      "mean_r": -0.0128325581,
+      "pf_r": 0.9722908746,
+      "win_rate": 0.170212766,
+      "average_rr": 4.7399180135,
+      "lcb_r": -0.1341328267
+    },
+    "Y2023": {
+      "n": 257,
+      "mean_r": -0.0539456725,
+      "pf_r": 0.8831658804,
+      "win_rate": 0.140077821,
+      "average_rr": 5.42165721,
+      "lcb_r": -0.197703709
+    }
+  },
+  "oracle_label_only": {
+    "warning": "Future outcome used only for feasibility.",
+    "best_route_per_setup_top250": {
+      "Y2021": {
+        "mean_r": 0.8469124805,
+        "win_rate": 0.304,
+        "lcb_r": 0.6727491198
+      },
+      "Y2022": {
+        "mean_r": 0.8084058745,
+        "win_rate": 0.316,
+        "lcb_r": 0.6333610321
+      },
+      "Y2023": {
+        "mean_r": 0.5519949258,
+        "win_rate": 0.228,
+        "lcb_r": 0.3729967036
+      }
+    }
+  },
+  "conclusion": "Second-shadow delayed capital is structurally infeasible under fixed V74 gates; even oracle route selection cannot reach MeanR 0.90 or WR 70%. Return to earlier capital and control the post-entry path causally.",
+  "next_architecture": "CAUSAL_EARLY_CAPITAL_NOISE_BUDGET_SURVIVAL_LADDER",
+  "gates_unchanged": true
+}
