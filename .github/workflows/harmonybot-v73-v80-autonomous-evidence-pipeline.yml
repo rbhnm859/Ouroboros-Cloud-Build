@@ -7,6 +7,7 @@ on:
     paths:
       - 'HarmonyBot-V71/**'
       - '!HarmonyBot-V71/tools/evaluate_v74_sequential.py'
+      - '!HarmonyBot-V71/tools/diagnose_v74_joint_oracle.py'
       - '!HarmonyBot-V71/tools/v74_model_lib.py'
       - '!HarmonyBot-V71/tools/apply_v74_champion.py'
       - '!HarmonyBot-V71/tools/generate_v74_embedded_cs.py'
@@ -62,6 +63,7 @@ jobs:
           for p in "${CHANGED[@]}"; do
             case "$p" in
               HarmonyBot-V71/tools/evaluate_v74_sequential.py|\
+              HarmonyBot-V71/tools/diagnose_v74_joint_oracle.py|\
               HarmonyBot-V71/tools/v74_model_lib.py|\
               HarmonyBot-V71/tools/apply_v74_champion.py|\
               HarmonyBot-V71/tools/generate_v74_embedded_cs.py|\
