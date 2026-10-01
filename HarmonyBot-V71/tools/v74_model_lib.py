@@ -4,15 +4,20 @@ import json,math,pathlib,re,statistics
 FAMILIES=["Gartley","Bat","AltBat","Butterfly","Crab","DeepCrab","DeepGartley","Rat","Cypher","Shark","FiveZero","ABCD"]
 ACTIONS=["REVERSAL","CONTINUATION"]
 FEATURE_NAMES=["geometry","prz","confidence","time_symmetry","pivot_quality","net_rr_scaled",
-               "efficiency","atr_fit","extension_scaled","trend_strength","adx_slope_norm","mtf_score"]
-STATE_IDXS=[0,6,7,9,11]
+               "efficiency","atr_fit","extension_scaled","trend_strength","adx_slope_norm","mtf_score",
+               "xab","abc","bcd","xad","abcd_ratio","pivot_scale","prz_width_atr","risk_atr",
+               "target_atr","detect_latency","touch_latency","liquidity_excursion_r","bos_retest_r",
+               "atr_ratio","atr_percentile","adx_h1","adx_h4","transition","cost_r","direction_buy",
+               "abcd_confluence","completion_latency","proof_body_atr","proof_rejection_ratio",
+               "proof_sweep_depth_atr","proof_reclaim_atr","proof_bos_atr","proof_retest_atr"]
+STATE_IDXS=[0,6,9,34,38]
 Z=1.645
 
 RX=re.compile(
  r"\[V72-HCOG-OUTCOME\]\s+id=(\S+)\s+setup=(\S+)\s+family=(\S+)\s+lane=(\S+)\s+"
  r"abcd=(True|False)\s+coreOverlap=(True|False)\s+r=([-0-9.]+)\s+mfeR=([-0-9.]+)\s+"
  r"maeR=([-0-9.]+)\s+bars=(\d+)\s+result=(\S+)\s+hcapSelected=(True|False)\s+"
- r"q=([-0-9.]+)\s+lcb=([-0-9.]+)\s+hold=([-0-9.]+)\s+features=(\S+)"
+ r"q=([-0-9.]+)\s+lcb=([-0-9.]+)\s+hold=([-0-9.]+)\s+features=(\S+)(?:\s+v74features=(\S+))?"
 )
 
 def window_of(path,windows):
@@ -28,13 +33,14 @@ def load_rows(root,windows):
         if not w: continue
         txt=p.read_text(errors="ignore")
         for m in RX.finditer(txt):
-            fam=m.group(3); lane=m.group(4); raw=m.group(16)
+            fam=m.group(3); lane=m.group(4); raw=m.group(17) if m.group(17) not in (None,"NONE") else m.group(16)
             if fam not in FAMILIES or lane not in (
                 "HCOG_REVERSAL","HCOG_FAILURE_CONTINUATION",
                 "HCOG_ABCD_STANDALONE_REVERSAL_SHADOW",
                 "HCOG_ABCD_STANDALONE_CONTINUATION_SHADOW") or raw=="NONE":
                 continue
             fv=[float(x) for x in raw.split(",")]
+            if len(fv)==12: fv=fv+[0.0]*(len(FEATURE_NAMES)-12)
             if len(fv)!=len(FEATURE_NAMES) or not all(math.isfinite(x) for x in fv): continue
             action="CONTINUATION" if lane in ("HCOG_FAILURE_CONTINUATION","HCOG_ABCD_STANDALONE_CONTINUATION_SHADOW") else "REVERSAL"
             rows.append({"window":w,"id":m.group(1),"setup":m.group(2),"family":fam,
@@ -118,8 +124,11 @@ def pred_hier(model,r):
         support=min(fn,sn)
     se=max(.05,g["sigma"])/math.sqrt(max(1,support))
     lcb=mean-Z*se
-    selected=(support>=12 and mean>=.90 and win>=.70 and lcb>.15)
-    return {"mean":mean,"win":win,"lcb":lcb,"hold":hold,"support":support,"selected":selected}
+    base_eligible=support>=12
+    z={"mean":mean,"win":win,"lcb":lcb,"hold":hold,"support":support,"base_eligible":base_eligible}
+    score=selection_score(z); threshold=float(model.get("selection_threshold",math.inf))
+    z.update({"score":score,"selected":bool(base_eligible and score>=threshold)})
+    return z
 
 def _quantile(vals,q):
     if not vals:return 0.0
@@ -127,18 +136,18 @@ def _quantile(vals,q):
     if lo==hi:return xs[lo]
     return xs[lo]*(hi-i)+xs[hi]*(i-lo)
 
-def _stump_train(X,y,rounds=12,lr=.08):
+def _stump_train(X,y,rounds=24,lr=.06):
     n=len(y)
     if not n:return {"base":0.0,"stumps":[],"sigma":10.0}
     pred=[sum(y)/n]*n; stumps=[]
-    thresholds=[[_quantile([x[j] for x in X],q) for q in (.33,.67)] for j in range(len(X[0]))]
+    thresholds=[[_quantile([x[j] for x in X],q) for q in (.20,.40,.60,.80)] for j in range(len(X[0]))]
     for _ in range(rounds):
         res=[y[i]-pred[i] for i in range(n)]
         best=None
         for j in range(len(X[0])):
             for t in thresholds[j]:
                 li=[i for i,x in enumerate(X) if x[j]<=t]; ri=[i for i,x in enumerate(X) if x[j]>t]
-                if len(li)<8 or len(ri)<8: continue
+                if len(li)<12 or len(ri)<12: continue
                 lv=sum(res[i] for i in li)/len(li); rv=sum(res[i] for i in ri)/len(ri)
                 sse=sum((res[i]-(lv if X[i][j]<=t else rv))**2 for i in range(n))
                 cand=(sse,j,t,lv,rv,len(li),len(ri))
@@ -184,8 +193,11 @@ def pred_boost(model,r):
     else:hold=m["hold"]; fs=0
     win=min(1.0,max(0.0,win)); support=max(1,min(s1 or 1,s2 or 1,fs or 10**9))
     se=max(.05,m["r"]["sigma"])/math.sqrt(support); lcb=mean-Z*se
-    selected=(support>=15 and mean>=.90 and win>=.70 and lcb>.10)
-    return {"mean":mean,"win":win,"lcb":lcb,"hold":hold,"support":support,"selected":selected}
+    base_eligible=support>=15
+    z={"mean":mean,"win":win,"lcb":lcb,"hold":hold,"support":support,"base_eligible":base_eligible}
+    score=selection_score(z); threshold=float(model.get("selection_threshold",math.inf))
+    z.update({"score":score,"selected":bool(base_eligible and score>=threshold)})
+    return z
 
 # Model C: family-first conformal nearest-neighbour manifold.
 def train_knn(rows):
@@ -210,15 +222,24 @@ def pred_knn(model,r):
         if p["f"]!=r["family"]:d+=.75
         ds.append((d,p))
     ds.sort(key=lambda z:z[0]); q=[p for _,p in ds[:model["k"]]]
-    if len(q)<12:return {"mean":0.0,"win":0.0,"lcb":-999.0,"hold":180.0,"support":len(q),"selected":False}
+    if len(q)<12:return {"mean":0.0,"win":0.0,"lcb":-999.0,"hold":180.0,"support":len(q),"base_eligible":False,"score":-999.0,"selected":False}
     v=[p["r"] for p in q]; mean=sum(v)/len(v); wr=sum(z>0 for z in v)/len(v)
     sd=statistics.stdev(v) if len(v)>1 else 10.0; lcb=mean-Z*sd/math.sqrt(len(v))
     gp=sum(z for z in v if z>0); gl=-sum(z for z in v if z<0); pf=gp/gl if gl else 999.0
     wins=[z for z in v if z>0]; losses=[-z for z in v if z<0]
     rr=(sum(wins)/len(wins))/(sum(losses)/len(losses)) if wins and losses else 0.0
     hold=float(statistics.median([p["bars"] for p in q]))
-    selected=(mean>=.90 and wr>=.70 and pf>=3.30 and rr>=2.30 and lcb>0)
-    return {"mean":mean,"win":wr,"lcb":lcb,"hold":hold,"support":len(q),"selected":selected,"neighbor_pf":pf,"neighbor_rr":rr}
+    base_eligible=True
+    z={"mean":mean,"win":wr,"lcb":lcb,"hold":hold,"support":len(q),"base_eligible":base_eligible,
+       "neighbor_pf":pf,"neighbor_rr":rr}
+    score=selection_score(z); threshold=float(model.get("selection_threshold",math.inf))
+    z.update({"score":score,"selected":bool(score>=threshold)})
+    return z
+
+def selection_score(z):
+    mean=float(z.get("mean",0.0)); win=float(z.get("win",0.0)); lcb=float(z.get("lcb",-999.0))
+    hold=max(1.0,float(z.get("hold",180.0)))
+    return mean+2.0*win+0.5*lcb-0.05*math.log1p(hold)
 
 TRAINERS={"A_HIERARCHICAL_COMPETING_RISK":train_hier,
           "B_BOUNDED_GRADIENT_STUMPS":train_boost,
