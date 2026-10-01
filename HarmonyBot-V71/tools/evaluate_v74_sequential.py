@@ -19,6 +19,8 @@ MIN_N=250;MIN_MEAN=.90;MIN_PF=3.30;MIN_WR=.70;MIN_RR=2.30
 ABCD_TRAIN_MIN_N=300;ABCD_TRAIN_MIN_PF=1.20;Z=1.645
 rows=load_rows(root,ALL)
 if not rows:raise SystemExit("no V74 tournament rows")
+if sum(len(r.get("sequential_entry_state",{})) for r in rows)==0:
+    raise SystemExit("V74 telemetry schema mismatch: zero per-route sequential entry-state vectors")
 
 def quantile(vals,q):
     if not vals:return math.inf
@@ -36,9 +38,11 @@ def route_meta(key):
 
 def with_outcome(r,key):
     v=r.get("sequential",{}).get(key);rr=r.get("sequential_rr",{}).get(key)
-    level,entry_key=route_meta(key)
+    level,_=route_meta(key)
     state=r.get("sequential_state",{}).get(level)
-    entry_state=r.get("sequential_entry_state",{}).get(entry_key)
+    # Run #73 emits per-route causal entry state as e0..e47 and v74_model_lib
+    # stores those vectors under the exact SEQUENTIAL_KEYS route key.
+    entry_state=r.get("sequential_entry_state",{}).get(key)
     if v is None or rr is None or state is None or entry_state is None:return None
     if len(state)!=12 or len(entry_state)!=12:return None
     try:v=float(v);rr=float(rr)
