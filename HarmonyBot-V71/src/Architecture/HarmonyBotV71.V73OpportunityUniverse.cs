@@ -100,6 +100,8 @@ namespace cAlgo.Robots
         // With no generated implementation the call is erased by the compiler.
         partial void V74EmbeddedScore(V72HcogOpportunity o, ref bool handled, ref bool selected,
             ref double mean, ref double lcb, ref double holdBars);
+        partial void V74EmbeddedProtect(V72HcogOpportunity o, int milestoneIndex, double[] milestoneFeatures,
+            ref bool handled, ref bool protect, ref double delta, ref double lcb);
 
         private void V74FrozenPolicyScoreOpportunity(V72HcogOpportunity o)
         {
