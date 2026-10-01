@@ -20,6 +20,8 @@ namespace cAlgo.Robots
         private static readonly double[] V74RcrReactionR = { .50, .75, 1.00 };
         private static readonly double[] V74RcrRetraceR = { .10, .25, .40 };
         private static readonly string[] V74RcrKey = { "R050_010", "R075_025", "R100_040" };
+        private static readonly double[] V74HybridAdverseCutR = { -.20, -.30, -.40, -.50 };
+        private static readonly string[] V74HybridKey = { "HS20", "HS30", "HS40", "HS50" };
 
         private sealed class V72HcogOpportunity
         {
@@ -50,6 +52,7 @@ namespace cAlgo.Robots
             public double[] V74RcrRisk = new double[3];
             public double[] V74RcrNetRr = new double[3];
             public double[] V74RcrOutcomeR = Enumerable.Repeat(double.NaN, 3).ToArray();
+            public double[] V74HybridOutcomeR = Enumerable.Repeat(double.NaN, 4).ToArray();
         }
 
         private readonly Dictionary<string,V72HcogOpportunity> _v72Hcog = new Dictionary<string,V72HcogOpportunity>(StringComparer.Ordinal);
@@ -407,6 +410,48 @@ namespace cAlgo.Robots
             }
         }
 
+        private void V74UpdateHybridSurvivalFrontiers(V72HcogOpportunity o,int i,bool nativeStop,bool nativeTarget)
+        {
+            if(o==null||o.RiskDistance<=0||i<0||i>=_m1Bars.Count)return;
+            double high=_m1Bars.HighPrices[i],low=_m1Bars.LowPrices[i],close=_m1Bars.ClosePrices[i];
+            bool buy=o.Direction==TradeDirection.Buy;
+            double closeR=(buy?close-o.Entry:o.Entry-close)/o.RiskDistance;
+            for(int p=0;p<V74HybridKey.Length;p++)
+            {
+                if(double.IsFinite(o.V74HybridOutcomeR[p]))continue;
+                // Native stop/target has priority on the bar it occurs. This avoids assuming
+                // an intrabar ordering that completed-bar logic cannot observe.
+                if(nativeStop){o.V74HybridOutcomeR[p]=-1.0;continue;}
+                if(nativeTarget){o.V74HybridOutcomeR[p]=o.NetRr;continue;}
+
+                int stage=-1;
+                for(int k=0;k<V74ProtectionTriggerBarLength(o);k++)
+                    if(o.V74ProtectionTriggerBar[k]>=0&&o.BarsActive>o.V74ProtectionTriggerBar[k])stage=k;
+
+                if(stage<0)
+                {
+                    // Early adverse cut is evaluated only at a completed M1 close and only
+                    // before a positive-reaction milestone has armed. It can never widen risk.
+                    if(closeR<=V74HybridAdverseCutR[p])
+                        o.V74HybridOutcomeR[p]=Math.Max(-1.0,closeR);
+                    continue;
+                }
+
+                double floor=buy
+                    ?o.Entry+o.RiskDistance*V74ProtectionFloorR[stage]
+                    :o.Entry-o.RiskDistance*V74ProtectionFloorR[stage];
+                bool floorHit=buy?low<=floor:high>=floor;
+                // Conservative ambiguity: if a floor and a later favorable excursion share
+                // one bar, the already-armed protective floor is assumed to fire first.
+                if(floorHit)o.V74HybridOutcomeR[p]=V74ProtectionFloorR[stage];
+            }
+        }
+
+        private int V74ProtectionTriggerBarLength(V72HcogOpportunity o)
+        {
+            return o==null||o.V74ProtectionTriggerBar==null?0:o.V74ProtectionTriggerBar.Length;
+        }
+
         private void V74FinalizeReactionConfirmedReentry(V72HcogOpportunity o,double close)
         {
             if(o==null)return;
@@ -427,13 +472,14 @@ namespace cAlgo.Robots
             double close=i>=0&&i<_m1Bars.Count?_m1Bars.ClosePrices[i]:(o.Direction==TradeDirection.Buy?_symbol.Bid:_symbol.Ask);
             double closeR=(o.Direction==TradeDirection.Buy?close-o.Entry:o.Entry-close)/o.RiskDistance,r=forcedR.HasValue?forcedR.Value:Math.Max(-1.0,Math.Min(o.NetRr,closeR));
             for(int k=0;k<V74ProtectionOutcomeRLength(o);k++)if(double.IsNaN(o.V74ProtectionOutcomeR[k]))o.V74ProtectionOutcomeR[k]=r;
+            for(int k=0;k<o.V74HybridOutcomeR.Length;k++)if(double.IsNaN(o.V74HybridOutcomeR[k]))o.V74HybridOutcomeR[k]=r;
             V74FinalizeReactionConfirmedReentry(o,close);
             o.Result=result;o.Active=false;o.State=V72HcogState.CLOSED;_v72HcogClosed++;V72HcogRecord(o,r);
             Print("[V72-HCOG-OUTCOME] id={0} setup={1} family={2} lane={3} abcd={4} coreOverlap={5} r={6:F6} mfeR={7:F6} maeR={8:F6} bars={9} result={10} hcapSelected={11} q={12:F9} lcb={13:F9} hold={14:F3} features={15} v74features={16}",
                 o.Id,o.SetupKey,o.Family,o.Lane,o.HasAbcdConfluence,o.CoreOverlapAtEntry,r,o.MfeR,o.MaeR,o.BarsActive,result,
                 o.HcapSelected,o.HcapQ,o.HcapLcb,o.HcapHoldBars,string.IsNullOrWhiteSpace(o.HcapFeatureCsv)?"NONE":o.HcapFeatureCsv,
                 string.IsNullOrWhiteSpace(o.V74FeatureCsv)?"NONE":o.V74FeatureCsv);
-            Print("[V74-PROTECTION-PATH] setup={0} family={1} lane={2} p025={3:F6} p050={4:F6} p075={5:F6} p100={6:F6} p150={7:F6} m025={8} m050={9} m075={10} m100={11} m150={12} r050010={13} rr050010={14:F6} r075025={15} rr075025={16:F6} r100040={17} rr100040={18:F6}",
+            Print("[V74-PROTECTION-PATH] setup={0} family={1} lane={2} p025={3:F6} p050={4:F6} p075={5:F6} p100={6:F6} p150={7:F6} m025={8} m050={9} m075={10} m100={11} m150={12} r050010={13} rr050010={14:F6} r075025={15} rr075025={16:F6} r100040={17} rr100040={18:F6} hs20={19:F6} hs30={20:F6} hs40={21:F6} hs50={22:F6}",
                 o.SetupKey,o.Family,o.Lane,o.V74ProtectionOutcomeR[0],o.V74ProtectionOutcomeR[1],o.V74ProtectionOutcomeR[2],o.V74ProtectionOutcomeR[3],o.V74ProtectionOutcomeR[4],
                 string.IsNullOrWhiteSpace(o.V74MilestoneFeatureCsv[0])?"NONE":o.V74MilestoneFeatureCsv[0],
                 string.IsNullOrWhiteSpace(o.V74MilestoneFeatureCsv[1])?"NONE":o.V74MilestoneFeatureCsv[1],
@@ -442,7 +488,8 @@ namespace cAlgo.Robots
                 string.IsNullOrWhiteSpace(o.V74MilestoneFeatureCsv[4])?"NONE":o.V74MilestoneFeatureCsv[4],
                 double.IsFinite(o.V74RcrOutcomeR[0])?o.V74RcrOutcomeR[0].ToString("R",System.Globalization.CultureInfo.InvariantCulture):"NA",o.V74RcrNetRr[0],
                 double.IsFinite(o.V74RcrOutcomeR[1])?o.V74RcrOutcomeR[1].ToString("R",System.Globalization.CultureInfo.InvariantCulture):"NA",o.V74RcrNetRr[1],
-                double.IsFinite(o.V74RcrOutcomeR[2])?o.V74RcrOutcomeR[2].ToString("R",System.Globalization.CultureInfo.InvariantCulture):"NA",o.V74RcrNetRr[2]);
+                double.IsFinite(o.V74RcrOutcomeR[2])?o.V74RcrOutcomeR[2].ToString("R",System.Globalization.CultureInfo.InvariantCulture):"NA",o.V74RcrNetRr[2],
+                o.V74HybridOutcomeR[0],o.V74HybridOutcomeR[1],o.V74HybridOutcomeR[2],o.V74HybridOutcomeR[3]);
         }
 
         private void V72HcogProcessActive(int i,DateTime utc,V72HcogOpportunity o)
@@ -452,6 +499,7 @@ namespace cAlgo.Robots
             o.MfeR=Math.Max(o.MfeR,fav);o.MaeR=Math.Max(o.MaeR,adv);bool stop=o.Direction==TradeDirection.Buy?low<=o.Stop:high>=o.Stop,target=o.Direction==TradeDirection.Buy?high>=o.Target:low<=o.Target;
             V74UpdateProtectionCounterfactuals(o,i,stop,target);
             V74UpdateReactionConfirmedReentry(o,i,stop,target);
+            V74UpdateHybridSurvivalFrontiers(o,i,stop,target);
             if(stop&&target){V72HcogFinalizeOutcome(o,i,"AMBIGUOUS_STOP_FIRST_CONSERVATIVE",-1.0);return;}if(stop){V72HcogFinalizeOutcome(o,i,"STRUCTURAL_STOP",-1.0);return;}
             if(target){V72HcogFinalizeOutcome(o,i,"CANONICAL_TARGET",o.NetRr);return;}if(o.BarsActive>=180)V72HcogFinalizeOutcome(o,i,"FIXED_180M_HORIZON");
         }
