@@ -175,6 +175,7 @@ namespace cAlgo.Robots
             public double[] V74HighConvictionNetRr = new double[4];
             public double[] V74HighConvictionOutcomeR = Enumerable.Repeat(double.NaN, 4).ToArray();
             public int[] V74SequentialReactionBar = Enumerable.Repeat(-1,V74SequentialKey.Length).ToArray();
+            public int[] V74SequentialEntryBar = Enumerable.Repeat(-1,V74SequentialKey.Length).ToArray();
             public bool[] V74SequentialActive = new bool[V74SequentialKey.Length];
             public bool[] V74SequentialPositiveArmed = new bool[V74SequentialKey.Length];
             public int[] V74SequentialBars = new int[V74SequentialKey.Length];
@@ -790,7 +791,7 @@ namespace cAlgo.Robots
                     double risk=Math.Abs(entry-stop);
                     if(PriceToPips(risk)<MinStopLossPips||!GeometryValid(o.Direction,entry,stop,o.Target))continue;
                     double rr=netTargetPips/Math.Max(1e-9,PriceToPips(risk));if(rr+1e-9<2.30)continue;
-                    o.V74SequentialActive[k]=true;o.V74SequentialEntry[k]=entry;o.V74SequentialStop[k]=stop;o.V74SequentialTarget[k]=o.Target;
+                    o.V74SequentialActive[k]=true;o.V74SequentialEntryBar[k]=o.BarsActive;o.V74SequentialEntry[k]=entry;o.V74SequentialStop[k]=stop;o.V74SequentialTarget[k]=o.Target;
                     o.V74SequentialRisk[k]=risk;o.V74SequentialNetRr[k]=rr;o.V74SequentialBars[k]=0;o.V74SequentialTriggerBar[k]=-1;
                     o.V74SequentialLockBar[k]=-1;o.V74SequentialLockedR[k]=0;o.V74SequentialRouteMfeR[k]=0;o.V74SequentialRouteMaeR[k]=0;
                     o.V74SequentialPositiveArmed[k]=false;
@@ -941,6 +942,10 @@ namespace cAlgo.Robots
                 seqParts.Add("b"+k+"="+(double.IsFinite(o.V74SequentialOutcomeR[k])?o.V74SequentialOutcomeR[k].ToString("R",System.Globalization.CultureInfo.InvariantCulture):"NA"));
                 seqParts.Add("rr"+k+"="+o.V74SequentialNetRr[k].ToString("R",System.Globalization.CultureInfo.InvariantCulture));
                 seqParts.Add("rb"+k+"="+o.V74SequentialBars[k].ToString(System.Globalization.CultureInfo.InvariantCulture));
+                seqParts.Add("re"+k+"="+o.V74SequentialReactionBar[k].ToString(System.Globalization.CultureInfo.InvariantCulture));
+                seqParts.Add("eb"+k+"="+o.V74SequentialEntryBar[k].ToString(System.Globalization.CultureInfo.InvariantCulture));
+                seqParts.Add("tb"+k+"="+(o.V74SequentialEntryBar[k]>=0&&o.V74SequentialTriggerBar[k]>=0?o.V74SequentialEntryBar[k]+o.V74SequentialTriggerBar[k]:-1).ToString(System.Globalization.CultureInfo.InvariantCulture));
+                seqParts.Add("lb"+k+"="+(o.V74SequentialEntryBar[k]>=0&&o.V74SequentialLockBar[k]>=0?o.V74SequentialEntryBar[k]+o.V74SequentialLockBar[k]:-1).ToString(System.Globalization.CultureInfo.InvariantCulture));
             }
             Print("[V74-SEQUENTIAL-PATH] "+string.Join(" ",seqParts));
         }

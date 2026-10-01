@@ -143,7 +143,7 @@ def load_rows(root,windows):
                     except Exception:pass
             paths[pm.group(1)]={"protect_r":protect,"milestones":miles,"rcr":rcr,"hybrid":hybrid,
                                 "reaction_commit":reaction_commit,"high_conviction":high_conviction,
-                                "sequential":{},"sequential_rr":{},"sequential_bars":{},"sequential_state":{},"sequential_entry_state":{},"sequential_trigger_state":{},"sequential_decision_state":{}}
+                                "sequential":{},"sequential_rr":{},"sequential_bars":{},"sequential_reaction_bar":{},"sequential_entry_bar":{},"sequential_trigger_bar":{},"sequential_decision_bar":{},"sequential_state":{},"sequential_entry_state":{},"sequential_trigger_state":{},"sequential_decision_state":{}}
         for line in txt.splitlines():
             if "[V74-SEQUENTIAL-PATH]" not in line:continue
             payload=line.split("[V74-SEQUENTIAL-PATH]",1)[1].strip();kv={}
@@ -153,7 +153,7 @@ def load_rows(root,windows):
             setup=kv.get("setup")
             if not setup:continue
             p=paths.setdefault(setup,{"protect_r":{},"milestones":{},"rcr":{},"hybrid":{},"reaction_commit":{},"high_conviction":{},
-                                      "sequential":{},"sequential_rr":{},"sequential_bars":{},"sequential_state":{},"sequential_entry_state":{},
+                                      "sequential":{},"sequential_rr":{},"sequential_bars":{},"sequential_reaction_bar":{},"sequential_entry_bar":{},"sequential_trigger_bar":{},"sequential_decision_bar":{},"sequential_state":{},"sequential_entry_state":{},
                                       "sequential_trigger_state":{},"sequential_decision_state":{}})
             states={}
             for label,field in (("025","m025"),("050","m050")):
@@ -163,7 +163,7 @@ def load_rows(root,windows):
                         vv=[float(x) for x in raw.split(",")]
                         if len(vv)==SEQUENTIAL_STATE_FEATURE_COUNT and all(math.isfinite(x) for x in vv):states[label]=vv
                     except Exception:pass
-            seq={};seq_rr={};seq_bars={};entry_states={};trigger_states={};decision_states={}
+            seq={};seq_rr={};seq_bars={};reaction_bars={};entry_bars={};trigger_bars={};decision_bars={};entry_states={};trigger_states={};decision_states={}
             for idx,key in enumerate(SEQUENTIAL_KEYS):
                 for prefix,dst in (("e",entry_states),("t",trigger_states),("d",decision_states)):
                     raw=kv.get(prefix+str(idx))
@@ -185,8 +185,15 @@ def load_rows(root,windows):
                     except Exception:pass
                 try:seq_bars[key]=max(1,int(rawbars))
                 except Exception:pass
-            p["sequential"]=seq;p["sequential_rr"]=seq_rr;p["sequential_bars"]=seq_bars;p["sequential_state"]=states
-            p["sequential_entry_state"]=entry_states;p["sequential_trigger_state"]=trigger_states;p["sequential_decision_state"]=decision_states
+                for prefix,dst in (("re",reaction_bars),("eb",entry_bars),("tb",trigger_bars),("lb",decision_bars)):
+                    try:
+                        vv=int(kv.get(prefix+str(idx),"-1"))
+                        if vv>=0:dst[key]=vv
+                    except Exception:pass
+            p["sequential"]=seq;p["sequential_rr"]=seq_rr;p["sequential_bars"]=seq_bars
+            p["sequential_reaction_bar"]=reaction_bars;p["sequential_entry_bar"]=entry_bars
+            p["sequential_trigger_bar"]=trigger_bars;p["sequential_decision_bar"]=decision_bars
+            p["sequential_state"]=states;p["sequential_entry_state"]=entry_states;p["sequential_trigger_state"]=trigger_states;p["sequential_decision_state"]=decision_states
         for m in RX.finditer(txt):
             fam=m.group(3); lane=m.group(4); raw=m.group(17) if m.group(17) not in (None,"NONE") else m.group(16)
             if fam not in FAMILIES or lane not in (
@@ -198,7 +205,7 @@ def load_rows(root,windows):
             if len(fv)==12: fv=fv+[0.0]*(len(FEATURE_NAMES)-12)
             if len(fv)!=len(FEATURE_NAMES) or not all(math.isfinite(x) for x in fv): continue
             action="CONTINUATION" if lane in ("HCOG_FAILURE_CONTINUATION","HCOG_ABCD_STANDALONE_CONTINUATION_SHADOW") else "REVERSAL"
-            path=paths.get(m.group(2),{"protect_r":{},"milestones":{},"rcr":{},"hybrid":{},"reaction_commit":{},"high_conviction":{},"sequential":{},"sequential_rr":{},"sequential_bars":{},"sequential_state":{},"sequential_entry_state":{},"sequential_trigger_state":{},"sequential_decision_state":{}})
+            path=paths.get(m.group(2),{"protect_r":{},"milestones":{},"rcr":{},"hybrid":{},"reaction_commit":{},"high_conviction":{},"sequential":{},"sequential_rr":{},"sequential_bars":{},"sequential_reaction_bar":{},"sequential_entry_bar":{},"sequential_trigger_bar":{},"sequential_decision_bar":{},"sequential_state":{},"sequential_entry_state":{},"sequential_trigger_state":{},"sequential_decision_state":{}})
             rows.append({"window":w,"id":m.group(1),"setup":m.group(2),"family":fam,
                          "action":action,
                          "r":float(m.group(7)),"mfe":float(m.group(8)),"mae":float(m.group(9)),
@@ -210,6 +217,10 @@ def load_rows(root,windows):
                          "sequential":path.get("sequential",{}),
                          "sequential_rr":path.get("sequential_rr",{}),
                          "sequential_bars":path.get("sequential_bars",{}),
+                         "sequential_reaction_bar":path.get("sequential_reaction_bar",{}),
+                         "sequential_entry_bar":path.get("sequential_entry_bar",{}),
+                         "sequential_trigger_bar":path.get("sequential_trigger_bar",{}),
+                         "sequential_decision_bar":path.get("sequential_decision_bar",{}),
                          "sequential_state":path.get("sequential_state",{}),
                          "sequential_entry_state":path.get("sequential_entry_state",{}),
                          "sequential_trigger_state":path.get("sequential_trigger_state",{}),
