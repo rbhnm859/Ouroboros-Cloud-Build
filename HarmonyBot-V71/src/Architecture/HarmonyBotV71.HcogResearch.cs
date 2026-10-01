@@ -124,6 +124,52 @@ namespace cAlgo.Robots
             "M15_R050_H_RR40_F20","M15_R050_H_RR40_F30","M15_R050_D_RR40_F20","M15_R050_D_RR40_F30"
         };
 
+
+        // V74 true late-entry stage auction. Unlike V74SequentialKey, these arms DO NOT
+        // commit capital at the first R025/R050 hold. They freeze that completed-bar
+        // geometry as an observable anchor, then wait uninvested for M05/M10/M15
+        // first-passage plus a later completed-M1 hold. Only then is a NEW entry/stop
+        // counterfactual created. This makes stage state legal for entry selection and
+        // prevents post-entry trigger/decision state from leaking backward.
+        private static readonly string[] V74LateAuctionKey = {
+            "M05_R025_H_RR35","M05_R025_D_RR35","M05_R050_H_RR35","M05_R050_D_RR35",
+            "M05_R025_H_RR40","M05_R025_D_RR40","M05_R050_H_RR40","M05_R050_D_RR40",
+            "M10_R025_H_RR35","M10_R025_D_RR35","M10_R050_H_RR35","M10_R050_D_RR35",
+            "M10_R025_H_RR40","M10_R025_D_RR40","M10_R050_H_RR40","M10_R050_D_RR40",
+            "M15_R025_H_RR35","M15_R025_D_RR35","M15_R050_H_RR35","M15_R050_D_RR35",
+            "M15_R025_H_RR40","M15_R025_D_RR40","M15_R050_H_RR40","M15_R050_D_RR40"
+        };
+        private static readonly double[] V74LateAuctionStageR = {
+            .05,.05,.05,.05,.05,.05,.05,.05,
+            .10,.10,.10,.10,.10,.10,.10,.10,
+            .15,.15,.15,.15,.15,.15,.15,.15
+        };
+        private static readonly double[] V74LateAuctionStageHoldR = {
+            .02,.02,.02,.02,.02,.02,.02,.02,
+            .05,.05,.05,.05,.05,.05,.05,.05,
+            .08,.08,.08,.08,.08,.08,.08,.08
+        };
+        private static readonly double[] V74LateAuctionReactionR = {
+            .25,.25,.50,.50,.25,.25,.50,.50,
+            .25,.25,.50,.50,.25,.25,.50,.50,
+            .25,.25,.50,.50,.25,.25,.50,.50
+        };
+        private static readonly double[] V74LateAuctionReactionHoldR = {
+            .10,.10,.25,.25,.10,.10,.25,.25,
+            .10,.10,.25,.25,.10,.10,.25,.25,
+            .10,.10,.25,.25,.10,.10,.25,.25
+        };
+        private static readonly bool[] V74LateAuctionRequireDirectional = {
+            false,true,false,true,false,true,false,true,
+            false,true,false,true,false,true,false,true,
+            false,true,false,true,false,true,false,true
+        };
+        private static readonly double[] V74LateAuctionDesiredRr = {
+            3.5,3.5,3.5,3.5,4.0,4.0,4.0,4.0,
+            3.5,3.5,3.5,3.5,4.0,4.0,4.0,4.0,
+            3.5,3.5,3.5,3.5,4.0,4.0,4.0,4.0
+        };
+
         private sealed class V72HcogOpportunity
         {
             public string Id, SetupKey, Family, Hypotheses, Lane, Result;
@@ -194,6 +240,30 @@ namespace cAlgo.Robots
             public string[] V74SequentialEntryStateCsv = new string[V74SequentialKey.Length];
             public string[] V74SequentialTriggerStateCsv = new string[V74SequentialKey.Length];
             public string[] V74SequentialDecisionStateCsv = new string[V74SequentialKey.Length];
+
+            // True late-entry auction telemetry. Reaction/anchor/trigger bars are all
+            // observed before capital entry. Outcome starts only after V74LateAuctionEntryBar.
+            public int[] V74LateAuctionReactionBar = Enumerable.Repeat(-1,V74LateAuctionKey.Length).ToArray();
+            public int[] V74LateAuctionAnchorBar = Enumerable.Repeat(-1,V74LateAuctionKey.Length).ToArray();
+            public int[] V74LateAuctionTriggerBar = Enumerable.Repeat(-1,V74LateAuctionKey.Length).ToArray();
+            public int[] V74LateAuctionEntryBar = Enumerable.Repeat(-1,V74LateAuctionKey.Length).ToArray();
+            public bool[] V74LateAuctionPending = new bool[V74LateAuctionKey.Length];
+            public bool[] V74LateAuctionActive = new bool[V74LateAuctionKey.Length];
+            public int[] V74LateAuctionBars = new int[V74LateAuctionKey.Length];
+            public double[] V74LateAuctionAnchorEntry = new double[V74LateAuctionKey.Length];
+            public double[] V74LateAuctionAnchorStop = new double[V74LateAuctionKey.Length];
+            public double[] V74LateAuctionAnchorRisk = new double[V74LateAuctionKey.Length];
+            public double[] V74LateAuctionAnchorMfeR = new double[V74LateAuctionKey.Length];
+            public double[] V74LateAuctionAnchorMaeR = new double[V74LateAuctionKey.Length];
+            public double[] V74LateAuctionEntry = new double[V74LateAuctionKey.Length];
+            public double[] V74LateAuctionStop = new double[V74LateAuctionKey.Length];
+            public double[] V74LateAuctionTarget = new double[V74LateAuctionKey.Length];
+            public double[] V74LateAuctionRisk = new double[V74LateAuctionKey.Length];
+            public double[] V74LateAuctionNetRr = new double[V74LateAuctionKey.Length];
+            public double[] V74LateAuctionOutcomeR = Enumerable.Repeat(double.NaN,V74LateAuctionKey.Length).ToArray();
+            public string[] V74LateAuctionMaturityStateCsv = new string[V74LateAuctionKey.Length];
+            public string[] V74LateAuctionEntryStateCsv = new string[V74LateAuctionKey.Length];
+
         }
 
         private readonly Dictionary<string,V72HcogOpportunity> _v72Hcog = new Dictionary<string,V72HcogOpportunity>(StringComparer.Ordinal);
@@ -848,6 +918,134 @@ namespace cAlgo.Robots
             }
         }
 
+
+        private void V74UpdateTrueLateEntryAuction(V72HcogOpportunity o,int i,bool nativeStop,bool nativeTarget)
+        {
+            if(o==null||o.RiskDistance<=0||i<1||i>=_m1Bars.Count)return;
+            double open=_m1Bars.OpenPrices[i],close=_m1Bars.ClosePrices[i],high=_m1Bars.HighPrices[i],low=_m1Bars.LowPrices[i];
+            bool buy=o.Direction==TradeDirection.Buy;
+            bool directional=buy?close>open:close<open;
+            double virtualFav=buy?(high-o.Entry)/o.RiskDistance:(o.Entry-low)/o.RiskDistance;
+            double virtualCloseR=(buy?close-o.Entry:o.Entry-close)/o.RiskDistance;
+
+            for(int k=0;k<V74LateAuctionKey.Length;k++)
+            {
+                if(double.IsFinite(o.V74LateAuctionOutcomeR[k]))continue;
+
+                // Once capital is actually committed, native route termination must not
+                // rewrite the late-entry payoff. Resolve the new geometry independently.
+                if(o.V74LateAuctionActive[k])
+                {
+                    o.V74LateAuctionBars[k]++;
+                    double ae=o.V74LateAuctionEntry[k],ar=o.V74LateAuctionRisk[k];
+                    double routeCloseR=(buy?close-ae:ae-close)/ar;
+                    bool stopHit=buy?low<=o.V74LateAuctionStop[k]:high>=o.V74LateAuctionStop[k];
+                    bool targetHit=buy?high>=o.V74LateAuctionTarget[k]:low<=o.V74LateAuctionTarget[k];
+                    if(stopHit){o.V74LateAuctionOutcomeR[k]=-1.0;o.V74LateAuctionActive[k]=false;continue;}
+                    if(targetHit){o.V74LateAuctionOutcomeR[k]=o.V74LateAuctionNetRr[k];o.V74LateAuctionActive[k]=false;continue;}
+                    // Close-only early adverse decision can reduce loss but never widens stop.
+                    if(routeCloseR<=-.15)
+                    {
+                        o.V74LateAuctionOutcomeR[k]=Math.Max(-1.0,routeCloseR);
+                        o.V74LateAuctionActive[k]=false;
+                    }
+                    continue;
+                }
+
+                // Before entry this arm is observation-only. If the native thesis is
+                // structurally dead / already at target, no capital may be invented later.
+                if(nativeStop||nativeTarget)
+                {
+                    o.V74LateAuctionPending[k]=false;
+                    continue;
+                }
+
+                if(o.V74LateAuctionReactionBar[k]<0)
+                {
+                    if(virtualFav+1e-12>=V74LateAuctionReactionR[k])
+                        o.V74LateAuctionReactionBar[k]=o.BarsActive;
+                    continue; // reaction bar itself can never be an entry bar
+                }
+
+                if(!o.V74LateAuctionPending[k])
+                {
+                    if(o.BarsActive<=o.V74LateAuctionReactionBar[k])continue;
+                    if(virtualCloseR+1e-12<V74LateAuctionReactionHoldR[k])continue;
+                    if(V74LateAuctionRequireDirectional[k]&&!directional)continue;
+
+                    // Freeze the early completed-bar route as the counterfactual anchor,
+                    // but keep capital at zero. M05/M10/M15 are measured from this anchor.
+                    double anchorEntry=close;
+                    double netTargetPips=PriceToPips(Math.Abs(o.Target-anchorEntry))-ModeledCostPips();
+                    if(netTargetPips<=0)continue;
+                    double desiredRisk=PipsToPrice(netTargetPips/Math.Max(2.30,V74LateAuctionDesiredRr[k]));
+                    double desiredStop=buy?anchorEntry-desiredRisk:anchorEntry+desiredRisk;
+                    double anchorStop=buy?Math.Max(o.Stop,desiredStop):Math.Min(o.Stop,desiredStop);
+                    double anchorRisk=Math.Abs(anchorEntry-anchorStop);
+                    if(PriceToPips(anchorRisk)<MinStopLossPips||!GeometryValid(o.Direction,anchorEntry,anchorStop,o.Target))continue;
+
+                    o.V74LateAuctionPending[k]=true;o.V74LateAuctionAnchorBar[k]=o.BarsActive;
+                    o.V74LateAuctionAnchorEntry[k]=anchorEntry;o.V74LateAuctionAnchorStop[k]=anchorStop;o.V74LateAuctionAnchorRisk[k]=anchorRisk;
+                    o.V74LateAuctionAnchorMfeR[k]=0;o.V74LateAuctionAnchorMaeR[k]=0;o.V74LateAuctionTriggerBar[k]=-1;
+                    continue;
+                }
+
+                double ce=o.V74LateAuctionAnchorEntry[k],cr=o.V74LateAuctionAnchorRisk[k];
+                if(cr<=0){o.V74LateAuctionPending[k]=false;continue;}
+                double anchorFav=buy?(high-ce)/cr:(ce-low)/cr;
+                double anchorAdv=buy?(ce-low)/cr:(high-ce)/cr;
+                double anchorCloseR=(buy?close-ce:ce-close)/cr;
+                o.V74LateAuctionAnchorMfeR[k]=Math.Max(o.V74LateAuctionAnchorMfeR[k],anchorFav);
+                o.V74LateAuctionAnchorMaeR[k]=Math.Max(o.V74LateAuctionAnchorMaeR[k],anchorAdv);
+
+                if(o.V74LateAuctionTriggerBar[k]<0)
+                {
+                    if(anchorFav+1e-12>=V74LateAuctionStageR[k])
+                        o.V74LateAuctionTriggerBar[k]=o.BarsActive;
+                    continue; // first-passage bar is observation only
+                }
+
+                if(o.BarsActive<=o.V74LateAuctionTriggerBar[k]||anchorCloseR+1e-12<V74LateAuctionStageHoldR[k])continue;
+
+                // THIS is the legal auction decision state: all features are observed on
+                // a completed M1 bar while the arm still has zero capital.
+                o.V74LateAuctionMaturityStateCsv[k]=string.Join(",",V74RouteStateFeatures(
+                    o,i,ce,cr,o.Target,Math.Max(0,o.BarsActive-o.V74LateAuctionAnchorBar[k]),
+                    o.V74LateAuctionAnchorMfeR[k],o.V74LateAuctionAnchorMaeR[k],V74LateAuctionStageR[k])
+                    .Select(v=>v.ToString("R",System.Globalization.CultureInfo.InvariantCulture)));
+
+                double entry=close,lateNetTargetPips=PriceToPips(Math.Abs(o.Target-entry))-ModeledCostPips();
+                if(lateNetTargetPips<=0)continue;
+                double lateDesiredRisk=PipsToPrice(lateNetTargetPips/Math.Max(2.30,V74LateAuctionDesiredRr[k]));
+                double lateDesiredStop=buy?entry-lateDesiredRisk:entry+lateDesiredRisk;
+                double stop=buy?Math.Max(o.Stop,lateDesiredStop):Math.Min(o.Stop,lateDesiredStop);
+                double risk=Math.Abs(entry-stop);
+                if(PriceToPips(risk)<MinStopLossPips||!GeometryValid(o.Direction,entry,stop,o.Target))continue;
+                double rr=lateNetTargetPips/Math.Max(1e-9,PriceToPips(risk));
+                if(rr+1e-9<2.30)continue;
+
+                o.V74LateAuctionPending[k]=false;o.V74LateAuctionActive[k]=true;o.V74LateAuctionEntryBar[k]=o.BarsActive;
+                o.V74LateAuctionEntry[k]=entry;o.V74LateAuctionStop[k]=stop;o.V74LateAuctionTarget[k]=o.Target;
+                o.V74LateAuctionRisk[k]=risk;o.V74LateAuctionNetRr[k]=rr;o.V74LateAuctionBars[k]=0;
+                o.V74LateAuctionEntryStateCsv[k]=string.Join(",",V74RouteStateFeatures(
+                    o,i,entry,risk,o.Target,0,0,0,V74LateAuctionStageR[k])
+                    .Select(v=>v.ToString("R",System.Globalization.CultureInfo.InvariantCulture)));
+                // No same-bar outcome after completed-bar entry.
+            }
+        }
+
+        private void V74FinalizeTrueLateEntryAuction(V72HcogOpportunity o,double close)
+        {
+            if(o==null)return;
+            for(int k=0;k<V74LateAuctionKey.Length;k++)
+            {
+                if(double.IsFinite(o.V74LateAuctionOutcomeR[k])||!o.V74LateAuctionActive[k]||o.V74LateAuctionRisk[k]<=0)continue;
+                double closeR=(o.Direction==TradeDirection.Buy?close-o.V74LateAuctionEntry[k]:o.V74LateAuctionEntry[k]-close)/o.V74LateAuctionRisk[k];
+                o.V74LateAuctionOutcomeR[k]=Math.Max(-1.0,Math.Min(o.V74LateAuctionNetRr[k],closeR));
+                o.V74LateAuctionActive[k]=false;
+            }
+        }
+
         private void V74FinalizeCausalSequentialDelayedCommit(V72HcogOpportunity o,double close)
         {
             if(o==null)return;
@@ -907,6 +1105,7 @@ namespace cAlgo.Robots
             V74FinalizeReactionCommitLadders(o,close);
             V74FinalizeHighConvictionDelayedCommit(o,close);
             V74FinalizeCausalSequentialDelayedCommit(o,close);
+            V74FinalizeTrueLateEntryAuction(o,close);
             o.Result=result;o.Active=false;o.State=V72HcogState.CLOSED;_v72HcogClosed++;V72HcogRecord(o,r);
             Print("[V72-HCOG-OUTCOME] id={0} setup={1} family={2} lane={3} abcd={4} coreOverlap={5} r={6:F6} mfeR={7:F6} maeR={8:F6} bars={9} result={10} hcapSelected={11} q={12:F9} lcb={13:F9} hold={14:F3} features={15} v74features={16}",
                 o.Id,o.SetupKey,o.Family,o.Lane,o.HasAbcdConfluence,o.CoreOverlapAtEntry,r,o.MfeR,o.MaeR,o.BarsActive,result,
@@ -948,6 +1147,22 @@ namespace cAlgo.Robots
                 seqParts.Add("lb"+k+"="+(o.V74SequentialEntryBar[k]>=0&&o.V74SequentialLockBar[k]>=0?o.V74SequentialEntryBar[k]+o.V74SequentialLockBar[k]:-1).ToString(System.Globalization.CultureInfo.InvariantCulture));
             }
             Print("[V74-SEQUENTIAL-PATH] "+string.Join(" ",seqParts));
+
+            var auctionParts=new List<string>{"setup="+o.SetupKey,"family="+o.Family,"lane="+o.Lane};
+            for(int k=0;k<V74LateAuctionKey.Length;k++)
+            {
+                auctionParts.Add("m"+k+"="+(string.IsNullOrWhiteSpace(o.V74LateAuctionMaturityStateCsv[k])?"NONE":o.V74LateAuctionMaturityStateCsv[k]));
+                auctionParts.Add("e"+k+"="+(string.IsNullOrWhiteSpace(o.V74LateAuctionEntryStateCsv[k])?"NONE":o.V74LateAuctionEntryStateCsv[k]));
+                auctionParts.Add("b"+k+"="+(double.IsFinite(o.V74LateAuctionOutcomeR[k])?o.V74LateAuctionOutcomeR[k].ToString("R",System.Globalization.CultureInfo.InvariantCulture):"NA"));
+                auctionParts.Add("rr"+k+"="+o.V74LateAuctionNetRr[k].ToString("R",System.Globalization.CultureInfo.InvariantCulture));
+                auctionParts.Add("rx"+k+"="+o.V74LateAuctionReactionBar[k].ToString(System.Globalization.CultureInfo.InvariantCulture));
+                auctionParts.Add("ab"+k+"="+o.V74LateAuctionAnchorBar[k].ToString(System.Globalization.CultureInfo.InvariantCulture));
+                auctionParts.Add("tb"+k+"="+o.V74LateAuctionTriggerBar[k].ToString(System.Globalization.CultureInfo.InvariantCulture));
+                auctionParts.Add("eb"+k+"="+o.V74LateAuctionEntryBar[k].ToString(System.Globalization.CultureInfo.InvariantCulture));
+                auctionParts.Add("rb"+k+"="+o.V74LateAuctionBars[k].ToString(System.Globalization.CultureInfo.InvariantCulture));
+            }
+            Print("[V74-LATE-AUCTION-PATH] "+string.Join(" ",auctionParts));
+
         }
 
         private void V72HcogProcessActive(int i,DateTime utc,V72HcogOpportunity o)
@@ -961,6 +1176,7 @@ namespace cAlgo.Robots
             V74UpdateReactionCommitLadders(o,i,stop,target);
             V74UpdateHighConvictionDelayedCommit(o,i,stop,target);
             V74UpdateCausalSequentialDelayedCommit(o,i,stop,target);
+            V74UpdateTrueLateEntryAuction(o,i,stop,target);
             if(stop&&target){V72HcogFinalizeOutcome(o,i,"AMBIGUOUS_STOP_FIRST_CONSERVATIVE",-1.0);return;}if(stop){V72HcogFinalizeOutcome(o,i,"STRUCTURAL_STOP",-1.0);return;}
             if(target){V72HcogFinalizeOutcome(o,i,"CANONICAL_TARGET",o.NetRr);return;}if(o.BarsActive>=180)V72HcogFinalizeOutcome(o,i,"FIXED_180M_HORIZON");
         }
