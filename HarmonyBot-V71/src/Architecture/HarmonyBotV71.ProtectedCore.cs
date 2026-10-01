@@ -110,6 +110,7 @@ namespace cAlgo.Robots
         protected override void OnStop()
         {
             V72HcogFinalizeAndPrint();
+            V73PrintOpportunityUniverseSummary();
             V71FinalizeExpansionShadows();
             CancelAllOwnPending("BOT_STOP");
             EnsureServerProtection();
