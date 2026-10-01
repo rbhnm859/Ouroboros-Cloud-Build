@@ -192,7 +192,7 @@ summary={
    "no_stop_widening":True,"partial_exit":"SINGLE_BASKET_ONLY","grid":False,"minimum_route_net_rr":MIN_RR,
    "selection":"TRAINING_ONLY_HIERARCHICAL_PARTIAL_POOLING_PLUS_ROBUST_GATE_MARGIN"},
  "models":{},"validation_used":False,"fresh_used":False}
-models_blob={"architecture":"V74_CAUSAL_PER_OPPORTUNITY_ACTION_RANKER","models":{}}
+models_blob={"architecture":"V74_CAUSAL_PER_OPPORTUNITY_ACTION_RANKER","shared_folds":{},"models":{}}
 passers=[]
 VARIANTS=[
  ("BA_RANK_KEEP100",0.00,0.00),
@@ -217,7 +217,7 @@ def train_year_route_stability(tr,key,train_windows):
             "win_floor":min(z["win"] for z in valid),
             "positive_years":sum(z["mean"]>0 for z in valid)}
 
-def opportunity_ranked(rows_,route_models,route_stability,min_margin=0.0):
+def opportunity_ranked(rows_,route_models,route_stability):
     by_setup={}
     for key in EVAL_KEYS:
         model=route_models[key]
@@ -238,7 +238,6 @@ def opportunity_ranked(rows_,route_models,route_stability,min_margin=0.0):
         if not cand:continue
         best=cand[0];second=cand[1]["_route_utility"] if len(cand)>1 else -999.0
         margin=best["_route_utility"]-second
-        if margin+1e-12<min_margin:continue
         q=dict(best);h=q.pop("_hz");q["route_pred_mean"]=h["mean"];q["route_pred_win"]=h["win"]
         q["route_pred_lcb"]=h["lcb"];q["route_support"]=h["support"];q["route_utility"]=q.pop("_route_utility")
         q["route_margin"]=margin;winners.append(q)
@@ -252,6 +251,17 @@ def select_ranked(ranked,threshold,abcd_allowed=True):
         z.append(r)
     return z
 
+def assert_ranked_integrity(ranked,allowed_windows):
+    seen=set()
+    for r in ranked:
+        ident=(r["window"],r["setup"])
+        if ident in seen:raise SystemExit("V74 ranked duplicate setup identity: "+repr(ident))
+        seen.add(ident)
+        if r["window"] not in allowed_windows:raise SystemExit("V74 ranked window leakage: "+str(r["window"]))
+        if r["sequential_key"] not in EVAL_KEYS:raise SystemExit("V74 illegal ranked route: "+str(r["sequential_key"]))
+        if not math.isfinite(float(r["route_utility"])):raise SystemExit("V74 non-finite route utility")
+        if float(r["route_margin"]) < -1e-12:raise SystemExit("V74 negative route winner margin")
+
 fold_results={name:{} for name,_,_ in VARIANTS}
 fold_policies={name:{} for name,_,_ in VARIANTS}
 for test in BURNED:
@@ -259,8 +269,15 @@ for test in BURNED:
     tr=[r for r in rows if r["window"] in train_windows];te=[r for r in rows if r["window"]==test]
     route_models={key:train(tr,key) for key in EVAL_KEYS}
     route_stability={key:train_year_route_stability(tr,key,train_windows) for key in EVAL_KEYS}
+    tr_rank_all=opportunity_ranked(tr,route_models,route_stability)
+    te_rank_all=opportunity_ranked(te,route_models,route_stability)
+    assert_ranked_integrity(tr_rank_all,set(train_windows))
+    assert_ranked_integrity(te_rank_all,{test})
+    models_blob["shared_folds"][test]={"training_windows":train_windows,
+                                      "route_models":route_models,
+                                      "route_stability":route_stability}
     for name,q,min_margin in VARIANTS:
-        tr_rank=opportunity_ranked(tr,route_models,route_stability,min_margin)
+        tr_rank=[r for r in tr_rank_all if r["route_margin"]+1e-12>=min_margin]
         vals=[r["route_utility"] for r in tr_rank if math.isfinite(r["route_utility"])]
         th=quantile(vals,q) if vals else math.inf
         train_sel=select_ranked(tr_rank,th,True)
@@ -268,7 +285,7 @@ for test in BURNED:
         feasible=bool(len(train_sel)>=1750 and all(m["n"]>=220 for m in yearly))
         abcd=metrics([r for r in train_sel if r["family"]=="ABCD"])
         abcd_ok=bool(abcd["n"]>=ABCD_TRAIN_MIN_N and abcd["mean_r"]>0 and abcd["pf_r"]>=ABCD_TRAIN_MIN_PF and abcd["lcb_r"]>0)
-        te_rank=opportunity_ranked(te,route_models,route_stability,min_margin)
+        te_rank=[r for r in te_rank_all if r["route_margin"]+1e-12>=min_margin]
         sel=select_ranked(te_rank,th,abcd_ok) if feasible else []
         m=metrics(sel)
         route_counts={}
@@ -284,8 +301,7 @@ for test in BURNED:
         fold_results[name][test]=m
         fold_policies[name][test]={"policy":"PER_OPPORTUNITY_ROUTE_WINNER","selection_quantile":q,
                                    "selection_threshold":th,"route_margin_floor":min_margin,
-                                   "route_models":route_models,"route_stability":route_stability,
-                                   "abcd_capital_eligible":abcd_ok}
+                                   "fold_ref":test,"abcd_capital_eligible":abcd_ok}
 
 for name,q,min_margin in VARIANTS:
     folds=fold_results[name];policies=fold_policies[name]
@@ -301,6 +317,9 @@ for name,q,min_margin in VARIANTS:
 summary["architecture"]="CAUSAL_PER_OPPORTUNITY_ACTION_RANKER"
 summary["policy"]["selection"]="TRAINING_ONLY_PER_OPPORTUNITY_ROUTE_WINNER_WITH_YEAR_STABILITY_SHRINKAGE__THEN_CONSERVATIVE_UTILITY_THRESHOLD"
 summary["policy"]["route_arbitration"]="ALL_LEGAL_ROUTES_SCORED_FROM_PRE_ENTRY_AND_COMPLETED_ENTRY_STATE_ONLY__NO_TEST_YEAR_ROUTE_OR_THRESHOLD_SELECTION"
+summary["engineering_invariants"]={"unique_setup_winner":True,"legal_route_only":True,
+                                   "test_window_excluded_from_training":True,
+                                   "winner_cache_per_fold":True,"deduplicated_model_pack":True}
 summary["evaluator_runtime_seconds"]=round(time.perf_counter()-_eval_t0,6)
 passers.sort(key=lambda x:(x[0],x[1]),reverse=True);alpha_champion=passers[0][1] if passers else None
 # FAIL-CLOSED: the sequential OOF Alpha and the live V75/embedded execution policy are

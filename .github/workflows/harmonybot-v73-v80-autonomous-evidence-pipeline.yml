@@ -26,8 +26,60 @@ permissions:
   actions: read
 
 jobs:
+  semantic_change_gate:
+    runs-on: ubuntu-24.04
+    outputs:
+      full: ${{ steps.c.outputs.full }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - id: c
+        name: Classify current update
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            echo "full=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [[ "${{ github.event.action }}" != "synchronize" ]]; then
+            echo "full=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          BEFORE="${{ github.event.before }}"
+          AFTER="${{ github.event.pull_request.head.sha }}"
+          if [[ -z "$BEFORE" || "$BEFORE" =~ ^0+$ ]]; then
+            echo "full=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          git cat-file -e "$BEFORE^{commit}"
+          git cat-file -e "$AFTER^{commit}"
+          mapfile -t CHANGED < <(git diff --name-only "$BEFORE" "$AFTER")
+          printf '[SEMANTIC-CHANGE-GATE] %s\n' "${CHANGED[@]}"
+          FULL=false
+          for p in "${CHANGED[@]}"; do
+            case "$p" in
+              HarmonyBot-V71/tools/evaluate_v74_sequential.py|\
+              HarmonyBot-V71/tools/v74_model_lib.py|\
+              HarmonyBot-V71/tools/apply_v74_champion.py|\
+              HarmonyBot-V71/tools/generate_v74_embedded_cs.py|\
+              HarmonyBot-V71/evidence/V74_FAST_REPLAY_SOURCE.json|\
+              .github/workflows/harmonybot-v74-fast-replay.yml|\
+              .github/workflows/harmonybot-v73-v80-autonomous-evidence-pipeline.yml)
+                ;;
+              HarmonyBot-V71/*|HarmonyBot-V73/*)
+                FULL=true
+                ;;
+            esac
+          done
+          echo "full=$FULL" >> "$GITHUB_OUTPUT"
+          echo "[SEMANTIC-CHANGE-GATE] full=$FULL"
+
   build:
-    if: ${{ github.event_name == 'workflow_dispatch' || github.head_ref == 'harmonybot/v73-opportunity-universe' }}
+    needs: semantic_change_gate
+    if: ${{ needs.semantic_change_gate.outputs.full == 'true' && (github.event_name == 'workflow_dispatch' || github.head_ref == 'harmonybot/v73-opportunity-universe') }}
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:

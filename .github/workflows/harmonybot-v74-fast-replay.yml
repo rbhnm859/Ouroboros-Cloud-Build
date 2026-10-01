@@ -55,6 +55,16 @@ jobs:
             exit 91
           fi
 
+      - name: Compile evaluator before artifact hydration
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m py_compile \
+            control/HarmonyBot-V71/tools/evaluate_v74_sequential.py \
+            control/HarmonyBot-V71/tools/v74_model_lib.py \
+            control/HarmonyBot-V71/tools/apply_v74_champion.py \
+            control/HarmonyBot-V71/tools/generate_v74_embedded_cs.py
+
       - name: Verify source universe artifact set
         env:
           GH_TOKEN: ${{ github.token }}
