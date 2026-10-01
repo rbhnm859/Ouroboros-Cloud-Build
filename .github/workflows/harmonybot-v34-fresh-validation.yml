@@ -1,0 +1,36 @@
+name: HarmonyBot V34.0 Fresh Validation 2020H1
+on:
+  push:
+    branches: [harmonybot/v34-clean-execution-adaptive-capital]
+    paths:
+      - '.github/workflows/harmonybot-v34-fresh-validation.yml'
+      - 'HarmonyBot-V34/validation/**'
+      - 'HarmonyBot-V34/tools/orchestrate_fresh_validation.sh'
+  workflow_dispatch:
+permissions: {contents: read}
+concurrency:
+  group: harmonybot-v34-fresh-validation
+  cancel-in-progress: false
+jobs:
+  fresh_validation:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    env:
+      CTRADER_PASSWORD: ${{ secrets.CTRADER_PASSWORD }}
+      CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+      CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+    steps:
+      - uses: actions/checkout@v4
+        with: {ref: harmonybot/v34-clean-execution-adaptive-capital, path: control}
+      - uses: actions/setup-dotnet@v4
+        with: {dotnet-version: 8.0.x}
+      - name: Execute preregistered Normal and USD100 fresh validation
+        run: |
+          chmod +x control/HarmonyBot-V34/tools/*.sh
+          control/HarmonyBot-V34/tools/orchestrate_fresh_validation.sh
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: HARMONYBOT-V34-FRESH-VALIDATION-2020H1
+          path: control/HarmonyBot-V34/validation-output
+          retention-days: 30
