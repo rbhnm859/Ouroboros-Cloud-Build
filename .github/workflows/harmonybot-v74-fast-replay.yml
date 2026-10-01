@@ -96,6 +96,13 @@ jobs:
           python3 control/HarmonyBot-V71/tools/evaluate_v73_universe.py merged gate
           test "$(cat gate/pass.txt)" = "true"
 
+      - name: Joint hard-gate oracle feasibility diagnostic
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p oracle
+          python3 control/HarmonyBot-V71/tools/diagnose_v74_joint_oracle.py merged oracle
+
       - name: Run cached V74 tournament
         shell: bash
         run: |
@@ -119,6 +126,7 @@ jobs:
           name: V74-FAST-REPLAY
           path: |
             gate
+            oracle
             tournament
             control/HarmonyBot-V71/evidence/V74_FAST_REPLAY_SOURCE.json
           retention-days: 30
