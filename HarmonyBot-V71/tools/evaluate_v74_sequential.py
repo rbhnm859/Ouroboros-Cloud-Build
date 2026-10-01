@@ -545,6 +545,41 @@ def route_stability_prior(rst):
     pos=float(rst.get("positive_years",0))/sy
     return float(rst.get("mean_floor",-999.0))+0.75*float(rst.get("win_floor",0.0))+0.10*pos
 
+def opportunity_stage_ranked_cached(scored_cache,route_stability,fam_stability,adv_weight):
+    books={"025":{},"050":{}}
+    for key in EVAL_KEYS:
+        stage=route_meta(key)[0];rst=route_stability[key];fst=fam_stability[key];prior=route_stability_prior(rst)
+        for r in scored_cache[key]:
+            raw=r["_raw_score"];adv=r["_adv_score"]
+            if min(raw["support"],adv["support"])<20:continue
+            if raw["score"]<=-900 or adv["score"]<=-900:continue
+            cell=fst.get(r["family"]+"|"+r["action"])
+            if cell:
+                cn=int(cell["overall"]["n"]);sh=cn/(cn+80.0)
+                fam_mean=sh*float(cell["mean_floor"]);fam_win=sh*float(cell["win_floor"])
+            else:fam_mean=fam_win=0.0
+            choice_local=float(adv["lcb"])+0.85*float(adv["mean"])
+            choice=0.60*prior+0.40*choice_local+0.08*fam_mean+0.04*fam_win
+            actual_win=min(float(raw["win"]),float(adv["win"]))
+            quality=float(raw["lcb"])+0.80*float(raw["mean"])+1.20*actual_win+0.15*max(0.0,float(adv["mean"]))
+            q=dict(r);q["_raw"]=raw;q["_adv"]=adv;q["_choice_score"]=choice;q["_selection_score"]=quality
+            q.pop("_raw_score",None);q.pop("_adv_score",None)
+            books[stage].setdefault((r["window"],r["setup"]),[]).append(q)
+    out={"025":[],"050":[]}
+    for stage,by_setup in books.items():
+        for _,cand in by_setup.items():
+            cand.sort(key=lambda r:(r["_choice_score"],r["_adv"]["lcb"],r["_raw"]["win"],r["sequential_key"]),reverse=True)
+            if not cand:continue
+            best=cand[0];second=cand[1]["_choice_score"] if len(cand)>1 else -999.0
+            q=dict(best);raw=q.pop("_raw");adv=q.pop("_adv")
+            q["route_utility"]=q.pop("_choice_score");q["selection_score"]=q.pop("_selection_score")
+            q["route_margin"]=q["route_utility"]-second;q["decision_stage"]=stage
+            q["raw_pred_mean"]=raw["mean"];q["raw_pred_win"]=raw["win"];q["raw_pred_lcb"]=raw["lcb"]
+            q["adv_pred_mean"]=adv["mean"];q["adv_pred_actual_win"]=adv["win"];q["adv_pred_lcb"]=adv["lcb"]
+            q["route_support"]=min(raw["support"],adv["support"]);out[stage].append(q)
+    return out
+
+if "opportunity_stage_ranked_cached" not in globals():raise SystemExit("V74 stage helper contract missing")
 fold_results={name:{} for name,_,_ in VARIANTS}
 fold_policies={name:{} for name,_,_ in VARIANTS}
 for test in BURNED:
