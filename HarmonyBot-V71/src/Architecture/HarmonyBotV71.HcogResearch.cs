@@ -38,16 +38,18 @@ namespace cAlgo.Robots
         private static readonly bool[] V74HighConvictionRequireDirectional = { false, true, false, true };
         private static readonly string[] V74HighConvictionKey = { "HC175_HOLD", "HC175_DIR", "HC200_HOLD", "HC200_DIR" };
 
-        // V74 causal-sequential delayed-commit reconstruction. Capital is explicitly absent
-        // before the virtual harmonic thesis first-passes 1.25R/1.50R. Entry can occur only
-        // on a later completed M1 close that preserves the reaction floor. This is a causal
-        // reaction->reversal conversion test, not a retroactive use of the original entry.
-        private static readonly double[] V74SequentialReactionR = { 1.25, 1.25, 1.50, 1.50, 1.25, 1.25, 1.50, 1.50 };
+        // V74 causal-sequential early first-passage reconstruction. Capital is explicitly
+        // absent on the 0.25R/0.50R first-passage bar and may enter only on a later completed
+        // M1 close that preserves a positive reaction floor. Run #60 proved 1.25R/1.50R
+        // observation has an N<250/year cardinality ceiling, so those routes are frozen as
+        // negative feasibility evidence rather than retuned.
+        private static readonly double[] V74SequentialReactionR = { .25, .25, .50, .50, .25, .25, .50, .50 };
+        private static readonly double[] V74SequentialHoldR = { .10, .10, .25, .25, .10, .10, .25, .25 };
         private static readonly bool[] V74SequentialRequireDirectional = { false, true, false, true, false, true, false, true };
         private static readonly bool[] V74SequentialFrontier = { false, false, false, false, true, true, true, true };
         private static readonly string[] V74SequentialKey = {
-            "S125_HOLD_PURE","S125_DIR_PURE","S150_HOLD_PURE","S150_DIR_PURE",
-            "S125_HOLD_FRONTIER","S125_DIR_FRONTIER","S150_HOLD_FRONTIER","S150_DIR_FRONTIER"
+            "S025_HOLD_PURE","S025_DIR_PURE","S050_HOLD_PURE","S050_DIR_PURE",
+            "S025_HOLD_FRONTIER","S025_DIR_FRONTIER","S050_HOLD_FRONTIER","S050_DIR_FRONTIER"
         };
         private static readonly double[] V74SequentialStageR = { .75, 1.25, 1.75 };
         private static readonly double[] V74SequentialFloorR = { .25, .65, 1.00 };
@@ -114,7 +116,7 @@ namespace cAlgo.Robots
             public double[] V74SequentialRisk = new double[8];
             public double[] V74SequentialNetRr = new double[8];
             public double[] V74SequentialOutcomeR = Enumerable.Repeat(double.NaN, 8).ToArray();
-            public string V74SequentialState125Csv = "", V74SequentialState150Csv = "";
+            public string V74SequentialState025Csv = "", V74SequentialState050Csv = "";
         }
 
         private readonly Dictionary<string,V72HcogOpportunity> _v72Hcog = new Dictionary<string,V72HcogOpportunity>(StringComparer.Ordinal);
@@ -676,21 +678,23 @@ namespace cAlgo.Robots
                     o.V74SequentialReactionBar[k]=o.BarsActive;
                     string state=string.Join(",",V74MilestoneFeatures(o,i,reactionR)
                         .Select(v=>v.ToString("R",System.Globalization.CultureInfo.InvariantCulture)));
-                    if(reactionR<1.40&&string.IsNullOrWhiteSpace(o.V74SequentialState125Csv))o.V74SequentialState125Csv=state;
-                    if(reactionR>=1.40&&string.IsNullOrWhiteSpace(o.V74SequentialState150Csv))o.V74SequentialState150Csv=state;
+                    if(reactionR<.40&&string.IsNullOrWhiteSpace(o.V74SequentialState025Csv))o.V74SequentialState025Csv=state;
+                    if(reactionR>=.40&&string.IsNullOrWhiteSpace(o.V74SequentialState050Csv))o.V74SequentialState050Csv=state;
                     continue; // first-passage bar is observation only; no same-bar capital
                 }
 
                 if(!o.V74SequentialActive[k])
                 {
                     if(o.V74SequentialReactionBar[k]<0||o.BarsActive<=o.V74SequentialReactionBar[k]||nativeStop||nativeTarget)continue;
-                    double holdR=reactionR-.25;
+                    double holdR=V74SequentialHoldR[k];
                     if(virtualCloseR+1e-12<holdR)continue;
                     if(V74SequentialRequireDirectional[k]&&!directional)continue;
 
                     double entry=close;
-                    double stopFloorR=reactionR-.75;
-                    double stop=buy?o.Entry+o.RiskDistance*stopFloorR:o.Entry-o.RiskDistance*stopFloorR;
+                    double buffer=Math.Max(PipsToPrice(ModeledCostPips()),_symbol.PipSize);
+                    double microStop=buy?low-buffer:high+buffer;
+                    // Initial route risk may tighten the native structural stop, never widen it.
+                    double stop=buy?Math.Max(o.Stop,microStop):Math.Min(o.Stop,microStop);
                     double risk=Math.Abs(entry-stop);
                     if(PriceToPips(risk)<MinStopLossPips||!GeometryValid(o.Direction,entry,stop,o.Target))continue;
                     double rr=(PriceToPips(Math.Abs(o.Target-entry))-ModeledCostPips())/Math.Max(1e-9,PriceToPips(risk));
@@ -826,10 +830,10 @@ namespace cAlgo.Robots
                 double.IsFinite(o.V74HighConvictionOutcomeR[1])?o.V74HighConvictionOutcomeR[1].ToString("R",System.Globalization.CultureInfo.InvariantCulture):"NA",
                 double.IsFinite(o.V74HighConvictionOutcomeR[2])?o.V74HighConvictionOutcomeR[2].ToString("R",System.Globalization.CultureInfo.InvariantCulture):"NA",
                 double.IsFinite(o.V74HighConvictionOutcomeR[3])?o.V74HighConvictionOutcomeR[3].ToString("R",System.Globalization.CultureInfo.InvariantCulture):"NA");
-            Print("[V74-SEQUENTIAL-PATH] setup={0} family={1} lane={2} m125={3} m150={4} s125hp={5} rr125hp={6:F6} s125dp={7} rr125dp={8:F6} s150hp={9} rr150hp={10:F6} s150dp={11} rr150dp={12:F6} s125hf={13} rr125hf={14:F6} s125df={15} rr125df={16:F6} s150hf={17} rr150hf={18:F6} s150df={19} rr150df={20:F6}",
+            Print("[V74-SEQUENTIAL-PATH] setup={0} family={1} lane={2} m025={3} m050={4} s025hp={5} rr025hp={6:F6} s025dp={7} rr025dp={8:F6} s050hp={9} rr050hp={10:F6} s050dp={11} rr050dp={12:F6} s025hf={13} rr025hf={14:F6} s025df={15} rr025df={16:F6} s050hf={17} rr050hf={18:F6} s050df={19} rr050df={20:F6}",
                 o.SetupKey,o.Family,o.Lane,
-                string.IsNullOrWhiteSpace(o.V74SequentialState125Csv)?"NONE":o.V74SequentialState125Csv,
-                string.IsNullOrWhiteSpace(o.V74SequentialState150Csv)?"NONE":o.V74SequentialState150Csv,
+                string.IsNullOrWhiteSpace(o.V74SequentialState025Csv)?"NONE":o.V74SequentialState025Csv,
+                string.IsNullOrWhiteSpace(o.V74SequentialState050Csv)?"NONE":o.V74SequentialState050Csv,
                 double.IsFinite(o.V74SequentialOutcomeR[0])?o.V74SequentialOutcomeR[0].ToString("R",System.Globalization.CultureInfo.InvariantCulture):"NA",o.V74SequentialNetRr[0],
                 double.IsFinite(o.V74SequentialOutcomeR[1])?o.V74SequentialOutcomeR[1].ToString("R",System.Globalization.CultureInfo.InvariantCulture):"NA",o.V74SequentialNetRr[1],
                 double.IsFinite(o.V74SequentialOutcomeR[2])?o.V74SequentialOutcomeR[2].ToString("R",System.Globalization.CultureInfo.InvariantCulture):"NA",o.V74SequentialNetRr[2],

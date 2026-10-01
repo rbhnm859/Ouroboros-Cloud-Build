@@ -2,10 +2,11 @@
 """
 V74 causal sequential reconstruction evaluator.
 
-Run #55 froze A-L as terminal negative evidence. This evaluator intentionally does
-not recompute those exhausted architectures. It evaluates only the current causal
-first-passage reaction->reversal reconstruction, with every route/threshold chosen
-from training windows only. Validation/Fresh are never loaded here.
+Run #55 froze A-L as terminal negative evidence and Run #60 proved that the
+1.25R/1.50R delayed-commit family has an N<250/year raw-cardinality ceiling.
+This evaluator intentionally recomputes neither exhausted family. It evaluates the
+0.25R/0.50R early first-passage reaction->reversal reconstruction, with every
+route/threshold chosen from training windows only. Validation/Fresh are never loaded here.
 """
 import json,math,pathlib,statistics,sys
 from v74_model_lib import load_rows,metrics,SEQUENTIAL_KEYS
@@ -32,7 +33,7 @@ def gate_metrics(m):
 
 def with_outcome(r,key):
     v=r.get("sequential",{}).get(key);rr=r.get("sequential_rr",{}).get(key)
-    level="125" if "S125_" in key else "150"
+    level="025" if "S025_" in key else "050"
     state=r.get("sequential_state",{}).get(level)
     if v is None or rr is None or state is None or len(state)!=12:return None
     try:v=float(v);rr=float(rr)
@@ -129,22 +130,26 @@ def choose(train_rows,train_windows,q):
 
 summary={
  "version":"HarmonyBot V74 Candidate",
- "architecture":"CAUSAL_FIRST_PASSAGE_REACTION_TO_REVERSAL_RECONSTRUCTION",
- "legacy_negative_evidence":{"frozen":True,"source_run_id":36863429034,"source_run_number":55,
-   "reason":"A-L static/protection/re-entry/hybrid/reaction-commit/high-conviction architectures already failed 3/3 OOF; do not recompute completed history."},
+ "architecture":"EARLY_FIRST_PASSAGE_CAUSAL_COMMIT_025_050",
+ "legacy_negative_evidence":[
+   {"frozen":True,"source_run_id":36863429034,"source_run_number":55,
+    "models":"A-L","reason":"Static/protection/re-entry/hybrid/reaction-commit/high-conviction architectures failed 3/3 OOF."},
+   {"frozen":True,"source_run_id":36870479524,"source_run_number":60,
+    "models":"M-O_1P25_1P50","reason":"Raw eligible route cardinality was below N=250/year in every burned OOF year before model selection."}
+ ],
  "research_training_windows":RESEARCH,"burned_oof_windows":BURNED,
  "gate":{"min_selected_per_year":MIN_N,"min_mean_r":MIN_MEAN,"min_pf_r":MIN_PF,
          "min_win_rate":MIN_WR,"min_average_rr":MIN_RR,"lcb95_gt":0.0},
- "causal_sequential_policy":{"routes":SEQUENTIAL_KEYS,"observation":"SHADOW_FIRST_PASSAGE_1P25R_OR_1P50R",
+ "causal_sequential_policy":{"routes":SEQUENTIAL_KEYS,"observation":"SHADOW_FIRST_PASSAGE_0P25R_OR_0P50R",
    "capital_entry":"LATER_COMPLETED_M1_REACTION_HOLD_ONLY","minimum_route_net_rr":MIN_RR,
    "hazard_state":"FIRST_PASSAGE_TIME_MFE_MAE_BODY_WICKS_RETRACE_REMAINING_R_DIRECTION_EFFICIENCY_PLUS_PREENTRY_REGIME",
    "selection":"TRAINING_ONLY","test_year_never_selects_route_or_threshold":True,
    "same_bar_ambiguity":"ALREADY_ARMED_FLOOR_THEN_STOP_THEN_TARGET","no_stop_widening":True},
  "models":{},"validation_used":False,"fresh_used":False}
-models_blob={"architecture":"V74_CAUSAL_FIRST_PASSAGE_SEQUENTIAL_HAZARD","models":{}}
+models_blob={"architecture":"V74_EARLY_FIRST_PASSAGE_SEQUENTIAL_HAZARD_025_050","models":{}}
 passers=[]
 
-for name,q in [("M_CAUSAL_SEQ_HAZARD_KEEP90",.10),("N_CAUSAL_SEQ_HAZARD_KEEP85",.15),("O_CAUSAL_SEQ_HAZARD_KEEP80",.20)]:
+for name,q in [("P_EARLY_SEQ_HAZARD_KEEP90",.10),("Q_EARLY_SEQ_HAZARD_KEEP85",.15),("R_EARLY_SEQ_HAZARD_KEEP80",.20)]:
     folds={};policies={}
     for test in BURNED:
         train_windows=RESEARCH+[w for w in BURNED if w!=test]

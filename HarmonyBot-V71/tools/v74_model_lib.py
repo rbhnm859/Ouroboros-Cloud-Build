@@ -35,15 +35,15 @@ RCR_KEYS=["R050_010","R075_025","R100_040"]
 HYBRID_KEYS=["HS20","HS30","HS40","HS50"]
 REACTION_COMMIT_KEYS=["RC075_C20","RC075_C30","RC100_C20","RC100_C30"]
 HIGH_CONVICTION_KEYS=["HC175_HOLD","HC175_DIR","HC200_HOLD","HC200_DIR"]
-SEQUENTIAL_KEYS=["S125_HOLD_PURE","S125_DIR_PURE","S150_HOLD_PURE","S150_DIR_PURE",
-                 "S125_HOLD_FRONTIER","S125_DIR_FRONTIER","S150_HOLD_FRONTIER","S150_DIR_FRONTIER"]
+SEQUENTIAL_KEYS=["S025_HOLD_PURE","S025_DIR_PURE","S050_HOLD_PURE","S050_DIR_PURE",
+                 "S025_HOLD_FRONTIER","S025_DIR_FRONTIER","S050_HOLD_FRONTIER","S050_DIR_FRONTIER"]
 SEQ_RX=re.compile(
  r"\[V74-SEQUENTIAL-PATH\]\s+setup=(\S+)\s+family=(\S+)\s+lane=(\S+)\s+"
- r"m125=(\S+)\s+m150=(\S+)\s+"
- r"s125hp=(\S+)\s+rr125hp=([-0-9.]+)\s+s125dp=(\S+)\s+rr125dp=([-0-9.]+)\s+"
- r"s150hp=(\S+)\s+rr150hp=([-0-9.]+)\s+s150dp=(\S+)\s+rr150dp=([-0-9.]+)\s+"
- r"s125hf=(\S+)\s+rr125hf=([-0-9.]+)\s+s125df=(\S+)\s+rr125df=([-0-9.]+)\s+"
- r"s150hf=(\S+)\s+rr150hf=([-0-9.]+)\s+s150df=(\S+)\s+rr150df=([-0-9.]+)"
+ r"m025=(\S+)\s+m050=(\S+)\s+"
+ r"s025hp=(\S+)\s+rr025hp=([-0-9.]+)\s+s025dp=(\S+)\s+rr025dp=([-0-9.]+)\s+"
+ r"s050hp=(\S+)\s+rr050hp=([-0-9.]+)\s+s050dp=(\S+)\s+rr050dp=([-0-9.]+)\s+"
+ r"s025hf=(\S+)\s+rr025hf=([-0-9.]+)\s+s025df=(\S+)\s+rr025df=([-0-9.]+)\s+"
+ r"s050hf=(\S+)\s+rr050hf=([-0-9.]+)\s+s050df=(\S+)\s+rr050df=([-0-9.]+)"
 )
 
 def window_of(path,windows):
@@ -107,7 +107,7 @@ def load_rows(root,windows):
                                             "reaction_commit":{},"high_conviction":{},
                                             "sequential":{},"sequential_rr":{},"sequential_state":{}})
             states={}
-            for label,gi in (("125",4),("150",5)):
+            for label,gi in (("025",4),("050",5)):
                 raw=sm.group(gi)
                 if raw not in (None,"NONE","NA","NaN","nan"):
                     try:
