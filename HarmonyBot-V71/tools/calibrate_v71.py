@@ -4,6 +4,16 @@ root=pathlib.Path(sys.argv[1]); out=pathlib.Path(sys.argv[2]); manifest_path=pat
 out.mkdir(parents=True,exist_ok=True)
 CAP="B_V72_HCAP_ALPHA"; BASE="A_V51_CHAMPION_KERNEL"; W=["Y2021","Y2022","Y2023"]
 V51={"frequency":38.6667,"net":2101.66,"pf":2.1096878432,"expectancy":36.2355,"win_rate":.534483,"max_dd_pct":4.49784}
+TARGET={"annual_return_pct":150.0,"annual_net_multiple":1.50,"pf":3.0,"max_dd_pct":10.0,
+        "win_rate":.68,"independent_trades_per_year":200,"average_realized_rr":2.2,"profitable_months":11}
+def annual_target_pass(x):
+    return bool(float(x.get("return_pct",0))>=TARGET["annual_return_pct"] and
+                float(x.get("net",0))>=float(x.get("starting_balance",10000))*TARGET["annual_net_multiple"] and
+                float(x.get("pf",0))>=TARGET["pf"] and float(x.get("max_dd_pct",999))<=TARGET["max_dd_pct"] and
+                float(x.get("win_rate",0))>=TARGET["win_rate"] and int(x.get("baskets",0))>=TARGET["independent_trades_per_year"] and
+                bool(x.get("log_basket_telemetry_complete",False)) and
+                float(x.get("average_realized_rr",0))>=TARGET["average_realized_rr"] and
+                int(x.get("positive_months",0))>=TARGET["profitable_months"])
 VIOL=["execution_errors","grid_risk_violations","duplicate_grid_legs","orphan_pending_orders","stop_widening_violations",
       "gap_through_survivors","unprotected_survivors","post_fill_protection_failures","actual_basket_risk_violations",
       "execution_state_violations","margin_risk_violations"]
@@ -47,7 +57,13 @@ if payoff_gate:
             elif sig(cur["core_basket_outcomes"])!=sig(ref["core_basket_outcomes"]): return False
         return True
     Z=aggregate(R); Z["core_preserved"]=core_preserved()
-    exp=[r for w in W for r in R[w]["expansion_basket_outcomes"]]
+    Z["annual_commercial_targets"]={w:{"pass":annual_target_pass(R[w]),
+        "return_pct":R[w].get("return_pct",0),"net":R[w].get("net",0),"pf":R[w].get("pf",0),
+        "max_dd_pct":R[w].get("max_dd_pct",0),"win_rate":R[w].get("win_rate",0),
+        "independent_trades":R[w].get("baskets",0),"average_realized_rr":R[w].get("average_realized_rr",0),
+        "profitable_months":R[w].get("positive_months",0)} for w in W}
+    annual_target_3of3=all(v["pass"] for v in Z["annual_commercial_targets"].values())
+    exp=[r for w in W for r in R[w]["expansion_basket_outcomes"]
     exp_pf=pf(exp); exp_net=sum(r["net"] for r in exp); exp_pos=sum(R[w]["expansion_metrics"]["net"]>0 for w in W)
     Z["expansion_metrics"]={"baskets":len(exp),"net":exp_net,"pf":exp_pf,"positive_windows":exp_pos}
     breakthrough={
@@ -63,8 +79,8 @@ if payoff_gate:
     marginal={"delta_net":Z["net"]-A[BASE]["net"],"delta_pf":Z["pf"]-A[BASE]["pf"],
               "delta_expectancy":Z["expectancy"]-A[BASE]["expectancy"],
               "positive_delta_windows":sum(R[w]["net"]>REF[w]["net"] for w in W)}
-    cap_gate=(Z["core_preserved"] and Z["engineering_clean"] and all(int(Z["violation_totals"].get(k,0))==0 for k in VIOL)
-              and Z["positive_windows"]==3 and Z["frequency"]>=60
+    cap_gate=(Z["core_preserved"] and Z["engineering_clean"] and annual_target_3of3 and all(int(Z["violation_totals"].get(k,0))==0 for k in VIOL)
+              and Z["positive_windows"]==3 and Z["frequency"]>=200
               and Z["net"]>V51["net"] and Z["pf"]>V51["pf"] and Z["expectancy"]>V51["expectancy"]
               and Z["win_rate"]>=V51["win_rate"] and Z["max_dd_pct"]<=V51["max_dd_pct"]
               and exp_net>0 and exp_pf>=1.50 and exp_pos==3
@@ -74,7 +90,7 @@ if payoff_gate:
 
 freeze={"version":"HarmonyBot V72 Candidate","architecture":"IMMUTABLE_V51_ECONOMIC_SPINE_PLUS_FROZEN_12_FAMILY_EVENT_PLUS_HARMONIC_COUNTERFACTUAL_ACTION_POLICY",
  "trusted_v51_parent":"1b670a0f43ba8ecaa637febfdacf605b1b146f01","control_mode":"DIRECT_TRUSTED_V51_BINARY_REFERENCE",
- "hcap_manifest":manifest,"v51_floor":V51,"variants":A,"marginal":marginal,
+ "hcap_manifest":manifest,"v51_floor":V51,"commercial_hard_targets":TARGET,"variants":A,"marginal":marginal,
  "gates":{"hcap_counterfactual_alpha_3year":payoff_gate,"hcap_capital_commercial":cap_gate},
  "candidate":candidate,"candidate_selection_source":"BURNED_2021_2023_HCAP_CAUSAL_CONVERSION__TEMPORAL_OOF_ACTION_VALUE_NO_YEAR_FEATURE_NO_THRESHOLD_TUNING",
  "risk_for_alpha_qualification_pct":1.0,"validation_used":False,"fresh_used":False,
