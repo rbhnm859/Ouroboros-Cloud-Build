@@ -38,37 +38,40 @@ namespace cAlgo.Robots
         private static readonly bool[] V74HighConvictionRequireDirectional = { false, true, false, true };
         private static readonly string[] V74HighConvictionKey = { "HC175_HOLD", "HC175_DIR", "HC200_HOLD", "HC200_DIR" };
 
-        // V74 close-only profit-frontier reconstruction.
-        // Run #69 proves the early 2.4R/2.6R/2.8R noise budget is directionally correct,
-        // but intrabar protective floors cut too much right-tail payoff: even label-only
-        // best-route-per-setup top-250 reaches only ~0.779R in 2023. Run #66's sparse
-        // protection retained ~0.894R, so the next falsifiable change is execution
-        // semantics, not classifier complexity: first-passage + later persistence still
-        // arms a monotone frontier, but the frontier exits ONLY on a completed M1 close.
-        // Structural stop and canonical target remain real intrabar orders (stop-first on
-        // ambiguous bars). No partial exit, Grid/DCA/recovery, or post-entry stop widening.
+        // V74 causal per-opportunity action universe.
+        // Base route is chosen only from completed entry-state information. Fraction action
+        // is chosen only after post-entry +0.25R first passage and a later completed M1
+        // close that still holds +0.10R. F20/F30 are explicitly simulated; F00/F10 share
+        // the identical crystallization close and runner path and are exact algebraic transforms.
+        // Canonical target is unchanged. No stop widening, Grid, DCA, recovery or lookahead.
         private static readonly double[] V74SequentialReactionR = {
-            .25,.25,.50,.50, .25,.25,.50,.50, .25,.25,.50,.50
+            .25,.25,.25,.25,.50,.50,.50,.50,
+            .25,.25,.25,.25,.50,.50,.50,.50
         };
         private static readonly double[] V74SequentialHoldR = {
-            .10,.10,.25,.25, .10,.10,.25,.25, .10,.10,.25,.25
+            .10,.10,.10,.10,.25,.25,.25,.25,
+            .10,.10,.10,.10,.25,.25,.25,.25
         };
         private static readonly bool[] V74SequentialRequireDirectional = {
-            false,true,false,true, false,true,false,true, false,true,false,true
+            false,false,true,true,false,false,true,true,
+            false,false,true,true,false,false,true,true
         };
         private static readonly double[] V74SequentialDesiredRr = {
-            2.4,2.4,2.4,2.4, 2.6,2.6,2.6,2.6, 2.8,2.8,2.8,2.8
+            3.5,3.5,3.5,3.5,3.5,3.5,3.5,3.5,
+            4.0,4.0,4.0,4.0,4.0,4.0,4.0,4.0
         };
-        private static readonly double[] V74SequentialStageR = { .25,.50,.75,1.00 };
-        private static readonly double[] V74SequentialStageHoldR = { .10,.30,.50,.70 };
-        private static readonly double[] V74SequentialStageFloorR = { .05,.15,.30,.50 };
-        private static readonly double[] V74SequentialAdverseCutR = {
-            -.20,-.20,-.20,-.20, -.20,-.20,-.20,-.20, -.20,-.20,-.20,-.20
+        private static readonly double[] V74SequentialPartialFraction = {
+            .20,.30,.20,.30,.20,.30,.20,.30,
+            .20,.30,.20,.30,.20,.30,.20,.30
         };
+        private static readonly double[] V74SequentialTriggerR = Enumerable.Repeat(.25,16).ToArray();
+        private static readonly double[] V74SequentialPartialHoldR = Enumerable.Repeat(.10,16).ToArray();
+        private static readonly double[] V74SequentialAdverseCutR = Enumerable.Repeat(-.15,16).ToArray();
         private static readonly string[] V74SequentialKey = {
-            "PF_R025_H_RR24","PF_R025_D_RR24","PF_R050_H_RR24","PF_R050_D_RR24",
-            "PF_R025_H_RR26","PF_R025_D_RR26","PF_R050_H_RR26","PF_R050_D_RR26",
-            "PF_R025_H_RR28","PF_R025_D_RR28","PF_R050_H_RR28","PF_R050_D_RR28"
+            "P_R025_H_RR35_F20","P_R025_H_RR35_F30","P_R025_D_RR35_F20","P_R025_D_RR35_F30",
+            "P_R050_H_RR35_F20","P_R050_H_RR35_F30","P_R050_D_RR35_F20","P_R050_D_RR35_F30",
+            "P_R025_H_RR40_F20","P_R025_H_RR40_F30","P_R025_D_RR40_F20","P_R025_D_RR40_F30",
+            "P_R050_H_RR40_F20","P_R050_H_RR40_F30","P_R050_D_RR40_F20","P_R050_D_RR40_F30"
         };
 
         private sealed class V72HcogOpportunity
@@ -121,24 +124,25 @@ namespace cAlgo.Robots
             public double[] V74HighConvictionRisk = new double[4];
             public double[] V74HighConvictionNetRr = new double[4];
             public double[] V74HighConvictionOutcomeR = Enumerable.Repeat(double.NaN, 4).ToArray();
-            public int[] V74SequentialReactionBar = Enumerable.Repeat(-1, 12).ToArray();
-            public bool[] V74SequentialActive = new bool[12];
-            public bool[] V74SequentialPositiveArmed = new bool[12];
-            public int[] V74SequentialBars = new int[12];
-            public int[] V74SequentialObservedStage = Enumerable.Repeat(-1,12).ToArray();
-            public int[] V74SequentialObservedStageBar = Enumerable.Repeat(-1,12).ToArray();
-            public int[] V74SequentialActiveStage = Enumerable.Repeat(-1,12).ToArray();
-            public int[] V74SequentialLockBar = Enumerable.Repeat(-1, 12).ToArray();
-            public double[] V74SequentialActiveFloorR = new double[12];
-            public double[] V74SequentialEntry = new double[12];
-            public double[] V74SequentialStop = new double[12];
-            public double[] V74SequentialTarget = new double[12];
-            public double[] V74SequentialRisk = new double[12];
-            public double[] V74SequentialNetRr = new double[12];
-            public double[] V74SequentialOutcomeR = Enumerable.Repeat(double.NaN, 12).ToArray();
+            public int[] V74SequentialReactionBar = Enumerable.Repeat(-1,16).ToArray();
+            public bool[] V74SequentialActive = new bool[16];
+            public bool[] V74SequentialPositiveArmed = new bool[16];
+            public int[] V74SequentialBars = new int[16];
+            public int[] V74SequentialTriggerBar = Enumerable.Repeat(-1,16).ToArray();
+            public int[] V74SequentialLockBar = Enumerable.Repeat(-1,16).ToArray();
+            public double[] V74SequentialLockedR = new double[16];
+            public double[] V74SequentialRouteMfeR = new double[16];
+            public double[] V74SequentialRouteMaeR = new double[16];
+            public double[] V74SequentialEntry = new double[16];
+            public double[] V74SequentialStop = new double[16];
+            public double[] V74SequentialTarget = new double[16];
+            public double[] V74SequentialRisk = new double[16];
+            public double[] V74SequentialNetRr = new double[16];
+            public double[] V74SequentialOutcomeR = Enumerable.Repeat(double.NaN,16).ToArray();
             public string V74SequentialState025Csv = "", V74SequentialState050Csv = "";
-            public string V74SequentialEntry025HoldCsv = "", V74SequentialEntry025DirCsv = "";
-            public string V74SequentialEntry050HoldCsv = "", V74SequentialEntry050DirCsv = "";
+            public string[] V74SequentialEntryStateCsv = new string[16];
+            public string[] V74SequentialTriggerStateCsv = new string[16];
+            public string[] V74SequentialDecisionStateCsv = new string[16];
         }
 
         private readonly Dictionary<string,V72HcogOpportunity> _v72Hcog = new Dictionary<string,V72HcogOpportunity>(StringComparer.Ordinal);
@@ -388,6 +392,28 @@ namespace cAlgo.Robots
                 VClamp(remainingR/4.0),
                 directional?1.0:0.0,
                 rr==null?0.0:VClamp(rr.Efficiency)
+            };
+        }
+
+        private double[] V74RouteStateFeatures(V72HcogOpportunity o,int i,double entry,double risk,double target,
+            int bars,double mfeR,double maeR,double milestoneR)
+        {
+            if(o==null||risk<=0||i<0||i>=_m1Bars.Count)return Enumerable.Repeat(0.0,12).ToArray();
+            double open=_m1Bars.OpenPrices[i],close=_m1Bars.ClosePrices[i],high=_m1Bars.HighPrices[i],low=_m1Bars.LowPrices[i];
+            double atr=Math.Max(_symbol.PipSize,Atr(_m1Bars,14,i)),body=Math.Max(_symbol.PipSize,Math.Abs(close-open));
+            bool buy=o.Direction==TradeDirection.Buy;
+            double closeR=(buy?close-entry:entry-close)/risk;
+            double favWick=buy?Math.Max(0,high-Math.Max(open,close)):Math.Max(0,Math.Min(open,close)-low);
+            double adverseWick=buy?Math.Max(0,Math.Min(open,close)-low):Math.Max(0,high-Math.Max(open,close));
+            double remainingR=Math.Abs(target-close)/Math.Max(risk,_symbol.PipSize);
+            var rr=BuildRegimeSnapshot();
+            return new[]
+            {
+                VClamp(milestoneR/1.0),VClamp(bars/120.0),VClamp((closeR+1.0)/4.0),
+                VClamp(mfeR/3.0),VClamp(maeR/2.0),VClamp((body/atr)/2.0),
+                VClamp((favWick/body)/3.0),VClamp((adverseWick/body)/3.0),
+                VClamp(Math.Max(0.0,mfeR-closeR)/2.0),VClamp(remainingR/4.0),
+                (buy?close>open:close<open)?1.0:0.0,rr==null?0.0:VClamp(rr.Efficiency)
             };
         }
 
@@ -694,113 +720,67 @@ namespace cAlgo.Robots
             {
                 if(double.IsFinite(o.V74SequentialOutcomeR[k]))continue;
                 double reactionR=V74SequentialReactionR[k];
-
                 if(o.V74SequentialReactionBar[k]<0&&!nativeStop&&!nativeTarget&&virtualFav+1e-12>=reactionR)
                 {
                     o.V74SequentialReactionBar[k]=o.BarsActive;
-                    string state=string.Join(",",V74MilestoneFeatures(o,i,reactionR)
-                        .Select(v=>v.ToString("R",System.Globalization.CultureInfo.InvariantCulture)));
+                    string state=string.Join(",",V74MilestoneFeatures(o,i,reactionR).Select(v=>v.ToString("R",System.Globalization.CultureInfo.InvariantCulture)));
                     if(reactionR<.40&&string.IsNullOrWhiteSpace(o.V74SequentialState025Csv))o.V74SequentialState025Csv=state;
                     if(reactionR>=.40&&string.IsNullOrWhiteSpace(o.V74SequentialState050Csv))o.V74SequentialState050Csv=state;
-                    continue; // first-passage bar is observation only; no same-bar capital
+                    continue;
                 }
-
                 if(!o.V74SequentialActive[k])
                 {
                     if(o.V74SequentialReactionBar[k]<0||o.BarsActive<=o.V74SequentialReactionBar[k]||nativeStop||nativeTarget)continue;
-                    double holdR=V74SequentialHoldR[k];
-                    if(virtualCloseR+1e-12<holdR)continue;
+                    if(virtualCloseR+1e-12<V74SequentialHoldR[k])continue;
                     if(V74SequentialRequireDirectional[k]&&!directional)continue;
-
-                    double entry=close;
-                    double netTargetPips=PriceToPips(Math.Abs(o.Target-entry))-ModeledCostPips();
+                    double entry=close,netTargetPips=PriceToPips(Math.Abs(o.Target-entry))-ModeledCostPips();
                     if(netTargetPips<=0)continue;
-                    double desiredRiskPips=netTargetPips/Math.Max(2.30,V74SequentialDesiredRr[k]);
-                    double desiredRisk=PipsToPrice(desiredRiskPips);
+                    double desiredRisk=PipsToPrice(netTargetPips/Math.Max(2.30,V74SequentialDesiredRr[k]));
                     double desiredStop=buy?entry-desiredRisk:entry+desiredRisk;
-                    // Initial risk may be wider than the old M1 micro-stop, but it can never
-                    // cross the original structural invalidation. No post-entry widening exists.
                     double stop=buy?Math.Max(o.Stop,desiredStop):Math.Min(o.Stop,desiredStop);
                     double risk=Math.Abs(entry-stop);
                     if(PriceToPips(risk)<MinStopLossPips||!GeometryValid(o.Direction,entry,stop,o.Target))continue;
-                    double rr=netTargetPips/Math.Max(1e-9,PriceToPips(risk));
-                    if(rr+1e-9<2.30)continue;
-
-                    o.V74SequentialActive[k]=true;
-                    o.V74SequentialEntry[k]=entry;o.V74SequentialStop[k]=stop;o.V74SequentialTarget[k]=o.Target;
-                    o.V74SequentialRisk[k]=risk;o.V74SequentialNetRr[k]=rr;o.V74SequentialBars[k]=0;
-                    o.V74SequentialObservedStage[k]=-1;o.V74SequentialObservedStageBar[k]=-1;
-                    o.V74SequentialActiveStage[k]=-1;o.V74SequentialLockBar[k]=-1;
-                    o.V74SequentialActiveFloorR[k]=0;o.V74SequentialPositiveArmed[k]=false;
-                    string entryState=string.Join(",",V74MilestoneFeatures(o,i,reactionR)
+                    double rr=netTargetPips/Math.Max(1e-9,PriceToPips(risk));if(rr+1e-9<2.30)continue;
+                    o.V74SequentialActive[k]=true;o.V74SequentialEntry[k]=entry;o.V74SequentialStop[k]=stop;o.V74SequentialTarget[k]=o.Target;
+                    o.V74SequentialRisk[k]=risk;o.V74SequentialNetRr[k]=rr;o.V74SequentialBars[k]=0;o.V74SequentialTriggerBar[k]=-1;
+                    o.V74SequentialLockBar[k]=-1;o.V74SequentialLockedR[k]=0;o.V74SequentialRouteMfeR[k]=0;o.V74SequentialRouteMaeR[k]=0;
+                    o.V74SequentialPositiveArmed[k]=false;
+                    o.V74SequentialEntryStateCsv[k]=string.Join(",",V74RouteStateFeatures(o,i,entry,risk,o.Target,0,0,0,reactionR)
                         .Select(v=>v.ToString("R",System.Globalization.CultureInfo.InvariantCulture)));
-                    if(reactionR<.40)
-                    {
-                        if(V74SequentialRequireDirectional[k])
-                        {
-                            if(string.IsNullOrWhiteSpace(o.V74SequentialEntry025DirCsv))o.V74SequentialEntry025DirCsv=entryState;
-                        }
-                        else if(string.IsNullOrWhiteSpace(o.V74SequentialEntry025HoldCsv))o.V74SequentialEntry025HoldCsv=entryState;
-                    }
-                    else
-                    {
-                        if(V74SequentialRequireDirectional[k])
-                        {
-                            if(string.IsNullOrWhiteSpace(o.V74SequentialEntry050DirCsv))o.V74SequentialEntry050DirCsv=entryState;
-                        }
-                        else if(string.IsNullOrWhiteSpace(o.V74SequentialEntry050HoldCsv))o.V74SequentialEntry050HoldCsv=entryState;
-                    }
                     continue;
                 }
-
                 o.V74SequentialBars[k]++;
-                double routeFav=buy?(high-o.V74SequentialEntry[k])/o.V74SequentialRisk[k]
-                                   :(o.V74SequentialEntry[k]-low)/o.V74SequentialRisk[k];
-                double routeCloseR=(buy?close-o.V74SequentialEntry[k]:o.V74SequentialEntry[k]-close)/o.V74SequentialRisk[k];
-
-                // Real broker-risk orders resolve first. If structural stop and target
-                // share a bar, stop is conservatively first. A soft profit frontier never
-                // assumes an intrabar fill and therefore cannot pre-empt a target hit.
-                bool stopHit=buy?low<=o.V74SequentialStop[k]:high>=o.V74SequentialStop[k];
-                bool targetHit=buy?high>=o.V74SequentialTarget[k]:low<=o.V74SequentialTarget[k];
+                double ce=o.V74SequentialEntry[k],cr=o.V74SequentialRisk[k];
+                double routeFav=buy?(high-ce)/cr:(ce-low)/cr,routeAdv=buy?(ce-low)/cr:(high-ce)/cr;
+                double routeCloseR=(buy?close-ce:ce-close)/cr;
+                o.V74SequentialRouteMfeR[k]=Math.Max(o.V74SequentialRouteMfeR[k],routeFav);
+                o.V74SequentialRouteMaeR[k]=Math.Max(o.V74SequentialRouteMaeR[k],routeAdv);
+                if(o.V74SequentialPositiveArmed[k]&&o.V74SequentialBars[k]>o.V74SequentialLockBar[k])
+                {
+                    bool beHit=buy?low<=ce:high>=ce,runnerTarget=buy?high>=o.V74SequentialTarget[k]:low<=o.V74SequentialTarget[k];
+                    if(beHit){o.V74SequentialOutcomeR[k]=o.V74SequentialLockedR[k];o.V74SequentialActive[k]=false;continue;}
+                    if(runnerTarget){double remain=1.0-V74SequentialPartialFraction[k];o.V74SequentialOutcomeR[k]=o.V74SequentialLockedR[k]+remain*o.V74SequentialNetRr[k];o.V74SequentialActive[k]=false;continue;}
+                    continue;
+                }
+                bool stopHit=buy?low<=o.V74SequentialStop[k]:high>=o.V74SequentialStop[k],targetHit=buy?high>=o.V74SequentialTarget[k]:low<=o.V74SequentialTarget[k];
                 if(stopHit){o.V74SequentialOutcomeR[k]=-1.0;o.V74SequentialActive[k]=false;continue;}
                 if(targetHit){o.V74SequentialOutcomeR[k]=o.V74SequentialNetRr[k];o.V74SequentialActive[k]=false;continue;}
-
-                // Once a frontier was armed by PRIOR completed-bar evidence, only a later
-                // completed close below that frontier can terminate the runner. Exit is
-                // recorded at the actual close R, never at an optimistic floor price.
-                if(o.V74SequentialActiveStage[k]>=0&&o.V74SequentialBars[k]>o.V74SequentialLockBar[k]
-                   &&routeCloseR+1e-12<o.V74SequentialActiveFloorR[k])
+                if(routeCloseR<=V74SequentialAdverseCutR[k]){o.V74SequentialOutcomeR[k]=Math.Max(-1.0,routeCloseR);o.V74SequentialActive[k]=false;continue;}
+                if(o.V74SequentialTriggerBar[k]<0&&routeFav+1e-12>=V74SequentialTriggerR[k])
                 {
-                    o.V74SequentialOutcomeR[k]=Math.Max(-1.0,Math.Min(o.V74SequentialNetRr[k],routeCloseR));
-                    o.V74SequentialActive[k]=false;continue;
+                    o.V74SequentialTriggerBar[k]=o.V74SequentialBars[k];
+                    o.V74SequentialTriggerStateCsv[k]=string.Join(",",V74RouteStateFeatures(o,i,ce,cr,o.V74SequentialTarget[k],o.V74SequentialBars[k],
+                        o.V74SequentialRouteMfeR[k],o.V74SequentialRouteMaeR[k],V74SequentialTriggerR[k])
+                        .Select(v=>v.ToString("R",System.Globalization.CultureInfo.InvariantCulture)));
+                    continue;
                 }
-
-                if(o.V74SequentialActiveStage[k]<0&&routeCloseR<=V74SequentialAdverseCutR[k])
+                if(o.V74SequentialTriggerBar[k]>=0&&o.V74SequentialBars[k]>o.V74SequentialTriggerBar[k]&&routeCloseR+1e-12>=V74SequentialPartialHoldR[k])
                 {
-                    o.V74SequentialOutcomeR[k]=Math.Max(-1.0,routeCloseR);
-                    o.V74SequentialActive[k]=false;continue;
-                }
-
-                int observed=o.V74SequentialObservedStage[k];
-                for(int s=0;s<V74SequentialStageR.Length;s++)
-                    if(routeFav+1e-12>=V74SequentialStageR[s])observed=s;
-                if(observed>o.V74SequentialObservedStage[k])
-                {
-                    o.V74SequentialObservedStage[k]=observed;
-                    o.V74SequentialObservedStageBar[k]=o.V74SequentialBars[k];
-                    continue; // first-passage bar is observation only
-                }
-
-                int os=o.V74SequentialObservedStage[k];
-                if(os>o.V74SequentialActiveStage[k]&&os>=0
-                   &&o.V74SequentialBars[k]>o.V74SequentialObservedStageBar[k]
-                   &&routeCloseR+1e-12>=V74SequentialStageHoldR[os])
-                {
-                    o.V74SequentialActiveStage[k]=os;
-                    o.V74SequentialActiveFloorR[k]=V74SequentialStageFloorR[os];
-                    o.V74SequentialLockBar[k]=o.V74SequentialBars[k];
-                    o.V74SequentialPositiveArmed[k]=true;
+                    o.V74SequentialDecisionStateCsv[k]=string.Join(",",V74RouteStateFeatures(o,i,ce,cr,o.V74SequentialTarget[k],o.V74SequentialBars[k],
+                        o.V74SequentialRouteMfeR[k],o.V74SequentialRouteMaeR[k],routeCloseR)
+                        .Select(v=>v.ToString("R",System.Globalization.CultureInfo.InvariantCulture)));
+                    double fraction=V74SequentialPartialFraction[k];o.V74SequentialLockedR[k]=fraction*routeCloseR;
+                    o.V74SequentialPositiveArmed[k]=true;o.V74SequentialLockBar[k]=o.V74SequentialBars[k];
                 }
             }
         }
@@ -812,7 +792,12 @@ namespace cAlgo.Robots
             {
                 if(double.IsFinite(o.V74SequentialOutcomeR[k])||!o.V74SequentialActive[k]||o.V74SequentialRisk[k]<=0)continue;
                 double closeR=(o.Direction==TradeDirection.Buy?close-o.V74SequentialEntry[k]:o.V74SequentialEntry[k]-close)/o.V74SequentialRisk[k];
-                o.V74SequentialOutcomeR[k]=Math.Max(-1.0,Math.Min(o.V74SequentialNetRr[k],closeR));
+                if(o.V74SequentialPositiveArmed[k])
+                {
+                    double remain=1.0-V74SequentialPartialFraction[k],runnerR=Math.Max(0.0,Math.Min(o.V74SequentialNetRr[k],closeR));
+                    o.V74SequentialOutcomeR[k]=o.V74SequentialLockedR[k]+remain*runnerR;
+                }
+                else o.V74SequentialOutcomeR[k]=Math.Max(-1.0,Math.Min(o.V74SequentialNetRr[k],closeR));
                 o.V74SequentialActive[k]=false;
             }
         }
@@ -897,6 +882,18 @@ namespace cAlgo.Robots
                 seqParts.Add("b"+k+"="+(double.IsFinite(o.V74SequentialOutcomeR[k])
                     ?o.V74SequentialOutcomeR[k].ToString("R",System.Globalization.CultureInfo.InvariantCulture):"NA"));
                 seqParts.Add("rr"+k+"="+o.V74SequentialNetRr[k].ToString("R",System.Globalization.CultureInfo.InvariantCulture));
+            }
+            var seqParts=new List<string>{"setup="+o.SetupKey,"family="+o.Family,"lane="+o.Lane,
+                "m025="+(string.IsNullOrWhiteSpace(o.V74SequentialState025Csv)?"NONE":o.V74SequentialState025Csv),
+                "m050="+(string.IsNullOrWhiteSpace(o.V74SequentialState050Csv)?"NONE":o.V74SequentialState050Csv)};
+            for(int k=0;k<V74SequentialKey.Length;k++)
+            {
+                seqParts.Add("e"+k+"="+(string.IsNullOrWhiteSpace(o.V74SequentialEntryStateCsv[k])?"NONE":o.V74SequentialEntryStateCsv[k]));
+                seqParts.Add("t"+k+"="+(string.IsNullOrWhiteSpace(o.V74SequentialTriggerStateCsv[k])?"NONE":o.V74SequentialTriggerStateCsv[k]));
+                seqParts.Add("d"+k+"="+(string.IsNullOrWhiteSpace(o.V74SequentialDecisionStateCsv[k])?"NONE":o.V74SequentialDecisionStateCsv[k]));
+                seqParts.Add("b"+k+"="+(double.IsFinite(o.V74SequentialOutcomeR[k])?o.V74SequentialOutcomeR[k].ToString("R",System.Globalization.CultureInfo.InvariantCulture):"NA"));
+                seqParts.Add("rr"+k+"="+o.V74SequentialNetRr[k].ToString("R",System.Globalization.CultureInfo.InvariantCulture));
+                seqParts.Add("rb"+k+"="+o.V74SequentialBars[k].ToString(System.Globalization.CultureInfo.InvariantCulture));
             }
             Print("[V74-SEQUENTIAL-PATH] "+string.Join(" ",seqParts));
         }

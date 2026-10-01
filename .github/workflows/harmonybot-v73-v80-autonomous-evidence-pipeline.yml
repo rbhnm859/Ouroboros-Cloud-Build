@@ -267,7 +267,7 @@ jobs:
     needs: v73_gate
     if: ${{ needs.v73_gate.outputs.pass == 'true' }}
     runs-on: ubuntu-24.04
-    timeout-minutes: 12
+    timeout-minutes: 20
     outputs:
       pass: ${{ steps.g.outputs.pass }}
     steps:
@@ -284,7 +284,7 @@ jobs:
         shell: bash
         run: |
           mkdir -p tournament
-          python3 control/HarmonyBot-V71/tools/evaluate_v74_sequential.py merged tournament
+          python3 control/HarmonyBot-V71/tools/evaluate_v74_action_arbitration.py merged tournament
           echo "pass=$(cat tournament/pass.txt)" >> "$GITHUB_OUTPUT"
       - uses: actions/upload-artifact@v4
         with:
