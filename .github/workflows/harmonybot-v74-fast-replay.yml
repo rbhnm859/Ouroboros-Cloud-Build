@@ -6,6 +6,7 @@ on:
     branches: [main]
     paths:
       - 'HarmonyBot-V71/tools/evaluate_v74_sequential.py'
+      - 'HarmonyBot-V71/tools/diagnose_v74_joint_oracle.py'
       - 'HarmonyBot-V71/tools/v74_model_lib.py'
       - 'HarmonyBot-V71/tools/apply_v74_champion.py'
       - 'HarmonyBot-V71/tools/generate_v74_embedded_cs.py'
@@ -61,6 +62,7 @@ jobs:
           set -euo pipefail
           python3 -m py_compile \
             control/HarmonyBot-V71/tools/evaluate_v74_sequential.py \
+            control/HarmonyBot-V71/tools/diagnose_v74_joint_oracle.py \
             control/HarmonyBot-V71/tools/v74_model_lib.py \
             control/HarmonyBot-V71/tools/apply_v74_champion.py \
             control/HarmonyBot-V71/tools/generate_v74_embedded_cs.py
