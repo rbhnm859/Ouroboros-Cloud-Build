@@ -29,7 +29,7 @@ namespace cAlgo.Robots
         [Parameter("V74 Policy Hold Bars", DefaultValue = "")]
         public string V74PolicyHoldBars { get; set; }
 
-        private readonly int[] _v73ResearchSwingDepths = { 2, 3, 4, 5 };
+        private readonly int[] _v73ResearchSwingDepths = { 2, 3, 4, 5, 6, 7, 8 };
         private HashSet<string> _v74AllowedHashes;
         private Dictionary<string,double> _v74Utility;
         private Dictionary<string,double> _v74HoldBars;
@@ -117,19 +117,77 @@ namespace cAlgo.Robots
         private List<PatternSignal> V73BuildOpportunityPool(int m15Index,int defaultLimit)
         {
             var all=new List<PatternSignal>();
+            double atr=Atr(_m15Bars,14,m15Index);
+            if(atr<=0)return all;
+
+            // Supply reconstruction only. All family identity / Fibonacci ratio / PRZ
+            // contracts stay inside the frozen V71 matcher. V73 only broadens the
+            // confirmed-pivot topology (depths 2..8) before canonical de-duplication.
             foreach(int depth in _v73ResearchSwingDepths)
             {
-                var xs=V71DetectExpansionPatternCandidates(_m15Bars,m15Index,depth,M15SwingLookback,
-                    Math.Max(64,defaultLimit),"M15-V73-D"+depth.ToString(CultureInfo.InvariantCulture));
-                if(xs!=null) all.AddRange(xs);
+                var pivots=BuildConfirmedPivots(_m15Bars,m15Index,M15SwingLookback,depth);
+                if(pivots.Count<5)continue;
+
+                for(int dPos=Math.Max(4,pivots.Count-18);dPos<pivots.Count;dPos++)
+                {
+                    var d=pivots[dPos];
+                    if(m15Index-d.Index>8)continue;
+
+                    int c0=Math.Max(3,dPos-5);
+                    for(int cPos=c0;cPos<dPos;cPos++)
+                    {
+                        if(!V71SparseLegInsideEnvelope(pivots,cPos,dPos))continue;
+                        int b0=Math.Max(2,cPos-5);
+                        for(int bPos=b0;bPos<cPos;bPos++)
+                        {
+                            if(!V71SparseLegInsideEnvelope(pivots,bPos,cPos))continue;
+                            int a0=Math.Max(1,bPos-5);
+                            for(int aPos=a0;aPos<bPos;aPos++)
+                            {
+                                if(!V71SparseLegInsideEnvelope(pivots,aPos,bPos))continue;
+                                int x0=Math.Max(0,aPos-5);
+                                for(int xPos=x0;xPos<aPos;xPos++)
+                                {
+                                    if(dPos-xPos>16||!V71SparseLegInsideEnvelope(pivots,xPos,aPos))continue;
+                                    var x=pivots[xPos];var a=pivots[aPos];var b=pivots[bPos];var c=pivots[cPos];
+
+                                    foreach(var profile in _profiles)
+                                    {
+                                        string rejectReason;
+                                        if(!V71ExpansionPrimaryContractPass(profile,x,a,b,c,d,atr,out rejectReason))
+                                            continue;
+
+                                        PatternSignal sig;
+                                        if(!TryMatchProfile(profile,x,a,b,c,d,atr,_m15Bars.OpenTimes[d.Index],"M15",depth,out sig,false))
+                                            continue;
+                                        if(m15Index-d.Index>Math.Max(2,profile.MaxAgeM15Bars))
+                                            continue;
+                                        all.Add(sig);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
             }
-            return all;
+
+            // Preserve family interpretation first, then canonicalize exact geometry.
+            // No PnL, year, route profitability or capital availability enters this pool.
+            var familyNative=all
+                .GroupBy(x=>V71FamilyKey(x.PatternName)+"|"+BuildSetupGeometryKey(x)+"|"+x.PivotScale)
+                .Select(g=>g.OrderByDescending(x=>x.Confidence).ThenByDescending(x=>x.GeometryQuality).First())
+                .OrderByDescending(x=>x.Confidence).ThenByDescending(x=>x.GeometryQuality).ToList();
+
+            foreach(var signal in familyNative)
+                signal.ResearchRole=V71AbcdResearchRole(signal,familyNative);
+
+            return familyNative.Take(Math.Max(128,Math.Min(1024,defaultLimit*8))).ToList();
         }
 
         private void V73PrintUniverseSummary()
         {
             if(!EnableV73OpportunityUniverse)return;
-            Print("[V73-UNIVERSE-SUMMARY] swingDepths=2,3,4,5 independentDetected={0} przTouched={1} causalProofs={2} closedOutcomes={3} abcdPrimitive={4} coreOverlapObserved={5} capitalExecutionUsed=False",
+            Print("[V73-UNIVERSE-SUMMARY] swingDepths=2,3,4,5,6,7,8 independentDetected={0} przTouched={1} causalProofs={2} closedOutcomes={3} abcdPrimitive={4} coreOverlapObserved={5} capitalExecutionUsed=False",
                 _v72HcogDetected,_v72HcogPrzTouched,_v72HcogProofs,_v72HcogClosed,_v72HcogAbcdPrimitive,_v72HcogCoreOverlapAtEntry);
         }
     }

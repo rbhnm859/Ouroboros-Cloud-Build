@@ -70,7 +70,7 @@ jobs:
   research_seed:
     needs: build
     runs-on: ubuntu-24.04
-    timeout-minutes: 50
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       max-parallel: 5
@@ -81,33 +81,39 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           path: control
-      - uses: actions/download-artifact@v4
-        with:
-          name: v73-build
-          path: control/HarmonyBot-V71/shared
-      - name: Resolve window and hydrate governed research data
-        env:
-          CTRADER_PASSWORD: ${{ secrets.CTRADER_PASSWORD }}
-          CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
-          CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+      - name: Resolve immutable Research-Train custody
+        id: custody
         shell: bash
         run: |
           set -euo pipefail
-          eval "$(bash control/HarmonyBot-V71/tools/resolve_window.sh ${{ matrix.window }})"
-          mkdir -p control/HarmonyBot-V71/reference
-          R=$(find control/HarmonyBot-V71/shared -type f -name 'HarmonyBot_V51_Family_Native_Math_Geometry_Economic_Conversion_RC.algo' | head -1)
-          cp "$R" control/HarmonyBot-V71/reference/
-          chmod +x control/HarmonyBot-V71/tools/*.sh
-          control/HarmonyBot-V71/tools/run_v51_reference.sh ${{ matrix.window }} "$START" "$EVAL" "$END" "$YEARS"
+          M=control/HarmonyBot-V73/V73_RESEARCH_CUSTODY.json
+          test -s "$M"
+          RUN=$(python3 -c 'import json;print(json.load(open("'$M'"))["source_run_id"])')
+          SHA=$(python3 -c 'import json;print(json.load(open("'$M'"))["windows"]["${{ matrix.window }}"]["sha256"])')
+          ART=$(python3 -c 'import json;print(json.load(open("'$M'"))["windows"]["${{ matrix.window }}"]["artifact"])')
+          echo "run=$RUN" >> "$GITHUB_OUTPUT"
+          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+          echo "artifact=$ART" >> "$GITHUB_OUTPUT"
+      - uses: actions/download-artifact@v4
+        with:
+          name: ${{ steps.custody.outputs.artifact }}
+          path: control/HarmonyBot-V71/seed
+          github-token: ${{ github.token }}
+          run-id: ${{ steps.custody.outputs.run }}
+      - name: Verify immutable Research-Train bytes
+        shell: bash
+        run: |
+          set -euo pipefail
+          H=$(cd control/HarmonyBot-V71/seed && find . -type f -print0 | LC_ALL=C sort -z | xargs -0 sha256sum | sha256sum | cut -d' ' -f1)
+          test "$H" = "${{ steps.custody.outputs.sha }}" || {
+            echo "[V73-RESEARCH-CUSTODY-FAIL] window=${{ matrix.window }} expected=${{ steps.custody.outputs.sha }} actual=$H"
+            exit 48
+          }
+          echo "[V73-RESEARCH-CUSTODY] window=${{ matrix.window }} sha256=$H immutable=true"
       - uses: actions/upload-artifact@v4
         with:
           name: v73-data-seed-${{ matrix.window }}
-          path: control/HarmonyBot-V71/reference-window-${{ matrix.window }}/seal/data
-          retention-days: 30
-      - uses: actions/upload-artifact@v4
-        with:
-          name: v73-v51-reference-${{ matrix.window }}
-          path: control/HarmonyBot-V71/reference-output-${{ matrix.window }}
+          path: control/HarmonyBot-V71/seed
           retention-days: 30
 
   burned_seed:

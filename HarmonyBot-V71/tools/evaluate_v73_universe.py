@@ -12,7 +12,7 @@ outcome_rx=re.compile(
  r"q=([-0-9.]+)\s+lcb=([-0-9.]+)\s+hold=([-0-9.]+)\s+features=(\S+)"
 )
 summary_rx=re.compile(
- r"\[V73-UNIVERSE-SUMMARY\]\s+swingDepths=2,3,4,5\s+independentDetected=(\d+)\s+"
+ r"\[V73-UNIVERSE-SUMMARY\]\s+swingDepths=2,3,4,5,6,7,8\s+independentDetected=(\d+)\s+"
  r"przTouched=(\d+)\s+causalProofs=(\d+)\s+closedOutcomes=(\d+)\s+abcdPrimitive=(\d+)\s+"
  r"coreOverlapObserved=(\d+)\s+capitalExecutionUsed=False"
 )
@@ -53,7 +53,7 @@ for p in root.rglob("R_V73_OPPORTUNITY_UNIVERSE-*.json"):
  if w in WINDOWS:audit[w]=d
 
 manifest={"version":"HarmonyBot V73 Candidate","architecture":"MULTISCALE_FROZEN_DETECTOR_OPPORTUNITY_UNIVERSE",
-          "swing_depths":[2,3,4,5],"minimum_independent_causal_opportunities_per_year":MIN_CAUSAL,
+          "swing_depths":[2,3,4,5,6,7,8],"minimum_independent_causal_opportunities_per_year":MIN_CAUSAL,
           "minimum_visible_families_per_year":MIN_FAMILIES,"windows":{},"validation_used":False,"fresh_used":False}
 all_pass=True
 for w in WINDOWS:
@@ -69,7 +69,7 @@ for w in WINDOWS:
    "summary":summary,"pass":gate}
  all_pass=all_pass and gate
 manifest["v73_gate"]=all_pass
-manifest["gate_semantics"]="EACH_2016_2023_YEAR_GE_400_UNIQUE_NON_ABCD_CAUSAL_OUTCOMES_GE_8_FAMILIES_ZERO_DUPLICATE_SETUP_VALID_DATA_CUSTODY"
+manifest["gate_semantics"]="EACH_2016_2023_YEAR_GE_400_UNIQUE_NON_ABCD_CAUSAL_OUTCOMES_GE_8_FAMILIES_ZERO_DUPLICATE_SETUP_VALID_DATA_CUSTODY__FULL_CONFIRMED_PIVOT_DEPTHS_2_TO_8"
 manifest["positive_asset"]="PROVES_OR_DISPROVES_PHYSICAL_OPPORTUNITY_SUPPLY_FOR_200_INDEPENDENT_BASKETS_PER_YEAR_WITH_2X_SUPPLY_MARGIN"
 (out/"V73_OPPORTUNITY_UNIVERSE_MANIFEST.json").write_text(json.dumps(manifest,indent=2))
 (out/"pass.txt").write_text("true" if all_pass else "false")
