@@ -1012,17 +1012,7 @@ jobs:
           python3 control/HarmonyBot-V71/tools/generate_v74_embedded_cs.py tournament/V74_TOURNAMENT_MANIFEST.json tournament/V74_MODELS.json control/HarmonyBot-V71/src/Architecture/HarmonyBotV74.EmbeddedPolicy.Generated.cs
           MODE=$(python3 -c 'import json;print(json.load(open("capacity/V77_CAPACITY_MANIFEST.json"))["selected"]["mode"])')
           RISK=$(python3 -c 'import json;print(json.load(open("capacity/V77_CAPACITY_MANIFEST.json"))["selected"]["risk_pct"])')
-          python3 - "$MODE" "$RISK" <<'PY'
-import pathlib,sys
-mode,risk=sys.argv[1],sys.argv[2]
-p=pathlib.Path("control/HarmonyBot-V71/src/Architecture/HarmonyBotV71.V73OpportunityUniverse.cs")
-s=p.read_text();s=s.replace('[Parameter("Enable V74 Embedded Frozen Policy", DefaultValue = false)]','[Parameter("Enable V74 Embedded Frozen Policy", DefaultValue = true)]');p.write_text(s)
-p=pathlib.Path("control/HarmonyBot-V71/src/HarmonyBotV71.cs");s=p.read_text()
-s=s.replace('[Parameter("V71 Expansion Execution", DefaultValue = false)]','[Parameter("V71 Expansion Execution", DefaultValue = true)]')
-s=s.replace('[Parameter("V71 Expansion Grid", DefaultValue = false)]',f'[Parameter("V71 Expansion Grid", DefaultValue = {str(mode=="GRID").lower()})]')
-s=s.replace('[Parameter("V71 Expansion Risk %", DefaultValue = 1.0, MinValue = 0.1, MaxValue = 5.0)]',f'[Parameter("V71 Expansion Risk %", DefaultValue = {risk}, MinValue = 0.1, MaxValue = 5.0)]')
-p.write_text(s)
-PY
+          python3 control/HarmonyBot-V71/tools/prepare_v80_release.py "$MODE" "$RISK" control/HarmonyBot-V71
           dotnet restore control/HarmonyBot-V71/HarmonyBotV71.csproj
           dotnet build control/HarmonyBot-V71/HarmonyBotV71.csproj -c Release --no-restore --nologo
           mkdir -p release/HarmonyBot-V80/{dist,src,evidence}
@@ -1033,12 +1023,12 @@ PY
           cp capacity/V77_CAPACITY_MANIFEST.json release/HarmonyBot-V80/evidence/
           cp tournament/V74_TOURNAMENT_MANIFEST.json release/HarmonyBot-V80/evidence/
           sha256sum release/HarmonyBot-V80/dist/*.algo release/HarmonyBot-V80/src/Architecture/HarmonyBotV74.EmbeddedPolicy.Generated.cs > release/HarmonyBot-V80/SHA256SUMS
-          cat > release/HarmonyBot-V80/V80_COMMERCIAL_FREEZE.md <<EOF
-          # HarmonyBot V80 Commercial Freeze
-          Automated evidence chain: V73 supply -> V74 Alpha -> V75 conversion -> V76 throughput -> V77 capacity/Grid -> V78 DEV -> V79 Validation/Fresh -> V80.
-          Hard targets: >=150% annual return and Net, PF>=3.0, DD<=10%, WR>=68%, >=200 independent baskets/year, realized RR>=2.2, >=11/12 profitable months.
-          The frozen Champion is embedded in the .algo. Grid and fixed risk defaults are the V77-selected configuration. No Validation/Fresh tuning is permitted.
-          EOF
+          printf '%s\n' \
+            '# HarmonyBot V80 Commercial Freeze' \
+            'Automated evidence chain: V73 supply -> V74 Alpha -> V75 conversion -> V76 throughput -> V77 capacity/Grid -> V78 DEV -> V79 Validation/Fresh -> V80.' \
+            'Hard targets: >=150% annual return and Net, PF>=3.0, DD<=10%, WR>=68%, >=200 independent baskets/year, realized RR>=2.2, >=11/12 profitable months.' \
+            'The frozen Champion is embedded in the .algo. Grid and fixed risk defaults are the V77-selected configuration. No Validation/Fresh tuning is permitted.' \
+            > release/HarmonyBot-V80/V80_COMMERCIAL_FREEZE.md
       - uses: actions/upload-artifact@v4
         with:
           name: V80-COMMERCIAL-RELEASE
