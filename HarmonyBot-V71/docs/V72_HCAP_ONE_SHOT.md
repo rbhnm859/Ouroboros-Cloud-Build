@@ -80,3 +80,23 @@ PASS creates the final branch:
 
 FAIL at any strategy gate terminates HCAP without threshold/filter/risk rescue.
 Engineering-only compile/API/parser/CI repairs are permitted without changing the preregistered strategy contract.
+
+## Final commercial hard targets (2026-10-01 revision)
+
+These are release vetoes, not aspirational labels. A candidate must not be called commercial PASS unless all are satisfied with real cTrader economics:
+
+- Total Return: >= 150% per year.
+- Net Profit: >= 150% of starting capital per year.
+- Profit Factor: >= 3.0.
+- Max Drawdown: <= 10%.
+- Win Rate: >= 68%.
+- Independent closed baskets: >= 200 per year. Grid legs/fills do not inflate this count.
+- Average realized reward/risk: >= 2.2:1, measured as mean positive realized R divided by mean absolute negative realized R. Complete basket telemetry is required.
+- Monthly consistency: >= 11 profitable months out of 12.
+
+For partial OOS windows, the return hurdle is converted by the same annual compound rate:
+`required_return = (2.5^years - 1) * 100%`.
+Trade count is prorated at 200 independent baskets/year. Monthly consistency keeps the >=11/12 ratio and rounds fail-closed upward (six-month window => 6/6 profitable months; three-month window => 3/3).
+
+Alpha qualification risk remains 1%. These performance targets must be reached by edge and opportunity supply; risk may not be increased to manufacture a PASS.
+
