@@ -100,7 +100,7 @@ namespace cAlgo.Robots
                     Direction=s.Direction,HasAbcdConfluence=abcd,StandaloneAbcd=standalone,CapitalSemantic=!standalone,
                     Lane=standalone?"HCOG_ABCD_STANDALONE_SHADOW":"HCOG_PENDING"};
                 _v72Hcog[o.Id]=o;_v72HcogDetected++;
-                Print("[V72-HCOG-DETECTED] id={0} setup={1} family={2} hypotheses={3} abcd={4} fitLoss={5:F6} conflict={6}",
+                if(!EnableV73OpportunityUniverse)Print("[V72-HCOG-DETECTED] id={0} setup={1} family={2} hypotheses={3} abcd={4} fitLoss={5:F6} conflict={6}",
                     o.Id,o.SetupKey,o.Family,o.Hypotheses,o.HasAbcdConfluence,V72HcogGeometryLoss(s),o.Conflict);
             }
         }
@@ -115,7 +115,7 @@ namespace cAlgo.Robots
             o.Direction=V72OppositeDirection(o.Signal.Direction);o.FailureBoundary=o.Signal.StructuralInvalidation;o.FailureBreakUtc=utc;
             o.ProofExpiryUtc=V72NextM15Boundary(utc).AddMinutes(15);if(o.ProofExpiryUtc>o.OverallExpiryUtc)o.ProofExpiryUtc=o.OverallExpiryUtc;
             o.LastStageUtc=utc;o.State=V72HcogState.FAILURE_WAIT_RETEST;
-            Print("[V72-HCOG-FAILURE-BREAK] id={0} family={1} boundary={2:F5} dir={3} expiry={4:o}",o.Id,o.Family,o.FailureBoundary,o.Direction,o.ProofExpiryUtc);
+            if(!EnableV73OpportunityUniverse)Print("[V72-HCOG-FAILURE-BREAK] id={0} family={1} boundary={2:F5} dir={3} expiry={4:o}",o.Id,o.Family,o.FailureBoundary,o.Direction,o.ProofExpiryUtc);
         }
 
         private double[] V74ResearchFeatures(V72HcogOpportunity o)
@@ -192,7 +192,7 @@ namespace cAlgo.Robots
             if(EnableV74ExternalPolicy||EnableV74EmbeddedPolicy)V74FrozenPolicyScoreOpportunity(o); else V72HcapScoreOpportunity(o);
             o.CoreOverlapAtEntry=V71CoreHasActiveThesis()||_activeSetupOwners.ContainsKey(o.SetupKey)||_executedSetupKeys.Contains(o.SetupKey);
             if(o.CoreOverlapAtEntry)_v72HcogCoreOverlapAtEntry++;_v72HcogProofs++;_v72HcogArmed++;if(lane=="HCOG_FAILURE_CONTINUATION")_v72HcogFailureArmed++;
-            Print("[V72-HCOG-PROVED] id={0} family={1} lane={2} dir={3} entry={4:F5} stop={5:F5} target={6:F5} netRR={7:F4} coreOverlap={8} abcd={9}",
+            if(!EnableV73OpportunityUniverse)Print("[V72-HCOG-PROVED] id={0} family={1} lane={2} dir={3} entry={4:F5} stop={5:F5} target={6:F5} netRR={7:F4} coreOverlap={8} abcd={9}",
                 o.Id,o.Family,o.Lane,o.Direction,o.Entry,o.Stop,o.Target,o.NetRr,o.CoreOverlapAtEntry,o.HasAbcdConfluence);
             bool v74StandaloneCapital=o.StandaloneAbcd&&(EnableV74ExternalPolicy||EnableV74EmbeddedPolicy)&&o.HcapSelected;
             if((o.CapitalSemantic||v74StandaloneCapital)&&EnableV71ExpansionExecution&&((!EnableV72HcapAlpha&&!EnableV74ExternalPolicy&&!EnableV74EmbeddedPolicy)||o.HcapSelected))V72HcogQueueCapital(o,utc);
