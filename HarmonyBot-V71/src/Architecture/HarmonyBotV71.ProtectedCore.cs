@@ -369,13 +369,15 @@ namespace cAlgo.Robots
             // Expansion is discovered only after core ownership is known, so identical setups
             // can never enter the expansion book.
             V71PreemptExpansionForCore(Server.Time.ToUniversalTime());
-            if (EnableV71ExpansionShadow || EnableV71ExpansionExecution || EnableV72HcogAlpha || EnableV72HcapAlpha)
+            if (EnableV71ExpansionShadow || EnableV71ExpansionExecution || EnableV72HcogAlpha || EnableV72HcapAlpha || EnableV73OpportunityUniverse2)
             {
                 int expansionLimit = Math.Max(8, Math.Min(32, V71ExpansionMaxCandidates));
                 int expansionPoolLimit = (EnableV72HcogAlpha || EnableV72HcapAlpha) ? 128 :
                     (EnableV71FamilyBalancedCensus ? Math.Max(64, Math.Min(128, expansionLimit * 4)) : expansionLimit);
-                var expansionPool = V71DetectExpansionPatternCandidates(_m15Bars, i, M15SwingDepth, M15SwingLookback, expansionPoolLimit, "M15");
-                if (EnableV72HcogAlpha || EnableV72HcapAlpha) V72HcogTrackRawPool(expansionPool, h4State, h1State, regime);
+                var expansionPool = EnableV73OpportunityUniverse2
+                    ? V73DetectOpportunityUniverse(_m15Bars, i, M15SwingLookback)
+                    : V71DetectExpansionPatternCandidates(_m15Bars, i, M15SwingDepth, M15SwingLookback, expansionPoolLimit, "M15");
+                if (EnableV72HcogAlpha || EnableV72HcapAlpha || EnableV73OpportunityUniverse2) V72HcogTrackRawPool(expansionPool, h4State, h1State, regime);
                 bool legacyResearch = EnableV71ExpansionShadow || EnableV72BifurcationAlpha || EnableV72FamilyNativeCausalAlpha || EnableV72FailureAuctionCausalAlpha;
                 if (legacyResearch)
                 {
@@ -398,7 +400,7 @@ namespace cAlgo.Robots
 
             if (EnableV71ExpansionShadow || EnableV71ExpansionExecution)
                 V71ProcessExpansionM1(i, utc);
-            if (EnableV72HcogAlpha || EnableV72HcapAlpha)
+            if (EnableV72HcogAlpha || EnableV72HcapAlpha || EnableV73OpportunityUniverse2)
                 V72HcogProcessM1(i, utc);
 
             foreach (var c in _candidates.Values.Where(x => x.IsActive).ToList())
