@@ -55,7 +55,17 @@ jobs:
           FULL=false
           while IFS= read -r p; do
             case "$p" in
-              HarmonyBot-V71/src/*|\
+              HarmonyBot-V71/src/*.cs)
+                if git diff -w --ignore-blank-lines \
+                     -I '^[[:space:]]*//' \
+                     -I '^[[:space:]]*/\*' \
+                     -I '^[[:space:]]*\*' \
+                     --quiet "$BEFORE" "$AFTER" -- "$p"; then
+                  echo "[V74-RAPID-CHANGE-GATE] comment/whitespace-only C# change ignored: $p"
+                else
+                  FULL=true
+                fi
+                ;;
               HarmonyBot-V71/HarmonyBotV71.csproj|\
               HarmonyBot-V71/tools/run_window.sh|\
               HarmonyBot-V71/tools/run_backtest.sh|\
