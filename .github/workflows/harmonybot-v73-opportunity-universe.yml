@@ -13,7 +13,7 @@ concurrency:
   cancel-in-progress: true
 
 permissions:
-  contents: read
+  contents: write
   actions: read
 
 jobs:
@@ -148,7 +148,37 @@ jobs:
     if: ${{ needs.opportunity_gate.outputs.pass == 'true' }}
     runs-on: ubuntu-24.04
     steps:
-      - name: Gate-qualified handoff only
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/download-artifact@v4
+        with:
+          name: V73-OPPORTUNITY-UNIVERSE-GATE
+          path: v73-gate
+      - name: Create V74 candidate branch from proven V73 capability
+        shell: bash
         run: |
-          echo "V73 supply gate PASS. V74 Alpha Tournament may be instantiated."
-          echo "No strategy promotion is implied by workflow success."
+          set -euo pipefail
+          BR="harmonybot/v74-alpha-tournament"
+          test "$(python3 -c 'import json; print(str(json.load(open("v73-gate/V73_OPPORTUNITY_UNIVERSE_GATE.json"))["gate"]).lower())')" = "true"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if git ls-remote --exit-code --heads origin "$BR" >/dev/null 2>&1; then
+            echo "V74 branch already exists; refusing to overwrite"
+            exit 71
+          fi
+          git checkout -b "$BR"
+          mkdir -p HarmonyBot-V74
+          cp v73-gate/V73_OPPORTUNITY_UNIVERSE_GATE.json HarmonyBot-V74/V73_GATE_EVIDENCE.json
+          cat > HarmonyBot-V74/V74_ALPHA_TOURNAMENT_HANDOFF.md <<EOF
+          # V74 Alpha Tournament handoff
+          Source V73 commit: ${{ github.event.pull_request.head.sha || github.sha }}
+          Source workflow run: $GITHUB_RUN_ID
+          V73 supply gate: PASS
+          Policy: three preregistered action models compete under temporal OOF; no threshold rescue, no Validation/Fresh access.
+          EOF
+          printf '%s\n' "$GITHUB_RUN_ID" > HarmonyBot-V74/V73_SOURCE_RUN_ID.txt
+          git add HarmonyBot-V74
+          git commit -m "promote(candidate): V73 supply capability to V74 alpha tournament"
+          git push origin "$BR"
