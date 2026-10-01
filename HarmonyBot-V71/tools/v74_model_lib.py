@@ -26,6 +26,12 @@ PATH_RX=re.compile(
  r"p025=([-0-9.]+)\s+p050=([-0-9.]+)\s+p075=([-0-9.]+)\s+p100=([-0-9.]+)\s+p150=([-0-9.]+)\s+"
  r"m025=(\S+)\s+m050=(\S+)\s+m075=(\S+)\s+m100=(\S+)\s+m150=(\S+)"
 )
+RCR_KEYS=["R050_010","R075_025","R100_040"]
+RCR_RX=re.compile(
+ r"\[V74-RCR-PATH\]\s+setup=(\S+)\s+family=(\S+)\s+lane=(\S+)\s+"
+ r"r050010=(\S+)\s+rr050010=([-0-9.]+)\s+r075025=(\S+)\s+rr075025=([-0-9.]+)\s+"
+ r"r100040=(\S+)\s+rr100040=([-0-9.]+)"
+)
 
 def window_of(path,windows):
     s=str(path)
@@ -39,7 +45,18 @@ def load_rows(root,windows):
         w=window_of(p,windows)
         if not w: continue
         txt=p.read_text(errors="ignore")
-        paths={}
+        paths={}; rcr_paths={}
+        for rm in RCR_RX.finditer(txt):
+            vals=[rm.group(4),rm.group(6),rm.group(8)]
+            rcr={}
+            for i,key in enumerate(RCR_KEYS):
+                raw=vals[i]
+                if raw not in ("NA","NaN","nan"):
+                    try:
+                        v=float(raw)
+                        if math.isfinite(v): rcr[key]=v
+                    except Exception: pass
+            rcr_paths[rm.group(1)]=rcr
         for pm in PATH_RX.finditer(txt):
             protect={k:float(pm.group(4+i)) for i,k in enumerate(PROTECTION_KEYS)}
             miles={}
@@ -65,7 +82,8 @@ def load_rows(root,windows):
                          "action":action,
                          "r":float(m.group(7)),"mfe":float(m.group(8)),"mae":float(m.group(9)),
                          "bars":int(m.group(10)),"result":m.group(11),"features":fv,
-                         "protect_r":path.get("protect_r",{}),"milestones":path.get("milestones",{})})
+                         "protect_r":path.get("protect_r",{}),"milestones":path.get("milestones",{}),
+                         "rcr":rcr_paths.get(m.group(2),{})})
     # HCOG setup identity is the anti-duplicate truth. Last copy is equivalent if repeated artifact paths exist.
     d={}
     for r in rows:d[(r["window"],r["setup"])]=r
