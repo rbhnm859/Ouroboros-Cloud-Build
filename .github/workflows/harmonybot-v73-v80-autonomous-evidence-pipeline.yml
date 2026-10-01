@@ -291,7 +291,9 @@ jobs:
         with:
           fetch-depth: 0
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
-      - run: bash HarmonyBot-V71/tools/promote_version_marker.sh V74 harmonybot/v74-alpha-tournament-qualified "A preregistered Alpha Champion passed 2021/2022/2023 OOF: N>=250/year, MeanR>=0.90, PF_R>=3.30, WR>=70%, AvgRR>=2.30, LCB95>0."
+      - shell: bash
+        run: |
+          bash HarmonyBot-V71/tools/promote_version_marker.sh V74 harmonybot/v74-alpha-tournament-qualified "A preregistered Alpha Champion passed 2021/2022/2023 OOF: N>=250/year, MeanR>=0.90, PF_R>=3.30, WR>=70%, AvgRR>=2.30, LCB95>0."
 
   v75_policy:
     needs: v74_tournament
