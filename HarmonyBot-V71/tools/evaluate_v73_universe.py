@@ -35,7 +35,7 @@ for p in root.rglob("*.log"):
   summaries[w]={"detected":int(z[0]),"prz_touched":int(z[1]),"causal_proofs":int(z[2]),
                 "closed_outcomes":int(z[3]),"abcd_primitive":int(z[4]),"core_overlap":int(z[5])}
  for m in outcome_rx.finditer(txt):
-  fam=m.group(3); lane=m.group(4); features=m.group(15)
+  fam=m.group(3); lane=m.group(4); features=m.group(16)
   if lane not in ("HCOG_REVERSAL","HCOG_FAILURE_CONTINUATION",
                   "HCOG_ABCD_STANDALONE_REVERSAL_SHADOW","HCOG_ABCD_STANDALONE_CONTINUATION_SHADOW"): continue
   if features=="NONE": continue
