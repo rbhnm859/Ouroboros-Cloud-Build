@@ -38,6 +38,20 @@ namespace cAlgo.Robots
         private static readonly bool[] V74HighConvictionRequireDirectional = { false, true, false, true };
         private static readonly string[] V74HighConvictionKey = { "HC175_HOLD", "HC175_DIR", "HC200_HOLD", "HC200_DIR" };
 
+        // V74 causal-sequential delayed-commit reconstruction. Capital is explicitly absent
+        // before the virtual harmonic thesis first-passes 1.25R/1.50R. Entry can occur only
+        // on a later completed M1 close that preserves the reaction floor. This is a causal
+        // reaction->reversal conversion test, not a retroactive use of the original entry.
+        private static readonly double[] V74SequentialReactionR = { 1.25, 1.25, 1.50, 1.50, 1.25, 1.25, 1.50, 1.50 };
+        private static readonly bool[] V74SequentialRequireDirectional = { false, true, false, true, false, true, false, true };
+        private static readonly bool[] V74SequentialFrontier = { false, false, false, false, true, true, true, true };
+        private static readonly string[] V74SequentialKey = {
+            "S125_HOLD_PURE","S125_DIR_PURE","S150_HOLD_PURE","S150_DIR_PURE",
+            "S125_HOLD_FRONTIER","S125_DIR_FRONTIER","S150_HOLD_FRONTIER","S150_DIR_FRONTIER"
+        };
+        private static readonly double[] V74SequentialStageR = { .75, 1.25, 1.75 };
+        private static readonly double[] V74SequentialFloorR = { .25, .65, 1.00 };
+
         private sealed class V72HcogOpportunity
         {
             public string Id, SetupKey, Family, Hypotheses, Lane, Result;
@@ -88,6 +102,19 @@ namespace cAlgo.Robots
             public double[] V74HighConvictionRisk = new double[4];
             public double[] V74HighConvictionNetRr = new double[4];
             public double[] V74HighConvictionOutcomeR = Enumerable.Repeat(double.NaN, 4).ToArray();
+            public int[] V74SequentialReactionBar = Enumerable.Repeat(-1, 8).ToArray();
+            public bool[] V74SequentialActive = new bool[8];
+            public bool[] V74SequentialPositiveArmed = new bool[8];
+            public int[] V74SequentialBars = new int[8];
+            public int[] V74SequentialStage = Enumerable.Repeat(-1, 8).ToArray();
+            public int[] V74SequentialStageBar = Enumerable.Repeat(-1, 8).ToArray();
+            public double[] V74SequentialEntry = new double[8];
+            public double[] V74SequentialStop = new double[8];
+            public double[] V74SequentialTarget = new double[8];
+            public double[] V74SequentialRisk = new double[8];
+            public double[] V74SequentialNetRr = new double[8];
+            public double[] V74SequentialOutcomeR = Enumerable.Repeat(double.NaN, 8).ToArray();
+            public string V74SequentialState125Csv = "", V74SequentialState150Csv = "";
         }
 
         private readonly Dictionary<string,V72HcogOpportunity> _v72Hcog = new Dictionary<string,V72HcogOpportunity>(StringComparer.Ordinal);
@@ -630,6 +657,109 @@ namespace cAlgo.Robots
             }
         }
 
+        private void V74UpdateCausalSequentialDelayedCommit(V72HcogOpportunity o,int i,bool nativeStop,bool nativeTarget)
+        {
+            if(o==null||o.RiskDistance<=0||i<1||i>=_m1Bars.Count)return;
+            double open=_m1Bars.OpenPrices[i],close=_m1Bars.ClosePrices[i],high=_m1Bars.HighPrices[i],low=_m1Bars.LowPrices[i];
+            bool buy=o.Direction==TradeDirection.Buy;
+            bool directional=buy?close>open:close<open;
+            double virtualFav=buy?(high-o.Entry)/o.RiskDistance:(o.Entry-low)/o.RiskDistance;
+            double virtualCloseR=(buy?close-o.Entry:o.Entry-close)/o.RiskDistance;
+
+            for(int k=0;k<V74SequentialKey.Length;k++)
+            {
+                if(double.IsFinite(o.V74SequentialOutcomeR[k]))continue;
+                double reactionR=V74SequentialReactionR[k];
+
+                if(o.V74SequentialReactionBar[k]<0&&!nativeStop&&!nativeTarget&&virtualFav+1e-12>=reactionR)
+                {
+                    o.V74SequentialReactionBar[k]=o.BarsActive;
+                    string state=string.Join(",",V74MilestoneFeatures(o,i,reactionR)
+                        .Select(v=>v.ToString("R",System.Globalization.CultureInfo.InvariantCulture)));
+                    if(reactionR<1.40&&string.IsNullOrWhiteSpace(o.V74SequentialState125Csv))o.V74SequentialState125Csv=state;
+                    if(reactionR>=1.40&&string.IsNullOrWhiteSpace(o.V74SequentialState150Csv))o.V74SequentialState150Csv=state;
+                    continue; // first-passage bar is observation only; no same-bar capital
+                }
+
+                if(!o.V74SequentialActive[k])
+                {
+                    if(o.V74SequentialReactionBar[k]<0||o.BarsActive<=o.V74SequentialReactionBar[k]||nativeStop||nativeTarget)continue;
+                    double holdR=reactionR-.25;
+                    if(virtualCloseR+1e-12<holdR)continue;
+                    if(V74SequentialRequireDirectional[k]&&!directional)continue;
+
+                    double entry=close;
+                    double stopFloorR=reactionR-.75;
+                    double stop=buy?o.Entry+o.RiskDistance*stopFloorR:o.Entry-o.RiskDistance*stopFloorR;
+                    double risk=Math.Abs(entry-stop);
+                    if(PriceToPips(risk)<MinStopLossPips||!GeometryValid(o.Direction,entry,stop,o.Target))continue;
+                    double rr=(PriceToPips(Math.Abs(o.Target-entry))-ModeledCostPips())/Math.Max(1e-9,PriceToPips(risk));
+                    if(rr+1e-9<2.30)continue;
+
+                    o.V74SequentialActive[k]=true;
+                    o.V74SequentialEntry[k]=entry;o.V74SequentialStop[k]=stop;o.V74SequentialTarget[k]=o.Target;
+                    o.V74SequentialRisk[k]=risk;o.V74SequentialNetRr[k]=rr;o.V74SequentialBars[k]=0;
+                    o.V74SequentialStage[k]=-1;o.V74SequentialStageBar[k]=-1;o.V74SequentialPositiveArmed[k]=false;
+                    continue;
+                }
+
+                o.V74SequentialBars[k]++;
+                double routeFav=buy?(high-o.V74SequentialEntry[k])/o.V74SequentialRisk[k]
+                                   :(o.V74SequentialEntry[k]-low)/o.V74SequentialRisk[k];
+                double routeCloseR=(buy?close-o.V74SequentialEntry[k]:o.V74SequentialEntry[k]-close)/o.V74SequentialRisk[k];
+
+                // An already-armed frontier is resolved before later same-bar favorable evidence.
+                int stage=o.V74SequentialStage[k];
+                if(V74SequentialFrontier[k]&&stage>=0&&o.V74SequentialBars[k]>o.V74SequentialStageBar[k])
+                {
+                    double floor=buy?o.V74SequentialEntry[k]+o.V74SequentialRisk[k]*V74SequentialFloorR[stage]
+                                    :o.V74SequentialEntry[k]-o.V74SequentialRisk[k]*V74SequentialFloorR[stage];
+                    bool floorHit=buy?low<=floor:high>=floor;
+                    if(floorHit){o.V74SequentialOutcomeR[k]=V74SequentialFloorR[stage];o.V74SequentialActive[k]=false;continue;}
+                }
+
+                bool stopHit=buy?low<=o.V74SequentialStop[k]:high>=o.V74SequentialStop[k];
+                bool targetHit=buy?high>=o.V74SequentialTarget[k]:low<=o.V74SequentialTarget[k];
+                // Broker stop is conservatively first if stop and target share a bar.
+                if(stopHit){o.V74SequentialOutcomeR[k]=-1.0;o.V74SequentialActive[k]=false;continue;}
+                if(targetHit){o.V74SequentialOutcomeR[k]=o.V74SequentialNetRr[k];o.V74SequentialActive[k]=false;continue;}
+
+                // Close-only early invalidation is legal only before a PRIOR completed bar
+                // proves +0.50R. It reduces loss magnitude and can never widen the stop.
+                if(!o.V74SequentialPositiveArmed[k]&&routeCloseR<=-.25)
+                {
+                    o.V74SequentialOutcomeR[k]=Math.Max(-1.0,routeCloseR);
+                    o.V74SequentialActive[k]=false;continue;
+                }
+
+                if(routeFav+1e-12>=.50)o.V74SequentialPositiveArmed[k]=true;
+
+                if(V74SequentialFrontier[k])
+                {
+                    int newStage=o.V74SequentialStage[k];
+                    for(int s=0;s<V74SequentialStageR.Length;s++)
+                        if(routeFav+1e-12>=V74SequentialStageR[s])newStage=s;
+                    if(newStage>o.V74SequentialStage[k])
+                    {
+                        o.V74SequentialStage[k]=newStage;
+                        o.V74SequentialStageBar[k]=o.V74SequentialBars[k];
+                    }
+                }
+            }
+        }
+
+        private void V74FinalizeCausalSequentialDelayedCommit(V72HcogOpportunity o,double close)
+        {
+            if(o==null)return;
+            for(int k=0;k<V74SequentialKey.Length;k++)
+            {
+                if(double.IsFinite(o.V74SequentialOutcomeR[k])||!o.V74SequentialActive[k]||o.V74SequentialRisk[k]<=0)continue;
+                double closeR=(o.Direction==TradeDirection.Buy?close-o.V74SequentialEntry[k]:o.V74SequentialEntry[k]-close)/o.V74SequentialRisk[k];
+                o.V74SequentialOutcomeR[k]=Math.Max(-1.0,Math.Min(o.V74SequentialNetRr[k],closeR));
+                o.V74SequentialActive[k]=false;
+            }
+        }
+
         private void V74FinalizeHighConvictionDelayedCommit(V72HcogOpportunity o,double close)
         {
             if(o==null)return;
@@ -671,6 +801,7 @@ namespace cAlgo.Robots
             V74FinalizeReactionConfirmedReentry(o,close);
             V74FinalizeReactionCommitLadders(o,close);
             V74FinalizeHighConvictionDelayedCommit(o,close);
+            V74FinalizeCausalSequentialDelayedCommit(o,close);
             o.Result=result;o.Active=false;o.State=V72HcogState.CLOSED;_v72HcogClosed++;V72HcogRecord(o,r);
             Print("[V72-HCOG-OUTCOME] id={0} setup={1} family={2} lane={3} abcd={4} coreOverlap={5} r={6:F6} mfeR={7:F6} maeR={8:F6} bars={9} result={10} hcapSelected={11} q={12:F9} lcb={13:F9} hold={14:F3} features={15} v74features={16}",
                 o.Id,o.SetupKey,o.Family,o.Lane,o.HasAbcdConfluence,o.CoreOverlapAtEntry,r,o.MfeR,o.MaeR,o.BarsActive,result,
@@ -695,6 +826,18 @@ namespace cAlgo.Robots
                 double.IsFinite(o.V74HighConvictionOutcomeR[1])?o.V74HighConvictionOutcomeR[1].ToString("R",System.Globalization.CultureInfo.InvariantCulture):"NA",
                 double.IsFinite(o.V74HighConvictionOutcomeR[2])?o.V74HighConvictionOutcomeR[2].ToString("R",System.Globalization.CultureInfo.InvariantCulture):"NA",
                 double.IsFinite(o.V74HighConvictionOutcomeR[3])?o.V74HighConvictionOutcomeR[3].ToString("R",System.Globalization.CultureInfo.InvariantCulture):"NA");
+            Print("[V74-SEQUENTIAL-PATH] setup={0} family={1} lane={2} m125={3} m150={4} s125hp={5} rr125hp={6:F6} s125dp={7} rr125dp={8:F6} s150hp={9} rr150hp={10:F6} s150dp={11} rr150dp={12:F6} s125hf={13} rr125hf={14:F6} s125df={15} rr125df={16:F6} s150hf={17} rr150hf={18:F6} s150df={19} rr150df={20:F6}",
+                o.SetupKey,o.Family,o.Lane,
+                string.IsNullOrWhiteSpace(o.V74SequentialState125Csv)?"NONE":o.V74SequentialState125Csv,
+                string.IsNullOrWhiteSpace(o.V74SequentialState150Csv)?"NONE":o.V74SequentialState150Csv,
+                double.IsFinite(o.V74SequentialOutcomeR[0])?o.V74SequentialOutcomeR[0].ToString("R",System.Globalization.CultureInfo.InvariantCulture):"NA",o.V74SequentialNetRr[0],
+                double.IsFinite(o.V74SequentialOutcomeR[1])?o.V74SequentialOutcomeR[1].ToString("R",System.Globalization.CultureInfo.InvariantCulture):"NA",o.V74SequentialNetRr[1],
+                double.IsFinite(o.V74SequentialOutcomeR[2])?o.V74SequentialOutcomeR[2].ToString("R",System.Globalization.CultureInfo.InvariantCulture):"NA",o.V74SequentialNetRr[2],
+                double.IsFinite(o.V74SequentialOutcomeR[3])?o.V74SequentialOutcomeR[3].ToString("R",System.Globalization.CultureInfo.InvariantCulture):"NA",o.V74SequentialNetRr[3],
+                double.IsFinite(o.V74SequentialOutcomeR[4])?o.V74SequentialOutcomeR[4].ToString("R",System.Globalization.CultureInfo.InvariantCulture):"NA",o.V74SequentialNetRr[4],
+                double.IsFinite(o.V74SequentialOutcomeR[5])?o.V74SequentialOutcomeR[5].ToString("R",System.Globalization.CultureInfo.InvariantCulture):"NA",o.V74SequentialNetRr[5],
+                double.IsFinite(o.V74SequentialOutcomeR[6])?o.V74SequentialOutcomeR[6].ToString("R",System.Globalization.CultureInfo.InvariantCulture):"NA",o.V74SequentialNetRr[6],
+                double.IsFinite(o.V74SequentialOutcomeR[7])?o.V74SequentialOutcomeR[7].ToString("R",System.Globalization.CultureInfo.InvariantCulture):"NA",o.V74SequentialNetRr[7]);
         }
 
         private void V72HcogProcessActive(int i,DateTime utc,V72HcogOpportunity o)
@@ -707,6 +850,7 @@ namespace cAlgo.Robots
             V74UpdateHybridSurvivalFrontiers(o,i,stop,target);
             V74UpdateReactionCommitLadders(o,i,stop,target);
             V74UpdateHighConvictionDelayedCommit(o,i,stop,target);
+            V74UpdateCausalSequentialDelayedCommit(o,i,stop,target);
             if(stop&&target){V72HcogFinalizeOutcome(o,i,"AMBIGUOUS_STOP_FIRST_CONSERVATIVE",-1.0);return;}if(stop){V72HcogFinalizeOutcome(o,i,"STRUCTURAL_STOP",-1.0);return;}
             if(target){V72HcogFinalizeOutcome(o,i,"CANONICAL_TARGET",o.NetRr);return;}if(o.BarsActive>=180)V72HcogFinalizeOutcome(o,i,"FIXED_180M_HORIZON");
         }
