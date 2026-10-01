@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 import json,math,pathlib,statistics,sys
-from v74_model_lib import load_rows,metrics,TRAINERS,predict,train_protection,apply_protection,PROTECTION_KEYS,RCR_KEYS,HYBRID_KEYS,REACTION_COMMIT_KEYS,HIGH_CONVICTION_KEYS
+from v74_model_lib import load_rows,metrics,TRAINERS,predict,train_protection,apply_protection,PROTECTION_KEYS,RCR_KEYS,HYBRID_KEYS,REACTION_COMMIT_KEYS,HIGH_CONVICTION_KEYS,SEQUENTIAL_KEYS
 
 root=pathlib.Path(sys.argv[1]); out=pathlib.Path(sys.argv[2]); out.mkdir(parents=True,exist_ok=True)
 RESEARCH=[f"Y{y}" for y in range(2016,2021)]
@@ -97,7 +97,20 @@ summary={"version":"HarmonyBot V74 Candidate",
                                    "early_loss_only":"CLOSE_CUT_AT_MINUS_0P25_BEFORE_LIVE_PLUS_0P25R_PROOF",
                                    "no_small_profit_floor":True,
                                    "route_selection":"TRAINING_ONLY_WORST_YEAR_LCB",
-                                   "test_year_never_selects_route":True}}
+                                   "test_year_never_selects_route":True},
+         "causal_sequential_policy":{"routes":SEQUENTIAL_KEYS,
+                                     "observation":"SHADOW_FIRST_PASSAGE_1P25R_OR_1P50R",
+                                     "capital_entry":"LATER_COMPLETED_M1_REACTION_HOLD_ONLY",
+                                     "stop":"REACTION_STRUCTURE_FLOOR_STRICTLY_INSIDE_NATIVE_RISK",
+                                     "minimum_route_net_rr":2.30,
+                                     "early_invalidation":"COMPLETED_CLOSE_MINUS_0P25R_BEFORE_PRIOR_PLUS_0P50R_PROOF",
+                                     "frontier":"OPTIONAL_NEXT_BAR_ARMED_0P75_1P25_1P75_TO_0P25_0P65_1P00",
+                                     "hazard_state":"FIRST_PASSAGE_TIME_MFE_MAE_BODY_WICKS_RETRACE_REMAINING_R_DIRECTION_EFFICIENCY_PLUS_PREENTRY_REGIME",
+                                     "hazard_model":"ADDITIVE_HIERARCHICAL_PARTIAL_POOLING_NOT_STATIC_ENTRY_CLASSIFIER",
+                                     "route_and_threshold_selection":"TRAINING_WINDOWS_ONLY_WORST_YEAR_ROBUST_OBJECTIVE",
+                                     "same_bar_ambiguity":"ALREADY_ARMED_FLOOR_THEN_STOP_THEN_TARGET",
+                                     "no_stop_widening":True,
+                                     "test_year_never_selects_route_or_threshold":True}}
 
 passers=[]
 for name,trainer in TRAINERS.items():
@@ -553,6 +566,171 @@ for hc_name,hierarchical in [
                                "champion_score_worst_lcb_per_slot_hour":score}
     if model_pass:passers.append((score,hc_name))
 
+
+def with_sequential_outcome(r,key):
+    v=r.get("sequential",{}).get(key)
+    rr=r.get("sequential_rr",{}).get(key)
+    level="125" if "S125_" in key else "150"
+    state=r.get("sequential_state",{}).get(level)
+    if v is None or rr is None or state is None or len(state)!=12:return None
+    if not math.isfinite(float(v)) or not math.isfinite(float(rr)) or float(rr)+1e-9<MIN_RR:return None
+    q=dict(r);q["native_r"]=r["r"];q["r"]=float(v);q["sequential_key"]=key
+    q["sequential_planned_rr"]=float(rr);q["sequential_level"]=level;q["sequential_state_vector"]=list(state)
+    return q
+
+def sequential_rows(xs,key,family=None,action=None):
+    out=[]
+    for r in xs:
+        if family is not None and r["family"]!=family:continue
+        if action is not None and r["action"]!=action:continue
+        q=with_sequential_outcome(r,key)
+        if q is not None:out.append(q)
+    return out
+
+def seq_hazard_vector(r):
+    s=r.get("sequential_state_vector")
+    if s is None or len(s)!=12:return None
+    f=r.get("features",[])
+    pre=[f[j] if j<len(f) else 0.0 for j in (25,26,29,34,35,36,37,38,39)]
+    return list(s)+pre
+
+def _seq_stat(xs):
+    if not xs:return {"n":0,"mean":0.0,"win":0.0,"sigma":10.0}
+    vv=[float(r["r"]) for r in xs];n=len(vv)
+    sd=statistics.stdev(vv) if n>1 else 10.0
+    return {"n":n,"mean":sum(vv)/n,"win":sum(v>0 for v in vv)/n,"sigma":max(.05,sd)}
+
+def train_seq_hazard(xs,key):
+    q=sequential_rows(xs,key)
+    pairs=[(r,seq_hazard_vector(r)) for r in q]
+    pairs=[z for z in pairs if z[1] is not None]
+    q=[z[0] for z in pairs];vec=[z[1] for z in pairs]
+    if not q:return {"key":key,"medians":[],"global":_seq_stat([]),"family_action":{},"bins":[]}
+    p=len(vec[0]);med=[statistics.median(v[j] for v in vec) for j in range(p)]
+    glob=_seq_stat(q);fa={}
+    for fam in sorted({r["family"] for r in q}):
+        for action in ("REVERSAL","CONTINUATION"):
+            z=[r for r in q if r["family"]==fam and r["action"]==action]
+            if z:fa[fam+"|"+action]=_seq_stat(z)
+    bins=[]
+    for j in range(p):
+        lo=[r for r,v in zip(q,vec) if v[j]<med[j]]
+        hi=[r for r,v in zip(q,vec) if v[j]>=med[j]]
+        bins.append({"lo":_seq_stat(lo),"hi":_seq_stat(hi)})
+    return {"key":key,"medians":med,"global":glob,"family_action":fa,"bins":bins}
+
+def score_seq_hazard(model,r):
+    v=seq_hazard_vector(r);g=model.get("global",{})
+    if v is None or not model.get("medians") or int(g.get("n",0))<80:
+        return {"score":-999.0,"mean":0.0,"win":0.0,"lcb":-999.0,"support":0}
+    gm=float(g.get("mean",0.0));gw=float(g.get("win",0.0));gs=float(g.get("sigma",10.0))
+    fa=model.get("family_action",{}).get(r["family"]+"|"+r["action"],{"n":0,"mean":gm,"win":gw})
+    fn=int(fa.get("n",0));fw=fn/(fn+80.0)
+    parent_m=gm+fw*(float(fa.get("mean",gm))-gm)
+    parent_w=gw+fw*(float(fa.get("win",gw))-gw)
+    ms=[];ws=[];supports=[]
+    for j,x in enumerate(v):
+        b=model["bins"][j]["hi" if x>=model["medians"][j] else "lo"]
+        n=int(b.get("n",0));sh=n/(n+60.0)
+        ms.append(parent_m+sh*(float(b.get("mean",gm))-gm))
+        ws.append(parent_w+sh*(float(b.get("win",gw))-gw))
+        supports.append(n)
+    mean=(parent_m+sum(ms)/len(ms))/2.0
+    win=max(0.0,min(1.0,(parent_w+sum(ws)/len(ws))/2.0))
+    support=max(1,min([fn if fn>0 else int(g.get("n",1))]+supports))
+    lcb=mean-Z*gs/math.sqrt(support)
+    return {"score":lcb+.75*win,"mean":mean,"win":win,"lcb":lcb,"support":support}
+
+def apply_seq_hazard(xs,key,model,threshold,abcd_allowed=True):
+    out=[]
+    for r in sequential_rows(xs,key):
+        if r["family"]=="ABCD" and not abcd_allowed:continue
+        z=score_seq_hazard(model,r)
+        if z["score"]+1e-12<threshold:continue
+        q=dict(r);q["seq_pred_mean"]=z["mean"];q["seq_pred_win"]=z["win"]
+        q["seq_pred_lcb"]=z["lcb"];q["seq_support"]=z["support"];q["seq_score"]=z["score"]
+        out.append(q)
+    return out
+
+def choose_seq_candidate(train_rows,train_windows,selection_quantile):
+    candidates=[]
+    for key in SEQUENTIAL_KEYS:
+        model=train_seq_hazard(train_rows,key)
+        scored=[score_seq_hazard(model,r)["score"] for r in sequential_rows(train_rows,key)]
+        scored=[z for z in scored if math.isfinite(z) and z>-900]
+        if not scored:continue
+        threshold=quantile(scored,selection_quantile)
+        selected=apply_seq_hazard(train_rows,key,model,threshold,True)
+        agg=metrics(selected);yearly=[]
+        for w in train_windows:
+            ym=metrics([r for r in selected if r["window"]==w])
+            if ym["n"]>=120:yearly.append(ym)
+        if agg["n"]<700 or len(yearly)<4:continue
+        worst_lcb=min(z["lcb_r"] for z in yearly);worst_mean=min(z["mean_r"] for z in yearly)
+        worst_wr=min(z["win_rate"] for z in yearly);worst_rr=min(z["average_rr"] for z in yearly)
+        utility=worst_lcb+.20*worst_mean+.35*worst_wr+.08*min(5.0,worst_rr)
+        candidates.append((utility,worst_lcb,worst_mean,worst_wr,worst_rr,agg["n"],key,model,threshold,agg))
+    candidates.sort(key=lambda z:(z[0],z[1],z[2],z[3],z[4],z[5],z[6]),reverse=True)
+    return candidates[0] if candidates else None
+
+for seq_name,selection_quantile in [
+    ("M_CAUSAL_SEQ_HAZARD_KEEP90",.10),
+    ("N_CAUSAL_SEQ_HAZARD_KEEP85",.15),
+    ("O_CAUSAL_SEQ_HAZARD_KEEP80",.20)]:
+    folds={};fold_policies={}
+    for test in BURNED:
+        train_windows=RESEARCH+[w for w in BURNED if w!=test]
+        tr=[r for r in rows if r["window"] in train_windows]
+        te=[r for r in rows if r["window"]==test]
+        choice=choose_seq_candidate(tr,train_windows,selection_quantile)
+        if choice is None:
+            m=metrics([]);m["pass"]=False;m["training_windows"]=train_windows;m["route"]=None
+            m["selection_quantile"]=selection_quantile;m["selection_threshold"]=None
+            folds[test]=m;fold_policies[test]={"route":None,"selection_quantile":selection_quantile}
+            continue
+        utility,worst_lcb,worst_mean,worst_wr,worst_rr,train_n,key,model,threshold,train_agg=choice
+        train_selected=apply_seq_hazard(tr,key,model,threshold,True)
+        abcd_train=metrics([r for r in train_selected if r["family"]=="ABCD"])
+        abcd_allowed=bool(abcd_train["n"]>=ABCD_TRAIN_MIN_N and abcd_train["mean_r"]>0 and
+                          abcd_train["pf_r"]>=ABCD_TRAIN_MIN_PF and abcd_train["lcb_r"]>0)
+        selected=apply_seq_hazard(te,key,model,threshold,abcd_allowed)
+        m=metrics(selected);m["pass"]=gate_metrics(m);m["training_windows"]=train_windows
+        m["route"]=key;m["selection_quantile"]=selection_quantile;m["selection_threshold"]=threshold
+        m["training_selected_metrics"]=metrics(train_selected)
+        m["training_worst_year_lcb"]=worst_lcb;m["training_worst_year_mean"]=worst_mean
+        m["training_worst_year_win_rate"]=worst_wr;m["training_worst_year_average_rr"]=worst_rr
+        m["training_route_utility"]=utility;m["abcd_training_metrics"]=abcd_train
+        m["abcd_training_capital_eligible"]=abcd_allowed
+        m["median_planned_route_rr"]=statistics.median([r["sequential_planned_rr"] for r in selected]) if selected else 0.0
+        folds[test]=m
+        fold_policies[test]={"route":key,"selection_quantile":selection_quantile,"selection_threshold":threshold,
+                             "hazard_model":model,"abcd_capital_eligible":abcd_allowed}
+    model_pass=all(folds[w]["pass"] for w in BURNED)
+    worst_lcb=min(folds[w]["lcb_r"] for w in BURNED)
+    avg_hold=statistics.mean(max(.25,folds[w]["median_hold_bars"]/60.0) for w in BURNED)
+    score=worst_lcb/max(.25,avg_hold)
+    final_choice=choose_seq_candidate(rows,ALL,selection_quantile)
+    if final_choice is not None:
+        _,_,_,_,_,_,fkey,fmodel,fthreshold,_=final_choice
+        final_selected=apply_seq_hazard(rows,fkey,fmodel,fthreshold,True)
+        final_abcd=metrics([r for r in final_selected if r["family"]=="ABCD"])
+        final_abcd_allowed=bool(final_abcd["n"]>=ABCD_TRAIN_MIN_N and final_abcd["mean_r"]>0 and
+                                final_abcd["pf_r"]>=ABCD_TRAIN_MIN_PF and final_abcd["lcb_r"]>0)
+        final_selected=apply_seq_hazard(rows,fkey,fmodel,fthreshold,final_abcd_allowed)
+        final_policy={"route":fkey,"selection_quantile":selection_quantile,"selection_threshold":fthreshold,
+                      "hazard_model":fmodel,"abcd_capital_eligible":final_abcd_allowed}
+    else:
+        fkey=None;final_selected=[];final_abcd=metrics([]);final_abcd_allowed=False
+        final_policy={"route":None,"selection_quantile":selection_quantile}
+    models_blob["models"][seq_name]={"type":"CAUSAL_FIRST_PASSAGE_SEQUENTIAL_HAZARD",
+                                     "folds":fold_policies,"final":final_policy}
+    summary["models"][seq_name]={"folds":folds,"pass":model_pass,
+                                 "final_route":fkey,"final_training_metrics":metrics(final_selected),
+                                 "abcd_final_training_metrics":final_abcd,
+                                 "abcd_final_capital_eligible":final_abcd_allowed,
+                                 "champion_score_worst_lcb_per_slot_hour":score}
+    if model_pass:passers.append((score,seq_name))
+
 passers.sort(key=lambda x:(x[0],x[1]),reverse=True)
 champion=passers[0][1] if passers else None
 summary["v74_gate"]=champion is not None
@@ -561,7 +739,7 @@ summary["champion_selection"]="HIGHEST_WORST_YEAR_CAUSAL_LCB_PER_EXPECTED_SLOT_H
 summary["abcd_policy"]={"training_selected_subset_eligibility":True,"min_training_n":ABCD_TRAIN_MIN_N,
                         "min_training_pf_r":ABCD_TRAIN_MIN_PF,"mean_r_gt":0.0,"lcb95_gt":0.0,
                         "rule":"STANDALONE_ABCD_CAN_ENTER_TEST_YEAR_ONLY_IF_FROZEN_ENTRY_MODEL_SELECTED_ABCD_SUBSET_IN_PRIOR_TRAINING_WINDOWS_PROVES_POSITIVE_NATIVE_MEAN_PF_AND_LCB;_TEST_YEAR_NEVER_CONTROLS_ELIGIBILITY"}
-summary["gate_semantics"]="EACH_BURNED_YEAR_N_GE_250_PROTECTED_MEAN_R_GE_0P90_PF_R_GE_3P30_WR_GE_70PCT_AVG_RR_GE_2P30_LCB95_GT_0__ENTRY_EXIT_AND_HYBRID_POLICY_ALL_TRAIN_ONLY__NO_LOOKAHEAD"
+summary["gate_semantics"]="EACH_BURNED_YEAR_N_GE_250_MEAN_R_GE_0P90_PF_R_GE_3P30_WR_GE_70PCT_AVG_RR_GE_2P30_LCB95_GT_0__ALL_ENTRY_EXIT_PROTECTION_SEQUENTIAL_ROUTE_AND_HAZARD_THRESHOLDS_TRAIN_ONLY__NO_LOOKAHEAD"
 summary["positive_asset"]="A_FORMALLY_OOF_ALPHA_PLUS_PROTECTION_CHAMPION_WITH_BUFFER_ABOVE_FINAL_COMMERCIAL_TARGETS" if champion else "NO_MODEL_EARNED_VERSION_PROMOTION"
 
 (out/"V74_TOURNAMENT_MANIFEST.json").write_text(json.dumps(summary,indent=2))
