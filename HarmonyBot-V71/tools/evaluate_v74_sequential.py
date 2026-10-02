@@ -8,7 +8,7 @@ feature, architecture and threshold choices are fixed from training years.
 """
 import json,math,pathlib,statistics,sys,time
 from collections import defaultdict,Counter
-from v74_model_lib import load_rows,metrics,SEQUENTIAL_STATE_FEATURE_COUNT,FAMILIES
+from v74_model_lib import load_rows,metrics,SEQUENTIAL_STATE_FEATURE_COUNT,FAMILIES,_stump_train,_stump_pred
 
 root=pathlib.Path(sys.argv[1]);out=pathlib.Path(sys.argv[2]);out.mkdir(parents=True,exist_ok=True)
 RESEARCH=[f"Y{y}" for y in range(2016,2021)];BURNED=["Y2021","Y2022","Y2023"];ALL=RESEARCH+BURNED
@@ -200,6 +200,67 @@ def stable_idx(samples,k):
       if sc>0:ranked.append((sc,j))
     ranked.sort(reverse=True);return [j for _,j in ranked[:k]] or list(range(min(k,p)))
 
+def grouped_events(samples):
+    d=defaultdict(list)
+    for s in samples:d[(s["window"],s["setup"],s["bar"])].append(s)
+    return d
+
+def fit_pair_ranker(samples,kfeat=26,rounds=16):
+    """Training-only counterfactual ranker for legal actions sharing one completed-bar decision event."""
+    idx=stable_idx(samples,kfeat);X=[];yw=[];yd=[]
+    for ev in grouped_events(samples).values():
+      if len(ev)<2:continue
+      a=sorted(ev,key=lambda z:(z["base"],z["route"]))
+      n=len(a);pairs=set()
+      offsets=sorted(set([1,max(1,n//3),max(1,(2*n)//3)]))
+      for i in range(n):
+        for off in offsets:
+          j=(i+off)%n
+          if i==j:continue
+          u,v=(i,j) if i<j else (j,i)
+          pairs.add((u,v))
+      for i,j in sorted(pairs):
+        aa,bb=a[i],a[j];delta=float(aa["y"])-float(bb["y"])
+        if abs(delta)<1e-9:continue
+        d=[aa["x"][q]-bb["x"][q] for q in idx]
+        X.append(d);yw.append(1.0 if delta>0 else 0.0);yd.append(max(-4.0,min(4.0,delta)))
+        X.append([-z for z in d]);yw.append(0.0 if delta>0 else 1.0);yd.append(max(-4.0,min(4.0,-delta)))
+    if len(X)>60000:
+      step=max(1,math.ceil(len(X)/60000));X=X[::step];yw=yw[::step];yd=yd[::step]
+    if len(X)<200:
+      return {"valid":False,"idx":idx,"n":len(X)}
+    return {"valid":True,"idx":idx,"n":len(X),
+            "win":_stump_train(X,yw,rounds=rounds,lr=.08),
+            "delta":_stump_train(X,yd,rounds=rounds,lr=.07)}
+
+def pair_pref(pm,a,b):
+    if not pm.get("valid"):return 0.0
+    d=[a["x"][q]-b["x"][q] for q in pm["idx"]]
+    pd=[-z for z in d]
+    fw,_=_stump_pred(pm["win"],d);bw,_=_stump_pred(pm["win"],pd)
+    fd,_=_stump_pred(pm["delta"],d);bd,_=_stump_pred(pm["delta"],pd)
+    p=max(0.0,min(1.0,.5*(fw+(1.0-bw))))
+    dr=.5*(fd-bd)
+    return 2.0*(p-.5)+.35*math.tanh(dr/1.5)
+
+def rank_samples(samples,pm):
+    """One pairwise winner per event. Rank confidence becomes causal admission telemetry."""
+    out=[]
+    for ev in grouped_events(samples).values():
+      if not ev:continue
+      scored=[]
+      for a in ev:
+        prefs=[pair_pref(pm,a,b) for b in ev if b is not a]
+        rs=statistics.mean(prefs) if prefs else 0.0
+        scored.append((rs,a))
+      scored.sort(key=lambda z:(z[0],z[1]["route"]),reverse=True)
+      best_score,best=scored[0]
+      second=scored[1][0] if len(scored)>1 else 0.0
+      q=dict(best);q["x"]=list(best["x"])+[best_score,best_score-second,float(len(ev))]
+      q["pair_rank_score"]=best_score;q["pair_rank_margin"]=best_score-second;q["pair_event_actions"]=len(ev)
+      out.append(q)
+    return out
+
 def bin_of(x,edges):
     b=0
     while b<len(edges) and x>edges[b]:b+=1
@@ -295,27 +356,31 @@ def metric_selected(sel):
     return metrics(rr),rr
 
 def choose_config(train_rows,train_years):
-    # Route ranking within a base is mask-invariant, so compute the ALL frontier
-    # once per inner fold and only change the legal base mask afterwards.
+    # Nested training-only: pairwise route ranker is fit without the validation year;
+    # capital admission is then fit only on the ranker's chosen legal action.
     cache={mask:{} for mask in MASKS};base_models={}
     for val in train_years:
       tr=[r for r in train_rows if r["window"]!=val];va=[r for r in train_rows if r["window"]==val]
       shared=fit_frontier(tr,"ALL",2)
+      all_fr={"mask":"ALL","topk":shared["topk"],"choices":shared["choices"]}
+      pm=fit_pair_ranker(make_samples(tr,all_fr))
+      if not pm.get("valid"):continue
       for mask in MASKS:
         fr={"mask":mask,"topk":shared["topk"],"choices":shared["choices"]}
         ts,vs=make_samples(tr,fr),make_samples(va,fr)
-        cache[mask][val]=(ts,vs)
-        # Both structural variants for one mask differ only in effect_w.
+        rt,rv=rank_samples(ts,pm),rank_samples(vs,pm)
+        cache[mask][val]=(rt,rv)
         cfg0=next(c for c in CONFIGS if c["mask"]==mask)
-        if len(ts)>=500 and len(vs)>=100:base_models[(mask,val)]=fit_admission(ts,cfg0)
+        if len(rt)>=500 and len(rv)>=100:base_models[(mask,val)]=fit_admission(rt,cfg0)
     best=None
     for ci,cfg in enumerate(CONFIGS):
       inner={}
       for val in train_years:
-        ts,vs=cache[cfg["mask"]][val];base=base_models.get((cfg["mask"],val))
+        if val not in cache[cfg["mask"]]:inner={};break
+        rt,rv=cache[cfg["mask"]][val];base=base_models.get((cfg["mask"],val))
         if base is None:inner={};break
         md=dict(base);md["cfg"]=cfg
-        inner[val]=(score_samples(ts,md),score_samples(vs,md))
+        inner[val]=(score_samples(rt,md),score_samples(rv,md))
       if not inner:continue
       for q in QGRID:
         ym=[];ok=True
@@ -325,26 +390,30 @@ def choose_config(train_rows,train_years):
           ym.append((val,m))
         if not ok:continue
         ms=[m for _,m in ym];marg=[margin(m) for m in ms]
-        obj=min(marg)+.18*med(marg)+.08*min(m["lcb_r"] for m in ms)+.05*min(m["mean_r"] for m in ms)
-        tie=(obj,min(marg),med(marg),-q,-ci)
+        obj=min(marg)+.22*med(marg)+.10*min(m["lcb_r"] for m in ms)+.08*min(m["mean_r"] for m in ms)+.05*min(m["win_rate"] for m in ms)
+        tie=(obj,min(marg),med(marg),min(m["win_rate"] for m in ms),-q,-ci)
         if best is None or tie>best[0]:best=(tie,{"cfg":cfg,"q":q,"objective":obj,"inner_metrics":dict(ym)})
-    if best is None:raise SystemExit("V74 nested crossfit found no N>=250 configuration")
+    if best is None:raise SystemExit("V74 pairwise nested crossfit found no N>=250 configuration")
     return best[1]
 
 def fit_final(train_rows,choice):
     shared=fit_frontier(train_rows,"ALL",2)
+    all_fr={"mask":"ALL","topk":shared["topk"],"choices":shared["choices"]}
+    pm=fit_pair_ranker(make_samples(train_rows,all_fr))
+    if not pm.get("valid"):raise SystemExit("V74 final pairwise ranker invalid")
     fr={"mask":choice["cfg"]["mask"],"topk":shared["topk"],"choices":shared["choices"]}
-    ss=make_samples(train_rows,fr);md=fit_admission(ss,choice["cfg"])
-    trsc=score_samples(ss,md);th=qtile(event_score_distribution(trsc),choice["q"])
-    return fr,md,th
+    ranked=rank_samples(make_samples(train_rows,fr),pm)
+    md=fit_admission(ranked,choice["cfg"])
+    trsc=score_samples(ranked,md);th=qtile(event_score_distribution(trsc),choice["q"])
+    return fr,pm,md,th
 
 checks=telemetry_guard()
-summary={"version":"HarmonyBot V74 Unified Stage-wise Causal Auction",
- "architecture":"UNIFIED_EARLY_LATE_NESTED_CROSSFIT_OPTIMAL_STOPPING",
+summary={"version":"HarmonyBot V74 Pairwise Counterfactual Selective Auction",
+ "architecture":"PAIRWISE_COUNTERFACTUAL_RANKER_SELECTIVE_ADMISSION_OPTIMAL_STOPPING",
  "gate":{"min_selected_per_year":MIN_N,"min_mean_r":MIN_MEAN,"min_pf_r":MIN_PF,"min_win_rate":MIN_WR,"min_average_rr":MIN_RR,"lcb95_gt":0.0},
  "research_training_windows":RESEARCH,"burned_oof_windows":BURNED,
  "policy":{"actions":"EARLY_ENTER_OR_DEFER_TO_LATE_OR_REJECT","route_frontier":"TRAINING_ONLY_TOP2_ROBUST_CELL",
-           "admission":"COMPLETED_ENTRY_BAR_ONLY_HIERARCHICAL_HISTOGRAM","hyperparameters":"NESTED_LEAVE_ONE_YEAR_OUT_TRAINING_ONLY",
+           "route_choice":"PAIRWISE_COUNTERFACTUAL_SAME_EVENT_RANKING","admission":"INDEPENDENT_SELECTED_ACTION_HIERARCHICAL_HISTOGRAM","hyperparameters":"NESTED_LEAVE_ONE_YEAR_OUT_TRAINING_ONLY",
            "no_trigger_posttrigger_lock_future_state":True,"canonical_family_blanket_blacklist":False,"grid":False},
  "folds":{},"validation_used":False,"fresh_used":False,"telemetry_contract_checks":checks}
 models={"architecture":summary["architecture"],"folds":{}}
@@ -352,22 +421,23 @@ t0=time.perf_counter();allpass=True
 for test in BURNED:
   ft=time.perf_counter();tw=RESEARCH+[w for w in BURNED if w!=test]
   tr=[r for r in rows if r["window"] in tw];te=[r for r in rows if r["window"]==test]
-  choice=choose_config(tr,tw);fr,md,th=fit_final(tr,choice)
-  sel=simulate(score_samples(make_samples(te,fr),md),th);m,mr=metric_selected(sel)
+  choice=choose_config(tr,tw);fr,pm,md,th=fit_final(tr,choice)
+  ranked_test=rank_samples(make_samples(te,fr),pm)
+  sel=simulate(score_samples(ranked_test,md),th);m,mr=metric_selected(sel)
   routes=Counter(r.get("sequential_key","NONE") for r in mr);fams=Counter(r["family"] for r in mr);acts=Counter(r["action"] for r in mr)
   ps=gate(m);allpass=allpass and ps
   summary["folds"][test]={**m,"pass":ps,"training_windows":tw,"selected_config":choice["cfg"],"accept_quantile":choice["q"],
     "entry_threshold":th,"nested_training_objective":choice["objective"],"nested_training_year_metrics":choice["inner_metrics"],
     "selected_route_counts":dict(routes),"selected_family_counts":dict(fams),"selected_action_counts":dict(acts),
     "runtime_seconds":round(time.perf_counter()-ft,3)}
-  models["folds"][test]={"frontier":fr,"admission":md,"threshold":th,"choice":choice}
+  models["folds"][test]={"frontier":fr,"pairwise_ranker":pm,"admission":md,"threshold":th,"choice":choice}
   print("[V74-UNIFIED]",test,json.dumps({k:summary["folds"][test][k] for k in ("n","mean_r","pf_r","win_rate","average_rr","lcb_r","pass")}),flush=True)
 
-alpha=bool(allpass);champ="UNIFIED_EARLY_LATE_NESTED_CROSSFIT_OPTIMAL_STOPPING" if alpha else None
+alpha=bool(allpass);champ="PAIRWISE_COUNTERFACTUAL_RANKER_SELECTIVE_ADMISSION_OPTIMAL_STOPPING" if alpha else None
 summary["evaluator_runtime_seconds"]=round(time.perf_counter()-t0,3);summary["alpha_gate"]=alpha;summary["alpha_champion"]=champ
 summary["execution_semantics_ready"]=False;summary["v74_gate"]=False;summary["champion"]=None
-summary["promotion_blocker"]="UNIFIED_RUNTIME_POLICY_NOT_FROZEN" if alpha else "ALPHA_OOF_GATE_FAIL"
-summary["positive_asset"]="UNIFIED_CAUSAL_ALPHA_OOF" if alpha else "NO_MODEL_EARNED_VERSION_PROMOTION"
+summary["promotion_blocker"]="PAIRWISE_RUNTIME_POLICY_NOT_FROZEN" if alpha else "ALPHA_OOF_GATE_FAIL"
+summary["positive_asset"]="PAIRWISE_CAUSAL_ALPHA_OOF" if alpha else "NO_MODEL_EARNED_VERSION_PROMOTION"
 (out/"V74_TOURNAMENT_MANIFEST.json").write_text(json.dumps(summary,indent=2));(out/"V74_MODELS.json").write_text(json.dumps(models,indent=2))
 (out/"alpha_pass.txt").write_text("true" if alpha else "false");(out/"alpha_champion.txt").write_text(champ or "NONE")
 (out/"pass.txt").write_text("false");(out/"champion.txt").write_text("NONE")
