@@ -482,7 +482,7 @@ namespace cAlgo.Robots
         private double[] V74RouteStateFeatures(V72HcogOpportunity o,int i,double entry,double risk,double target,
             int bars,double mfeR,double maeR,double milestoneR)
         {
-            const int FeatureCount=42;
+            const int FeatureCount=6*7;
             if(o==null||risk<=0||i<0||i>=_m1Bars.Count)return Enumerable.Repeat(0.0,FeatureCount).ToArray();
             double open=_m1Bars.OpenPrices[i],close=_m1Bars.ClosePrices[i],high=_m1Bars.HighPrices[i],low=_m1Bars.LowPrices[i];
             double atr=Math.Max(_symbol.PipSize,Atr(_m1Bars,14,i)),body=Math.Max(_symbol.PipSize,Math.Abs(close-open));
