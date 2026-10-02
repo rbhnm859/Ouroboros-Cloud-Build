@@ -424,7 +424,9 @@ summary={"version":"HarmonyBot V74 Pairwise Counterfactual Selective Auction",
  "research_training_windows":RESEARCH,"burned_oof_windows":BURNED,
  "policy":{"actions":"ZERO_CAPITAL_DEFER__REACTION_PULLBACK_RECLAIM_ENTER_OR_REJECT","route_frontier":"TRAINING_ONLY_TOP2_ROBUST_CELL",
            "route_choice":"PAIRWISE_COUNTERFACTUAL_SAME_EVENT_RANKING","admission":"INDEPENDENT_SELECTED_REENTRY_HIERARCHICAL_HISTOGRAM","hyperparameters":"NESTED_LEAVE_ONE_YEAR_OUT_TRAINING_ONLY",
-           "no_trigger_posttrigger_lock_future_state":True,"canonical_family_blanket_blacklist":False,"grid":False,\n           "qualification_target":"FRESH_FIXED_NET_RR_2P30_OR_2P50","v75_profit_capture_used":False,\n           "legacy_label_mapping":"M05/M10/M15=reaction .50/.75/1.00; R025/R050=pullback .20/.30; H/D=1bar/2bar reclaim; RR35/RR40=2.30/2.50; F20/F30=standard/strict close"},
+           "no_trigger_posttrigger_lock_future_state":True,"canonical_family_blanket_blacklist":False,"grid":False,
+           "qualification_target":"FRESH_FIXED_NET_RR_2P30_OR_2P50","v75_profit_capture_used":False,
+           "legacy_label_mapping":"M05/M10/M15=reaction .50/.75/1.00; R025/R050=pullback .20/.30; H/D=1bar/2bar reclaim; RR35/RR40=2.30/2.50; F20/F30=standard/strict close"},
  "folds":{},"validation_used":False,"fresh_used":False,"telemetry_contract_checks":checks}
 models={"architecture":summary["architecture"],"folds":{}}
 t0=time.perf_counter();allpass=True

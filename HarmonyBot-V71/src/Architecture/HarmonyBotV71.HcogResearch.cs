@@ -143,7 +143,7 @@ namespace cAlgo.Robots
         private static double V74LateQualificationReactionR(int k)
         {
             int stage=Math.Max(0,Math.Min(2,k/16));
-            return stage==0?.50:(stage==1?.75:1.00);
+            return stage<=0?.50:(stage==1?.75:1.00);
         }
         private static double V74LateQualificationPullbackR(int k)
         {
