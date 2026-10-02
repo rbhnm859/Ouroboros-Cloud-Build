@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
-"""V74 unified stage-wise causal auction.
+"""V74 reaction-proven pullback re-entry causal auction.
 
-EARLY sequential ENTER and V2 LATE DEFER->ENTER are legal actions in one
-completed-bar optimal-stopping process. Validation/Fresh are never loaded.
-Each burned OOF test year is evaluated exactly once after all route-frontier,
-feature, architecture and threshold choices are fixed from training years.
+Capital remains zero through harmonic completion, reaction and pullback.
+Only a later completed-bar reclaim/micro-BOS may create a legal ENTER action.
+V75 exit/profit-capture mechanics are intentionally excluded. Validation/Fresh
+are never loaded. Burned OOF years are evaluated once after training-only
+route/frontier/admission choices are frozen.
 """
 import json,math,pathlib,statistics,sys,time
 from collections import defaultdict,Counter
@@ -13,7 +14,7 @@ from v74_model_lib import load_rows,metrics,SEQUENTIAL_STATE_FEATURE_COUNT,FAMIL
 root=pathlib.Path(sys.argv[1]);out=pathlib.Path(sys.argv[2]);out.mkdir(parents=True,exist_ok=True)
 RESEARCH=[f"Y{y}" for y in range(2016,2021)];BURNED=["Y2021","Y2022","Y2023"];ALL=RESEARCH+BURNED
 MIN_N=250;MIN_MEAN=.90;MIN_PF=3.30;MIN_WR=.70;MIN_RR=2.30;Z=1.645
-FRACTIONS=("00","10","20","30");MSTAGES=("05","10","15")
+FRACTIONS=("20","30");MSTAGES=("05","10","15")
 BASES=[f"R{r}_{h}_RR{rr}" for r in ("025","050") for h in ("H","D") for rr in ("35","40")]
 MASKS={
  "ALL":lambda b:True,
@@ -55,31 +56,29 @@ def source_maps(r,src):
             r.get("late_auction_entry_bars",{}),r.get("late_auction_entry_state",{}))
 
 def outcome(r,src,m,b,f):
-    om,rrm,_,_,_=source_maps(r,src);k20=key(m,b,"20");k30=key(m,b,"30")
-    a=om.get(k20);c=om.get(k30);rr=rrm.get(k20)
-    if a is None or c is None or rr is None:return None
-    a=float(a);c=float(c);rr=float(rr)
-    if not all(math.isfinite(x) for x in (a,c,rr)) or rr+1e-9<MIN_RR:return None
-    if f=="20":return a
-    if f=="30":return c
-    d=c-a;return a-(2.0 if f=="00" else 1.0)*d
+    om,rrm,_,_,_=source_maps(r,src);k=key(m,b,f)
+    v=om.get(k);rr=rrm.get(k)
+    if v is None or rr is None:return None
+    v=float(v);rr=float(rr)
+    if not all(math.isfinite(x) for x in (v,rr)) or rr+1e-9<MIN_RR:return None
+    return v
 
-def entry_bar(r,src,m,b):
+def entry_bar(r,src,m,b,f):
     _,_,_,bm,_=source_maps(r,src)
-    try:return int(bm.get(key(m,b,"20"),-1))
+    try:return int(bm.get(key(m,b,f),-1))
     except:return -1
-def hold_bars(r,src,m,b):
+def hold_bars(r,src,m,b,f):
     _,_,hm,_,_=source_maps(r,src)
-    try:return max(1,int(hm.get(key(m,b,"20"),r.get("bars",1)) or 1))
+    try:return max(1,int(hm.get(key(m,b,f),r.get("bars",1)) or 1))
     except:return max(1,int(r.get("bars",1) or 1))
-def maturity_state(r,src,m,b):
+def maturity_state(r,src,m,b,f):
     if src=="EARLY":
         v=r.get("sequential_state",{}).get(lev(b))
     else:
-        v=r.get("late_auction_maturity_state",{}).get(key(m,b,"20"))
+        v=r.get("late_auction_maturity_state",{}).get(key(m,b,f))
     return list(v) if v is not None and len(v)==SEQUENTIAL_STATE_FEATURE_COUNT else None
-def entry_state(r,src,m,b):
-    _,_,_,_,em=source_maps(r,src);v=em.get(key(m,b,"20"))
+def entry_state(r,src,m,b,f):
+    _,_,_,_,em=source_maps(r,src);v=em.get(key(m,b,f))
     return list(v) if v is not None and len(v)==SEQUENTIAL_STATE_FEATURE_COUNT else None
 
 def route_cats(r,src,b,m,f):
@@ -90,7 +89,7 @@ def route_cats(r,src,b,m,f):
       1.0 if m==mm else 0.0 for mm in MSTAGES]+[1.0 if f==ff else 0.0 for ff in FRACTIONS]
 
 def xvec(r,src,m,b,f):
-    a=maturity_state(r,src,m,b);e=entry_state(r,src,m,b)
+    a=maturity_state(r,src,m,b,f);e=entry_state(r,src,m,b,f)
     if a is None or e is None:return None
     # No trigger/post-trigger/lock state is admitted.
     return list(r.get("features",[]))+route_cats(r,src,b,m,f)+a+e+[e[i]-a[i] for i in range(SEQUENTIAL_STATE_FEATURE_COUNT)]
@@ -98,40 +97,39 @@ def xvec(r,src,m,b,f):
 def telemetry_guard():
     n=0
     for r in rows:
-      for src in ("EARLY","LATE"):
-        for b in BASES:
-          for m in MSTAGES:
-            k20=key(m,b,"20");k30=key(m,b,"30")
-            if src=="EARLY":
-              checks=("sequential_entry_bar","sequential_entry_state")
-            else:
-              checks=("late_auction_entry_bars","late_auction_maturity_state","late_auction_entry_state")
-            for fld in checks:
-              a=r.get(fld,{}).get(k20);c=r.get(fld,{}).get(k30)
-              if a is not None and c is not None and a!=c:
-                raise SystemExit(f"V74 {src} F20/F30 pre-entry mismatch {fld} {r['setup']} {m} {b}")
-          n+=1
+      for b in BASES:
+        for m in MSTAGES:
+          for f in FRACTIONS:
+            k=key(m,b,f)
+            eb=r.get("late_auction_entry_bars",{}).get(k)
+            if eb is None:continue
+            ms=r.get("late_auction_maturity_state",{}).get(k)
+            es=r.get("late_auction_entry_state",{}).get(k)
+            if ms is None or es is None or len(ms)!=SEQUENTIAL_STATE_FEATURE_COUNT or len(es)!=SEQUENTIAL_STATE_FEATURE_COUNT:
+                raise SystemExit(f"V74 incomplete reaction-proven state {r['setup']} {k}")
+            n+=1
+    if n==0:raise SystemExit("V74 no legal reaction-proven entries")
     return n
 
 _OPTION_CACHE={}
 def all_options(r,b):
-    # Pure function over immutable loaded telemetry. Cache row/base expansion because
-    # nested folds and masks revisit the same 42D vectors many times.
+    # Final V74 action space is LATE-only: harmonic completion cannot own capital.
+    # Each option is a real completed-bar reaction->pullback->reclaim re-entry.
     ck=(r["window"],r["setup"],b)
     hit=_OPTION_CACHE.get(ck)
     if hit is not None:return hit
     z=[]
-    for src in ("EARLY","LATE"):
-      for m in MSTAGES:
-        eb=entry_bar(r,src,m,b)
+    src="LATE"
+    for m in MSTAGES:
+      for f in FRACTIONS:
+        eb=entry_bar(r,src,m,b,f)
         if eb<0:continue
-        for f in FRACTIONS:
-          y=outcome(r,src,m,b,f)
-          if y is None:continue
-          rid=src+"|"+key(m,b,f);x=xvec(r,src,m,b,f)
-          if x is None:continue
-          z.append({"rid":rid,"src":src,"m":m,"b":b,"f":f,"y":float(y),"bar":eb,
-                    "bars":hold_bars(r,src,m,b),"x":x})
+        y=outcome(r,src,m,b,f)
+        if y is None:continue
+        rid=src+"|"+key(m,b,f);x=xvec(r,src,m,b,f)
+        if x is None:continue
+        z.append({"rid":rid,"src":src,"m":m,"b":b,"f":f,"y":float(y),"bar":eb,
+                  "bars":hold_bars(r,src,m,b,f),"x":x})
     _OPTION_CACHE[ck]=z
     return z
 
@@ -424,9 +422,9 @@ summary={"version":"HarmonyBot V74 Pairwise Counterfactual Selective Auction",
  "architecture":"PAIRWISE_COUNTERFACTUAL_RANKER_SELECTIVE_ADMISSION_OPTIMAL_STOPPING",
  "gate":{"min_selected_per_year":MIN_N,"min_mean_r":MIN_MEAN,"min_pf_r":MIN_PF,"min_win_rate":MIN_WR,"min_average_rr":MIN_RR,"lcb95_gt":0.0},
  "research_training_windows":RESEARCH,"burned_oof_windows":BURNED,
- "policy":{"actions":"EARLY_ENTER_OR_DEFER_TO_LATE_OR_REJECT","route_frontier":"TRAINING_ONLY_TOP2_ROBUST_CELL",
-           "route_choice":"PAIRWISE_COUNTERFACTUAL_SAME_EVENT_RANKING","admission":"INDEPENDENT_SELECTED_ACTION_HIERARCHICAL_HISTOGRAM","hyperparameters":"NESTED_LEAVE_ONE_YEAR_OUT_TRAINING_ONLY",
-           "no_trigger_posttrigger_lock_future_state":True,"canonical_family_blanket_blacklist":False,"grid":False},
+ "policy":{"actions":"ZERO_CAPITAL_DEFER__REACTION_PULLBACK_RECLAIM_ENTER_OR_REJECT","route_frontier":"TRAINING_ONLY_TOP2_ROBUST_CELL",
+           "route_choice":"PAIRWISE_COUNTERFACTUAL_SAME_EVENT_RANKING","admission":"INDEPENDENT_SELECTED_REENTRY_HIERARCHICAL_HISTOGRAM","hyperparameters":"NESTED_LEAVE_ONE_YEAR_OUT_TRAINING_ONLY",
+           "no_trigger_posttrigger_lock_future_state":True,"canonical_family_blanket_blacklist":False,"grid":False,\n           "qualification_target":"FRESH_FIXED_NET_RR_2P30_OR_2P50","v75_profit_capture_used":False,\n           "legacy_label_mapping":"M05/M10/M15=reaction .50/.75/1.00; R025/R050=pullback .20/.30; H/D=1bar/2bar reclaim; RR35/RR40=2.30/2.50; F20/F30=standard/strict close"},
  "folds":{},"validation_used":False,"fresh_used":False,"telemetry_contract_checks":checks}
 models={"architecture":summary["architecture"],"folds":{}}
 t0=time.perf_counter();allpass=True
@@ -443,13 +441,13 @@ for test in BURNED:
     "selected_route_counts":dict(routes),"selected_family_counts":dict(fams),"selected_action_counts":dict(acts),
     "runtime_seconds":round(time.perf_counter()-ft,3)}
   models["folds"][test]={"frontier":fr,"pairwise_ranker":pm,"admission":md,"threshold":th,"choice":choice}
-  print("[V74-UNIFIED]",test,json.dumps({k:summary["folds"][test][k] for k in ("n","mean_r","pf_r","win_rate","average_rr","lcb_r","pass")}),flush=True)
+  print("[V74-REACTION-PROVEN]",test,json.dumps({k:summary["folds"][test][k] for k in ("n","mean_r","pf_r","win_rate","average_rr","lcb_r","pass")}),flush=True)
 
-alpha=bool(allpass);champ="PAIRWISE_COUNTERFACTUAL_RANKER_SELECTIVE_ADMISSION_OPTIMAL_STOPPING" if alpha else None
+alpha=bool(allpass);champ="REACTION_PROVEN_PULLBACK_REENTRY_SELECTIVE_OPTIMAL_STOPPING" if alpha else None
 summary["evaluator_runtime_seconds"]=round(time.perf_counter()-t0,3);summary["alpha_gate"]=alpha;summary["alpha_champion"]=champ
 summary["execution_semantics_ready"]=False;summary["v74_gate"]=False;summary["champion"]=None
-summary["promotion_blocker"]="PAIRWISE_RUNTIME_POLICY_NOT_FROZEN" if alpha else "ALPHA_OOF_GATE_FAIL"
-summary["positive_asset"]="PAIRWISE_CAUSAL_ALPHA_OOF" if alpha else "NO_MODEL_EARNED_VERSION_PROMOTION"
+summary["promotion_blocker"]="REACTION_PROVEN_RUNTIME_POLICY_NOT_FROZEN" if alpha else "ALPHA_OOF_GATE_FAIL"
+summary["positive_asset"]="REACTION_PROVEN_CAUSAL_ALPHA_OOF" if alpha else "NO_MODEL_EARNED_VERSION_PROMOTION"
 (out/"V74_TOURNAMENT_MANIFEST.json").write_text(json.dumps(summary,indent=2));(out/"V74_MODELS.json").write_text(json.dumps(models,indent=2))
 (out/"alpha_pass.txt").write_text("true" if alpha else "false");(out/"alpha_champion.txt").write_text(champ or "NONE")
 (out/"pass.txt").write_text("false");(out/"champion.txt").write_text("NONE")
