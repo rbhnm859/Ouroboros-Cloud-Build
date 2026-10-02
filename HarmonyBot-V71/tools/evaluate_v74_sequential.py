@@ -113,7 +113,13 @@ def telemetry_guard():
           n+=1
     return n
 
+_OPTION_CACHE={}
 def all_options(r,b):
+    # Pure function over immutable loaded telemetry. Cache row/base expansion because
+    # nested folds and masks revisit the same 42D vectors many times.
+    ck=(r["window"],r["setup"],b)
+    hit=_OPTION_CACHE.get(ck)
+    if hit is not None:return hit
     z=[]
     for src in ("EARLY","LATE"):
       for m in MSTAGES:
@@ -126,6 +132,7 @@ def all_options(r,b):
           if x is None:continue
           z.append({"rid":rid,"src":src,"m":m,"b":b,"f":f,"y":float(y),"bar":eb,
                     "bars":hold_bars(r,src,m,b),"x":x})
+    _OPTION_CACHE[ck]=z
     return z
 
 def robust_route_score(vals,years,shrink=18.0):
@@ -247,15 +254,17 @@ def pair_pref(pm,a,b):
     return 2.0*(p-.5)+.35*math.tanh(dr/1.5)
 
 def rank_samples(samples,pm):
-    """One pairwise winner per event. Rank confidence becomes causal admission telemetry."""
+    """One pairwise winner per event; exploit exact antisymmetry to halve inference work."""
     out=[]
     for ev in grouped_events(samples).values():
       if not ev:continue
-      scored=[]
-      for a in ev:
-        prefs=[pair_pref(pm,a,b) for b in ev if b is not a]
-        rs=statistics.mean(prefs) if prefs else 0.0
-        scored.append((rs,a))
+      n=len(ev);sums=[0.0]*n
+      # pair_pref(b,a) == -pair_pref(a,b) by construction, so evaluate each
+      # unordered pair exactly once. This is semantics-preserving.
+      for i in range(n):
+        for j in range(i+1,n):
+          p=pair_pref(pm,ev[i],ev[j]);sums[i]+=p;sums[j]-=p
+      scored=[((sums[i]/(n-1)) if n>1 else 0.0,ev[i]) for i in range(n)]
       scored.sort(key=lambda z:(z[0],z[1]["route"]),reverse=True)
       best_score,best=scored[0]
       second=scored[1][0] if len(scored)>1 else 0.0
