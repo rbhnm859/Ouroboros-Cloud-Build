@@ -205,7 +205,7 @@ def grouped_events(samples):
     for s in samples:d[(s["window"],s["setup"],s["bar"])].append(s)
     return d
 
-def fit_pair_ranker(samples,kfeat=26,rounds=16):
+def fit_pair_ranker(samples,kfeat=22,rounds=7):
     """Training-only counterfactual ranker for legal actions sharing one completed-bar decision event."""
     idx=stable_idx(samples,kfeat);X=[];yw=[];yd=[]
     for ev in grouped_events(samples).values():
@@ -225,13 +225,16 @@ def fit_pair_ranker(samples,kfeat=26,rounds=16):
         d=[aa["x"][q]-bb["x"][q] for q in idx]
         X.append(d);yw.append(1.0 if delta>0 else 0.0);yd.append(max(-4.0,min(4.0,delta)))
         X.append([-z for z in d]);yw.append(0.0 if delta>0 else 1.0);yd.append(max(-4.0,min(4.0,-delta)))
-    if len(X)>60000:
-      step=max(1,math.ceil(len(X)/60000));X=X[::step];yw=yw[::step];yd=yd[::step]
+    # Deterministic thinning is both a runtime bound and regularizer. Pair orientation
+    # is already doubled above, so 8k rows preserve broad state coverage without
+    # letting repeated near-identical route comparisons dominate the learner.
+    if len(X)>8000:
+      step=max(1,math.ceil(len(X)/8000));X=X[::step];yw=yw[::step];yd=yd[::step]
     if len(X)<200:
       return {"valid":False,"idx":idx,"n":len(X)}
     return {"valid":True,"idx":idx,"n":len(X),
-            "win":_stump_train(X,yw,rounds=rounds,lr=.08),
-            "delta":_stump_train(X,yd,rounds=rounds,lr=.07)}
+            "win":_stump_train(X,yw,rounds=rounds,lr=.10),
+            "delta":_stump_train(X,yd,rounds=rounds,lr=.09)}
 
 def pair_pref(pm,a,b):
     if not pm.get("valid"):return 0.0
