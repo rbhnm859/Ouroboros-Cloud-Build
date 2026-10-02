@@ -102,7 +102,7 @@ def telemetry_guard():
           for f in FRACTIONS:
             k=key(m,b,f)
             eb=r.get("late_auction_entry_bars",{}).get(k)
-            if eb is None:continue
+            if eb is None or int(eb)<0:continue
             ms=r.get("late_auction_maturity_state",{}).get(k)
             es=r.get("late_auction_entry_state",{}).get(k)
             if ms is None or es is None or len(ms)!=SEQUENTIAL_STATE_FEATURE_COUNT or len(es)!=SEQUENTIAL_STATE_FEATURE_COUNT:
