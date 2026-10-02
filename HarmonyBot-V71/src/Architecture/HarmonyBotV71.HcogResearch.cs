@@ -482,7 +482,8 @@ namespace cAlgo.Robots
         private double[] V74RouteStateFeatures(V72HcogOpportunity o,int i,double entry,double risk,double target,
             int bars,double mfeR,double maeR,double milestoneR)
         {
-            if(o==null||risk<=0||i<0||i>=_m1Bars.Count)return Enumerable.Repeat(0.0,24).ToArray();
+            const int FeatureCount=42;
+            if(o==null||risk<=0||i<0||i>=_m1Bars.Count)return Enumerable.Repeat(0.0,FeatureCount).ToArray();
             double open=_m1Bars.OpenPrices[i],close=_m1Bars.ClosePrices[i],high=_m1Bars.HighPrices[i],low=_m1Bars.LowPrices[i];
             double atr=Math.Max(_symbol.PipSize,Atr(_m1Bars,14,i)),body=Math.Max(_symbol.PipSize,Math.Abs(close-open));
             bool buy=o.Direction==TradeDirection.Buy;
@@ -498,6 +499,40 @@ namespace cAlgo.Robots
             var rr=BuildRegimeSnapshot();
             DateTime utc=_m1Bars.OpenTimes[i].ToUniversalTime();
             double phase=(utc.Hour*60.0+utc.Minute)/1440.0;
+
+            // V74 causal path-state v3: every term below is observable no later than
+            // this completed M1 decision bar. No future MFE/MAE/outcome is referenced.
+            double v1=0.0,prevV1=0.0,dir3=0.0,dir5=0.0,abs3=0.0,abs5=0.0,avgRange5=0.0;
+            if(i>=1)
+            {
+                double p1=_m1Bars.ClosePrices[i-1];
+                v1=(buy?close-p1:p1-close)/atr;
+            }
+            if(i>=2)
+            {
+                double p1=_m1Bars.ClosePrices[i-1],p2=_m1Bars.ClosePrices[i-2];
+                prevV1=(buy?p1-p2:p2-p1)/atr;
+            }
+            for(int j=0;j<5;j++)
+            {
+                int ix=i-j;
+                if(ix<1)break;
+                double c0=_m1Bars.ClosePrices[ix],c1=_m1Bars.ClosePrices[ix-1];
+                bool aligned=buy?c0>c1:c0<c1;
+                if(j<3&&aligned)dir3+=1.0;
+                if(aligned)dir5+=1.0;
+                double step=Math.Abs(c0-c1);
+                if(j<3)abs3+=step;
+                abs5+=step;
+                avgRange5+=Math.Max(_symbol.PipSize,_m1Bars.HighPrices[ix]-_m1Bars.LowPrices[ix]);
+            }
+            int n3=Math.Min(3,Math.Max(0,i)),n5=Math.Min(5,Math.Max(0,i));
+            double pathEff3=i>=3?Math.Abs(close-_m1Bars.ClosePrices[i-3])/Math.Max(_symbol.PipSize,abs3):0.0;
+            double pathEff5=i>=5?Math.Abs(close-_m1Bars.ClosePrices[i-5])/Math.Max(_symbol.PipSize,abs5):0.0;
+            double rangeCompression=n5>0?range/Math.Max(_symbol.PipSize,avgRange5/n5):1.0;
+            double sincePrz=o.PrzTouchUtc.HasValue?Math.Max(0.0,(utc-o.PrzTouchUtc.Value.ToUniversalTime()).TotalMinutes):0.0;
+            double sinceProof=o.ProofUtc.HasValue?Math.Max(0.0,(utc-o.ProofUtc.Value.ToUniversalTime()).TotalMinutes):0.0;
+
             return new[]
             {
                 VClamp(milestoneR),VClamp(bars/120.0),VClamp((closeR+1.0)/4.0),
@@ -510,7 +545,26 @@ namespace cAlgo.Robots
                 rr==null?0.0:VClamp(rr.AdxH4/60.0),rr==null?0.0:VClamp(rr.AtrPercentile),
                 rr==null?0.0:VClamp(rr.AtrRatio/3.0),rr!=null&&rr.Transition?1.0:0.0,
                 VClamp((Math.Sin(2.0*Math.PI*phase)+1.0)*0.5),
-                VClamp((Math.Cos(2.0*Math.PI*phase)+1.0)*0.5)
+                VClamp((Math.Cos(2.0*Math.PI*phase)+1.0)*0.5),
+
+                VClamp(o.ProofBodyAtr/3.0),
+                VClamp(o.ProofRejectionRatio/4.0),
+                VClamp(o.ProofSweepDepthAtr/3.0),
+                VClamp(o.ProofReclaimAtr/3.0),
+                VClamp(o.ProofBosAtr/3.0),
+                VClamp(o.ProofRetestAtr/3.0),
+                VClamp((v1+3.0)/6.0),
+                VClamp(((v1-prevV1)+3.0)/6.0),
+                VClamp(n3>0?dir3/n3:0.0),
+                VClamp(n5>0?dir5/n5:0.0),
+                VClamp(pathEff3),
+                VClamp(pathEff5),
+                VClamp(rangeCompression/2.0),
+                VClamp(sincePrz/180.0),
+                VClamp(sinceProof/120.0),
+                o.HasAbcdConfluence?1.0:0.0,
+                o.StandaloneAbcd?1.0:0.0,
+                VClamp(Math.Max(0.0,mfeR-maeR+1.0)/4.0)
             };
         }
 
