@@ -21,7 +21,7 @@ root=pathlib.Path(sys.argv[1]);out=pathlib.Path(sys.argv[2]);out.mkdir(parents=T
 RESEARCH=[f"Y{y}" for y in range(2016,2021)]
 BURNED=["Y2021","Y2022","Y2023"];ALL=RESEARCH+BURNED
 MIN_N=250;TRAIN_COVERAGE=275;MIN_MEAN=.90;MIN_PF=3.30;MIN_WR=.70;MIN_RR=2.30;Z=1.645
-SOURCES=("EARLY","LATE");FRACTIONS=("20","30");MSTAGES=("05","10","15")
+SOURCES=("EARLY","LATE");EARLY_FRACTIONS=("00","10","20","30");LATE_FRACTIONS=("20","30");ALL_FRACTIONS=EARLY_FRACTIONS;MSTAGES=("05","10","15")
 BASES=[f"R{r}_{h}_RR{rr}" for r in ("025","050") for h in ("H","D") for rr in ("35","40")]
 TREE_KFEAT=30;PAIR_KFEAT=26;TREE_ROUNDS=10;PAIR_ROUNDS=8;TREE_DEPTH=3;TOP_PAIR=6
 rows=load_rows(root,ALL)
@@ -122,7 +122,7 @@ def telemetry_guard():
       for b in BASES:
         for src in SOURCES:
           for m in MSTAGES:
-            for f in FRACTIONS:
+            for f in (EARLY_FRACTIONS if src=="EARLY" else LATE_FRACTIONS):
               eb=entry_bar(r,src,m,b,f)
               if eb<0 or outcome(r,src,m,b,f) is None:continue
               legal[src]+=1
@@ -140,7 +140,7 @@ def all_options(r,b):
     z=[]
     for src in SOURCES:
       for m in MSTAGES:
-        for f in FRACTIONS:
+        for f in (EARLY_FRACTIONS if src=="EARLY" else LATE_FRACTIONS):
           eb=entry_bar(r,src,m,b,f)
           if eb<0:continue
           y=outcome(r,src,m,b,f)
@@ -398,7 +398,7 @@ summary={"version":"HarmonyBot V74 One-Shot Family-Native Causal Action Selector
  "research_training_windows":RESEARCH,"burned_oof_windows":BURNED,
  "policy":{"actions":"EARLY_OR_LATE_COMPLETED_BAR_ENTER_DEFER_REJECT",
            "harmonic_completion":"SETUP_IDENTITY_NOT_AUTOMATIC_ENTRY",
-           "reaction_state":"CAUSAL_FEATURE_NOT_HARD_FILTER",
+           "reaction_state":"CAUSAL_FEATURE_NOT_HARD_FILTER","physical_route_contract":"EARLY_F00_F10_F20_F30__LATE_F20_F30_NO_SYNTHETIC_OUTCOMES",
            "route_choice":"BOUNDED_DEPTH3_EXPECTED_R_WIN_PROB_PLUS_COUNTERFACTUAL_PAIRWISE_DELTA",
            "admission":"TRAINING_ONLY_COVERAGE_CONSTRAINED_SCORE_THRESHOLD",
            "training_coverage_target_per_year":TRAIN_COVERAGE,

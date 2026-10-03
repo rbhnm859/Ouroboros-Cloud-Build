@@ -45,121 +45,85 @@ namespace cAlgo.Robots
         // before a single-basket 20%/30% crystallization. The remaining runner moves
         // to break-even and keeps the unchanged canonical target. No same-bar arm,
         // no stop widening, Grid, DCA, recovery, duplicate thesis or future label.
-        private static readonly double[] V74SequentialReactionR = {
-            .25,.25,.25,.25,.50,.50,.50,.50,
-            .25,.25,.25,.25,.50,.50,.50,.50,
-            .25,.25,.25,.25,.50,.50,.50,.50,
-            .25,.25,.25,.25,.50,.50,.50,.50,
-            .25,.25,.25,.25,.50,.50,.50,.50,
-            .25,.25,.25,.25,.50,.50,.50,.50
-        };
-        private static readonly double[] V74SequentialHoldR = {
-            .10,.10,.10,.10,.25,.25,.25,.25,
-            .10,.10,.10,.10,.25,.25,.25,.25,
-            .10,.10,.10,.10,.25,.25,.25,.25,
-            .10,.10,.10,.10,.25,.25,.25,.25,
-            .10,.10,.10,.10,.25,.25,.25,.25,
-            .10,.10,.10,.10,.25,.25,.25,.25
-        };
-        private static readonly bool[] V74SequentialRequireDirectional = {
-            false,false,true,true,false,false,true,true,
-            false,false,true,true,false,false,true,true,
-            false,false,true,true,false,false,true,true,
-            false,false,true,true,false,false,true,true,
-            false,false,true,true,false,false,true,true,
-            false,false,true,true,false,false,true,true
-        };
-        private static readonly double[] V74SequentialDesiredRr = {
-            3.5,3.5,3.5,3.5,3.5,3.5,3.5,3.5,
-            4.0,4.0,4.0,4.0,4.0,4.0,4.0,4.0,
-            3.5,3.5,3.5,3.5,3.5,3.5,3.5,3.5,
-            4.0,4.0,4.0,4.0,4.0,4.0,4.0,4.0,
-            3.5,3.5,3.5,3.5,3.5,3.5,3.5,3.5,
-            4.0,4.0,4.0,4.0,4.0,4.0,4.0,4.0
-        };
-        private static readonly double[] V74SequentialPartialFraction = {
-            .20,.30,.20,.30,.20,.30,.20,.30,
-            .20,.30,.20,.30,.20,.30,.20,.30,
-            .20,.30,.20,.30,.20,.30,.20,.30,
-            .20,.30,.20,.30,.20,.30,.20,.30,
-            .20,.30,.20,.30,.20,.30,.20,.30,
-            .20,.30,.20,.30,.20,.30,.20,.30
-        };
-        private static readonly double[] V74SequentialTriggerR = {
-            .05,.05,.05,.05,.05,.05,.05,.05,
-            .05,.05,.05,.05,.05,.05,.05,.05,
-            .10,.10,.10,.10,.10,.10,.10,.10,
-            .10,.10,.10,.10,.10,.10,.10,.10,
-            .15,.15,.15,.15,.15,.15,.15,.15,
-            .15,.15,.15,.15,.15,.15,.15,.15
-        };
-        private static readonly double[] V74SequentialPartialHoldR = {
-            .02,.02,.02,.02,.02,.02,.02,.02,
-            .02,.02,.02,.02,.02,.02,.02,.02,
-            .05,.05,.05,.05,.05,.05,.05,.05,
-            .05,.05,.05,.05,.05,.05,.05,.05,
-            .08,.08,.08,.08,.08,.08,.08,.08,
-            .08,.08,.08,.08,.08,.08,.08,.08
-        };
-        private static readonly double[] V74SequentialAdverseCutR = {
-            -.15,-.15,-.15,-.15,-.15,-.15,-.15,-.15,
-            -.15,-.15,-.15,-.15,-.15,-.15,-.15,-.15,
-            -.15,-.15,-.15,-.15,-.15,-.15,-.15,-.15,
-            -.15,-.15,-.15,-.15,-.15,-.15,-.15,-.15,
-            -.15,-.15,-.15,-.15,-.15,-.15,-.15,-.15,
-            -.15,-.15,-.15,-.15,-.15,-.15,-.15,-.15
-        };
-        private static readonly string[] V74SequentialKey = {
-            "M05_R025_H_RR35_F20","M05_R025_H_RR35_F30","M05_R025_D_RR35_F20","M05_R025_D_RR35_F30",
-            "M05_R050_H_RR35_F20","M05_R050_H_RR35_F30","M05_R050_D_RR35_F20","M05_R050_D_RR35_F30",
-            "M05_R025_H_RR40_F20","M05_R025_H_RR40_F30","M05_R025_D_RR40_F20","M05_R025_D_RR40_F30",
-            "M05_R050_H_RR40_F20","M05_R050_H_RR40_F30","M05_R050_D_RR40_F20","M05_R050_D_RR40_F30",
-            "M10_R025_H_RR35_F20","M10_R025_H_RR35_F30","M10_R025_D_RR35_F20","M10_R025_D_RR35_F30",
-            "M10_R050_H_RR35_F20","M10_R050_H_RR35_F30","M10_R050_D_RR35_F20","M10_R050_D_RR35_F30",
-            "M10_R025_H_RR40_F20","M10_R025_H_RR40_F30","M10_R025_D_RR40_F20","M10_R025_D_RR40_F30",
-            "M10_R050_H_RR40_F20","M10_R050_H_RR40_F30","M10_R050_D_RR40_F20","M10_R050_D_RR40_F30",
-            "M15_R025_H_RR35_F20","M15_R025_H_RR35_F30","M15_R025_D_RR35_F20","M15_R025_D_RR35_F30",
-            "M15_R050_H_RR35_F20","M15_R050_H_RR35_F30","M15_R050_D_RR35_F20","M15_R050_D_RR35_F30",
-            "M15_R025_H_RR40_F20","M15_R025_H_RR40_F30","M15_R025_D_RR40_F20","M15_R025_D_RR40_F30",
-            "M15_R050_H_RR40_F20","M15_R050_H_RR40_F30","M15_R050_D_RR40_F20","M15_R050_D_RR40_F30"
-        };
+        // V74 physical EARLY action space. F00/F10 are now first-class real
+        // completed-bar routes rather than diagnostic extrapolations from F20/F30.
+        private static string[] V74BuildSequentialKeys()
+        {
+            var keys=new List<string>();
+            foreach(var m in new[]{"05","10","15"})
+                foreach(var rr in new[]{"35","40"})
+                    foreach(var r in new[]{"025","050"})
+                        foreach(var h in new[]{"H","D"})
+                            foreach(var f in new[]{"00","10","20","30"})
+                                keys.Add("M"+m+"_R"+r+"_"+h+"_RR"+rr+"_F"+f);
+            return keys.ToArray();
+        }
+        private static double V74SequentialReactionForKey(string k) => k.Contains("_R025_")?.25:.50;
+        private static double V74SequentialHoldForKey(string k) => k.Contains("_R025_")?.10:.25;
+        private static bool V74SequentialDirectionalForKey(string k) => k.Contains("_D_");
+        private static double V74SequentialDesiredRrForKey(string k) => k.Contains("_RR40_")?4.0:3.5;
+        private static double V74SequentialFractionForKey(string k)
+        {
+            if(k.EndsWith("_F00"))return 0.0;
+            if(k.EndsWith("_F10"))return .10;
+            if(k.EndsWith("_F20"))return .20;
+            return .30;
+        }
+        private static double V74SequentialTriggerForKey(string k) => k.StartsWith("M05_")?.05:(k.StartsWith("M10_")?.10:.15);
+        private static double V74SequentialPartialHoldForKey(string k) => k.StartsWith("M05_")?.02:(k.StartsWith("M10_")?.05:.08);
+
+        private static readonly string[] V74SequentialKey = V74BuildSequentialKeys();
+        private static readonly double[] V74SequentialReactionR = V74SequentialKey.Select(V74SequentialReactionForKey).ToArray();
+        private static readonly double[] V74SequentialHoldR = V74SequentialKey.Select(V74SequentialHoldForKey).ToArray();
+        private static readonly bool[] V74SequentialRequireDirectional = V74SequentialKey.Select(V74SequentialDirectionalForKey).ToArray();
+        private static readonly double[] V74SequentialDesiredRr = V74SequentialKey.Select(V74SequentialDesiredRrForKey).ToArray();
+        private static readonly double[] V74SequentialPartialFraction = V74SequentialKey.Select(V74SequentialFractionForKey).ToArray();
+        private static readonly double[] V74SequentialTriggerR = V74SequentialKey.Select(V74SequentialTriggerForKey).ToArray();
+        private static readonly double[] V74SequentialPartialHoldR = V74SequentialKey.Select(V74SequentialPartialHoldForKey).ToArray();
+        private static readonly double[] V74SequentialAdverseCutR = V74SequentialKey.Select(_=>-.15).ToArray();
 
 
-        // V74_LATE_ENTRY_TELEMETRY_SCHEMA_V2_2_REBUILD
+        // V74_PHYSICAL_F00_F10_ACTION_SCHEMA_V3_REBUILD
         // True late-entry auction reuses the proven 48-route family/native payoff
         // geometry (M05/M10/M15 x R025/R050 x H/D x RR35/RR40 x F20/F30),
         // but moves capital admission to the completed-bar M-stage. Post-entry
         // F20/F30 crystallization is downstream execution only and can never feed
         // back into entry selection.
-        private static readonly string[] V74LateAuctionKey = V74SequentialKey;
+        private static string[] V74BuildLateAuctionKeys()
+        {
+            var keys=new List<string>();
+            foreach(var m in new[]{"05","10","15"})
+                foreach(var rr in new[]{"35","40"})
+                    foreach(var r in new[]{"025","050"})
+                        foreach(var h in new[]{"H","D"})
+                            foreach(var f in new[]{"20","30"})
+                                keys.Add("M"+m+"_R"+r+"_"+h+"_RR"+rr+"_F"+f);
+            return keys.ToArray();
+        }
+        private static readonly string[] V74LateAuctionKey = V74BuildLateAuctionKeys();
 
-        // V74 final bounded action space. Legacy route labels are retained only so the
-        // evidence parser remains stable; their V74 semantics are fixed here:
-        // M05/M10/M15 => virtual harmonic reaction 0.50R/0.75R/1.00R
-        // R025/R050   => pullback depth 0.20R/0.30R
-        // H/D         => one-bar reclaim / two-bar reclaim-hold
-        // RR35/RR40   => qualification NetRR 2.30 / 2.50
-        // F20/F30     => standard / strict close-location confirmation.
+        // V74 final bounded LATE action space. Legacy route labels are retained only so the
+        // evidence parser remains stable; semantics are decoded from the route key itself.
         private static double V74LateQualificationReactionR(int k)
         {
-            int stage=Math.Max(0,Math.Min(2,k/16));
-            return stage<=0?.50:(stage==1?.75:1.00);
+            string key=V74LateAuctionKey[k];
+            return key.StartsWith("M05_")?.50:(key.StartsWith("M10_")?.75:1.00);
         }
         private static double V74LateQualificationPullbackR(int k)
         {
-            return (k%8)>=4?.30:.20;
+            return V74LateAuctionKey[k].Contains("_R050_")?.30:.20;
         }
         private static bool V74LateQualificationTwoBar(int k)
         {
-            return (k%4)>=2;
+            return V74LateAuctionKey[k].Contains("_D_");
         }
         private static double V74LateQualificationNetRr(int k)
         {
-            return (k%16)>=8?2.50:2.30;
+            return V74LateAuctionKey[k].Contains("_RR40_")?2.50:2.30;
         }
         private static bool V74LateQualificationStrictClose(int k)
         {
-            return (k%2)==1;
+            return V74LateAuctionKey[k].EndsWith("_F30");
         }
 
         private sealed class V72HcogOpportunity
