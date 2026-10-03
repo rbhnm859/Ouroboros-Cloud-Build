@@ -104,7 +104,7 @@ def route_cats(r,src,b,m,f):
       1.0 if "_D_" in b else 0.0,
       1.0 if b.endswith("RR40") else 0.0]+[
       1.0 if m==mm else 0.0 for mm in MSTAGES]+[
-      1.0 if f==ff else 0.0 for ff in FRACTIONS]
+      1.0 if f==ff else 0.0 for ff in ALL_FRACTIONS]
 
 def xvec(r,src,m,b,f,eb):
     # Missing reaction/path snapshots are explicit evidence, not a hard rejection.
