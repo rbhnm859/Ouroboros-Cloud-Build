@@ -8,7 +8,9 @@ from v74_model_lib import load_rows,metrics,SEQUENTIAL_KEYS,LATE_AUCTION_KEYS
 root=pathlib.Path(sys.argv[1]);out=pathlib.Path(sys.argv[2]);out.mkdir(parents=True,exist_ok=True)
 YEARS=["Y2021","Y2022","Y2023"]
 MIN_N=250;MIN_MEAN=.90;MIN_PF=3.30;MIN_WR=.70;MIN_RR=2.30
-KEYS={"EARLY":SEQUENTIAL_KEYS,"LATE":LATE_AUCTION_KEYS}
+def fixed_f30(keys):
+    return [k for k in keys if k.endswith("_F30")]
+KEYS={"EARLY":fixed_f30(SEQUENTIAL_KEYS),"LATE":fixed_f30(LATE_AUCTION_KEYS)}
 rows=load_rows(root,YEARS)
 
 def gate(m):
@@ -64,7 +66,7 @@ def year_oracle(yr,spaces):
 
 report={"type":"DIAGNOSTIC_FUTURE_ORACLE_ONLY","used_for_alpha_training":False,
         "synthetic_outcomes_used":False,
-        "action_space":"PHYSICAL_ONLY_EARLY_F00_F10_F20_F30_PLUS_LATE_F20_F30",
+        "action_space":"PHYSICAL_ENTRY_ACTIONS_WITH_FIXED_F30_QUALIFICATION","management_variant_selection_used":False,
         "gate":{"n":MIN_N,"mean_r":MIN_MEAN,"pf_r":MIN_PF,"win_rate":MIN_WR,"average_rr":MIN_RR,"lcb95_gt":0.0},
         "years":{}}
 joint=True
@@ -76,7 +78,7 @@ for y in YEARS:
     report["years"][y]={"unified":unified,"early_only":early,"late_only":late}
     joint=joint and bool(unified["any_n_ge_250_pass"])
 report["joint_oracle_gate_3of3"]=joint
-report["interpretation"]="PHYSICAL_ACTION_SPACE_FEASIBLE__SELECTOR_IS_BLOCKER" if joint else "PHYSICAL_ACTION_SPACE_INSUFFICIENT__REDESIGN_REQUIRED"
+report["interpretation"]="FIXED_MANAGEMENT_ENTRY_ACTION_SPACE_FEASIBLE__SELECTOR_IS_BLOCKER" if joint else "FIXED_MANAGEMENT_ENTRY_ACTION_SPACE_INSUFFICIENT__V74_ENTRY_REDESIGN_REQUIRED"
 (out/"V74_JOINT_ORACLE_FEASIBILITY.json").write_text(json.dumps(report,indent=2))
 (out/"oracle_pass.txt").write_text("true" if joint else "false")
 print(json.dumps(report,indent=2))
