@@ -13,7 +13,7 @@ Final V74 Alpha architecture:
 No post-decision trigger/lock/outcome state is admitted as a feature. V75 exit,
 profit-capture and Grid/capital-capacity mechanics are intentionally excluded.
 """
-import json,math,pathlib,statistics,sys,time
+import bisect,json,math,pathlib,statistics,sys,time
 from collections import defaultdict,Counter
 from v74_model_lib import load_rows,metrics,SEQUENTIAL_STATE_FEATURE_COUNT,FAMILIES
 
@@ -185,24 +185,26 @@ def grouped_events(samples):
     return d
 
 def _tree_fit(X,y,idx,max_depth=TREE_DEPTH,min_leaf=28):
+    # Exact same quantile split search as the reference implementation, but each
+    # feature is sorted once per node and SSE is obtained from prefix sums.
     def node(ids,depth):
-      n=len(ids);mu=sum(y[i] for i in ids)/n
+      n=len(ids);sy=sum(y[i] for i in ids);sy2=sum(y[i]*y[i] for i in ids);mu=sy/n
       leaf={"leaf":mu,"n":n}
       if depth<=0 or n<2*min_leaf:return leaf
-      sy=sum(y[i] for i in ids);sy2=sum(y[i]*y[i] for i in ids)
       base=sy2-sy*sy/n;best=None
       for j in idx:
-        vv=[X[i][j] for i in ids]
-        for t in sorted(set(qtile(vv,q) for q in (.20,.40,.60,.80))):
-          li=[];ri=[];ls=rs=ls2=rs2=0.0
-          for i in ids:
-            v=y[i]
-            if X[i][j]<=t:li.append(i);ls+=v;ls2+=v*v
-            else:ri.append(i);rs+=v;rs2+=v*v
-          if len(li)<min_leaf or len(ri)<min_leaf:continue
-          sse=(ls2-ls*ls/len(li))+(rs2-rs*rs/len(ri));gain=base-sse
-          cand=(gain,j,t,li,ri)
-          if best is None or gain>best[0]:best=cand
+        ordered=sorted(ids,key=lambda i:X[i][j])
+        vals=[X[i][j] for i in ordered]
+        ps=[0.0];ps2=[0.0]
+        for i in ordered:
+          v=y[i];ps.append(ps[-1]+v);ps2.append(ps2[-1]+v*v)
+        for t in sorted(set(qtile(vals,q) for q in (.20,.40,.60,.80))):
+          p=bisect.bisect_right(vals,t);ln=p;rn=n-p
+          if ln<min_leaf or rn<min_leaf:continue
+          ls=ps[p];ls2=ps2[p];rs=sy-ls;rs2=sy2-ls2
+          sse=(ls2-ls*ls/ln)+(rs2-rs*rs/rn);gain=base-sse
+          if best is None or gain>best[0]:
+            best=(gain,j,t,ordered[:p],ordered[p:])
       if best is None or best[0]<=1e-10:return leaf
       _,j,t,li,ri=best
       return {"j":j,"t":t,"n":n,"left":node(li,depth-1),"right":node(ri,depth-1)}
