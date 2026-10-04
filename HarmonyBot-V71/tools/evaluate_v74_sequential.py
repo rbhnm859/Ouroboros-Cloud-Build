@@ -569,6 +569,68 @@ def apply_policy(policy,test_rows):
     sel=simulate(dec,policy["threshold"])
     return sel,samples,dec
 
+def _diag_metrics(samples):
+    rr=[]
+    for s in samples:
+      q=dict(s["row"]);q["r"]=float(s["y"]);q["bars"]=max(1,int(s.get("bars",1) or 1));rr.append(q)
+    return metrics(rr)
+
+def _oracle_top250(samples):
+    by=defaultdict(list)
+    for s in samples:by[(s["window"],event_identity(s["setup"]))].append(s)
+    best=[]
+    for ev in by.values():
+      if ev:best.append(max(ev,key=lambda s:(float(s["y"]),s["route"],-int(s["bar"]))))
+    best.sort(key=lambda s:(float(s["y"]),s["route"]),reverse=True)
+    top=best[:MIN_N];m=_diag_metrics(top)
+    return {"metrics":m,"pass":gate(m),"available_events":len(best)}
+
+def two_axis_oracle_diagnostic(test_samples,dec,sel):
+    """Post-hoc burned diagnostic only; outcomes never feed training/inference.
+    Axis A holds causal admission time/event fixed and replaces only the route
+    with the best concurrently matured selector-visible legal route.
+    Axis B holds causal route arbitration fixed at each event/bar and lets an
+    oracle choose which event/bar to admit. Fully-oracle is a ceiling over the
+    same selector-visible action surface (FAILURE continuation is diagnosed by
+    the separate physical oracle until it is added to the causal selector).
+    """
+    by_eb=defaultdict(list)
+    for s in test_samples:
+      by_eb[(s["window"],event_identity(s["setup"]),int(s["bar"]))].append(s)
+
+    route_oracle=[]
+    for e in sel:
+      s=e["s"];k=(s["window"],event_identity(s["setup"]),int(s["bar"]))
+      cand=by_eb.get(k,[])
+      if cand:route_oracle.append(max(cand,key=lambda z:(float(z["y"]),z["route"])))
+
+    dec_eb=defaultdict(list)
+    for e in dec:
+      s=e["s"];dec_eb[(s["window"],event_identity(s["setup"]),int(s["bar"]))].append(e)
+    causal_reps=[]
+    for vv in dec_eb.values():
+      # This is the route the deployed scorer would prefer if capital were
+      # admitted at this matured event/bar; no outcome participates here.
+      e=max(vv,key=lambda z:(float(z["score"]),float(z.get("route_rank",-999.0)),z["s"]["route"]))
+      causal_reps.append(e["s"])
+
+    causal=_diag_metrics([e["s"] for e in sel])
+    a=_diag_metrics(route_oracle)
+    b=_oracle_top250(causal_reps)
+    full=_oracle_top250(test_samples)
+    return {
+      "type":"DIAGNOSTIC_FUTURE_ORACLE_ONLY__NEVER_TRAINED",
+      "fully_causal":{"metrics":causal,"pass":gate(causal)},
+      "oracle_route_plus_causal_admission":{"metrics":a,"pass":gate(a),
+        "definition":"SAME_CAUSAL_EVENT_AND_ADMISSION_BAR__BEST_CONCURRENT_LEGAL_ROUTE"},
+      "causal_route_plus_oracle_admission":b,
+      "fully_oracle_selector_visible":full,
+      "interpretation":"ROUTE_ONLY" if gate(a) and not b["pass"] else
+                       "ADMISSION_ONLY" if b["pass"] and not gate(a) else
+                       "BOTH_AXES" if not gate(a) and not b["pass"] else
+                       "BOTH_AXES_INDIVIDUALLY_SUFFICIENT"
+    }
+
 checks=telemetry_guard()
 summary={"version":"HarmonyBot V74 One-Shot Family-Native Causal Action Selector",
  "architecture":"STRICT_WALK_FORWARD_NONLINEAR_STABLE_EVENT_REGRET_POLICY",
@@ -594,6 +656,7 @@ def evaluate_burned_fold(test):
     tr=[r for r in rows if r["window"] in tw];te=[r for r in rows if r["window"]==test]
     policy,_=fit_policy(tr)
     sel,test_samples,dec=apply_policy(policy,te);m,mr=metric_selected(sel)
+    two_axis=two_axis_oracle_diagnostic(test_samples,dec,sel)
     routes=Counter(r.get("sequential_key","NONE") for r in mr)
     fams=Counter(r["family"] for r in mr);acts=Counter(r["action"] for r in mr)
     srcs=Counter(x.split("|",1)[0] for x in routes.elements())
@@ -603,6 +666,7 @@ def evaluate_burned_fold(test):
       "training_gate":policy.get("training_gate"),"training_worst_gate_margin":policy.get("training_worst_gate_margin"),
       "training_supply":policy["training_supply"],"training_year_metrics":policy["training_metrics"],
       "test_legal_actions":len(test_samples),"test_decision_events":len(dec),
+      "two_axis_oracle":two_axis,
       "selected_route_counts":dict(routes),"selected_family_counts":dict(fams),
       "selected_action_counts":dict(acts),"selected_source_counts":dict(srcs),
       "runtime_seconds":round(time.perf_counter()-ft,3)}
