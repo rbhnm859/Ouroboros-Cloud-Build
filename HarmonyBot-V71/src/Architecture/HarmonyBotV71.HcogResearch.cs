@@ -982,9 +982,9 @@ namespace cAlgo.Robots
             if(o.V74FailureFreshActive)
             {
                 o.V74FailureFreshBars++;
-                bool continuationBuy=o.Direction==TradeDirection.Sell;
-                bool stopHit=continuationBuy?low<=o.V74FailureStop:high>=o.V74FailureStop;
-                bool targetHit=continuationBuy?high>=o.V74FailureTarget:low<=o.V74FailureTarget;
+                bool activeContinuationBuy=o.Direction==TradeDirection.Sell;
+                bool stopHit=activeContinuationBuy?low<=o.V74FailureStop:high>=o.V74FailureStop;
+                bool targetHit=activeContinuationBuy?high>=o.V74FailureTarget:low<=o.V74FailureTarget;
                 if(stopHit){o.V74FailureOutcomeR=-1.0;o.V74FailureFreshActive=false;return;}
                 if(targetHit){o.V74FailureOutcomeR=o.V74FailureNetRr;o.V74FailureFreshActive=false;return;}
                 return;
