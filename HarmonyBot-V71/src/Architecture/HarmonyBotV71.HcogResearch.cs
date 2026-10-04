@@ -91,7 +91,7 @@ namespace cAlgo.Robots
         private static readonly double[] V74SequentialAdverseCutR = V74SequentialKey.Select(_=>-.15).ToArray();
 
 
-        // V74_EVENT_NATIVE_SURVIVAL_FRESH_V6_REBUILD
+        // V74_EVENT_NATIVE_SURVIVAL_FRESH_FIXED_RR_V7_REBUILD
         // True late-entry auction reuses the proven 48-route family/native payoff
         // geometry (M05/M10/M15 x R025/R050 x H/D x RR35/RR40 x F20/F30),
         // but moves capital admission to the completed-bar M-stage. Post-entry
@@ -783,12 +783,23 @@ namespace cAlgo.Robots
                     double stop=buy?o.Entry+o.RiskDistance*V74SurvivalFreshStopFloorR[k]
                                    :o.Entry-o.RiskDistance*V74SurvivalFreshStopFloorR[k];
                     double risk=Math.Abs(entry-stop);
-                    if(PriceToPips(risk)<MinStopLossPips||!GeometryValid(o.Direction,entry,stop,o.Target))continue;
-                    double rr=(PriceToPips(Math.Abs(o.Target-entry))-ModeledCostPips())/Math.Max(1e-9,PriceToPips(risk));
+                    double riskPips=PriceToPips(risk);
+                    if(riskPips<MinStopLossPips)continue;
+
+                    // V74 owns Alpha qualification, not right-tail extraction. Use one
+                    // fixed cost-aware 2.30R target for every Survival-Fresh action and
+                    // require that target to fit inside the original harmonic runway.
+                    // Any profit extension beyond 2.30R belongs exclusively to V75.
+                    const double desiredNetRr=2.30;
+                    double grossTargetPips=desiredNetRr*riskPips+ModeledCostPips();
+                    double target=buy?entry+PipsToPrice(grossTargetPips):entry-PipsToPrice(grossTargetPips);
+                    bool runway=buy?target<=o.Target+_symbol.PipSize*.5:target>=o.Target-_symbol.PipSize*.5;
+                    if(!runway||!GeometryValid(o.Direction,entry,stop,target))continue;
+                    double rr=(PriceToPips(Math.Abs(target-entry))-ModeledCostPips())/Math.Max(1e-9,riskPips);
                     if(rr+1e-9<2.30)continue;
 
                     o.V74SurvivalFreshActive[k]=true;o.V74SurvivalFreshEntryBar[k]=o.BarsActive;
-                    o.V74SurvivalFreshEntry[k]=entry;o.V74SurvivalFreshStop[k]=stop;o.V74SurvivalFreshTarget[k]=o.Target;
+                    o.V74SurvivalFreshEntry[k]=entry;o.V74SurvivalFreshStop[k]=stop;o.V74SurvivalFreshTarget[k]=target;
                     o.V74SurvivalFreshRisk[k]=risk;o.V74SurvivalFreshNetRr[k]=rr;o.V74SurvivalFreshBars[k]=0;
                     o.V74SurvivalFreshEntryStateCsv[k]=string.Join(",",V74RouteStateFeatures(
                         o,i,o.Entry,o.RiskDistance,o.Target,
