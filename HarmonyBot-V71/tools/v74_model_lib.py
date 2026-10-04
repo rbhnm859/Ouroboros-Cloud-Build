@@ -56,6 +56,11 @@ SURVIVAL_FRESH_KEYS=[
     for rr in ("23","25")
 ]
 
+def event_identity(setup):
+    """Canonical V73/V74 capital-thesis identity: Direction|CompletionTime|D."""
+    p=(setup or "").split("|")
+    return "|".join((p[0],p[1],p[-1])) if len(p)>=3 else (setup or "")
+
 def window_of(path,windows):
     s=str(path)
     for w in windows:
