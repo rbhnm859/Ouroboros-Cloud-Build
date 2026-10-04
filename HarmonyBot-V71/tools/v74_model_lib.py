@@ -113,6 +113,36 @@ def load_rows(root,windows):
                                 "sequential":{},"sequential_rr":{},"sequential_bars":{},"sequential_reaction_bar":{},"sequential_entry_bar":{},"sequential_trigger_bar":{},"sequential_decision_bar":{},"sequential_state":{},"sequential_entry_state":{},"sequential_trigger_state":{},"sequential_decision_state":{}}
         for line in txt.splitlines():
 
+            if "[V74-FAILURE-CONTINUATION-PATH]" in line:
+                payload=line.split("[V74-FAILURE-CONTINUATION-PATH]",1)[1].strip();kv={}
+                for tok in payload.split():
+                    if "=" in tok:
+                        a,b=tok.split("=",1);kv[a]=b
+                setup=kv.get("setup")
+                if not setup:continue
+                p=paths.setdefault(setup,{"protect_r":{},"milestones":{},"rcr":{},"hybrid":{},"reaction_commit":{},"high_conviction":{},
+                                          "sequential":{},"sequential_rr":{},"sequential_bars":{},"sequential_state":{},"sequential_entry_state":{},
+                                          "sequential_trigger_state":{},"sequential_decision_state":{}})
+                def _vec(name):
+                    raw=kv.get(name)
+                    if raw in (None,"NONE","NA","NaN","nan"):return None
+                    try:
+                        vv=[float(x) for x in raw.split(",")]
+                        return vv if len(vv)==SEQUENTIAL_STATE_FEATURE_COUNT and all(math.isfinite(x) for x in vv) else None
+                    except Exception:return None
+                try:val=float(kv.get("b","nan"))
+                except:val=float("nan")
+                try:rr=float(kv.get("rr","nan"))
+                except:rr=float("nan")
+                p["failure_continuation"]={"FC230":val} if math.isfinite(val) else {}
+                p["failure_continuation_rr"]={"FC230":rr} if math.isfinite(rr) else {}
+                p["failure_continuation_maturity_state"]={"FC230":_vec("m")} if _vec("m") is not None else {}
+                p["failure_continuation_entry_state"]={"FC230":_vec("e")} if _vec("e") is not None else {}
+                for src,dst in (("bb","failure_continuation_break_bar"),("rb","failure_continuation_retest_bar"),("eb","failure_continuation_entry_bar"),("bars","failure_continuation_bars")):
+                    try:p[dst]={"FC230":int(kv.get(src,"-1"))}
+                    except:p[dst]={}
+                continue
+
             if "[V74-SURVIVAL-FRESH-PATH]" in line:
                 payload=line.split("[V74-SURVIVAL-FRESH-PATH]",1)[1].strip();kv={}
                 for tok in payload.split():
@@ -275,6 +305,14 @@ def load_rows(root,windows):
                          "survival_fresh_trigger_bar":path.get("survival_fresh_trigger_bar",{}),
                          "survival_fresh_entry_bar":path.get("survival_fresh_entry_bar",{}),
                          "survival_fresh_bars":path.get("survival_fresh_bars",{}),
+                         "failure_continuation":path.get("failure_continuation",{}),
+                         "failure_continuation_rr":path.get("failure_continuation_rr",{}),
+                         "failure_continuation_maturity_state":path.get("failure_continuation_maturity_state",{}),
+                         "failure_continuation_entry_state":path.get("failure_continuation_entry_state",{}),
+                         "failure_continuation_break_bar":path.get("failure_continuation_break_bar",{}),
+                         "failure_continuation_retest_bar":path.get("failure_continuation_retest_bar",{}),
+                         "failure_continuation_entry_bar":path.get("failure_continuation_entry_bar",{}),
+                         "failure_continuation_bars":path.get("failure_continuation_bars",{}),
 
                          "late_auction":path.get("late_auction",{}),
                          "late_auction_rr":path.get("late_auction_rr",{}),
