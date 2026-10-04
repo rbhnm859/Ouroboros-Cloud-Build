@@ -11,9 +11,8 @@ MIN_N=250;MIN_MEAN=.90;MIN_PF=3.30;MIN_WR=.70;MIN_RR=2.30
 def fixed_f30(keys):
     return [k for k in keys if k.endswith("_F30")]
 def early_entry_keys(keys):
-    # EARLY M05/M10/M15 are post-entry management variants, not Alpha actions.
-    # Use one fixed qualification management contract (M15/F30) per true entry identity.
-    return [k for k in fixed_f30(keys) if k.startswith("M15_")]
+    # V74 entry Alpha is raw. F10/F20/F30 crystallization is V75 territory.
+    return [k for k in keys if k.startswith("M15_") and k.endswith("_F00")]
 KEYS={"EARLY":early_entry_keys(SEQUENTIAL_KEYS),"LATE":fixed_f30(LATE_AUCTION_KEYS),"SURVIVAL":SURVIVAL_FRESH_KEYS}
 rows=load_rows(root,YEARS)
 
@@ -83,7 +82,7 @@ def year_oracle(yr,spaces):
 
 report={"type":"DIAGNOSTIC_FUTURE_ORACLE_ONLY","used_for_alpha_training":False,
         "synthetic_outcomes_used":False,
-        "action_space":"EVENT_NATIVE_EARLY_PLUS_LATE_PLUS_SURVIVAL_FRESH_RAW_BASKETS__FIXED_F30","management_variant_selection_used":False,"early_post_entry_m_stage_selection_used":False,
+        "action_space":"EVENT_NATIVE_EARLY_RAW_F00_PLUS_LATE_PREENTRY_F30_PLUS_STRONG_IMPULSE_PULLBACK_RECLAIM_RAW_230R","management_variant_selection_used":False,"early_post_entry_m_stage_selection_used":False,
         "gate":{"n":MIN_N,"mean_r":MIN_MEAN,"pf_r":MIN_PF,"win_rate":MIN_WR,"average_rr":MIN_RR,"lcb95_gt":0.0},
         "years":{}}
 joint=True

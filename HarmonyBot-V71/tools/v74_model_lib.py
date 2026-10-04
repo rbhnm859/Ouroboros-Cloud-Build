@@ -49,7 +49,7 @@ def _build_route_keys(fracs):
 
 SEQUENTIAL_KEYS=_build_route_keys(("00","10","20","30"))
 LATE_AUCTION_KEYS=_build_route_keys(("20","30"))
-SURVIVAL_FRESH_KEYS=["SF060","SF075","SF100"]
+SURVIVAL_FRESH_KEYS=["SI100","SI125","SI150"]
 
 def window_of(path,windows):
     s=str(path)
@@ -119,8 +119,14 @@ def load_rows(root,windows):
                 p=paths.setdefault(setup,{"protect_r":{},"milestones":{},"rcr":{},"hybrid":{},"reaction_commit":{},"high_conviction":{},
                                           "sequential":{},"sequential_rr":{},"sequential_bars":{},"sequential_state":{},"sequential_entry_state":{},
                                           "sequential_trigger_state":{},"sequential_decision_state":{}})
-                outcomes={};rrs={};entries={};reaction_bars={};entry_bars={};bars={}
+                outcomes={};rrs={};maturities={};entries={};reaction_bars={};pullback_bars={};trigger_bars={};entry_bars={};bars={}
                 for idx,key in enumerate(SURVIVAL_FRESH_KEYS):
+                    raw=kv.get("m"+str(idx))
+                    if raw not in (None,"NONE","NA","NaN","nan"):
+                        try:
+                            vv=[float(x) for x in raw.split(",")]
+                            if len(vv)==SEQUENTIAL_STATE_FEATURE_COUNT and all(math.isfinite(x) for x in vv):maturities[key]=vv
+                        except Exception:pass
                     raw=kv.get("e"+str(idx))
                     if raw not in (None,"NONE","NA","NaN","nan"):
                         try:
@@ -138,12 +144,13 @@ def load_rows(root,windows):
                             v=float(rawrr)
                             if math.isfinite(v):rrs[key]=v
                         except Exception:pass
-                    for prefix,dst in (("re",reaction_bars),("eb",entry_bars),("rb",bars)):
+                    for prefix,dst in (("re",reaction_bars),("pb",pullback_bars),("tb",trigger_bars),("eb",entry_bars),("rb",bars)):
                         try:dst[key]=int(kv.get(prefix+str(idx),"-1"))
                         except Exception:pass
                 p["survival_fresh"]=outcomes;p["survival_fresh_rr"]=rrs
-                p["survival_fresh_entry_state"]=entries;p["survival_fresh_reaction_bar"]=reaction_bars
-                p["survival_fresh_entry_bar"]=entry_bars;p["survival_fresh_bars"]=bars
+                p["survival_fresh_maturity_state"]=maturities;p["survival_fresh_entry_state"]=entries
+                p["survival_fresh_reaction_bar"]=reaction_bars;p["survival_fresh_pullback_bar"]=pullback_bars
+                p["survival_fresh_trigger_bar"]=trigger_bars;p["survival_fresh_entry_bar"]=entry_bars;p["survival_fresh_bars"]=bars
                 continue
 
             if "[V74-LATE-AUCTION-PATH]" in line:
@@ -257,8 +264,11 @@ def load_rows(root,windows):
                          "high_conviction":path.get("high_conviction",{}),
                          "survival_fresh":path.get("survival_fresh",{}),
                          "survival_fresh_rr":path.get("survival_fresh_rr",{}),
+                         "survival_fresh_maturity_state":path.get("survival_fresh_maturity_state",{}),
                          "survival_fresh_entry_state":path.get("survival_fresh_entry_state",{}),
                          "survival_fresh_reaction_bar":path.get("survival_fresh_reaction_bar",{}),
+                         "survival_fresh_pullback_bar":path.get("survival_fresh_pullback_bar",{}),
+                         "survival_fresh_trigger_bar":path.get("survival_fresh_trigger_bar",{}),
                          "survival_fresh_entry_bar":path.get("survival_fresh_entry_bar",{}),
                          "survival_fresh_bars":path.get("survival_fresh_bars",{}),
 

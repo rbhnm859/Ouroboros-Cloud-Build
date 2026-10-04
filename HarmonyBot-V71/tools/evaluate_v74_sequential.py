@@ -21,7 +21,7 @@ root=pathlib.Path(sys.argv[1]);out=pathlib.Path(sys.argv[2]);out.mkdir(parents=T
 RESEARCH=[f"Y{y}" for y in range(2016,2021)]
 BURNED=["Y2021","Y2022","Y2023"];ALL=RESEARCH+BURNED
 MIN_N=250;TRAIN_COVERAGE=275;MIN_MEAN=.90;MIN_PF=3.30;MIN_WR=.70;MIN_RR=2.30;Z=1.645
-REGULAR_SOURCES=("EARLY","LATE");SOURCES=("EARLY","LATE","SURVIVAL");V74_QUALIFICATION_FRACTION="30";EARLY_FRACTIONS=(V74_QUALIFICATION_FRACTION,);LATE_FRACTIONS=(V74_QUALIFICATION_FRACTION,);ALL_FRACTIONS=(V74_QUALIFICATION_FRACTION,);MSTAGES=("05","10","15");EARLY_MSTAGES=("15",);LATE_MSTAGES=MSTAGES
+REGULAR_SOURCES=("EARLY","LATE");SOURCES=("EARLY","LATE","SURVIVAL");EARLY_QUALIFICATION_FRACTION="00";LATE_QUALIFICATION_FRACTION="30";EARLY_FRACTIONS=(EARLY_QUALIFICATION_FRACTION,);LATE_FRACTIONS=(LATE_QUALIFICATION_FRACTION,);ALL_FRACTIONS=(EARLY_QUALIFICATION_FRACTION,LATE_QUALIFICATION_FRACTION);MSTAGES=("05","10","15");EARLY_MSTAGES=("15",);LATE_MSTAGES=MSTAGES
 BASES=[f"R{r}_{h}_RR{rr}" for r in ("025","050") for h in ("H","D") for rr in ("35","40")]
 TREE_KFEAT=30;PAIR_KFEAT=26;TREE_ROUNDS=10;PAIR_ROUNDS=8;TREE_DEPTH=3;TOP_PAIR=6
 rows=load_rows(root,ALL)
@@ -119,15 +119,22 @@ def xvec(r,src,m,b,f,eb):
             [ap,ep,1.0 if ap and ep else 0.0]+timing_state(r,src,m,b,f,eb))
 
 def survival_xvec(r,sf,eb):
+    a=r.get("survival_fresh_maturity_state",{}).get(sf)
     e=r.get("survival_fresh_entry_state",{}).get(sf)
+    ap=1.0 if a is not None and len(a)==SEQUENTIAL_STATE_FEATURE_COUNT else 0.0
     ep=1.0 if e is not None and len(e)==SEQUENTIAL_STATE_FEATURE_COUNT else 0.0
+    aa=[float(x) for x in a] if ap else [0.0]*SEQUENTIAL_STATE_FEATURE_COUNT
     ee=[float(x) for x in e] if ep else [0.0]*SEQUENTIAL_STATE_FEATURE_COUNT
-    zero=[0.0]*SEQUENTIAL_STATE_FEATURE_COUNT
+    delta=[ee[i]-aa[i] if ap and ep else 0.0 for i in range(SEQUENTIAL_STATE_FEATURE_COUNT)]
     rb=r.get("survival_fresh_reaction_bar",{}).get(sf,-1)
+    pb=r.get("survival_fresh_pullback_bar",{}).get(sf,-1)
+    tb=r.get("survival_fresh_trigger_bar",{}).get(sf,-1)
     timing=[max(-1.0,min(6.0,float(eb)/10.0)),
-            max(-1.0,min(6.0,float(rb)/10.0)) if rb is not None else -1.0,0.0,0.0]
-    return (list(r.get("features",[]))+route_cats(r,"SURVIVAL","SURVIVAL","SF","30",sf)+
-            ee+ee+zero+[ep,ep,ep]+timing)
+            max(-1.0,min(6.0,float(rb)/10.0)) if rb is not None else -1.0,
+            max(-1.0,min(6.0,float(pb)/10.0)) if pb is not None else -1.0,
+            max(-1.0,min(6.0,float(tb)/10.0)) if tb is not None else -1.0]
+    return (list(r.get("features",[]))+route_cats(r,"SURVIVAL","SURVIVAL","SI","00",sf)+
+            aa+ee+delta+[ap,ep,1.0 if ap and ep else 0.0]+timing)
 
 def telemetry_guard():
     legal={"EARLY":0,"LATE":0,"SURVIVAL":0};with_state={"EARLY":0,"LATE":0,"SURVIVAL":0}
@@ -549,9 +556,9 @@ summary={"version":"HarmonyBot V74 One-Shot Family-Native Causal Action Selector
  "gate":{"min_selected_per_year":MIN_N,"min_mean_r":MIN_MEAN,"min_pf_r":MIN_PF,
          "min_win_rate":MIN_WR,"min_average_rr":MIN_RR,"lcb95_gt":0.0},
  "research_training_windows":RESEARCH,"burned_oof_windows":BURNED,
- "policy":{"actions":"EARLY_OR_LATE_COMPLETED_BAR_ENTRY_ACTION__FIXED_F30_QUALIFICATION",
+ "policy":{"actions":"EARLY_RAW_F00_OR_LATE_PREENTRY_F30_OR_STRONG_IMPULSE_FRESH",
            "harmonic_completion":"DIRECTION_TIME_D_EVENT_IDENTITY__MULTI_GEOMETRY_IS_CONFLUENCE_NOT_SUPPLY",
-           "reaction_state":"CAUSAL_FEATURE_NOT_HARD_FILTER","physical_route_contract":"EVENT_NATIVE_EARLY_PLUS_LATE_PLUS_SURVIVAL_FRESH_RAW_BASKETS__FIXED_F30_QUALIFICATION","v75_management_variants_excluded":True,"early_post_entry_m_stage_excluded":True,
+           "reaction_state":"CAUSAL_FEATURE_NOT_HARD_FILTER","physical_route_contract":"EVENT_NATIVE_EARLY_RAW_F00_PLUS_LATE_PREENTRY_F30_PLUS_STRONG_IMPULSE_PULLBACK_RECLAIM_RAW_230R","v75_management_variants_excluded":True,"early_post_entry_m_stage_excluded":True,
            "route_choice":"STRICT_WALK_FORWARD_NONLINEAR_STABLE_EVENT_REGRET_PLUS_BEST_ACTION_PROBABILITY","optimal_stopping":"MECHANISM_NATIVE_TRAINING_ONLY_CONTINUATION_HEAD__EVENT_LEVEL_STOP_VS_DEFER",
            "admission":"PAST_ONLY_WORST_YEAR_GATE_CALIBRATED_STOP_ADVANTAGE_THRESHOLD",
            "training_coverage_target_per_year":TRAIN_COVERAGE,

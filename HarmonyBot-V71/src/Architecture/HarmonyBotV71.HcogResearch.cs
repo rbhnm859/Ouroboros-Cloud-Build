@@ -34,10 +34,15 @@ namespace cAlgo.Robots
         // V74 Survival-Fresh Alpha routes: use the empirically stable reaction->hold
         // state as PRE-ENTRY evidence, then open a fresh raw basket. No floor, partial,
         // BE, Grid or post-entry protection is used in these qualification outcomes.
-        private static readonly double[] V74SurvivalFreshReactionR = { .60, .75, 1.00 };
-        private static readonly double[] V74SurvivalFreshHoldR = { .35, .50, .75 };
-        private static readonly double[] V74SurvivalFreshStopFloorR = { .10, .25, .60 };
-        private static readonly string[] V74SurvivalFreshKey = { "SF060", "SF075", "SF100" };
+        // V74 V8 strong-impulse pullback-reclaim fresh entries. The original
+        // harmonic basket remains virtual. Capital is admitted only after a completed
+        // strong impulse, a later controlled pullback, and a subsequent completed-bar
+        // reclaim/reacceleration. Qualification is one fresh raw 2.30R basket.
+        private static readonly double[] V74SurvivalFreshReactionR = { 1.00, 1.25, 1.50 };
+        private static readonly double[] V74SurvivalFreshPullbackR = { .65, .85, 1.05 };
+        private static readonly double[] V74SurvivalFreshReclaimR = { .85, 1.05, 1.30 };
+        private static readonly bool[] V74SurvivalFreshRequireTwoBar = { false, true, true };
+        private static readonly string[] V74SurvivalFreshKey = { "SI100", "SI125", "SI150" };
         // High-conviction delayed capital: preserve canonical payoff asymmetry by waiting
         // until the virtual harmonic thesis has already demonstrated 1.75R/2.00R reaction.
         // Capital then enters only after a later completed M1 hold; stop is the completed
@@ -91,7 +96,7 @@ namespace cAlgo.Robots
         private static readonly double[] V74SequentialAdverseCutR = V74SequentialKey.Select(_=>-.15).ToArray();
 
 
-        // V74_EVENT_NATIVE_SURVIVAL_FRESH_FIXED_RR_V7_REBUILD
+        // V74_EVENT_NATIVE_RAW_ALPHA_STRONG_IMPULSE_V8_REBUILD
         // True late-entry auction reuses the proven 48-route family/native payoff
         // geometry (M05/M10/M15 x R025/R050 x H/D x RR35/RR40 x F20/F30),
         // but moves capital admission to the completed-bar M-stage. Post-entry
@@ -177,15 +182,20 @@ namespace cAlgo.Robots
             public double[] V74ReactionCommitNetRr = new double[4];
             public double[] V74ReactionCommitOutcomeR = Enumerable.Repeat(double.NaN, 4).ToArray();
             public int[] V74SurvivalFreshReactionBar = Enumerable.Repeat(-1, V74SurvivalFreshKey.Length).ToArray();
+            public int[] V74SurvivalFreshPullbackBar = Enumerable.Repeat(-1, V74SurvivalFreshKey.Length).ToArray();
+            public int[] V74SurvivalFreshTriggerBar = Enumerable.Repeat(-1, V74SurvivalFreshKey.Length).ToArray();
             public int[] V74SurvivalFreshEntryBar = Enumerable.Repeat(-1, V74SurvivalFreshKey.Length).ToArray();
+            public bool[] V74SurvivalFreshPending = new bool[V74SurvivalFreshKey.Length];
             public bool[] V74SurvivalFreshActive = new bool[V74SurvivalFreshKey.Length];
             public int[] V74SurvivalFreshBars = new int[V74SurvivalFreshKey.Length];
+            public double[] V74SurvivalFreshPullbackExtreme = new double[V74SurvivalFreshKey.Length];
             public double[] V74SurvivalFreshEntry = new double[V74SurvivalFreshKey.Length];
             public double[] V74SurvivalFreshStop = new double[V74SurvivalFreshKey.Length];
             public double[] V74SurvivalFreshTarget = new double[V74SurvivalFreshKey.Length];
             public double[] V74SurvivalFreshRisk = new double[V74SurvivalFreshKey.Length];
             public double[] V74SurvivalFreshNetRr = new double[V74SurvivalFreshKey.Length];
             public double[] V74SurvivalFreshOutcomeR = Enumerable.Repeat(double.NaN, V74SurvivalFreshKey.Length).ToArray();
+            public string[] V74SurvivalFreshMaturityStateCsv = new string[V74SurvivalFreshKey.Length];
             public string[] V74SurvivalFreshEntryStateCsv = new string[V74SurvivalFreshKey.Length];
             public int[] V74HighConvictionReactionBar = Enumerable.Repeat(-1, 4).ToArray();
             public bool[] V74HighConvictionActive = new bool[4];
@@ -766,53 +776,119 @@ namespace cAlgo.Robots
             for(int k=0;k<V74SurvivalFreshKey.Length;k++)
             {
                 if(double.IsFinite(o.V74SurvivalFreshOutcomeR[k]))continue;
-                if(o.V74SurvivalFreshReactionBar[k]<0&&!nativeStop&&!nativeTarget&&virtualFav+1e-12>=V74SurvivalFreshReactionR[k])
+
+                if(o.V74SurvivalFreshActive[k])
                 {
-                    o.V74SurvivalFreshReactionBar[k]=o.BarsActive;
-                    continue; // reaction bar is observation only
-                }
-                if(!o.V74SurvivalFreshActive[k])
-                {
-                    if(o.V74SurvivalFreshReactionBar[k]<0||o.BarsActive<=o.V74SurvivalFreshReactionBar[k]||nativeStop||nativeTarget)continue;
-                    double holdPrice=buy?o.Entry+o.RiskDistance*V74SurvivalFreshHoldR[k]
-                                        :o.Entry-o.RiskDistance*V74SurvivalFreshHoldR[k];
-                    bool holds=buy?close>holdPrice:close<holdPrice;
-                    if(!(holds&&directional&&reaccelerating&&alignedClose+1e-12>=.55))continue;
-
-                    double entry=close;
-                    double stop=buy?o.Entry+o.RiskDistance*V74SurvivalFreshStopFloorR[k]
-                                   :o.Entry-o.RiskDistance*V74SurvivalFreshStopFloorR[k];
-                    double risk=Math.Abs(entry-stop);
-                    double riskPips=PriceToPips(risk);
-                    if(riskPips<MinStopLossPips)continue;
-
-                    // V74 owns Alpha qualification, not right-tail extraction. Use one
-                    // fixed cost-aware 2.30R target for every Survival-Fresh action and
-                    // require that target to fit inside the original harmonic runway.
-                    // Any profit extension beyond 2.30R belongs exclusively to V75.
-                    const double desiredNetRr=2.30;
-                    double grossTargetPips=desiredNetRr*riskPips+ModeledCostPips();
-                    double target=buy?entry+PipsToPrice(grossTargetPips):entry-PipsToPrice(grossTargetPips);
-                    bool runway=buy?target<=o.Target+_symbol.PipSize*.5:target>=o.Target-_symbol.PipSize*.5;
-                    if(!runway||!GeometryValid(o.Direction,entry,stop,target))continue;
-                    double rr=(PriceToPips(Math.Abs(target-entry))-ModeledCostPips())/Math.Max(1e-9,riskPips);
-                    if(rr+1e-9<2.30)continue;
-
-                    o.V74SurvivalFreshActive[k]=true;o.V74SurvivalFreshEntryBar[k]=o.BarsActive;
-                    o.V74SurvivalFreshEntry[k]=entry;o.V74SurvivalFreshStop[k]=stop;o.V74SurvivalFreshTarget[k]=target;
-                    o.V74SurvivalFreshRisk[k]=risk;o.V74SurvivalFreshNetRr[k]=rr;o.V74SurvivalFreshBars[k]=0;
-                    o.V74SurvivalFreshEntryStateCsv[k]=string.Join(",",V74RouteStateFeatures(
-                        o,i,o.Entry,o.RiskDistance,o.Target,
-                        Math.Max(0,o.BarsActive-o.V74SurvivalFreshReactionBar[k]),o.MfeR,o.MaeR,V74SurvivalFreshReactionR[k])
-                        .Select(v=>v.ToString("R",System.Globalization.CultureInfo.InvariantCulture)));
-                    continue; // no same-bar outcome
+                    o.V74SurvivalFreshBars[k]++;
+                    bool stopHit=buy?low<=o.V74SurvivalFreshStop[k]:high>=o.V74SurvivalFreshStop[k];
+                    bool targetHit=buy?high>=o.V74SurvivalFreshTarget[k]:low<=o.V74SurvivalFreshTarget[k];
+                    if(stopHit){o.V74SurvivalFreshOutcomeR[k]=-1.0;o.V74SurvivalFreshActive[k]=false;continue;}
+                    if(targetHit){o.V74SurvivalFreshOutcomeR[k]=o.V74SurvivalFreshNetRr[k];o.V74SurvivalFreshActive[k]=false;continue;}
+                    continue;
                 }
 
-                o.V74SurvivalFreshBars[k]++;
-                bool stopHit=buy?low<=o.V74SurvivalFreshStop[k]:high>=o.V74SurvivalFreshStop[k];
-                bool targetHit=buy?high>=o.V74SurvivalFreshTarget[k]:low<=o.V74SurvivalFreshTarget[k];
-                if(stopHit){o.V74SurvivalFreshOutcomeR[k]=-1.0;o.V74SurvivalFreshActive[k]=false;continue;}
-                if(targetHit){o.V74SurvivalFreshOutcomeR[k]=o.V74SurvivalFreshNetRr[k];o.V74SurvivalFreshActive[k]=false;continue;}
+                // Before entry this route owns zero capital. Native invalidation/target
+                // cancels the deferred thesis without creating a trade label.
+                if(nativeStop||nativeTarget)
+                {
+                    o.V74SurvivalFreshPending[k]=false;
+                    continue;
+                }
+
+                double reactionR=V74SurvivalFreshReactionR[k];
+                if(o.V74SurvivalFreshReactionBar[k]<0)
+                {
+                    if(virtualFav+1e-12>=reactionR)
+                    {
+                        o.V74SurvivalFreshReactionBar[k]=o.BarsActive;
+                        o.V74SurvivalFreshTriggerBar[k]=-1;
+                    }
+                    continue; // impulse bar is observation only
+                }
+                if(o.V74SurvivalFreshReactionBar[k]>100000000||o.BarsActive<=o.V74SurvivalFreshReactionBar[k])continue;
+
+                double pullbackPrice=buy?o.Entry+o.RiskDistance*V74SurvivalFreshPullbackR[k]
+                                        :o.Entry-o.RiskDistance*V74SurvivalFreshPullbackR[k];
+                double reclaimPrice=buy?o.Entry+o.RiskDistance*V74SurvivalFreshReclaimR[k]
+                                       :o.Entry-o.RiskDistance*V74SurvivalFreshReclaimR[k];
+
+                if(!o.V74SurvivalFreshPending[k])
+                {
+                    bool touched=buy?low<=pullbackPrice:high>=pullbackPrice;
+                    if(!touched)continue;
+                    o.V74SurvivalFreshPending[k]=true;
+                    o.V74SurvivalFreshPullbackBar[k]=o.BarsActive;
+                    o.V74SurvivalFreshPullbackExtreme[k]=buy?low:high;
+                    o.V74SurvivalFreshTriggerBar[k]=-1;
+                    continue; // pullback bar cannot enter
+                }
+
+                o.V74SurvivalFreshPullbackExtreme[k]=buy?
+                    Math.Min(o.V74SurvivalFreshPullbackExtreme[k],low):
+                    Math.Max(o.V74SurvivalFreshPullbackExtreme[k],high);
+
+                // Reject deep giveback. This turns transient reactions into causal no-trades.
+                double survivalFloorR=Math.Max(.20,V74SurvivalFreshPullbackR[k]-.35);
+                double survivalFloor=buy?o.Entry+o.RiskDistance*survivalFloorR
+                                         :o.Entry-o.RiskDistance*survivalFloorR;
+                bool floorBroken=buy?o.V74SurvivalFreshPullbackExtreme[k]<survivalFloor
+                                     :o.V74SurvivalFreshPullbackExtreme[k]>survivalFloor;
+                if(floorBroken)
+                {
+                    o.V74SurvivalFreshPending[k]=false;
+                    o.V74SurvivalFreshReactionBar[k]=int.MaxValue/4;
+                    continue;
+                }
+
+                bool reclaimed=buy?close>=reclaimPrice:close<=reclaimPrice;
+                bool quality=directional&&reaccelerating&&alignedClose+1e-12>=.60;
+                if(!(reclaimed&&quality))
+                {
+                    if(V74SurvivalFreshRequireTwoBar[k]&&o.V74SurvivalFreshTriggerBar[k]>=0)
+                        o.V74SurvivalFreshTriggerBar[k]=-1;
+                    continue;
+                }
+
+                if(V74SurvivalFreshRequireTwoBar[k])
+                {
+                    if(o.V74SurvivalFreshTriggerBar[k]<0)
+                    {
+                        o.V74SurvivalFreshTriggerBar[k]=o.BarsActive;
+                        continue;
+                    }
+                    if(o.BarsActive<=o.V74SurvivalFreshTriggerBar[k])continue;
+                }
+                else o.V74SurvivalFreshTriggerBar[k]=o.BarsActive;
+
+                double entry=close;
+                double buffer=Math.Max(PipsToPrice(ModeledCostPips()),_symbol.PipSize);
+                double localStop=buy?o.V74SurvivalFreshPullbackExtreme[k]-buffer
+                                     :o.V74SurvivalFreshPullbackExtreme[k]+buffer;
+                double stop=buy?Math.Max(o.Stop,localStop):Math.Min(o.Stop,localStop);
+                double risk=Math.Abs(entry-stop),riskPips=PriceToPips(risk);
+                if(riskPips<MinStopLossPips)continue;
+
+                const double desiredNetRr=2.30;
+                double grossTargetPips=desiredNetRr*riskPips+ModeledCostPips();
+                double target=buy?entry+PipsToPrice(grossTargetPips):entry-PipsToPrice(grossTargetPips);
+                bool runway=buy?target<=o.Target+_symbol.PipSize*.5:target>=o.Target-_symbol.PipSize*.5;
+                if(!runway||!GeometryValid(o.Direction,entry,stop,target))continue;
+                double rr=(PriceToPips(Math.Abs(target-entry))-ModeledCostPips())/Math.Max(1e-9,riskPips);
+                if(rr+1e-9<2.30)continue;
+
+                // Maturity is original harmonic path; entry is actual fresh basket geometry.
+                o.V74SurvivalFreshMaturityStateCsv[k]=string.Join(",",V74RouteStateFeatures(
+                    o,i,o.Entry,o.RiskDistance,o.Target,
+                    Math.Max(0,o.BarsActive-o.V74SurvivalFreshReactionBar[k]),o.MfeR,o.MaeR,reactionR)
+                    .Select(v=>v.ToString("R",System.Globalization.CultureInfo.InvariantCulture)));
+                o.V74SurvivalFreshEntryStateCsv[k]=string.Join(",",V74RouteStateFeatures(
+                    o,i,entry,risk,target,0,0,0,reactionR)
+                    .Select(v=>v.ToString("R",System.Globalization.CultureInfo.InvariantCulture)));
+
+                o.V74SurvivalFreshPending[k]=false;o.V74SurvivalFreshActive[k]=true;
+                o.V74SurvivalFreshEntryBar[k]=o.BarsActive;o.V74SurvivalFreshEntry[k]=entry;
+                o.V74SurvivalFreshStop[k]=stop;o.V74SurvivalFreshTarget[k]=target;
+                o.V74SurvivalFreshRisk[k]=risk;o.V74SurvivalFreshNetRr[k]=rr;o.V74SurvivalFreshBars[k]=0;
             }
         }
 
@@ -1003,8 +1079,7 @@ namespace cAlgo.Robots
                     o.V74SequentialLockBar[k]=-1;o.V74SequentialLockedR[k]=0;o.V74SequentialRouteMfeR[k]=0;o.V74SequentialRouteMaeR[k]=0;
                     o.V74SequentialPositiveArmed[k]=false;
                     o.V74SequentialEntryStateCsv[k]=string.Join(",",V74RouteStateFeatures(
-                        o,i,o.Entry,o.RiskDistance,o.Target,
-                        Math.Max(0,o.BarsActive-o.V74SequentialReactionBar[k]),o.MfeR,o.MaeR,reactionR)
+                        o,i,entry,risk,o.Target,0,0,0,reactionR)
                         .Select(v=>v.ToString("R",System.Globalization.CultureInfo.InvariantCulture)));
                     continue;
                 }
@@ -1206,8 +1281,7 @@ namespace cAlgo.Robots
                     Math.Max(0,o.BarsActive-o.V74LateAuctionReactionBar[k]),o.MfeR,o.MaeR,reactionR)
                     .Select(v=>v.ToString("R",System.Globalization.CultureInfo.InvariantCulture)));
                 o.V74LateAuctionEntryStateCsv[k]=string.Join(",",V74RouteStateFeatures(
-                    o,i,o.Entry,o.RiskDistance,o.Target,
-                    Math.Max(0,o.BarsActive-o.V74LateAuctionReactionBar[k]),o.MfeR,o.MaeR,reactionR)
+                    o,i,entry,risk,target,0,0,0,reactionR)
                     .Select(v=>v.ToString("R",System.Globalization.CultureInfo.InvariantCulture)));
 
                 o.V74LateAuctionPending[k]=false;
@@ -1341,10 +1415,13 @@ namespace cAlgo.Robots
             var sfParts=new List<string>{"setup="+o.SetupKey,"family="+o.Family,"lane="+o.Lane};
             for(int k=0;k<V74SurvivalFreshKey.Length;k++)
             {
+                sfParts.Add("m"+k+"="+(string.IsNullOrWhiteSpace(o.V74SurvivalFreshMaturityStateCsv[k])?"NONE":o.V74SurvivalFreshMaturityStateCsv[k]));
                 sfParts.Add("e"+k+"="+(string.IsNullOrWhiteSpace(o.V74SurvivalFreshEntryStateCsv[k])?"NONE":o.V74SurvivalFreshEntryStateCsv[k]));
                 sfParts.Add("b"+k+"="+(double.IsFinite(o.V74SurvivalFreshOutcomeR[k])?o.V74SurvivalFreshOutcomeR[k].ToString("R",System.Globalization.CultureInfo.InvariantCulture):"NA"));
                 sfParts.Add("rr"+k+"="+o.V74SurvivalFreshNetRr[k].ToString("R",System.Globalization.CultureInfo.InvariantCulture));
                 sfParts.Add("re"+k+"="+o.V74SurvivalFreshReactionBar[k].ToString(System.Globalization.CultureInfo.InvariantCulture));
+                sfParts.Add("pb"+k+"="+o.V74SurvivalFreshPullbackBar[k].ToString(System.Globalization.CultureInfo.InvariantCulture));
+                sfParts.Add("tb"+k+"="+o.V74SurvivalFreshTriggerBar[k].ToString(System.Globalization.CultureInfo.InvariantCulture));
                 sfParts.Add("eb"+k+"="+o.V74SurvivalFreshEntryBar[k].ToString(System.Globalization.CultureInfo.InvariantCulture));
                 sfParts.Add("rb"+k+"="+o.V74SurvivalFreshBars[k].ToString(System.Globalization.CultureInfo.InvariantCulture));
             }
