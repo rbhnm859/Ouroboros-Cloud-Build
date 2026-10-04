@@ -1,17 +1,19 @@
 {
-  "version": 1,
-  "source_run_id": 37207571390,
-  "source_head_sha": "b1661f8a486e34827db16e08a70b2ebdc731667c",
+  "version": 2,
+  "source_run_id": 37233268495,
+  "source_head_sha": "b885d26ab808a498e0839a02be2421db4ffe7475",
   "branch": "harmonybot/v73-opportunity-universe",
+  "artifact_pattern": "v74-rapid-universe-*",
+  "evidence_origin": "rapid_exact_2016_2023",
   "required_artifacts": [
-    "v73-universe-Y2016",
-    "v73-universe-Y2017",
-    "v73-universe-Y2018",
-    "v73-universe-Y2019",
-    "v73-universe-Y2020",
-    "v73-universe-Y2021",
-    "v73-universe-Y2022",
-    "v73-universe-Y2023"
+    "v74-rapid-universe-Y2016",
+    "v74-rapid-universe-Y2017",
+    "v74-rapid-universe-Y2018",
+    "v74-rapid-universe-Y2019",
+    "v74-rapid-universe-Y2020",
+    "v74-rapid-universe-Y2021",
+    "v74-rapid-universe-Y2022",
+    "v74-rapid-universe-Y2023"
   ],
   "semantic_guard_paths": [
     "HarmonyBot-V71/src",
@@ -23,5 +25,5 @@
   ],
   "validation_used": false,
   "fresh_used": false,
-  "note": "Fast replay reuses the complete 2016-2023 event-native V73/V74 universe from Full Run 141 at semantic HEAD b1661f8a. Direction+completion-time+D is the independent event identity; parallel X/A/B/C geometries are confluence hypotheses, not supply. All eight universe artifacts and the V73 event-native gate passed. Evaluator/oracle-only changes may reuse this evidence; Validation/Fresh remain excluded."
+  "note": "Pinned exact V7 Rapid Decision universe from run 37233268495. All eight 2016-2023 windows used hash-verified immutable custody bytes and the same semantic candidate at b885d26a; V73 event-native supply/custody was revalidated before OOF. Safe for evaluator/oracle-only replay. Any guarded execution/data semantic drift remains fail-closed."
 }
