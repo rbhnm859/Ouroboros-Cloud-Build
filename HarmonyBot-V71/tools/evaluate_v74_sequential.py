@@ -436,7 +436,7 @@ def fit_policy(train_rows):
 def apply_policy(policy,test_rows):
     samples=make_samples(test_rows)
     dec=event_decisions(samples,policy["value_model"],policy["pairwise_ranker"])
-    sel=simulate(decisions,policy["threshold"])
+    sel=simulate(dec,policy["threshold"])
     return sel,samples,dec
 
 checks=telemetry_guard()
