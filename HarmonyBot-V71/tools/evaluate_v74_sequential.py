@@ -21,7 +21,7 @@ root=pathlib.Path(sys.argv[1]);out=pathlib.Path(sys.argv[2]);out.mkdir(parents=T
 RESEARCH=[f"Y{y}" for y in range(2016,2021)]
 BURNED=["Y2021","Y2022","Y2023"];ALL=RESEARCH+BURNED
 MIN_N=250;TRAIN_COVERAGE=275;MIN_MEAN=.90;MIN_PF=3.30;MIN_WR=.70;MIN_RR=2.30;Z=1.645
-SOURCES=("EARLY","LATE");V74_QUALIFICATION_FRACTION="30";EARLY_FRACTIONS=(V74_QUALIFICATION_FRACTION,);LATE_FRACTIONS=(V74_QUALIFICATION_FRACTION,);ALL_FRACTIONS=(V74_QUALIFICATION_FRACTION,);MSTAGES=("05","10","15")
+SOURCES=("EARLY","LATE");V74_QUALIFICATION_FRACTION="30";EARLY_FRACTIONS=(V74_QUALIFICATION_FRACTION,);LATE_FRACTIONS=(V74_QUALIFICATION_FRACTION,);ALL_FRACTIONS=(V74_QUALIFICATION_FRACTION,);MSTAGES=("05","10","15");EARLY_MSTAGES=("15",);LATE_MSTAGES=MSTAGES
 BASES=[f"R{r}_{h}_RR{rr}" for r in ("025","050") for h in ("H","D") for rr in ("35","40")]
 TREE_KFEAT=30;PAIR_KFEAT=26;TREE_ROUNDS=10;PAIR_ROUNDS=8;TREE_DEPTH=3;TOP_PAIR=6
 rows=load_rows(root,ALL)
@@ -121,7 +121,7 @@ def telemetry_guard():
     for r in rows:
       for b in BASES:
         for src in SOURCES:
-          for m in MSTAGES:
+          for m in (EARLY_MSTAGES if src=="EARLY" else LATE_MSTAGES):
             for f in (EARLY_FRACTIONS if src=="EARLY" else LATE_FRACTIONS):
               eb=entry_bar(r,src,m,b,f)
               if eb<0 or outcome(r,src,m,b,f) is None:continue
@@ -145,7 +145,7 @@ def all_options(r,b):
           if eb<0:continue
           y=outcome(r,src,m,b,f)
           if y is None:continue
-          rid=src+"|"+key(m,b,f)
+          rid=("EARLY|"+b if src=="EARLY" else "LATE|M"+m+"_"+b)
           z.append({"rid":rid,"src":src,"m":m,"b":b,"f":f,"y":float(y),"bar":eb,
                     "bars":hold_bars(r,src,m,b,f),"x":xvec(r,src,m,b,f,eb)})
     _OPTION_CACHE[ck]=z
@@ -398,7 +398,7 @@ summary={"version":"HarmonyBot V74 One-Shot Family-Native Causal Action Selector
  "research_training_windows":RESEARCH,"burned_oof_windows":BURNED,
  "policy":{"actions":"EARLY_OR_LATE_COMPLETED_BAR_ENTRY_ACTION__FIXED_F30_QUALIFICATION",
            "harmonic_completion":"SETUP_IDENTITY_NOT_AUTOMATIC_ENTRY",
-           "reaction_state":"CAUSAL_FEATURE_NOT_HARD_FILTER","physical_route_contract":"FIXED_F30_QUALIFICATION__FRACTION_NOT_ACTION_CHOICE","v75_management_variants_excluded":True,
+           "reaction_state":"CAUSAL_FEATURE_NOT_HARD_FILTER","physical_route_contract":"EARLY_ENTRY_IDENTITY_R_H_RR_ONLY__LATE_M_IS_ENTRY_MATURITY__FIXED_F30_QUALIFICATION","v75_management_variants_excluded":True,"early_post_entry_m_stage_excluded":True,
            "route_choice":"BOUNDED_DEPTH3_EXPECTED_R_WIN_PROB_PLUS_COUNTERFACTUAL_PAIRWISE_DELTA",
            "admission":"TRAINING_ONLY_COVERAGE_CONSTRAINED_SCORE_THRESHOLD",
            "training_coverage_target_per_year":TRAIN_COVERAGE,
