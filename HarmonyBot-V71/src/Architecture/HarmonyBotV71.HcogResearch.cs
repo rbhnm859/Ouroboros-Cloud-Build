@@ -11,7 +11,7 @@ namespace cAlgo.Robots
     {
         // CI semantic epoch: intentionally compiled so a semantic Rapid can be
         // restarted after workflow-only isolation changes without altering trading behavior.
-        private const string V74RapidSemanticEpoch = "V9_CRT_RAW64_20261005A";
+        private const string V74RapidSemanticEpoch = "V12_POST_STOP_FAILURE_CONTINUATION_20261005A";
 
         [Parameter("Enable V72 HCOG Alpha", DefaultValue = false)]
         public bool EnableV72HcogAlpha { get; set; }
@@ -231,6 +231,17 @@ namespace cAlgo.Robots
             public double[] V74SurvivalFreshOutcomeR = Enumerable.Repeat(double.NaN, V74SurvivalFreshKey.Length).ToArray();
             public string[] V74SurvivalFreshMaturityStateCsv = new string[V74SurvivalFreshKey.Length];
             public string[] V74SurvivalFreshEntryStateCsv = new string[V74SurvivalFreshKey.Length];
+
+            // V74 V12: event-native post-stop failure continuation. The original
+            // harmonic reversal remains a -1R outcome; this is a distinct fresh,
+            // opposite-direction action that becomes legal only after completed-bar
+            // structural invalidation -> later retest -> later BOS.
+            public bool V74FailureObserved, V74FailureRetestObserved, V74FailureFreshActive;
+            public int V74FailureBreakBar=-1, V74FailureRetestBar=-1, V74FailureEntryBar=-1, V74FailureFreshBars;
+            public double V74FailureBoundary, V74FailureRetestHigh, V74FailureRetestLow;
+            public double V74FailureEntry, V74FailureStop, V74FailureTarget, V74FailureRisk, V74FailureNetRr;
+            public double V74FailureOutcomeR=double.NaN;
+            public string V74FailureMaturityStateCsv="", V74FailureEntryStateCsv="";
             public int[] V74HighConvictionReactionBar = Enumerable.Repeat(-1, 4).ToArray();
             public bool[] V74HighConvictionActive = new bool[4];
             public bool[] V74HighConvictionPositiveArmed = new bool[4];
@@ -931,6 +942,81 @@ namespace cAlgo.Robots
             }
         }
 
+        private void V74UpdatePostStopFailureContinuation(V72HcogOpportunity o,int i,bool nativeStop)
+        {
+            if(o==null||o.RiskDistance<=0||i<1||i>=_m1Bars.Count||double.IsFinite(o.V74FailureOutcomeR))return;
+            double open=_m1Bars.OpenPrices[i],close=_m1Bars.ClosePrices[i],high=_m1Bars.HighPrices[i],low=_m1Bars.LowPrices[i];
+
+            if(o.V74FailureFreshActive)
+            {
+                o.V74FailureFreshBars++;
+                bool continuationBuy=o.Direction==TradeDirection.Sell;
+                bool stopHit=continuationBuy?low<=o.V74FailureStop:high>=o.V74FailureStop;
+                bool targetHit=continuationBuy?high>=o.V74FailureTarget:low<=o.V74FailureTarget;
+                if(stopHit){o.V74FailureOutcomeR=-1.0;o.V74FailureFreshActive=false;return;}
+                if(targetHit){o.V74FailureOutcomeR=o.V74FailureNetRr;o.V74FailureFreshActive=false;return;}
+                return;
+            }
+
+            if(!o.V74FailureObserved)
+            {
+                if(!nativeStop)return;
+                o.V74FailureObserved=true;
+                o.V74FailureBreakBar=o.BarsActive;
+                o.V74FailureBoundary=o.Stop;
+                return; // invalidation bar is observation only
+            }
+            if(o.BarsActive<=o.V74FailureBreakBar)return;
+
+            bool continuationBuy=o.Direction==TradeDirection.Sell;
+            double boundary=o.V74FailureBoundary;
+            bool directional=continuationBuy?close>open:close<open;
+
+            if(!o.V74FailureRetestObserved)
+            {
+                bool touched=low<=boundary&&high>=boundary;
+                bool heldFailureSide=continuationBuy?close>boundary:close<boundary;
+                if(!(touched&&heldFailureSide&&directional))return;
+                o.V74FailureRetestObserved=true;
+                o.V74FailureRetestBar=o.BarsActive;
+                o.V74FailureRetestHigh=high;o.V74FailureRetestLow=low;
+                return; // retest bar is observation only
+            }
+            if(o.BarsActive<=o.V74FailureRetestBar)return;
+
+            bool reclaimedPatternSide=continuationBuy?close<=boundary:close>=boundary;
+            if(reclaimedPatternSide)
+            {
+                // The failed harmonic failure thesis itself failed. No trade.
+                o.V74FailureOutcomeR=0.0;
+                return;
+            }
+
+            bool bos=continuationBuy?close>o.V74FailureRetestHigh:close<o.V74FailureRetestLow;
+            if(!(bos&&directional))return;
+
+            double buffer=Math.Max(PipsToPrice(ModeledCostPips()),_symbol.PipSize);
+            double entry=close;
+            double stop=continuationBuy?o.V74FailureRetestLow-buffer:o.V74FailureRetestHigh+buffer;
+            double risk=Math.Abs(entry-stop),riskPips=PriceToPips(risk);
+            if(riskPips<MinStopLossPips)return;
+            const double desiredNetRr=2.30;
+            double grossTargetPips=desiredNetRr*riskPips+ModeledCostPips();
+            double target=continuationBuy?entry+PipsToPrice(grossTargetPips):entry-PipsToPrice(grossTargetPips);
+            if(!GeometryValid(continuationBuy?TradeDirection.Buy:TradeDirection.Sell,entry,stop,target))return;
+            double rr=(PriceToPips(Math.Abs(target-entry))-ModeledCostPips())/Math.Max(1e-9,riskPips);
+            if(rr+1e-9<2.30)return;
+
+            o.V74FailureMaturityStateCsv=string.Join(",",V74RouteStateFeatures(
+                o,i,o.Entry,o.RiskDistance,o.Target,Math.Max(0,o.BarsActive-o.V74FailureBreakBar),
+                o.MfeR,o.MaeR,0.0).Select(v=>v.ToString("R",System.Globalization.CultureInfo.InvariantCulture)));
+            o.V74FailureEntryStateCsv=string.Join(",",V74RouteStateFeatures(
+                o,i,entry,risk,target,0,0,0,0.0).Select(v=>v.ToString("R",System.Globalization.CultureInfo.InvariantCulture)));
+            o.V74FailureEntryBar=o.BarsActive;o.V74FailureEntry=entry;o.V74FailureStop=stop;
+            o.V74FailureTarget=target;o.V74FailureRisk=risk;o.V74FailureNetRr=rr;
+            o.V74FailureFreshBars=0;o.V74FailureFreshActive=true;
+        }
+
         private void V74UpdateReactionCommitLadders(V72HcogOpportunity o,int i,bool nativeStop,bool nativeTarget)
         {
             if(o==null||o.RiskDistance<=0||i<1||i>=_m1Bars.Count)return;
@@ -1406,6 +1492,15 @@ namespace cAlgo.Robots
             }
         }
 
+        private void V74FinalizePostStopFailureContinuation(V72HcogOpportunity o,double close)
+        {
+            if(o==null||double.IsFinite(o.V74FailureOutcomeR)||!o.V74FailureFreshActive||o.V74FailureRisk<=0)return;
+            bool continuationBuy=o.Direction==TradeDirection.Sell;
+            double closeR=(continuationBuy?close-o.V74FailureEntry:o.V74FailureEntry-close)/o.V74FailureRisk;
+            o.V74FailureOutcomeR=Math.Max(-1.0,Math.Min(o.V74FailureNetRr,closeR));
+            o.V74FailureFreshActive=false;
+        }
+
         private void V74FinalizeReactionConfirmedReentry(V72HcogOpportunity o,double close)
         {
             if(o==null)return;
@@ -1434,6 +1529,7 @@ namespace cAlgo.Robots
                 V74FinalizeHighConvictionDelayedCommit(o,close);
             }
             V74FinalizeSurvivalFresh(o,close);
+            V74FinalizePostStopFailureContinuation(o,close);
             V74FinalizeCausalSequentialDelayedCommit(o,close);
             V74FinalizeTrueLateEntryAuction(o,close);
             o.Result=result;o.Active=false;o.State=V72HcogState.CLOSED;_v72HcogClosed++;V72HcogRecord(o,r);
@@ -1480,6 +1576,12 @@ namespace cAlgo.Robots
                 sfParts.Add("rb"+k+"="+o.V74SurvivalFreshBars[k].ToString(System.Globalization.CultureInfo.InvariantCulture));
             }
             Print("[V74-SURVIVAL-FRESH-PATH] "+string.Join(" ",sfParts));
+            Print("[V74-FAILURE-CONTINUATION-PATH] setup={0} family={1} lane={2} observed={3} bb={4} rb={5} eb={6} m={7} e={8} b={9} rr={10:F6} bars={11}",
+                o.SetupKey,o.Family,o.Lane,o.V74FailureObserved,o.V74FailureBreakBar,o.V74FailureRetestBar,o.V74FailureEntryBar,
+                string.IsNullOrWhiteSpace(o.V74FailureMaturityStateCsv)?"NONE":o.V74FailureMaturityStateCsv,
+                string.IsNullOrWhiteSpace(o.V74FailureEntryStateCsv)?"NONE":o.V74FailureEntryStateCsv,
+                double.IsFinite(o.V74FailureOutcomeR)?o.V74FailureOutcomeR.ToString("R",System.Globalization.CultureInfo.InvariantCulture):"NA",
+                o.V74FailureNetRr,o.V74FailureFreshBars);
 
             var seqParts=new List<string>{"setup="+o.SetupKey,"family="+o.Family,"lane="+o.Lane,
                 "m025="+(string.IsNullOrWhiteSpace(o.V74SequentialState025Csv)?"NONE":o.V74SequentialState025Csv),
@@ -1542,6 +1644,17 @@ namespace cAlgo.Robots
             V74UpdateSurvivalFresh(o,i,stop,target);
             V74UpdateCausalSequentialDelayedCommit(o,i,stop,target);
             V74UpdateTrueLateEntryAuction(o,i,stop,target);
+            V74UpdatePostStopFailureContinuation(o,i,stop);
+
+            // A structural stop still fixes the original reversal payoff at -1R,
+            // but qualification research keeps the event alive to observe a distinct
+            // later failure-continuation action. This never rewrites the original loss.
+            if(o.V74FailureObserved)
+            {
+                if(double.IsFinite(o.V74FailureOutcomeR)){V72HcogFinalizeOutcome(o,i,"STRUCTURAL_STOP_WITH_FAILURE_CONTINUATION_OBSERVED",-1.0);return;}
+                if(o.BarsActive>=180){V72HcogFinalizeOutcome(o,i,"STRUCTURAL_STOP_FAILURE_CONTINUATION_TIMEOUT",-1.0);return;}
+                return;
+            }
             if(stop&&target){V72HcogFinalizeOutcome(o,i,"AMBIGUOUS_STOP_FIRST_CONSERVATIVE",-1.0);return;}if(stop){V72HcogFinalizeOutcome(o,i,"STRUCTURAL_STOP",-1.0);return;}
             if(target){V72HcogFinalizeOutcome(o,i,"CANONICAL_TARGET",o.NetRr);return;}if(o.BarsActive>=180)V72HcogFinalizeOutcome(o,i,"FIXED_180M_HORIZON");
         }
