@@ -9,6 +9,10 @@ namespace cAlgo.Robots
     // of V51 capital-slot ownership; deployment remains V51-Core-first.
     public partial class HarmonyBotV71
     {
+        // CI semantic epoch: intentionally compiled so a semantic Rapid can be
+        // restarted after workflow-only isolation changes without altering trading behavior.
+        private const string V74RapidSemanticEpoch = "V9_CRT_RAW64_20261005A";
+
         [Parameter("Enable V72 HCOG Alpha", DefaultValue = false)]
         public bool EnableV72HcogAlpha { get; set; }
 
