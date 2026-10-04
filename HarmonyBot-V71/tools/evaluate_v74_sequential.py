@@ -13,7 +13,7 @@ Final V74 Alpha architecture:
 No post-decision trigger/lock/outcome state is admitted as a feature. V75 exit,
 profit-capture and Grid/capital-capacity mechanics are intentionally excluded.
 """
-import bisect,json,math,pathlib,statistics,sys,time
+import bisect,json,math,os,pathlib,statistics,sys,time,multiprocessing as mp
 from collections import defaultdict,Counter
 from v74_model_lib import load_rows,metrics,SEQUENTIAL_STATE_FEATURE_COUNT,FAMILIES,SURVIVAL_FRESH_KEYS
 
@@ -573,7 +573,7 @@ summary={"version":"HarmonyBot V74 One-Shot Family-Native Causal Action Selector
  "gate":{"min_selected_per_year":MIN_N,"min_mean_r":MIN_MEAN,"min_pf_r":MIN_PF,
          "min_win_rate":MIN_WR,"min_average_rr":MIN_RR,"lcb95_gt":0.0},
  "research_training_windows":RESEARCH,"burned_oof_windows":BURNED,
- "policy":{"actions":"EARLY_STRUCTURAL_RAW_F00_OR_LATE_PREENTRY_F30_OR_CONFIRMED_RECLAIM_RETEST_FRESH",
+ "policy":{"actions":"EARLY_OR_LATE_COMPLETED_BAR_ENTRY_ACTION__RAW_F00_EARLY_F30_LATE",
            "harmonic_completion":"DIRECTION_TIME_D_EVENT_IDENTITY__MULTI_GEOMETRY_IS_CONFLUENCE_NOT_SUPPLY",
            "reaction_state":"CAUSAL_FEATURE_NOT_HARD_FILTER","physical_route_contract":"EVENT_NATIVE_EARLY_RAW_F00_PLUS_LATE_PREENTRY_F30_PLUS_REACTION_PULLBACK_RECLAIM_RETEST_RAW_230R","v75_management_variants_excluded":True,"early_post_entry_m_stage_excluded":True,
            "route_choice":"STRICT_WALK_FORWARD_NONLINEAR_STABLE_EVENT_REGRET_PLUS_BEST_ACTION_PROBABILITY","optimal_stopping":"MECHANISM_NATIVE_TRAINING_ONLY_CONTINUATION_HEAD__EVENT_LEVEL_STOP_VS_DEFER",
@@ -585,34 +585,58 @@ summary={"version":"HarmonyBot V74 One-Shot Family-Native Causal Action Selector
            "v75_profit_capture_used":False},
  "folds":{},"validation_used":False,"fresh_used":False,"telemetry_contract_checks":checks}
 models={"architecture":summary["architecture"],"folds":{}}
-t0=time.perf_counter();allpass=True
 
-for test in BURNED:
-  # Strict deployable OOF: a burned year may only learn from years that ended
-  # before it.  Never train a 2021 decision on 2022/2023, etc.
-  ft=time.perf_counter();test_year=int(test[1:])
-  tw=[w for w in ALL if int(w[1:])<test_year]
-  tr=[r for r in rows if r["window"] in tw];te=[r for r in rows if r["window"]==test]
-  policy,_=fit_policy(tr)
-  sel,test_samples,dec=apply_policy(policy,te);m,mr=metric_selected(sel)
-  routes=Counter(r.get("sequential_key","NONE") for r in mr)
-  fams=Counter(r["family"] for r in mr);acts=Counter(r["action"] for r in mr)
-  srcs=Counter(x.split("|",1)[0] for x in routes.elements())
-  ps=gate(m);allpass=allpass and ps
-  summary["folds"][test]={**m,"pass":ps,"training_windows":tw,
-    "entry_threshold":policy["threshold"],"training_coverage_target":TRAIN_COVERAGE,"training_gate":policy.get("training_gate"),"training_worst_gate_margin":policy.get("training_worst_gate_margin"),
-    "training_supply":policy["training_supply"],"training_year_metrics":policy["training_metrics"],
-    "test_legal_actions":len(test_samples),"test_decision_events":len(dec),
-    "selected_route_counts":dict(routes),"selected_family_counts":dict(fams),
-    "selected_action_counts":dict(acts),"selected_source_counts":dict(srcs),
-    "runtime_seconds":round(time.perf_counter()-ft,3)}
-  models["folds"][test]=policy
-  print("[V74-ONE-SHOT]",test,json.dumps({k:summary["folds"][test][k]
-        for k in ("n","mean_r","pf_r","win_rate","average_rr","lcb_r","pass")}),flush=True)
+def evaluate_burned_fold(test):
+    ft=time.perf_counter();test_year=int(test[1:])
+    tw=[w for w in ALL if int(w[1:])<test_year]
+    tr=[r for r in rows if r["window"] in tw];te=[r for r in rows if r["window"]==test]
+    policy,_=fit_policy(tr)
+    sel,test_samples,dec=apply_policy(policy,te);m,mr=metric_selected(sel)
+    routes=Counter(r.get("sequential_key","NONE") for r in mr)
+    fams=Counter(r["family"] for r in mr);acts=Counter(r["action"] for r in mr)
+    srcs=Counter(x.split("|",1)[0] for x in routes.elements())
+    ps=gate(m)
+    fold={**m,"pass":ps,"training_windows":tw,
+      "entry_threshold":policy["threshold"],"training_coverage_target":TRAIN_COVERAGE,
+      "training_gate":policy.get("training_gate"),"training_worst_gate_margin":policy.get("training_worst_gate_margin"),
+      "training_supply":policy["training_supply"],"training_year_metrics":policy["training_metrics"],
+      "test_legal_actions":len(test_samples),"test_decision_events":len(dec),
+      "selected_route_counts":dict(routes),"selected_family_counts":dict(fams),
+      "selected_action_counts":dict(acts),"selected_source_counts":dict(srcs),
+      "runtime_seconds":round(time.perf_counter()-ft,3)}
+    return test,fold,policy
+
+t0=time.perf_counter()
+parallel_used=False
+fold_results=None
+# Each burned fold is causally independent and reads immutable rows only. Fork
+# preserves identical deterministic math while running folds concurrently.
+if os.environ.get("V74_DISABLE_PARALLEL_FOLDS","0")!="1":
+    try:
+        ctx=mp.get_context("fork")
+        workers=min(len(BURNED),max(1,int(os.cpu_count() or 1)))
+        if workers>1:
+            with ctx.Pool(processes=workers) as pool:
+                fold_results=pool.map(evaluate_burned_fold,BURNED)
+            parallel_used=True
+    except Exception as ex:
+        print("[V74-PARALLEL-FALLBACK]",repr(ex),flush=True)
+if fold_results is None:
+    fold_results=[evaluate_burned_fold(test) for test in BURNED]
+
+allpass=True
+for test,fold,policy in fold_results:
+    summary["folds"][test]=fold
+    models["folds"][test]=policy
+    allpass=allpass and bool(fold["pass"])
+    print("[V74-ONE-SHOT]",test,json.dumps({k:fold[k]
+          for k in ("n","mean_r","pf_r","win_rate","average_rr","lcb_r","pass")}),flush=True)
 
 alpha=bool(allpass)
 champ="STRICT_WALK_FORWARD_NONLINEAR_STABLE_EVENT_REGRET_POLICY" if alpha else None
 summary["evaluator_runtime_seconds"]=round(time.perf_counter()-t0,3)
+summary["parallel_fold_execution"]=parallel_used
+summary["parallel_fold_workers"]=min(len(BURNED),max(1,int(os.cpu_count() or 1))) if parallel_used else 1
 summary["alpha_gate"]=alpha;summary["alpha_champion"]=champ
 summary["execution_semantics_ready"]=False;summary["v74_gate"]=False;summary["champion"]=None
 summary["promotion_blocker"]="ONE_SHOT_RUNTIME_POLICY_NOT_FROZEN" if alpha else "ALPHA_OOF_GATE_FAIL"
@@ -624,4 +648,5 @@ summary["positive_asset"]="ONE_SHOT_CAUSAL_ALPHA_OOF" if alpha else "NO_MODEL_EA
 (out/"pass.txt").write_text("false");(out/"champion.txt").write_text("NONE")
 print(json.dumps({"alpha_gate":alpha,"alpha_champion":champ,"v74_gate":False,
                   "promotion_blocker":summary["promotion_blocker"],
+                  "parallel_fold_execution":parallel_used,
                   "evaluator_runtime_seconds":summary["evaluator_runtime_seconds"]},indent=2))
