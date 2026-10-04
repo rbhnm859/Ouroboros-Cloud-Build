@@ -47,9 +47,16 @@ namespace cAlgo.Robots
         // until price retraces to a canonical Fibonacci level. Capital is admitted only
         // after the completed retracement bar (or a later bar) rejects/reclaims that
         // level. This improves entry location instead of chasing stronger confirmation.
-        private static readonly double[] V74SurvivalFreshReactionR = { .25, .50, .75 };
-        private static readonly double[] V74SurvivalFreshFibRetrace = { .382, .500, .618 };
-        private static readonly string[] V74SurvivalFreshKey = { "FR382", "FR500", "FR618" };
+        // Full causal Cartesian lattice: displacement strength and Fibonacci
+        // retracement depth are independent pre-entry dimensions.
+        private static readonly double[] V74SurvivalFreshReactionR =
+            { .25,.25,.25, .50,.50,.50, .75,.75,.75 };
+        private static readonly double[] V74SurvivalFreshFibRetrace =
+            { .382,.500,.618, .382,.500,.618, .382,.500,.618 };
+        private static readonly string[] V74SurvivalFreshKey =
+            { "R025_F382","R025_F500","R025_F618",
+              "R050_F382","R050_F500","R050_F618",
+              "R075_F382","R075_F500","R075_F618" };
         // High-conviction delayed capital: preserve canonical payoff asymmetry by waiting
         // until the virtual harmonic thesis has already demonstrated 1.75R/2.00R reaction.
         // Capital then enters only after a later completed M1 hold; stop is the completed
@@ -105,7 +112,7 @@ namespace cAlgo.Robots
         private static readonly double[] V74SequentialAdverseCutR = V74SequentialKey.Select(_=>-.15).ToArray();
 
 
-        // V74_EVENT_NATIVE_FIB_PULLBACK_RAW_ALPHA_V10_REBUILD
+        // V74_EVENT_NATIVE_FIB_CARTESIAN_RAW_ALPHA_V11_REBUILD
         // True late-entry auction reuses the proven 48-route family/native payoff
         // geometry (M05/M10/M15 x R025/R050 x H/D x RR35/RR40 x F20/F30),
         // but moves capital admission to the completed-bar M-stage. Post-entry
