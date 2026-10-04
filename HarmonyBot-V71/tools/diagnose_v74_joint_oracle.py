@@ -39,17 +39,28 @@ def outcome(r,key,src):
     q["bars"]=int(bm.get(key,r.get("bars",1)) or 1)
     return q
 
+def event_identity(setup):
+    p=(setup or "").split("|")
+    return "|".join((p[0],p[1],p[-1])) if len(p)>=7 else (setup or "")
+
 def year_oracle(yr,spaces):
+    grouped={}
+    for r in yr:grouped.setdefault(event_identity(r.get("setup","")),[]).append(r)
     best=[]
-    for r in yr:
-        cand=[]
-        for src in spaces:
-            for k in KEYS[src]:
-                z=outcome(r,k,src)
-                if z is not None:cand.append(z)
-        if not cand:continue
-        cand.sort(key=lambda z:(z["r"],z["oracle_rr"],z["oracle_route"]),reverse=True)
-        best.append(cand[0])
+    for event_rows in grouped.values():
+        event_best=[]
+        for r in event_rows:
+            cand=[]
+            for src in spaces:
+                for k in KEYS[src]:
+                    z=outcome(r,k,src)
+                    if z is not None:cand.append(z)
+            if not cand:continue
+            cand.sort(key=lambda z:(z["r"],z["oracle_rr"],z["oracle_route"]),reverse=True)
+            event_best.append(cand[0])
+        if not event_best:continue
+        event_best.sort(key=lambda z:(z["r"],z["oracle_rr"],z["oracle_route"]),reverse=True)
+        best.append(event_best[0])
     best.sort(key=lambda r:(r["r"],r["oracle_rr"],r["setup"]),reverse=True)
     top=best[:MIN_N];topm=metrics(top)
     first=None;scan=None
@@ -64,13 +75,13 @@ def year_oracle(yr,spaces):
         fc[r["family"]]=fc.get(r["family"],0)+1
         ac[r["action"]]=ac.get(r["action"],0)+1
         src=r["oracle_route"].split("|",1)[0];sc[src]=sc.get(src,0)+1
-    return {"available_setups":len(best),"top250":topm,"top250_pass":gate(topm),
+    return {"available_events":len(best),"available_setups":len(best),"top250":topm,"top250_pass":gate(topm),
             "any_n_ge_250_pass":first is not None,"first_passing":first,"best_gate_margin_scan":scan,
             "top250_route_counts":rc,"top250_family_counts":fc,"top250_action_counts":ac,"top250_source_counts":sc}
 
 report={"type":"DIAGNOSTIC_FUTURE_ORACLE_ONLY","used_for_alpha_training":False,
         "synthetic_outcomes_used":False,
-        "action_space":"EARLY_TRUE_ENTRY_IDENTITY_R_H_RR_PLUS_LATE_MATURITY_ACTIONS_WITH_FIXED_F30_QUALIFICATION","management_variant_selection_used":False,"early_post_entry_m_stage_selection_used":False,
+        "action_space":"EVENT_NATIVE_DIRECTION_TIME_D__EARLY_TRUE_ENTRY_PLUS_LATE_MATURITY__FIXED_F30","management_variant_selection_used":False,"early_post_entry_m_stage_selection_used":False,
         "gate":{"n":MIN_N,"mean_r":MIN_MEAN,"pf_r":MIN_PF,"win_rate":MIN_WR,"average_rr":MIN_RR,"lcb95_gt":0.0},
         "years":{}}
 joint=True
@@ -82,7 +93,7 @@ for y in YEARS:
     report["years"][y]={"unified":unified,"early_only":early,"late_only":late}
     joint=joint and bool(unified["any_n_ge_250_pass"])
 report["joint_oracle_gate_3of3"]=joint
-report["interpretation"]="CAUSALLY_CLEAN_ENTRY_ACTION_SPACE_FEASIBLE__SELECTOR_IS_BLOCKER" if joint else "CAUSALLY_CLEAN_ENTRY_ACTION_SPACE_INSUFFICIENT__V74_ENTRY_CONFIRMATION_REDESIGN_REQUIRED"
+report["interpretation"]="EVENT_NATIVE_ACTION_SPACE_FEASIBLE__SELECTOR_IS_BLOCKER" if joint else "EVENT_NATIVE_ACTION_SPACE_INSUFFICIENT__UPSTREAM_SUPPLY_OR_ENTRY_MECHANICS_REDESIGN_REQUIRED"
 (out/"V74_JOINT_ORACLE_FEASIBILITY.json").write_text(json.dumps(report,indent=2))
 (out/"oracle_pass.txt").write_text("true" if joint else "false")
 print(json.dumps(report,indent=2))
