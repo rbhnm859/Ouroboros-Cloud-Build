@@ -42,15 +42,14 @@ namespace cAlgo.Robots
         // harmonic basket remains virtual. Capital is admitted only after a completed
         // strong impulse, a later controlled pullback, and a subsequent completed-bar
         // reclaim/reacceleration. Qualification is one fresh raw 2.30R basket.
-        // V74 V9 confirmed-reclaim/retest routes. Do not chase the breakout:
-        // observe reaction -> pullback -> reclaim, then require a later retest/hold
-        // before committing a fresh raw basket.
-        private static readonly double[] V74SurvivalFreshReactionR = { .50, .75, 1.00 };
-        private static readonly double[] V74SurvivalFreshPullbackR = { .20, .40, .60 };
-        private static readonly double[] V74SurvivalFreshReclaimR = { .45, .65, .90 };
-        private static readonly double[] V74SurvivalFreshRetestR = { .35, .55, .80 };
-        private static readonly double[] V74SurvivalFreshFloorR = { -.05, .10, .25 };
-        private static readonly string[] V74SurvivalFreshKey = { "CRT050", "CRT075", "CRT100" };
+        // V74 V10 Fibonacci pullback-rejection fresh entries. Each route first
+        // observes a real completed-bar displacement, then freezes/extends that impulse
+        // until price retraces to a canonical Fibonacci level. Capital is admitted only
+        // after the completed retracement bar (or a later bar) rejects/reclaims that
+        // level. This improves entry location instead of chasing stronger confirmation.
+        private static readonly double[] V74SurvivalFreshReactionR = { .25, .50, .75 };
+        private static readonly double[] V74SurvivalFreshFibRetrace = { .382, .500, .618 };
+        private static readonly string[] V74SurvivalFreshKey = { "FR382", "FR500", "FR618" };
         // High-conviction delayed capital: preserve canonical payoff asymmetry by waiting
         // until the virtual harmonic thesis has already demonstrated 1.75R/2.00R reaction.
         // Capital then enters only after a later completed M1 hold; stop is the completed
@@ -106,7 +105,7 @@ namespace cAlgo.Robots
         private static readonly double[] V74SequentialAdverseCutR = V74SequentialKey.Select(_=>-.15).ToArray();
 
 
-        // V74_EVENT_NATIVE_STRUCTURAL_RAW_ALPHA_CRT_V9_REBUILD
+        // V74_EVENT_NATIVE_FIB_PULLBACK_RAW_ALPHA_V10_REBUILD
         // True late-entry auction reuses the proven 48-route family/native payoff
         // geometry (M05/M10/M15 x R025/R050 x H/D x RR35/RR40 x F20/F30),
         // but moves capital admission to the completed-bar M-stage. Post-entry
@@ -215,6 +214,7 @@ namespace cAlgo.Robots
             public bool[] V74SurvivalFreshPending = new bool[V74SurvivalFreshKey.Length];
             public bool[] V74SurvivalFreshActive = new bool[V74SurvivalFreshKey.Length];
             public int[] V74SurvivalFreshBars = new int[V74SurvivalFreshKey.Length];
+            public double[] V74SurvivalFreshImpulseExtreme = new double[V74SurvivalFreshKey.Length];
             public double[] V74SurvivalFreshPullbackExtreme = new double[V74SurvivalFreshKey.Length];
             public double[] V74SurvivalFreshEntry = new double[V74SurvivalFreshKey.Length];
             public double[] V74SurvivalFreshStop = new double[V74SurvivalFreshKey.Length];
@@ -836,70 +836,66 @@ namespace cAlgo.Robots
                     if(targetHit){o.V74SurvivalFreshOutcomeR[k]=o.V74SurvivalFreshNetRr[k];o.V74SurvivalFreshActive[k]=false;continue;}
                     continue;
                 }
-                if(nativeStop||nativeTarget){o.V74SurvivalFreshPending[k]=false;continue;}
+
+                if(nativeStop||nativeTarget)
+                {
+                    o.V74SurvivalFreshPending[k]=false;
+                    continue;
+                }
 
                 double reactionR=V74SurvivalFreshReactionR[k];
                 if(o.V74SurvivalFreshReactionBar[k]<0)
                 {
-                    if(virtualFav+1e-12>=reactionR)o.V74SurvivalFreshReactionBar[k]=o.BarsActive;
-                    continue;
+                    if(virtualFav+1e-12>=reactionR)
+                    {
+                        o.V74SurvivalFreshReactionBar[k]=o.BarsActive;
+                        o.V74SurvivalFreshImpulseExtreme[k]=buy?high:low;
+                        o.V74SurvivalFreshPullbackBar[k]=-1;
+                        o.V74SurvivalFreshTriggerBar[k]=-1;
+                        o.V74SurvivalFreshPending[k]=false;
+                    }
+                    continue; // displacement bar is observation only
                 }
-                if(o.V74SurvivalFreshReactionBar[k]>100000000||o.BarsActive<=o.V74SurvivalFreshReactionBar[k])continue;
+                if(o.BarsActive<=o.V74SurvivalFreshReactionBar[k])continue;
 
-                double pullbackPrice=buy?o.Entry+o.RiskDistance*V74SurvivalFreshPullbackR[k]
-                                        :o.Entry-o.RiskDistance*V74SurvivalFreshPullbackR[k];
-                double reclaimPrice=buy?o.Entry+o.RiskDistance*V74SurvivalFreshReclaimR[k]
-                                       :o.Entry-o.RiskDistance*V74SurvivalFreshReclaimR[k];
-                double retestPrice=buy?o.Entry+o.RiskDistance*V74SurvivalFreshRetestR[k]
-                                      :o.Entry-o.RiskDistance*V74SurvivalFreshRetestR[k];
-                double floorPrice=buy?o.Entry+o.RiskDistance*V74SurvivalFreshFloorR[k]
-                                     :o.Entry-o.RiskDistance*V74SurvivalFreshFloorR[k];
+                // The impulse extreme may extend only before the first retracement touch.
+                // Once touched it is frozen, preventing a moving Fibonacci anchor from
+                // using information from the eventual entry bar.
+                if(!o.V74SurvivalFreshPending[k])
+                    o.V74SurvivalFreshImpulseExtreme[k]=buy?
+                        Math.Max(o.V74SurvivalFreshImpulseExtreme[k],high):
+                        Math.Min(o.V74SurvivalFreshImpulseExtreme[k],low);
 
-                // Stage 2: a controlled retrace must occur after the reaction.
+                double impulseExtreme=o.V74SurvivalFreshImpulseExtreme[k];
+                double impulse=Math.Abs(impulseExtreme-o.Entry);
+                if(impulse<_symbol.PipSize)continue;
+                double fib=V74SurvivalFreshFibRetrace[k];
+                double fibPrice=buy?impulseExtreme-fib*impulse:impulseExtreme+fib*impulse;
+
                 if(!o.V74SurvivalFreshPending[k])
                 {
-                    bool touched=buy?low<=pullbackPrice:high>=pullbackPrice;
+                    bool touched=buy?low<=fibPrice:high>=fibPrice;
                     if(!touched)continue;
                     o.V74SurvivalFreshPending[k]=true;
                     o.V74SurvivalFreshPullbackBar[k]=o.BarsActive;
                     o.V74SurvivalFreshPullbackExtreme[k]=buy?low:high;
-                    o.V74SurvivalFreshTriggerBar[k]=-1;
-                    continue;
                 }
+                else
+                    o.V74SurvivalFreshPullbackExtreme[k]=buy?
+                        Math.Min(o.V74SurvivalFreshPullbackExtreme[k],low):
+                        Math.Max(o.V74SurvivalFreshPullbackExtreme[k],high);
 
-                o.V74SurvivalFreshPullbackExtreme[k]=buy?
-                    Math.Min(o.V74SurvivalFreshPullbackExtreme[k],low):
-                    Math.Max(o.V74SurvivalFreshPullbackExtreme[k],high);
-                bool destroyed=buy?o.V74SurvivalFreshPullbackExtreme[k]<floorPrice
-                                   :o.V74SurvivalFreshPullbackExtreme[k]>floorPrice;
-                if(destroyed)
-                {
-                    o.V74SurvivalFreshPending[k]=false;
-                    o.V74SurvivalFreshReactionBar[k]=int.MaxValue/4;
-                    continue;
-                }
-
-                // Stage 3: completed-bar reclaim proves the second impulse. It is
-                // observation only; V74 explicitly refuses breakout-chasing capital.
-                if(o.V74SurvivalFreshTriggerBar[k]<0)
-                {
-                    bool reclaimed=buy?close>=reclaimPrice:close<=reclaimPrice;
-                    if(!(reclaimed&&directional&&reaccelerating&&alignedClose+1e-12>=.58))continue;
-                    o.V74SurvivalFreshTriggerBar[k]=o.BarsActive;
-                    continue;
-                }
-                if(o.BarsActive<=o.V74SurvivalFreshTriggerBar[k])continue;
-
-                // Stage 4: wait for a SECOND retest of the reclaimed level and require
-                // a completed hold/reacceleration. This gives fresh capital a structural
-                // entry price instead of paying the breakout extreme.
-                bool retested=buy?low<=retestPrice:high>=retestPrice;
-                bool holds=buy?close>=reclaimPrice:close<=reclaimPrice;
-                if(!(retested&&holds&&directional&&reaccelerating&&alignedClose+1e-12>=.55))continue;
+                // Completed-bar Fibonacci rejection/reclaim. A same-bar touch is legal:
+                // the entry occurs only after the bar closes, so there is no intra-bar
+                // or future information in the admission decision.
+                bool reclaimed=buy?close>=fibPrice:close<=fibPrice;
+                bool quality=directional&&reaccelerating&&alignedClose+1e-12>=.55;
+                if(!(reclaimed&&quality))continue;
 
                 double entry=close;
                 double buffer=Math.Max(PipsToPrice(ModeledCostPips()),_symbol.PipSize);
-                double localStop=buy?low-buffer:high+buffer;
+                double localStop=buy?o.V74SurvivalFreshPullbackExtreme[k]-buffer
+                                     :o.V74SurvivalFreshPullbackExtreme[k]+buffer;
                 double stop=buy?Math.Max(o.Stop,localStop):Math.Min(o.Stop,localStop);
                 double risk=Math.Abs(entry-stop),riskPips=PriceToPips(risk);
                 if(riskPips<MinStopLossPips)continue;
@@ -912,6 +908,7 @@ namespace cAlgo.Robots
                 double rr=(PriceToPips(Math.Abs(target-entry))-ModeledCostPips())/Math.Max(1e-9,riskPips);
                 if(rr+1e-9<2.30)continue;
 
+                o.V74SurvivalFreshTriggerBar[k]=o.BarsActive;
                 o.V74SurvivalFreshMaturityStateCsv[k]=string.Join(",",V74RouteStateFeatures(
                     o,i,o.Entry,o.RiskDistance,o.Target,
                     Math.Max(0,o.BarsActive-o.V74SurvivalFreshReactionBar[k]),o.MfeR,o.MaeR,reactionR)

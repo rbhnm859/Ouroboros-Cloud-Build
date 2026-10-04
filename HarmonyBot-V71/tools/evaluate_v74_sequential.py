@@ -133,7 +133,7 @@ def survival_xvec(r,sf,eb):
             max(-1.0,min(6.0,float(rb)/10.0)) if rb is not None else -1.0,
             max(-1.0,min(6.0,float(pb)/10.0)) if pb is not None else -1.0,
             max(-1.0,min(6.0,float(tb)/10.0)) if tb is not None else -1.0]
-    return (list(r.get("features",[]))+route_cats(r,"SURVIVAL","SURVIVAL","CRT","00",sf)+
+    return (list(r.get("features",[]))+route_cats(r,"SURVIVAL","SURVIVAL","FIB","00",sf)+
             aa+ee+delta+[ap,ep,1.0 if ap and ep else 0.0]+timing)
 
 def telemetry_guard():
@@ -576,7 +576,7 @@ summary={"version":"HarmonyBot V74 One-Shot Family-Native Causal Action Selector
  "research_training_windows":RESEARCH,"burned_oof_windows":BURNED,
  "policy":{"actions":"EARLY_OR_LATE_COMPLETED_BAR_ENTRY_ACTION__RAW_F00_EARLY_F30_LATE",
            "harmonic_completion":"DIRECTION_TIME_D_EVENT_IDENTITY__MULTI_GEOMETRY_IS_CONFLUENCE_NOT_SUPPLY",
-           "reaction_state":"CAUSAL_FEATURE_NOT_HARD_FILTER","physical_route_contract":"EVENT_NATIVE_EARLY_RAW_F00_PLUS_LATE_PREENTRY_F30_PLUS_REACTION_PULLBACK_RECLAIM_RETEST_RAW_230R","v75_management_variants_excluded":True,"early_post_entry_m_stage_excluded":True,
+           "reaction_state":"CAUSAL_FEATURE_NOT_HARD_FILTER","physical_route_contract":"EVENT_NATIVE_EARLY_RAW_F00_PLUS_LATE_PREENTRY_F30_PLUS_FIBONACCI_IMPULSE_PULLBACK_REJECTION_RAW_230R","v75_management_variants_excluded":True,"early_post_entry_m_stage_excluded":True,
            "route_choice":"STRICT_WALK_FORWARD_NONLINEAR_STABLE_EVENT_REGRET_PLUS_BEST_ACTION_PROBABILITY","optimal_stopping":"MECHANISM_NATIVE_TRAINING_ONLY_CONTINUATION_HEAD__EVENT_LEVEL_STOP_VS_DEFER",
            "admission":"PAST_ONLY_WORST_YEAR_GATE_CALIBRATED_STOP_ADVANTAGE_THRESHOLD",
            "training_coverage_target_per_year":TRAIN_COVERAGE,
