@@ -1,7 +1,7 @@
 {
   "version": 1,
-  "source_run_id": 37164036473,
-  "source_head_sha": "92ce638b4034848e229d9817d9d64e79cc95714c",
+  "source_run_id": 37207571390,
+  "source_head_sha": "b1661f8a486e34827db16e08a70b2ebdc731667c",
   "branch": "harmonybot/v73-opportunity-universe",
   "required_artifacts": [
     "v73-universe-Y2016",
@@ -23,5 +23,5 @@
   ],
   "validation_used": false,
   "fresh_used": false,
-  "note": "Fast replay reuses the complete 2016-2023 V74 causal-path-state V4 universe artifacts from Full Run 134. C# preserves 56D reaction-to-entry completed-bar state (MFE/MAE, giveback, momentum, path efficiency, directional persistence, PRZ/proof timing). All eight universe artifacts completed successfully. Parser/evaluator-only changes may reuse this evidence; execution/data semantic changes remain fail-closed. Validation/Fresh excluded."
+  "note": "Fast replay reuses the complete 2016-2023 event-native V73/V74 universe from Full Run 141 at semantic HEAD b1661f8a. Direction+completion-time+D is the independent event identity; parallel X/A/B/C geometries are confluence hypotheses, not supply. All eight universe artifacts and the V73 event-native gate passed. Evaluator/oracle-only changes may reuse this evidence; Validation/Fresh remain excluded."
 }
