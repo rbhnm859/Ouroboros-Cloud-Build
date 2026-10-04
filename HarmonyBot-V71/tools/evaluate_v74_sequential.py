@@ -530,6 +530,70 @@ def mechanism_decisions(samples,heads):
       out.extend(dd)
     return out
 
+def admission_route_representatives(decisions):
+    """One causally preferred route per event/bar; admission is intentionally separate."""
+    by=defaultdict(list)
+    for e in decisions:
+      s=e["s"];by[(s["window"],event_identity(s["setup"]),int(s["bar"]))].append(e)
+    out=[]
+    for vv in by.values():
+      # route_rank is trained only on route-quality/regret heads. Do not use the
+      # former mixed admission score to choose the action.
+      out.append(max(vv,key=lambda z:(float(z.get("route_rank",-999.0)),
+                                      float(z["pred"].get("lcb",-999.0)),
+                                      float(z["pred"].get("win",0.0)),z["s"]["route"])))
+    return out
+
+def _admission_training_samples(route_decisions,years):
+    yy=set(years);out=[]
+    for e in admission_route_representatives(route_decisions):
+      s=e["s"]
+      if s["window"] not in yy:continue
+      out.append({"window":s["window"],"setup":s["setup"],"family":s["family"],
+                  "action":s["action"],"source":s["source"],"base":s["base"],
+                  "route":s["route"],"bar":s["bar"],"bars":s["bars"],
+                  "x":list(s["x"]),"y":float(s["y"]),"row":s["row"]})
+    return out
+
+def fit_admission_model(route_decisions,fit_years):
+    """Dedicated ENTER-vs-DEFER head on the already-causal route.
+    The last training year is withheld from this model and remains a temporal
+    calibration check. Primary score is a lower confidence bound on P(win),
+    directly matching the V74 winner-purity bottleneck instead of mixing route
+    regret and admission in one heuristic score.
+    """
+    ss=_admission_training_samples(route_decisions,fit_years)
+    if len(ss)<500:raise SystemExit("V74 insufficient decision-level admission samples")
+    idx=stable_idx(ss,TREE_KFEAT)
+    X=[s["x"] for s in ss]
+    yw=[1.0 if s["y"]>0 else 0.0 for s in ss]
+    ym=[float(s["y"]) for s in ss]
+    Xf,targets=_fit_view(X,[yw,ym],6500);ywf,ymf=targets
+    orders=_root_orders(Xf,idx)
+    wm=_boost_train(Xf,ywf,idx,rounds=TREE_ROUNDS,lr=.075,max_rows=10**9,root_orders=orders)
+    mm=_boost_train(Xf,ymf,idx,rounds=TREE_ROUNDS,lr=.075,max_rows=10**9,root_orders=orders)
+    return {"type":"DECISION_LEVEL_WIN_LCB_ADMISSION","fit_years":list(fit_years),
+            "idx":idx,"win":wm,"mean":mm,"n":len(ss)}
+
+def pred_admission(model,e):
+    s=e["s"];wi,s1=_boost_pred(model["win"],s["x"]);mu,s2=_boost_pred(model["mean"],s["x"])
+    wi=max(0.0,min(1.0,wi));sup=max(1,min(s1 or 1,s2 or 1))
+    win_lcb=wi-Z*max(.05,float(model["win"]["sigma"]))/math.sqrt(sup)
+    mean_lcb=mu-Z*max(.05,float(model["mean"]["sigma"]))/math.sqrt(sup)
+    return {"win":wi,"win_lcb":win_lcb,"mean":mu,"mean_lcb":mean_lcb,"support":sup}
+
+def score_admission_decisions(route_decisions,model):
+    out=[]
+    for e in admission_route_representatives(route_decisions):
+      z=pred_admission(model,e);q=dict(e);q["pred"]=dict(e["pred"],admission=z)
+      # No weight roulette: V74's binding purity gate is WR>=70%, while legal
+      # route economics already enforce RR. Rank capital admission by conservative
+      # P(win) only; mean-R LCB is retained as a deterministic tie-break.
+      q["score"]=float(z["win_lcb"])
+      q["admission_mean_lcb"]=float(z["mean_lcb"])
+      out.append(q)
+    return out
+
 def fit_policy(train_rows):
     samples=make_samples(train_rows)
     if len(samples)<1000:raise SystemExit("V74 insufficient legal action samples")
@@ -554,18 +618,26 @@ def fit_policy(train_rows):
                                "selected_features":len(vm.get("idx",[])),
                                "pairwise_n":pm.get("n",0)}
     if not heads:raise SystemExit("V74 no valid mechanism-native heads")
-    dec=mechanism_decisions(samples,heads)
+    route_dec=mechanism_decisions(samples,heads)
     yrs=sorted({r["window"] for r in train_rows})
+    # Hold the most recent training year out of the admission model itself. It
+    # remains available to threshold calibration as a temporal transfer check.
+    adm_fit_years=yrs[:-1] if len(yrs)>=3 else yrs
+    admission_model=fit_admission_model(route_dec,adm_fit_years)
+    dec=score_admission_decisions(route_dec,admission_model)
     th,limits,supply,tm,worst=gate_calibrated_threshold(dec,yrs,TRAIN_COVERAGE)
     training_gate=all(gate(m) for m in tm.values())
-    return {"mechanism_heads":heads,"mechanism_training":mechanism_training,"threshold":th,
+    return {"mechanism_heads":heads,"mechanism_training":mechanism_training,
+            "admission_model":admission_model,"admission_fit_years":adm_fit_years,
+            "admission_calibration_year":yrs[-1] if yrs else None,"threshold":th,
             "training_coverage_limits":limits,"training_supply":supply,
             "training_metrics":tm,"training_worst_gate_margin":worst,
             "training_gate":training_gate,"coverage_target":TRAIN_COVERAGE},samples
 
 def apply_policy(policy,test_rows):
     samples=make_samples(test_rows)
-    dec=mechanism_decisions(samples,policy["mechanism_heads"])
+    route_dec=mechanism_decisions(samples,policy["mechanism_heads"])
+    dec=score_admission_decisions(route_dec,policy["admission_model"])
     sel=simulate(dec,policy["threshold"])
     return sel,samples,dec
 
@@ -641,7 +713,7 @@ summary={"version":"HarmonyBot V74 One-Shot Family-Native Causal Action Selector
            "harmonic_completion":"DIRECTION_TIME_D_EVENT_IDENTITY__MULTI_GEOMETRY_IS_CONFLUENCE_NOT_SUPPLY",
            "reaction_state":"CAUSAL_FEATURE_NOT_HARD_FILTER","physical_route_contract":"EVENT_NATIVE_CANONICAL_EVENT_FULL_COMPLETED_BAR_ENTRY_TIMING__EARLY_F00_M05_M10_M15__LATE_PREENTRY_F20_F30__SURVIVAL_FRESH__NETRR_GE230","v75_management_variants_excluded":True,"all_entry_maturity_stages_completed_bar_only":True,
            "route_choice":"STRICT_WALK_FORWARD_NONLINEAR_STABLE_EVENT_REGRET_PLUS_BEST_ACTION_PROBABILITY","optimal_stopping":"MECHANISM_NATIVE_TRAINING_ONLY_CONTINUATION_HEAD__EVENT_LEVEL_STOP_VS_DEFER",
-           "admission":"PAST_ONLY_WORST_YEAR_GATE_CALIBRATED_STOP_ADVANTAGE_THRESHOLD",
+           "admission":"DECISION_LEVEL_CAUSAL_ROUTE_WIN_PROBABILITY_LCB__LAST_TRAIN_YEAR_TEMPORAL_CALIBRATION",
            "training_coverage_target_per_year":TRAIN_COVERAGE,
            "family_hierarchy":"WITHIN_MECHANISM_GLOBAL_TO_FAMILY_TO_FAMILY_ACTION_TO_FAMILY_BASE_SHRINKAGE",
            "no_trigger_posttrigger_lock_future_state":True,
