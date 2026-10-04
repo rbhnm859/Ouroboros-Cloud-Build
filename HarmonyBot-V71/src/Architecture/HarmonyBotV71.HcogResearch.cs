@@ -191,9 +191,18 @@ namespace cAlgo.Robots
             // Formal V74 EARLY qualification is raw F00. F10/F20/F30 are
             // post-entry crystallization variants owned by V75 and must not be
             // substituted by the performance kernel.
-            return key.StartsWith("M15_")&&key.EndsWith("_F00");
+            // M05/M10/M15 are completed-M1 confirmation horizons, not HFT and not
+            // post-entry management. Keep all raw F00 entry timings in the V74
+            // physical action space; selector decides causally among matured routes.
+            return key.EndsWith("_F00");
         }
-        private static bool V74LateQualificationKey(int k) => V74LateAuctionKey[k].EndsWith("_F30");
+        private static bool V74LateQualificationKey(int k)
+        {
+            // F20/F30 encode pre-entry confirmation strictness in the late auction.
+            // They do not crystallize post-entry PnL, so both are legitimate V74
+            // fresh-entry actions. Qualification economics remain >=2.30 NetRR.
+            return V74LateAuctionKey[k].EndsWith("_F20")||V74LateAuctionKey[k].EndsWith("_F30");
+        }
 
         private sealed class V72HcogOpportunity
         {
