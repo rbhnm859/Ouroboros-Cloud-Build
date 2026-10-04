@@ -13,7 +13,7 @@ def fixed_f30(keys):
 def early_entry_keys(keys):
     # V74 entry Alpha is raw. F10/F20/F30 crystallization is V75 territory.
     return [k for k in keys if k.startswith("M15_") and k.endswith("_F00")]
-KEYS={"EARLY":early_entry_keys(SEQUENTIAL_KEYS),"LATE":fixed_f30(LATE_AUCTION_KEYS),"SURVIVAL":SURVIVAL_FRESH_KEYS}
+KEYS={"EARLY":early_entry_keys(SEQUENTIAL_KEYS),"LATE":fixed_f30(LATE_AUCTION_KEYS),"SURVIVAL":SURVIVAL_FRESH_KEYS,"FAILURE":["FC230"]}
 rows=load_rows(root,YEARS)
 
 def gate(m):
@@ -29,8 +29,10 @@ def outcome(r,key,src):
         om=r.get("sequential",{});rrm=r.get("sequential_rr",{});bm=r.get("sequential_bars",{})
     elif src=="LATE":
         om=r.get("late_auction",{});rrm=r.get("late_auction_rr",{});bm=r.get("late_auction_bars",{})
-    else:
+    elif src=="SURVIVAL":
         om=r.get("survival_fresh",{});rrm=r.get("survival_fresh_rr",{});bm=r.get("survival_fresh_bars",{})
+    else:
+        om=r.get("failure_continuation",{});rrm=r.get("failure_continuation_rr",{});bm=r.get("failure_continuation_bars",{})
     v=om.get(key);rr=rrm.get(key)
     if v is None or rr is None:return None
     try:v=float(v);rr=float(rr)
@@ -82,17 +84,18 @@ def year_oracle(yr,spaces):
 
 report={"type":"DIAGNOSTIC_FUTURE_ORACLE_ONLY","used_for_alpha_training":False,
         "synthetic_outcomes_used":False,
-        "action_space":"EVENT_NATIVE_EARLY_RAW_F00_PLUS_LATE_PREENTRY_F30_PLUS_FIBONACCI_IMPULSE_PULLBACK_REJECTION_RAW_230R","management_variant_selection_used":False,"early_post_entry_m_stage_selection_used":False,
+        "action_space":"EVENT_NATIVE_REVERSAL_PLUS_POST_STOP_FAILURE_CONTINUATION_FRESH_RAW_230R","management_variant_selection_used":False,"early_post_entry_m_stage_selection_used":False,
         "gate":{"n":MIN_N,"mean_r":MIN_MEAN,"pf_r":MIN_PF,"win_rate":MIN_WR,"average_rr":MIN_RR,"lcb95_gt":0.0},
         "years":{}}
 joint=True
 for y in YEARS:
     yr=[r for r in rows if r["window"]==y]
-    unified=year_oracle(yr,("EARLY","LATE","SURVIVAL"))
+    unified=year_oracle(yr,("EARLY","LATE","SURVIVAL","FAILURE"))
     early=year_oracle(yr,("EARLY",))
     late=year_oracle(yr,("LATE",))
     survival=year_oracle(yr,("SURVIVAL",))
-    report["years"][y]={"unified":unified,"early_only":early,"late_only":late,"survival_only":survival}
+    failure=year_oracle(yr,("FAILURE",))
+    report["years"][y]={"unified":unified,"early_only":early,"late_only":late,"survival_only":survival,"failure_only":failure}
     joint=joint and bool(unified["any_n_ge_250_pass"])
 report["joint_oracle_gate_3of3"]=joint
 report["interpretation"]="EVENT_NATIVE_ACTION_SPACE_FEASIBLE__SELECTOR_IS_BLOCKER" if joint else "EVENT_NATIVE_ACTION_SPACE_INSUFFICIENT__UPSTREAM_SUPPLY_OR_ENTRY_MECHANICS_REDESIGN_REQUIRED"
