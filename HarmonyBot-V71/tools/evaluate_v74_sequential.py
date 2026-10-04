@@ -192,20 +192,34 @@ def make_samples(xs):
     return out
 
 def stable_idx(samples,k):
+    """Training-only nonlinear stability screen.
+
+    Harmonic/regime variables are often U-shaped or interval-optimal.  The old
+    median-sign screen discarded those effects.  Rank a feature by payoff
+    dispersion across quantile bins, but only when the dispersion is present in
+    multiple training years.  No burned/test outcome participates.
+    """
     if not samples:return []
-    step=max(1,len(samples)//10000);ss=samples[::step];p=len(ss[0]["x"]);yrs=sorted({s["window"] for s in ss})
-    ranked=[]
+    step=max(1,len(samples)//12000);ss=samples[::step];p=len(ss[0]["x"])
+    yrs=sorted({s["window"] for s in ss});ranked=[]
     for j in range(p):
-      vals=[s["x"][j] for s in ss];cut=med(vals);eff=[]
+      vals=[float(s["x"][j]) for s in ss]
+      cuts=sorted(set(qtile(vals,q) for q in (.15,.30,.50,.70,.85)))
+      if len(cuts)<2:continue
+      yearly=[]
       for w in yrs:
         q=[s for s in ss if s["window"]==w]
-        lo=[s["y"] for s in q if s["x"][j]<cut];hi=[s["y"] for s in q if s["x"][j]>=cut]
-        if len(lo)<12 or len(hi)<12:continue
-        eff.append(statistics.mean(hi)-statistics.mean(lo))
-      if len(eff)<max(2,len(yrs)//2):continue
-      signs=sum(1 if z>=0 else -1 for z in eff);cons=abs(signs)/len(eff)
-      sc=(.65*abs(med(eff))+.35*min(abs(z) for z in eff))*cons
-      if sc>0:ranked.append((sc,j))
+        bins=[[] for _ in range(len(cuts)+1)]
+        for s in q:bins[bisect.bisect_right(cuts,float(s["x"][j]))].append(float(s["y"]))
+        means=[statistics.mean(z) for z in bins if len(z)>=10]
+        if len(means)<3:continue
+        yearly.append(max(means)-min(means))
+      need=max(2,(len(yrs)+1)//2)
+      if len(yearly)<need:continue
+      # Robust to one exceptional year: median signal plus weakest-half support.
+      ys=sorted(yearly);lower=statistics.mean(ys[:max(1,len(ys)//2)])
+      sc=.65*statistics.median(yearly)+.35*lower
+      if sc>1e-8:ranked.append((sc,j))
     ranked.sort(reverse=True)
     return [j for _,j in ranked[:k]] or list(range(min(k,p)))
 
@@ -531,15 +545,15 @@ def apply_policy(policy,test_rows):
 
 checks=telemetry_guard()
 summary={"version":"HarmonyBot V74 One-Shot Family-Native Causal Action Selector",
- "architecture":"EVENT_NATIVE_COUNTERFACTUAL_REGRET_RANKING_CAUSAL_OPTIMAL_STOPPING",
+ "architecture":"STRICT_WALK_FORWARD_NONLINEAR_STABLE_EVENT_REGRET_POLICY",
  "gate":{"min_selected_per_year":MIN_N,"min_mean_r":MIN_MEAN,"min_pf_r":MIN_PF,
          "min_win_rate":MIN_WR,"min_average_rr":MIN_RR,"lcb95_gt":0.0},
  "research_training_windows":RESEARCH,"burned_oof_windows":BURNED,
  "policy":{"actions":"EARLY_OR_LATE_COMPLETED_BAR_ENTRY_ACTION__FIXED_F30_QUALIFICATION",
            "harmonic_completion":"DIRECTION_TIME_D_EVENT_IDENTITY__MULTI_GEOMETRY_IS_CONFLUENCE_NOT_SUPPLY",
            "reaction_state":"CAUSAL_FEATURE_NOT_HARD_FILTER","physical_route_contract":"EVENT_NATIVE_EARLY_PLUS_LATE_PLUS_SURVIVAL_FRESH_RAW_BASKETS__FIXED_F30_QUALIFICATION","v75_management_variants_excluded":True,"early_post_entry_m_stage_excluded":True,
-           "route_choice":"EVENT_NATIVE_COUNTERFACTUAL_REGRET_PLUS_BEST_ACTION_PROBABILITY_THEN_ABSOLUTE_PAYOFF","optimal_stopping":"MECHANISM_NATIVE_TRAINING_ONLY_CONTINUATION_HEAD__EVENT_LEVEL_STOP_VS_DEFER",
-           "admission":"TRAINING_ONLY_WORST_YEAR_GATE_CALIBRATED_STOP_ADVANTAGE_THRESHOLD",
+           "route_choice":"STRICT_WALK_FORWARD_NONLINEAR_STABLE_EVENT_REGRET_PLUS_BEST_ACTION_PROBABILITY","optimal_stopping":"MECHANISM_NATIVE_TRAINING_ONLY_CONTINUATION_HEAD__EVENT_LEVEL_STOP_VS_DEFER",
+           "admission":"PAST_ONLY_WORST_YEAR_GATE_CALIBRATED_STOP_ADVANTAGE_THRESHOLD",
            "training_coverage_target_per_year":TRAIN_COVERAGE,
            "family_hierarchy":"WITHIN_MECHANISM_GLOBAL_TO_FAMILY_TO_FAMILY_ACTION_TO_FAMILY_BASE_SHRINKAGE",
            "no_trigger_posttrigger_lock_future_state":True,
@@ -550,7 +564,10 @@ models={"architecture":summary["architecture"],"folds":{}}
 t0=time.perf_counter();allpass=True
 
 for test in BURNED:
-  ft=time.perf_counter();tw=RESEARCH+[w for w in BURNED if w!=test]
+  # Strict deployable OOF: a burned year may only learn from years that ended
+  # before it.  Never train a 2021 decision on 2022/2023, etc.
+  ft=time.perf_counter();test_year=int(test[1:])
+  tw=[w for w in ALL if int(w[1:])<test_year]
   tr=[r for r in rows if r["window"] in tw];te=[r for r in rows if r["window"]==test]
   policy,_=fit_policy(tr)
   sel,_,dec=apply_policy(policy,te);m,mr=metric_selected(sel)
@@ -570,7 +587,7 @@ for test in BURNED:
         for k in ("n","mean_r","pf_r","win_rate","average_rr","lcb_r","pass")}),flush=True)
 
 alpha=bool(allpass)
-champ="EVENT_NATIVE_COUNTERFACTUAL_REGRET_RANKING_CAUSAL_OPTIMAL_STOPPING" if alpha else None
+champ="STRICT_WALK_FORWARD_NONLINEAR_STABLE_EVENT_REGRET_POLICY" if alpha else None
 summary["evaluator_runtime_seconds"]=round(time.perf_counter()-t0,3)
 summary["alpha_gate"]=alpha;summary["alpha_champion"]=champ
 summary["execution_semantics_ready"]=False;summary["v74_gate"]=False;summary["champion"]=None
