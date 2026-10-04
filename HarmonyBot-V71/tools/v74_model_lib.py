@@ -50,9 +50,10 @@ def _build_route_keys(fracs):
 SEQUENTIAL_KEYS=_build_route_keys(("00","10","20","30"))
 LATE_AUCTION_KEYS=_build_route_keys(("20","30"))
 SURVIVAL_FRESH_KEYS=[
-    "R025_F382","R025_F500","R025_F618",
-    "R050_F382","R050_F500","R050_F618",
-    "R075_F382","R075_F500","R075_F618"
+    f"R{r}_F{f}_RR{rr}"
+    for r in ("025","050","075","100")
+    for f in ("236","382","500","618","786")
+    for rr in ("23","25")
 ]
 
 def window_of(path,windows):

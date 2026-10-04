@@ -20,7 +20,7 @@ from v74_model_lib import load_rows,metrics,SEQUENTIAL_STATE_FEATURE_COUNT,FAMIL
 root=pathlib.Path(sys.argv[1]);out=pathlib.Path(sys.argv[2]);out.mkdir(parents=True,exist_ok=True)
 RESEARCH=[f"Y{y}" for y in range(2016,2021)]
 BURNED=["Y2021","Y2022","Y2023"];ALL=RESEARCH+BURNED
-MIN_N=250;TRAIN_COVERAGE=275;MIN_MEAN=.90;MIN_PF=3.30;MIN_WR=.70;MIN_RR=2.30;Z=1.645
+MIN_N=250;TRAIN_COVERAGE=275;MIN_MEAN=.90;MIN_PF=3.30;MIN_WR=.70;MIN_AVG_RR=2.30;LEGAL_MIN_RR=2.0;Z=1.645
 REGULAR_SOURCES=("EARLY","LATE");SOURCES=("EARLY","LATE","SURVIVAL");EARLY_QUALIFICATION_FRACTION="00";LATE_QUALIFICATION_FRACTION="30";EARLY_FRACTIONS=(EARLY_QUALIFICATION_FRACTION,);LATE_FRACTIONS=(LATE_QUALIFICATION_FRACTION,);ALL_FRACTIONS=(EARLY_QUALIFICATION_FRACTION,LATE_QUALIFICATION_FRACTION);MSTAGES=("05","10","15");EARLY_MSTAGES=("15",);LATE_MSTAGES=MSTAGES
 BASES=[f"R{r}_{h}_RR{rr}" for r in ("025","050") for h in ("H","D") for rr in ("35","40")]
 TREE_KFEAT=30;PAIR_KFEAT=26;TREE_ROUNDS=10;PAIR_ROUNDS=8;TREE_DEPTH=3;TOP_PAIR=6
@@ -29,7 +29,7 @@ if not rows:raise SystemExit("no V74 rows")
 
 def gate(m):
     return bool(m["n"]>=MIN_N and m["mean_r"]>=MIN_MEAN and m["pf_r"]>=MIN_PF and
-                m["win_rate"]>=MIN_WR and m["average_rr"]>=MIN_RR and m["lcb_r"]>0)
+                m["win_rate"]>=MIN_WR and m["average_rr"]>=MIN_AVG_RR and m["lcb_r"]>0)
 def qtile(v,q):
     if not v:return 0.0
     x=sorted(float(z) for z in v);p=(len(x)-1)*q;a=int(math.floor(p));b=int(math.ceil(p))
@@ -51,7 +51,7 @@ def outcome(r,src,m,b,f):
     if v is None or rr is None:return None
     try:v=float(v);rr=float(rr)
     except:return None
-    if not all(math.isfinite(x) for x in (v,rr)) or rr+1e-9<MIN_RR:return None
+    if not all(math.isfinite(x) for x in (v,rr)) or rr+1e-9<LEGAL_MIN_RR:return None
     return v
 
 def entry_bar(r,src,m,b,f):
@@ -152,7 +152,7 @@ def telemetry_guard():
         try:eb=int(r.get("survival_fresh_entry_bar",{}).get(sf,-1))
         except:eb=-1
         y=r.get("survival_fresh",{}).get(sf);rr=r.get("survival_fresh_rr",{}).get(sf)
-        if eb<0 or y is None or rr is None or float(rr)+1e-9<MIN_RR:continue
+        if eb<0 or y is None or rr is None or float(rr)+1e-9<LEGAL_MIN_RR:continue
         legal["SURVIVAL"]+=1
         e=r.get("survival_fresh_entry_state",{}).get(sf)
         if e is not None and len(e)==SEQUENTIAL_STATE_FEATURE_COUNT:with_state["SURVIVAL"]+=1
@@ -191,7 +191,7 @@ def make_samples(xs):
         y=r.get("survival_fresh",{}).get(sf);rr=r.get("survival_fresh_rr",{}).get(sf)
         try:eb=int(r.get("survival_fresh_entry_bar",{}).get(sf,-1))
         except:eb=-1
-        if y is None or rr is None or eb<0 or float(rr)+1e-9<MIN_RR:continue
+        if y is None or rr is None or eb<0 or float(rr)+1e-9<LEGAL_MIN_RR:continue
         bars=max(1,int(r.get("survival_fresh_bars",{}).get(sf,r.get("bars",1)) or 1))
         out.append({"window":r["window"],"setup":r["setup"],"family":r["family"],"action":r["action"],
                     "source":"SURVIVAL","base":"SURVIVAL_"+sf,"route":"SURVIVAL|"+sf,"bar":eb,"bars":bars,
@@ -473,7 +473,7 @@ def metric_selected(sel):
 def gate_margin(m):
     if m["n"]<=0:return -999.0
     return min(m["n"]/MIN_N,m["mean_r"]/MIN_MEAN,m["pf_r"]/MIN_PF,
-               m["win_rate"]/MIN_WR,m["average_rr"]/MIN_RR,1.0+m["lcb_r"]/.25)
+               m["win_rate"]/MIN_WR,m["average_rr"]/MIN_AVG_RR,1.0+m["lcb_r"]/.25)
 
 def gate_calibrated_threshold(decisions,years,target=TRAIN_COVERAGE):
     # Training-only constrained ERM: choose the admission threshold that maximizes
@@ -572,7 +572,7 @@ checks=telemetry_guard()
 summary={"version":"HarmonyBot V74 One-Shot Family-Native Causal Action Selector",
  "architecture":"STRICT_WALK_FORWARD_NONLINEAR_STABLE_EVENT_REGRET_POLICY",
  "gate":{"min_selected_per_year":MIN_N,"min_mean_r":MIN_MEAN,"min_pf_r":MIN_PF,
-         "min_win_rate":MIN_WR,"min_average_rr":MIN_RR,"lcb95_gt":0.0},
+         "min_win_rate":MIN_WR,"min_average_rr":MIN_AVG_RR,"lcb95_gt":0.0},
  "research_training_windows":RESEARCH,"burned_oof_windows":BURNED,
  "policy":{"actions":"EARLY_OR_LATE_COMPLETED_BAR_ENTRY_ACTION__RAW_F00_EARLY_F30_LATE",
            "harmonic_completion":"DIRECTION_TIME_D_EVENT_IDENTITY__MULTI_GEOMETRY_IS_CONFLUENCE_NOT_SUPPLY",

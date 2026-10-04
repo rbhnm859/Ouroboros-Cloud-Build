@@ -49,14 +49,37 @@ namespace cAlgo.Robots
         // level. This improves entry location instead of chasing stronger confirmation.
         // Full causal Cartesian lattice: displacement strength and Fibonacci
         // retracement depth are independent pre-entry dimensions.
-        private static readonly double[] V74SurvivalFreshReactionR =
-            { .25,.25,.25, .50,.50,.50, .75,.75,.75 };
-        private static readonly double[] V74SurvivalFreshFibRetrace =
-            { .382,.500,.618, .382,.500,.618, .382,.500,.618 };
-        private static readonly string[] V74SurvivalFreshKey =
-            { "R025_F382","R025_F500","R025_F618",
-              "R050_F382","R050_F500","R050_F618",
-              "R075_F382","R075_F500","R075_F618" };
+        // Theory-complete bounded Fibonacci re-entry lattice. Every level is a
+        // canonical Fibonacci pullback; actions are fixed before OOF, not optimized.
+        private static string[] V74BuildSurvivalFreshKeys()
+        {
+            var keys=new List<string>();
+            foreach(var r in new[]{"025","050","075","100"})
+                foreach(var f in new[]{"236","382","500","618","786"})
+                    foreach(var rr in new[]{"23","25"})
+                        keys.Add("R"+r+"_F"+f+"_RR"+rr);
+            return keys.ToArray();
+        }
+        private static readonly string[] V74SurvivalFreshKey=V74BuildSurvivalFreshKeys();
+        private static double V74SurvivalFreshReactionForKey(string k)
+        {
+            if(k.StartsWith("R025_"))return .25;
+            if(k.StartsWith("R050_"))return .50;
+            if(k.StartsWith("R075_"))return .75;
+            return 1.00;
+        }
+        private static double V74SurvivalFreshFibForKey(string k)
+        {
+            if(k.Contains("_F236_"))return .236;
+            if(k.Contains("_F382_"))return .382;
+            if(k.Contains("_F500_"))return .500;
+            if(k.Contains("_F618_"))return .618;
+            return .786;
+        }
+        private static double V74SurvivalFreshDesiredRrForKey(string k) => k.EndsWith("_RR25")?2.50:2.30;
+        private static readonly double[] V74SurvivalFreshReactionR=V74SurvivalFreshKey.Select(V74SurvivalFreshReactionForKey).ToArray();
+        private static readonly double[] V74SurvivalFreshFibRetrace=V74SurvivalFreshKey.Select(V74SurvivalFreshFibForKey).ToArray();
+        private static readonly double[] V74SurvivalFreshDesiredRr=V74SurvivalFreshKey.Select(V74SurvivalFreshDesiredRrForKey).ToArray();
         // High-conviction delayed capital: preserve canonical payoff asymmetry by waiting
         // until the virtual harmonic thesis has already demonstrated 1.75R/2.00R reaction.
         // Capital then enters only after a later completed M1 hold; stop is the completed
@@ -918,7 +941,7 @@ namespace cAlgo.Robots
                 double risk=Math.Abs(entry-stop),riskPips=PriceToPips(risk);
                 if(riskPips<MinStopLossPips)continue;
 
-                const double desiredNetRr=2.30;
+                double desiredNetRr=V74SurvivalFreshDesiredRr[k];
                 double grossTargetPips=desiredNetRr*riskPips+ModeledCostPips();
                 double target=buy?entry+PipsToPrice(grossTargetPips):entry-PipsToPrice(grossTargetPips);
                 bool runway=buy?target<=o.Target+_symbol.PipSize*.5:target>=o.Target-_symbol.PipSize*.5;

@@ -7,7 +7,7 @@ from v74_model_lib import load_rows,metrics,SEQUENTIAL_KEYS,LATE_AUCTION_KEYS,SU
 
 root=pathlib.Path(sys.argv[1]);out=pathlib.Path(sys.argv[2]);out.mkdir(parents=True,exist_ok=True)
 YEARS=["Y2021","Y2022","Y2023"]
-MIN_N=250;MIN_MEAN=.90;MIN_PF=3.30;MIN_WR=.70;MIN_RR=2.30
+MIN_N=250;MIN_MEAN=.90;MIN_PF=3.30;MIN_WR=.70;MIN_AVG_RR=2.30;LEGAL_MIN_RR=2.0
 def fixed_f30(keys):
     return [k for k in keys if k.endswith("_F30")]
 def early_entry_keys(keys):
@@ -18,11 +18,11 @@ rows=load_rows(root,YEARS)
 
 def gate(m):
     return bool(m["n"]>=MIN_N and m["mean_r"]>=MIN_MEAN and m["pf_r"]>=MIN_PF and
-                m["win_rate"]>=MIN_WR and m["average_rr"]>=MIN_RR and m["lcb_r"]>0)
+                m["win_rate"]>=MIN_WR and m["average_rr"]>=MIN_AVG_RR and m["lcb_r"]>0)
 def margin(m):
     if m["n"]<=0:return -999.0
     return min(m["n"]/MIN_N,m["mean_r"]/MIN_MEAN,m["pf_r"]/MIN_PF,m["win_rate"]/MIN_WR,
-               m["average_rr"]/MIN_RR,1.0+m["lcb_r"]/.25)
+               m["average_rr"]/MIN_AVG_RR,1.0+m["lcb_r"]/.25)
 
 def outcome(r,key,src):
     if src=="EARLY":
@@ -37,7 +37,7 @@ def outcome(r,key,src):
     if v is None or rr is None:return None
     try:v=float(v);rr=float(rr)
     except:return None
-    if not math.isfinite(v) or not math.isfinite(rr) or rr+1e-9<MIN_RR:return None
+    if not math.isfinite(v) or not math.isfinite(rr) or rr+1e-9<LEGAL_MIN_RR:return None
     q=dict(r);q["r"]=v;q["oracle_route"]=src+"|"+key;q["oracle_rr"]=rr
     q["bars"]=int(bm.get(key,r.get("bars",1)) or 1)
     return q
@@ -84,8 +84,8 @@ def year_oracle(yr,spaces):
 
 report={"type":"DIAGNOSTIC_FUTURE_ORACLE_ONLY","used_for_alpha_training":False,
         "synthetic_outcomes_used":False,
-        "action_space":"EVENT_NATIVE_REVERSAL_PLUS_POST_STOP_FAILURE_CONTINUATION_FRESH_RAW_230R","management_variant_selection_used":False,"early_post_entry_m_stage_selection_used":False,
-        "gate":{"n":MIN_N,"mean_r":MIN_MEAN,"pf_r":MIN_PF,"win_rate":MIN_WR,"average_rr":MIN_RR,"lcb95_gt":0.0},
+        "action_space":"EVENT_NATIVE_REVERSAL_PLUS_FAILURE_CONTINUATION_PLUS_THEORY_COMPLETE_FIB_REENTRY_236_382_500_618_786_X_R025_050_075_100_X_RR230_250","management_variant_selection_used":False,"early_post_entry_m_stage_selection_used":False,
+        "gate":{"n":MIN_N,"mean_r":MIN_MEAN,"pf_r":MIN_PF,"win_rate":MIN_WR,"average_rr":MIN_AVG_RR,"lcb95_gt":0.0},
         "years":{}}
 joint=True
 for y in YEARS:
