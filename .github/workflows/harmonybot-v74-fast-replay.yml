@@ -202,14 +202,22 @@ jobs:
           python3 control/HarmonyBot-V71/tools/evaluate_v73_universe.py merged gate
           test "$(cat gate/pass.txt)" = "true"
 
-      - name: Joint hard-gate oracle feasibility diagnostic
+      - id: oracle
+        name: Joint hard-gate oracle feasibility diagnostic
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p oracle
           python3 control/HarmonyBot-V71/tools/diagnose_v74_joint_oracle.py merged oracle
+          PHYSICAL=$(cat oracle/oracle_pass.txt)
+          echo "physical_pass=$PHYSICAL" >> "$GITHUB_OUTPUT"
+          echo "[V74-FAST-ORACLE] physical_pass=$PHYSICAL"
+          if [[ "$PHYSICAL" != "true" ]]; then
+            echo "[V74-FAST-FAIL-FAST] physical upper bound fails 3/3; causal tournament skipped with no loss of decision accuracy."
+          fi
 
       - name: Run cached V74 tournament
+        if: ${{ steps.oracle.outputs.physical_pass == 'true' }}
         shell: bash
         run: |
           set -euo pipefail
@@ -227,9 +235,23 @@ jobs:
           },indent=2))
           PY
 
+      - name: Publish fast verdict
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "[V74-FAST-VERDICT] physical_pass=${{ steps.oracle.outputs.physical_pass }}"
+          if [[ -s tournament/alpha_pass.txt ]]; then
+            echo "[V74-FAST-VERDICT] alpha_pass=$(cat tournament/alpha_pass.txt)"
+          else
+            echo "[V74-FAST-VERDICT] alpha_pass=false (tournament skipped because physical feasibility failed)"
+          fi
+
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: V74-FAST-REPLAY
+          if-no-files-found: ignore
           path: |
             gate
             oracle
