@@ -537,9 +537,11 @@ def admission_route_representatives(decisions):
       s=e["s"];by[(s["window"],event_identity(s["setup"]),int(s["bar"]))].append(e)
     out=[]
     for vv in by.values():
-      # route_rank is trained only on route-quality/regret heads. Do not use the
-      # former mixed admission score to choose the action.
-      out.append(max(vv,key=lambda z:(float(z.get("route_rank",-999.0)),
+      # Preserve the exact cross-mechanism causal route arbitration that the
+      # two-axis oracle already proved sufficient when admission is corrected.
+      # The new admission head acts only after this route is fixed.
+      out.append(max(vv,key=lambda z:(float(z.get("score",-999.0)),
+                                      float(z.get("route_rank",-999.0)),
                                       float(z["pred"].get("lcb",-999.0)),
                                       float(z["pred"].get("win",0.0)),z["s"]["route"])))
     return out
