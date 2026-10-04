@@ -59,6 +59,39 @@ jobs:
           git cat-file -e "$AFTER^{commit}"
           mapfile -t CHANGED < <(git diff --name-only "$BEFORE" "$AFTER")
           printf '[SEMANTIC-CHANGE-GATE] %s\n' "${CHANGED[@]}"
+
+          # On the active V74 development branch, Rapid Decision owns all V74
+          # source/runtime/evaluator changes and executes the exact same 2016-2023
+          # telemetry universe. Full is dispatched only after Rapid Alpha PASS.
+          if [[ "${{ github.head_ref }}" == "harmonybot/v73-opportunity-universe" ]]; then
+            RAPID_OWNS=true
+            for p in "${CHANGED[@]}"; do
+              case "$p" in
+                HarmonyBot-V71/src/*|\
+                HarmonyBot-V71/HarmonyBotV71.csproj|\
+                HarmonyBot-V71/tools/run_window.sh|\
+                HarmonyBot-V71/tools/run_backtest.sh|\
+                HarmonyBot-V71/tools/resolve_window.sh|\
+                HarmonyBot-V71/tools/evaluate_v73_universe.py|\
+                HarmonyBot-V71/tools/evaluate_v74_sequential.py|\
+                HarmonyBot-V71/tools/diagnose_v74_joint_oracle.py|\
+                HarmonyBot-V71/tools/v74_model_lib.py|\
+                HarmonyBot-V71/final/V71_BURNED_CALIBRATION_CUSTODY.json|\
+                HarmonyBot-V73/V73_RESEARCH_CUSTODY.json|\
+                .github/workflows/harmonybot-v74-rapid-decision.yml|\
+                .github/workflows/harmonybot-v74-fast-replay.yml|\
+                .github/workflows/harmonybot-v73-v80-autonomous-evidence-pipeline.yml)
+                  ;;
+                *) RAPID_OWNS=false ;;
+              esac
+            done
+            if [[ "$RAPID_OWNS" == "true" ]]; then
+              echo "full=false" >> "$GITHUB_OUTPUT"
+              echo "[SEMANTIC-CHANGE-GATE] delegated_to_exact_rapid=true full=false"
+              exit 0
+            fi
+          fi
+
           FULL=false
           for p in "${CHANGED[@]}"; do
             case "$p" in

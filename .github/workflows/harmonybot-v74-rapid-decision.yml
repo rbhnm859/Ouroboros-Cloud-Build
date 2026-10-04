@@ -12,10 +12,13 @@ on:
       - 'HarmonyBot-V71/tools/resolve_window.sh'
       - 'HarmonyBot-V71/tools/evaluate_v73_universe.py'
       - 'HarmonyBot-V71/tools/evaluate_v74_sequential.py'
+      - 'HarmonyBot-V71/tools/diagnose_v74_joint_oracle.py'
       - 'HarmonyBot-V71/tools/v74_model_lib.py'
       - 'HarmonyBot-V71/final/V71_BURNED_CALIBRATION_CUSTODY.json'
       - 'HarmonyBot-V73/V73_RESEARCH_CUSTODY.json'
       - '.github/workflows/harmonybot-v74-rapid-decision.yml'
+      - '.github/workflows/harmonybot-v74-fast-replay.yml'
+      - '.github/workflows/harmonybot-v73-v80-autonomous-evidence-pipeline.yml'
 
 concurrency:
   group: harmonybot-v74-rapid-decision-${{ github.head_ref || github.ref }}
@@ -23,7 +26,7 @@ concurrency:
 
 permissions:
   contents: read
-  actions: read
+  actions: write
 
 jobs:
   rapid_change_gate:
@@ -99,7 +102,11 @@ jobs:
           cd control
           python3 HarmonyBot-V71/tools/static_contract_audit.py HarmonyBot-V71/src/HarmonyBotV71.cs
           python3 HarmonyBot-V71/tools/verify_frozen_harmonic_engine.py HarmonyBot-V71/src/HarmonyBotV71.cs
-          python3 -m py_compile             HarmonyBot-V71/tools/evaluate_v73_universe.py             HarmonyBot-V71/tools/evaluate_v74_sequential.py             HarmonyBot-V71/tools/v74_model_lib.py
+          python3 -m py_compile \
+            HarmonyBot-V71/tools/evaluate_v73_universe.py \
+            HarmonyBot-V71/tools/diagnose_v74_joint_oracle.py \
+            HarmonyBot-V71/tools/evaluate_v74_sequential.py \
+            HarmonyBot-V71/tools/v74_model_lib.py
           dotnet restore HarmonyBot-V71/HarmonyBotV71.csproj
           dotnet build HarmonyBot-V71/HarmonyBotV71.csproj -c Release --no-restore --nologo
           mkdir -p HarmonyBot-V71/dist
@@ -213,7 +220,8 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     outputs:
-      alpha_pass: ${{ steps.v74.outputs.alpha_pass }}
+      alpha_pass: ${{ steps.result.outputs.alpha_pass }}
+      physical_pass: ${{ steps.oracle.outputs.physical_pass }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -234,15 +242,28 @@ jobs:
           python3 control/HarmonyBot-V71/tools/evaluate_v73_universe.py merged gate
           test "$(cat gate/pass.txt)" = "true"
 
+      - id: oracle
+        name: Exact physical feasibility gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p oracle
+          python3 control/HarmonyBot-V71/tools/diagnose_v74_joint_oracle.py merged oracle
+          PHYSICAL=$(cat oracle/oracle_pass.txt)
+          echo "physical_pass=$PHYSICAL" >> "$GITHUB_OUTPUT"
+          echo "[V74-RAPID-ORACLE] physical_pass=$PHYSICAL"
+          if [[ "$PHYSICAL" != "true" ]]; then
+            echo "[V74-RAPID-FAIL-FAST] Exact event-native action space cannot satisfy 3/3 hard gate; causal tournament is mathematically unable to pass and is skipped."
+          fi
+
       - id: v74
-        name: Run unchanged V74 OOF decision
+        if: ${{ steps.oracle.outputs.physical_pass == 'true' }}
+        name: Run exact V74 burned OOF decision
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p tournament
           python3 control/HarmonyBot-V71/tools/evaluate_v74_sequential.py merged tournament
-          ALPHA=$(cat tournament/alpha_pass.txt)
-          echo "alpha_pass=$ALPHA" >> "$GITHUB_OUTPUT"
           python3 - <<'PY'
           import json
           m=json.load(open("tournament/V74_TOURNAMENT_MANIFEST.json"))
@@ -258,10 +279,41 @@ jobs:
           },indent=2))
           PY
 
+      - id: result
+        if: always()
+        name: Publish exact rapid verdict
+        shell: bash
+        run: |
+          set -euo pipefail
+          ALPHA=false
+          if [[ "${{ steps.oracle.outputs.physical_pass }}" == "true" && -s tournament/alpha_pass.txt ]]; then
+            ALPHA=$(cat tournament/alpha_pass.txt)
+          fi
+          echo "alpha_pass=$ALPHA" >> "$GITHUB_OUTPUT"
+          echo "[V74-RAPID-VERDICT] physical_pass=${{ steps.oracle.outputs.physical_pass }} alpha_pass=$ALPHA"
+
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: V74-RAPID-DECISION
+          if-no-files-found: ignore
           path: |
             gate
+            oracle
             tournament
           retention-days: 30
+
+  full_verification:
+    needs: rapid_decision
+    if: ${{ needs.rapid_decision.outputs.alpha_pass == 'true' }}
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Dispatch full promotion/parity pipeline only after exact Alpha PASS
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          REF="${{ github.head_ref || github.ref_name }}"
+          gh workflow run harmonybot-v73-v80-autonomous-evidence-pipeline.yml --repo "$GITHUB_REPOSITORY" --ref "$REF"
+          echo "[V74-RAPID->FULL] Alpha PASS; dispatched Full pipeline for V51 replay, runtime parity and downstream promotion."

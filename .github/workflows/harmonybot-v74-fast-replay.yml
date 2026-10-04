@@ -101,8 +101,10 @@ jobs:
           test -s "$M"
           RUN=$(python3 -c 'import json;print(json.load(open("'$M'"))["source_run_id"])')
           SHA=$(python3 -c 'import json;print(json.load(open("'$M'"))["source_head_sha"])')
+          PATTERN=$(python3 -c 'import json;d=json.load(open("'$M'"));print(d.get("artifact_pattern","v73-universe-*"))')
           echo "run=$RUN" >> "$GITHUB_OUTPUT"
           echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+          echo "pattern=$PATTERN" >> "$GITHUB_OUTPUT"
 
       - name: Fail closed on universe semantic drift
         shell: bash
@@ -162,11 +164,17 @@ jobs:
         run: |
           set -euo pipefail
           RUN="${{ steps.source.outputs.run }}"
-          EXPECTED=$(printf '%s\n' v73-universe-Y2016 v73-universe-Y2017 v73-universe-Y2018 v73-universe-Y2019 v73-universe-Y2020 v73-universe-Y2021 v73-universe-Y2022 v73-universe-Y2023 | sort)
-          ACTUAL=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RUN/artifacts?per_page=100" --jq '.artifacts[].name' | grep '^v73-universe-Y20' | sort -u)
-          test "$ACTUAL" = "$EXPECTED" || {
+          M=control/HarmonyBot-V71/evidence/V74_FAST_REPLAY_SOURCE.json
+          EXPECTED=$(python3 - "$M" <<'PY'
+          import json,sys
+          print("\n".join(sorted(json.load(open(sys.argv[1]))["required_artifacts"])))
+          PY
+          )
+          ACTUAL=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RUN/artifacts?per_page=100" --jq '.artifacts[].name' | sort -u)
+          MISSING=$(comm -23 <(printf '%s\n' "$EXPECTED") <(printf '%s\n' "$ACTUAL"))
+          test -z "$MISSING" || {
             echo "[V74-FAST-REPLAY-BLOCK] incomplete source universe artifact set"
-            printf 'expected:\n%s\nactual:\n%s\n' "$EXPECTED" "$ACTUAL"
+            printf 'missing:\n%s\n' "$MISSING"
             exit 92
           }
 
@@ -180,7 +188,7 @@ jobs:
       - uses: actions/download-artifact@v4
         if: steps.universe_cache.outputs.cache-hit != 'true'
         with:
-          pattern: v73-universe-*
+          pattern: ${{ steps.source.outputs.pattern }}
           path: merged
           merge-multiple: true
           github-token: ${{ github.token }}
