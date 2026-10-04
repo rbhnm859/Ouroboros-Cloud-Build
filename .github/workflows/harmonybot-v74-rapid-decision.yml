@@ -29,54 +29,60 @@ jobs:
     runs-on: ubuntu-24.04
     outputs:
       full: ${{ steps.c.outputs.full }}
+      semantic_fingerprint: ${{ steps.c.outputs.semantic_fingerprint }}
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
       - id: c
-        name: Classify only the latest synchronize delta
+        name: Content-addressed telemetry semantic gate
         shell: bash
         run: |
           set -euo pipefail
-          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
-            echo "full=true" >> "$GITHUB_OUTPUT"
+          # Fingerprint only bytes that can alter the exact cTrader universe.
+          # Evaluator/workflow/evidence commits therefore cannot force a rebuild.
+          mapfile -t SEMANTIC_FILES < <(
+            {
+              find HarmonyBot-V71/src -type f -name '*.cs' -print
+              printf '%s\n' \
+                HarmonyBot-V71/HarmonyBotV71.csproj \
+                HarmonyBot-V71/tools/run_window.sh \
+                HarmonyBot-V71/tools/run_backtest.sh \
+                HarmonyBot-V71/tools/resolve_window.sh \
+                HarmonyBot-V71/final/V71_BURNED_CALIBRATION_CUSTODY.json \
+                HarmonyBot-V73/V73_RESEARCH_CUSTODY.json
+            } | LC_ALL=C sort -u
+          )
+          FP=$(
+            for p in "${SEMANTIC_FILES[@]}"; do
+              test -f "$p"
+              printf '%s  ' "$p"
+              sha256sum "$p" | cut -d' ' -f1
+            done | sha256sum | cut -d' ' -f1
+          )
+          echo "semantic_fingerprint=$FP" >> "$GITHUB_OUTPUT"
+
+          PIN=HarmonyBot-V71/evidence/V74_FAST_REPLAY_SOURCE.json
+          OLD=""
+          if [[ -s "$PIN" ]]; then
+            OLD=$(python3 - "$PIN" <<'PY'
+          import json,sys
+          print(json.load(open(sys.argv[1])).get("semantic_fingerprint",""))
+          PY
+            )
+          fi
+          if [[ -n "$OLD" && "$OLD" == "$FP" ]]; then
+            echo "full=false" >> "$GITHUB_OUTPUT"
+            echo "[V74-RAPID-CONTENT-CACHE] HIT fingerprint=$FP"
             exit 0
           fi
-          BEFORE="${{ github.event.before }}"
-          AFTER="${{ github.event.pull_request.head.sha }}"
-          if [[ -z "$BEFORE" || "$BEFORE" =~ ^0+$ ]]; then
-            echo "full=true" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          git cat-file -e "$BEFORE^{commit}"
-          git cat-file -e "$AFTER^{commit}"
-          FULL=false
-          while IFS= read -r p; do
-            case "$p" in
-              HarmonyBot-V71/src/*.cs)
-                if git diff -w --ignore-blank-lines \
-                     -I '^[[:space:]]*//' \
-                     -I '^[[:space:]]*/\*' \
-                     -I '^[[:space:]]*\*' \
-                     --quiet "$BEFORE" "$AFTER" -- "$p"; then
-                  echo "[V74-RAPID-CHANGE-GATE] comment/whitespace-only C# change ignored: $p"
-                else
-                  FULL=true
-                fi
-                ;;
-              HarmonyBot-V71/HarmonyBotV71.csproj|\
-              HarmonyBot-V71/tools/run_window.sh|\
-              HarmonyBot-V71/tools/run_backtest.sh|\
-              HarmonyBot-V71/tools/resolve_window.sh|\
-              HarmonyBot-V71/final/V71_BURNED_CALIBRATION_CUSTODY.json|\
-              HarmonyBot-V73/V73_RESEARCH_CUSTODY.json)
-                FULL=true
-                ;;
-            esac
-          done < <(git diff --name-only "$BEFORE" "$AFTER")
-          echo "full=$FULL" >> "$GITHUB_OUTPUT"
-          echo "[V74-RAPID-CHANGE-GATE] full=$FULL"
+
+          # A missing fingerprint on an older pin is fail-closed: rebuild once,
+          # then future identical semantics become exact cache hits.
+          echo "full=true" >> "$GITHUB_OUTPUT"
+          echo "[V74-RAPID-CONTENT-CACHE] MISS old=$OLD new=$FP"
+
 
   rapid_build:
     needs: rapid_change_gate
@@ -316,7 +322,7 @@ jobs:
 
 
   pin_exact_replay_source:
-    needs: rapid_decision
+    needs: [rapid_change_gate, rapid_decision]
     if: ${{ always() && needs.rapid_decision.result == 'success' }}
     runs-on: ubuntu-24.04
     steps:
@@ -328,19 +334,21 @@ jobs:
         env:
           SOURCE_RUN: ${{ github.run_id }}
           SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          SEMANTIC_FP: ${{ needs.rapid_change_gate.outputs.semantic_fingerprint }}
           REF_NAME: ${{ github.head_ref || github.ref_name }}
         shell: bash
         run: |
           set -euo pipefail
           M=HarmonyBot-V71/evidence/V74_FAST_REPLAY_SOURCE.json
-          python3 - "$M" "$SOURCE_RUN" "$SOURCE_SHA" <<'PY'
+          python3 - "$M" "$SOURCE_RUN" "$SOURCE_SHA" "$SEMANTIC_FP" <<'PY'
           import json,sys
-          p,run,sha=sys.argv[1],int(sys.argv[2]),sys.argv[3]
+          p,run,sha,semantic_fp=sys.argv[1],int(sys.argv[2]),sys.argv[3],sys.argv[4]
           years=range(2016,2024)
           d={
             "version":2,
             "source_run_id":run,
             "source_head_sha":sha,
+            "semantic_fingerprint":semantic_fp,
             "branch":"harmonybot/v73-opportunity-universe",
             "artifact_pattern":"v74-rapid-universe-*",
             "evidence_origin":"rapid_exact_2016_2023",
