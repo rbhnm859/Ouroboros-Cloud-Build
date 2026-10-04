@@ -407,7 +407,7 @@ def gate_calibrated_threshold(decisions,years,target=TRAIN_COVERAGE):
     for th in candidates:
       tm={};ok=True
       for w in years:
-        m,_=metric_selected(simulate(dec,th,w));tm[w]=m
+        m,_=metric_selected(simulate(decisions,th,w));tm[w]=m
         if m["n"]<target:ok=False;break
       if not ok:continue
       worst=min(gate_margin(m) for m in tm.values())
@@ -415,7 +415,7 @@ def gate_calibrated_threshold(decisions,years,target=TRAIN_COVERAGE):
       cand=(worst,medm,th,tm)
       if best is None or cand[:3]>best[:3]:best=cand
     if best is None:
-      th=upper;tm={w:metric_selected(simulate(dec,th,w))[0] for w in years}
+      th=upper;tm={w:metric_selected(simulate(decisions,th,w))[0] for w in years}
       best=(min(gate_margin(m) for m in tm.values()),med([gate_margin(m) for m in tm.values()]),th,tm)
     return best[2],limits,supply,best[3],best[0]
 
@@ -436,7 +436,7 @@ def fit_policy(train_rows):
 def apply_policy(policy,test_rows):
     samples=make_samples(test_rows)
     dec=event_decisions(samples,policy["value_model"],policy["pairwise_ranker"])
-    sel=simulate(dec,policy["threshold"])
+    sel=simulate(decisions,policy["threshold"])
     return sel,samples,dec
 
 checks=telemetry_guard()
