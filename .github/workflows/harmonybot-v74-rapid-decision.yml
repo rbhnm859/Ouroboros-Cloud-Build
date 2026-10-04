@@ -1,0 +1,267 @@
+name: HarmonyBot V74 Rapid Decision
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'HarmonyBot-V71/src/**'
+      - 'HarmonyBot-V71/HarmonyBotV71.csproj'
+      - 'HarmonyBot-V71/tools/run_window.sh'
+      - 'HarmonyBot-V71/tools/run_backtest.sh'
+      - 'HarmonyBot-V71/tools/resolve_window.sh'
+      - 'HarmonyBot-V71/tools/evaluate_v73_universe.py'
+      - 'HarmonyBot-V71/tools/evaluate_v74_sequential.py'
+      - 'HarmonyBot-V71/tools/v74_model_lib.py'
+      - 'HarmonyBot-V71/final/V71_BURNED_CALIBRATION_CUSTODY.json'
+      - 'HarmonyBot-V73/V73_RESEARCH_CUSTODY.json'
+      - '.github/workflows/harmonybot-v74-rapid-decision.yml'
+
+concurrency:
+  group: harmonybot-v74-rapid-decision-${{ github.head_ref || github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  rapid_change_gate:
+    runs-on: ubuntu-24.04
+    outputs:
+      full: ${{ steps.c.outputs.full }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - id: c
+        name: Classify only the latest synchronize delta
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            echo "full=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          BEFORE="${{ github.event.before }}"
+          AFTER="${{ github.event.pull_request.head.sha }}"
+          if [[ -z "$BEFORE" || "$BEFORE" =~ ^0+$ ]]; then
+            echo "full=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          git cat-file -e "$BEFORE^{commit}"
+          git cat-file -e "$AFTER^{commit}"
+          FULL=false
+          while IFS= read -r p; do
+            case "$p" in
+              HarmonyBot-V71/src/*.cs)
+                if git diff -w --ignore-blank-lines \
+                     -I '^[[:space:]]*//' \
+                     -I '^[[:space:]]*/\*' \
+                     -I '^[[:space:]]*\*' \
+                     --quiet "$BEFORE" "$AFTER" -- "$p"; then
+                  echo "[V74-RAPID-CHANGE-GATE] comment/whitespace-only C# change ignored: $p"
+                else
+                  FULL=true
+                fi
+                ;;
+              HarmonyBot-V71/HarmonyBotV71.csproj|\
+              HarmonyBot-V71/tools/run_window.sh|\
+              HarmonyBot-V71/tools/run_backtest.sh|\
+              HarmonyBot-V71/tools/resolve_window.sh|\
+              HarmonyBot-V71/final/V71_BURNED_CALIBRATION_CUSTODY.json|\
+              HarmonyBot-V73/V73_RESEARCH_CUSTODY.json)
+                FULL=true
+                ;;
+            esac
+          done < <(git diff --name-only "$BEFORE" "$AFTER")
+          echo "full=$FULL" >> "$GITHUB_OUTPUT"
+          echo "[V74-RAPID-CHANGE-GATE] full=$FULL"
+
+  rapid_build:
+    needs: rapid_change_gate
+    if: ${{ needs.rapid_change_gate.outputs.full == 'true' && (github.event_name == 'workflow_dispatch' || github.head_ref == 'harmonybot/v73-opportunity-universe') }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          path: control
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Fail-closed static audit and candidate build
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd control
+          python3 HarmonyBot-V71/tools/static_contract_audit.py HarmonyBot-V71/src/HarmonyBotV71.cs
+          python3 HarmonyBot-V71/tools/verify_frozen_harmonic_engine.py HarmonyBot-V71/src/HarmonyBotV71.cs
+          python3 -m py_compile             HarmonyBot-V71/tools/evaluate_v73_universe.py             HarmonyBot-V71/tools/evaluate_v74_sequential.py             HarmonyBot-V71/tools/v74_model_lib.py
+          dotnet restore HarmonyBot-V71/HarmonyBotV71.csproj
+          dotnet build HarmonyBot-V71/HarmonyBotV71.csproj -c Release --no-restore --nologo
+          mkdir -p HarmonyBot-V71/dist
+          A=$(find HarmonyBot-V71/bin/Release -type f -name '*.algo' | head -1)
+          test -s "$A"
+          cp "$A" HarmonyBot-V71/dist/HarmonyBot_V71_Protected_Champion_Core_Incremental_Alpha.algo
+      - uses: actions/upload-artifact@v4
+        with:
+          name: v74-rapid-build
+          path: |
+            control/HarmonyBot-V71/dist
+            control/V71_STATIC_CONTRACT_AUDIT.json
+            control/V71_FROZEN_HARMONIC_ENGINE_GUARD.json
+          retention-days: 7
+
+  rapid_universe:
+    needs: rapid_build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 50
+    strategy:
+      fail-fast: false
+      max-parallel: 8
+      matrix:
+        window: [Y2016, Y2017, Y2018, Y2019, Y2020, Y2021, Y2022, Y2023]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          path: control
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: v74-rapid-build
+          path: control/HarmonyBot-V71/shared
+
+      - id: custody
+        name: Resolve immutable annual custody without V51 replay barrier
+        shell: bash
+        run: |
+          set -euo pipefail
+          W="${{ matrix.window }}"
+          if [[ "$W" =~ ^Y20(16|17|18|19|20)$ ]]; then
+            M=control/HarmonyBot-V73/V73_RESEARCH_CUSTODY.json
+          else
+            M=control/HarmonyBot-V71/final/V71_BURNED_CALIBRATION_CUSTODY.json
+          fi
+          test -s "$M"
+          RUN=$(python3 - "$M" <<'PY'
+          import json,sys
+          print(json.load(open(sys.argv[1]))["source_run_id"])
+          PY
+          )
+          ART=$(python3 - "$M" "$W" <<'PY'
+          import json,sys
+          print(json.load(open(sys.argv[1]))["windows"][sys.argv[2]]["artifact"])
+          PY
+          )
+          SHA=$(python3 - "$M" "$W" <<'PY'
+          import json,sys
+          print(json.load(open(sys.argv[1]))["windows"][sys.argv[2]]["sha256"])
+          PY
+          )
+          echo "run=$RUN" >> "$GITHUB_OUTPUT"
+          echo "artifact=$ART" >> "$GITHUB_OUTPUT"
+          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+          echo "[V74-RAPID-CUSTODY] window=$W run=$RUN artifact=$ART sha256=$SHA"
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: ${{ steps.custody.outputs.artifact }}
+          path: control/HarmonyBot-V71/data-seed
+          github-token: ${{ github.token }}
+          run-id: ${{ steps.custody.outputs.run }}
+
+      - name: Verify immutable bytes
+        shell: bash
+        run: |
+          set -euo pipefail
+          H=$(cd control/HarmonyBot-V71/data-seed && find . -type f -print0 | LC_ALL=C sort -z | xargs -0 sha256sum | sha256sum | cut -d' ' -f1)
+          test "$H" = "${{ steps.custody.outputs.sha }}" || {
+            echo "[V74-RAPID-CUSTODY-FAIL] window=${{ matrix.window }} expected=${{ steps.custody.outputs.sha }} actual=$H"
+            exit 48
+          }
+
+      - name: Run exact V74 telemetry universe
+        env:
+          CTRADER_PASSWORD: ${{ secrets.CTRADER_PASSWORD }}
+          CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+          CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+          V71_DATA_SEED_DIR: ${{ github.workspace }}/control/HarmonyBot-V71/data-seed
+          V71_EXPECTED_DATA_SHA256: ${{ steps.custody.outputs.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          eval "$(bash control/HarmonyBot-V71/tools/resolve_window.sh ${{ matrix.window }})"
+          mkdir -p control/HarmonyBot-V71/dist
+          A=$(find control/HarmonyBot-V71/shared -type f -name 'HarmonyBot_V71_Protected_Champion_Core_Incremental_Alpha.algo' | head -1)
+          test -s "$A"
+          cp "$A" control/HarmonyBot-V71/dist/
+          chmod +x control/HarmonyBot-V71/tools/*.sh
+          control/HarmonyBot-V71/tools/run_window.sh R_V73_OPPORTUNITY_UNIVERSE ${{ matrix.window }} "$START" "$EVAL" "$END" "$YEARS"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: v74-rapid-universe-${{ matrix.window }}
+          path: control/HarmonyBot-V71/output-R_V73_OPPORTUNITY_UNIVERSE-${{ matrix.window }}
+          retention-days: 7
+
+  rapid_decision:
+    needs: rapid_universe
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    outputs:
+      alpha_pass: ${{ steps.v74.outputs.alpha_pass }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          path: control
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: v74-rapid-universe-*
+          path: merged
+          merge-multiple: true
+
+      - name: Revalidate V73 supply/custody contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p gate
+          python3 control/HarmonyBot-V71/tools/evaluate_v73_universe.py merged gate
+          test "$(cat gate/pass.txt)" = "true"
+
+      - id: v74
+        name: Run unchanged V74 OOF decision
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p tournament
+          python3 control/HarmonyBot-V71/tools/evaluate_v74_sequential.py merged tournament
+          ALPHA=$(cat tournament/alpha_pass.txt)
+          echo "alpha_pass=$ALPHA" >> "$GITHUB_OUTPUT"
+          python3 - <<'PY'
+          import json
+          m=json.load(open("tournament/V74_TOURNAMENT_MANIFEST.json"))
+          print("[V74-RAPID-DECISION]")
+          print(json.dumps({
+            "alpha_gate":m.get("alpha_gate"),
+            "alpha_champion":m.get("alpha_champion"),
+            "execution_semantics_ready":m.get("execution_semantics_ready"),
+            "v74_gate":m.get("v74_gate"),
+            "promotion_blocker":m.get("promotion_blocker"),
+            "evaluator_runtime_seconds":m.get("evaluator_runtime_seconds"),
+            "folds":{k:{x:v.get(x) for x in ("n","mean_r","pf_r","win_rate","average_rr","lcb_r","pass")} for k,v in m.get("folds",{}).items()}
+          },indent=2))
+          PY
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: V74-RAPID-DECISION
+          path: |
+            gate
+            tournament
+          retention-days: 30

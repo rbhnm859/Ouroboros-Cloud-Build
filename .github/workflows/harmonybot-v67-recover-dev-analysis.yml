@@ -1,0 +1,42 @@
+name: HarmonyBot V67 Recover DEV Analysis
+
+on:
+  push:
+    branches: [harmonybot/v67-v52-family-native-throughput-grid-commercial-rebase]
+    paths:
+      - '.github/workflows/harmonybot-v67-recover-dev-analysis.yml'
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  recover:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: harmonybot/v67-v52-family-native-throughput-grid-commercial-rebase
+          path: control
+          fetch-depth: 1
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: 'v67-dev-*'
+          path: control/HarmonyBot-V67/merged
+          merge-multiple: true
+          run-id: 36235505151
+          github-token: ${{ github.token }}
+      - name: Recover causal DEV frontier
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p control/HarmonyBot-V67/recovered
+          python3 control/HarmonyBot-V67/tools/analyze_v67.py control/HarmonyBot-V67/merged control/HarmonyBot-V67/recovered
+          test -s control/HarmonyBot-V67/recovered/V67_PERFORMANCE_FRONTIER.json
+          test -s control/HarmonyBot-V67/recovered/V67_FAMILY_ROUTE_WINDOW_ATTRIBUTION.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: HARMONYBOT-V67-DEV-FRONTIER-RECOVERED
+          path: control/HarmonyBot-V67/recovered
+          retention-days: 30

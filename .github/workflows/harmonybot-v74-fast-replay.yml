@@ -1,0 +1,230 @@
+name: HarmonyBot V74 Fast Replay
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'HarmonyBot-V71/tools/evaluate_v74_sequential.py'
+      - 'HarmonyBot-V71/tools/diagnose_v74_joint_oracle.py'
+      - 'HarmonyBot-V71/tools/v74_model_lib.py'
+      - 'HarmonyBot-V71/tools/apply_v74_champion.py'
+      - 'HarmonyBot-V71/tools/generate_v74_embedded_cs.py'
+      - 'HarmonyBot-V71/evidence/V74_FAST_REPLAY_SOURCE.json'
+      - '.github/workflows/harmonybot-v74-fast-replay.yml'
+
+concurrency:
+  group: harmonybot-v74-fast-replay-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  fast_change_gate:
+    runs-on: ubuntu-24.04
+    outputs:
+      fast: ${{ steps.c.outputs.fast }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - id: c
+        name: Classify current update
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            echo "fast=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          BEFORE="${{ github.event.before }}"
+          AFTER="${{ github.event.pull_request.head.sha }}"
+          if [[ -z "$BEFORE" || "$BEFORE" =~ ^0+$ ]]; then
+            echo "fast=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          git cat-file -e "$BEFORE^{commit}"
+          git cat-file -e "$AFTER^{commit}"
+          FAST=true
+          while IFS= read -r p; do
+            case "$p" in
+              HarmonyBot-V71/tools/evaluate_v74_sequential.py|\
+              HarmonyBot-V71/tools/diagnose_v74_joint_oracle.py|\
+              HarmonyBot-V71/tools/v74_model_lib.py|\
+              HarmonyBot-V71/tools/apply_v74_champion.py|\
+              HarmonyBot-V71/tools/generate_v74_embedded_cs.py|\
+              HarmonyBot-V71/evidence/V74_FAST_REPLAY_SOURCE.json|\
+              .github/workflows/harmonybot-v74-fast-replay.yml|\
+              .github/workflows/harmonybot-v74-rapid-decision.yml|\
+              .github/workflows/harmonybot-v73-v80-autonomous-evidence-pipeline.yml)
+                ;;
+              HarmonyBot-V71/src/*.cs)
+                if git diff -w --ignore-blank-lines \
+                     -I '^[[:space:]]*//' \
+                     -I '^[[:space:]]*/\*' \
+                     -I '^[[:space:]]*\*' \
+                     --quiet "$BEFORE" "$AFTER" -- "$p"; then
+                  echo "[V74-FAST-CHANGE-GATE] comment/whitespace-only C# change ignored: $p"
+                else
+                  FAST=false
+                fi
+                ;;
+              *)
+                FAST=false
+                ;;
+            esac
+          done < <(git diff --name-only "$BEFORE" "$AFTER")
+          echo "fast=$FAST" >> "$GITHUB_OUTPUT"
+          echo "[V74-FAST-CHANGE-GATE] fast=$FAST"
+
+  fast_replay:
+    needs: fast_change_gate
+    if: ${{ needs.fast_change_gate.outputs.fast == 'true' && (github.event_name == 'workflow_dispatch' || github.head_ref == 'harmonybot/v73-opportunity-universe') }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          path: control
+
+      - name: Resolve pinned universe evidence
+        id: source
+        shell: bash
+        run: |
+          set -euo pipefail
+          M=control/HarmonyBot-V71/evidence/V74_FAST_REPLAY_SOURCE.json
+          test -s "$M"
+          RUN=$(python3 -c 'import json;print(json.load(open("'$M'"))["source_run_id"])')
+          SHA=$(python3 -c 'import json;print(json.load(open("'$M'"))["source_head_sha"])')
+          echo "run=$RUN" >> "$GITHUB_OUTPUT"
+          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+
+      - name: Fail closed on universe semantic drift
+        shell: bash
+        run: |
+          set -euo pipefail
+          SOURCE="${{ steps.source.outputs.sha }}"
+          git -C control cat-file -e "$SOURCE^{commit}"
+          DRIFT=false
+          while IFS= read -r p; do
+            case "$p" in
+              HarmonyBot-V71/src/*.cs)
+                if ! git -C control diff -w --ignore-blank-lines \
+                     -I '^[[:space:]]*//' \
+                     -I '^[[:space:]]*/\*' \
+                     -I '^[[:space:]]*\*' \
+                     --quiet "$SOURCE" HEAD -- "$p"; then
+                  DRIFT=true
+                  echo "[V74-FAST-REPLAY-DRIFT] executable C# change: $p"
+                fi
+                ;;
+              HarmonyBot-V71/HarmonyBotV71.csproj|\
+              HarmonyBot-V71/tools/run_window.sh|\
+              HarmonyBot-V71/tools/run_backtest.sh|\
+              HarmonyBot-V71/tools/resolve_window.sh|\
+              HarmonyBot-V71/tools/run_v51_reference.sh)
+                DRIFT=true
+                echo "[V74-FAST-REPLAY-DRIFT] execution/data support change: $p"
+                ;;
+            esac
+          done < <(git -C control diff --name-only "$SOURCE" HEAD -- \
+            HarmonyBot-V71/src \
+            HarmonyBot-V71/HarmonyBotV71.csproj \
+            HarmonyBot-V71/tools/run_window.sh \
+            HarmonyBot-V71/tools/run_backtest.sh \
+            HarmonyBot-V71/tools/resolve_window.sh \
+            HarmonyBot-V71/tools/run_v51_reference.sh)
+          if [[ "$DRIFT" == "true" ]]; then
+            echo "[V74-FAST-REPLAY-BLOCK] execution/data semantics changed; full evidence pipeline required"
+            exit 91
+          fi
+
+      - name: Compile evaluator before artifact hydration
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m py_compile \
+            control/HarmonyBot-V71/tools/evaluate_v74_sequential.py \
+            control/HarmonyBot-V71/tools/diagnose_v74_joint_oracle.py \
+            control/HarmonyBot-V71/tools/v74_model_lib.py \
+            control/HarmonyBot-V71/tools/apply_v74_champion.py \
+            control/HarmonyBot-V71/tools/generate_v74_embedded_cs.py
+
+      - name: Verify source universe artifact set
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          RUN="${{ steps.source.outputs.run }}"
+          EXPECTED=$(printf '%s\n' v73-universe-Y2016 v73-universe-Y2017 v73-universe-Y2018 v73-universe-Y2019 v73-universe-Y2020 v73-universe-Y2021 v73-universe-Y2022 v73-universe-Y2023 | sort)
+          ACTUAL=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RUN/artifacts?per_page=100" --jq '.artifacts[].name' | grep '^v73-universe-Y20' | sort -u)
+          test "$ACTUAL" = "$EXPECTED" || {
+            echo "[V74-FAST-REPLAY-BLOCK] incomplete source universe artifact set"
+            printf 'expected:\n%s\nactual:\n%s\n' "$EXPECTED" "$ACTUAL"
+            exit 92
+          }
+
+      - name: Restore pinned universe cache
+        id: universe_cache
+        uses: actions/cache@v4
+        with:
+          path: merged
+          key: v74-universe-${{ runner.os }}-${{ steps.source.outputs.run }}-${{ steps.source.outputs.sha }}
+
+      - uses: actions/download-artifact@v4
+        if: steps.universe_cache.outputs.cache-hit != 'true'
+        with:
+          pattern: v73-universe-*
+          path: merged
+          merge-multiple: true
+          github-token: ${{ github.token }}
+          run-id: ${{ steps.source.outputs.run }}
+
+      - name: Revalidate V73 gate from reused immutable universe
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p gate
+          python3 control/HarmonyBot-V71/tools/evaluate_v73_universe.py merged gate
+          test "$(cat gate/pass.txt)" = "true"
+
+      - name: Joint hard-gate oracle feasibility diagnostic
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p oracle
+          python3 control/HarmonyBot-V71/tools/diagnose_v74_joint_oracle.py merged oracle
+
+      - name: Run cached V74 tournament
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p tournament
+          python3 control/HarmonyBot-V71/tools/evaluate_v74_sequential.py merged tournament
+          python3 - <<'PY'
+          import json
+          m=json.load(open("tournament/V74_TOURNAMENT_MANIFEST.json"))
+          print(json.dumps({
+            "alpha_gate":m.get("alpha_gate"),
+            "alpha_champion":m.get("alpha_champion"),
+            "v74_gate":m.get("v74_gate"),
+            "promotion_blocker":m.get("promotion_blocker"),
+            "evaluator_runtime_seconds":m.get("evaluator_runtime_seconds")
+          },indent=2))
+          PY
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: V74-FAST-REPLAY
+          path: |
+            gate
+            oracle
+            tournament
+            control/HarmonyBot-V71/evidence/V74_FAST_REPLAY_SOURCE.json
+          retention-days: 30

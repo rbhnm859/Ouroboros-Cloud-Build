@@ -1,0 +1,52 @@
+#!/usr/bin/env bash
+set -euo pipefail
+: "${1:?window}"; : "${2:?start}"; : "${3:?eval}"; : "${4:?end}"; : "${5:?years}"
+WIN="$1"; START="$2"; EVAL="$3"; END="$4"; YEARS="$5"
+C="$PWD/control"; W="$C/HarmonyBot-V71/reference-window-$WIN"; O="$C/HarmonyBot-V71/reference-output-$WIN"
+CUSTODY_MANIFEST="$C/HarmonyBot-V71/final/V71_BURNED_CALIBRATION_CUSTODY.json"
+if [[ -z "${V71_EXPECTED_DATA_SHA256:-}" && -s "$CUSTODY_MANIFEST" ]]; then
+ V71_EXPECTED_DATA_SHA256=$(python3 - "$CUSTODY_MANIFEST" "$WIN" <<'PY'
+import json,sys
+d=json.load(open(sys.argv[1]))
+print(d.get("windows",{}).get(sys.argv[2],{}).get("sha256",""))
+PY
+ )
+ export V71_EXPECTED_DATA_SHA256
+fi
+rm -rf "$O" "$W"; mkdir -p "$W/seal/algo" "$W/seal/data" "$O/raw-logs"
+cp "$C/HarmonyBot-V71/reference/HarmonyBot_V51_Family_Native_Math_Geometry_Economic_Conversion_RC.algo" "$W/seal/algo/"
+
+# Burned Calibration custody: when a sealed seed is supplied, reference,
+# replay and Shadow must all originate from exactly those bytes.
+if [[ -n "${V71_DATA_SEED_DIR:-}" ]]; then
+  test -d "$V71_DATA_SEED_DIR" || { echo "[V71-DATA-CUSTODY-FAIL] window=$WIN reason=MISSING_SEED_DIR"; exit 42; }
+  cp -a "$V71_DATA_SEED_DIR"/. "$W/seal/data"/
+  PRE_HASH=$(cd "$W/seal/data" && find . -type f -print0 | LC_ALL=C sort -z | xargs -0 sha256sum | sha256sum | cut -d' ' -f1)
+  echo "[V71-DATA-CUSTODY] window=$WIN stage=pre sha256=$PRE_HASH"
+  if [[ -n "${V71_EXPECTED_DATA_SHA256:-}" && "$PRE_HASH" != "$V71_EXPECTED_DATA_SHA256" ]]; then
+    echo "[V71-DATA-CUSTODY-FAIL] window=$WIN stage=pre expected=$V71_EXPECTED_DATA_SHA256 actual=$PRE_HASH"
+    exit 43
+  fi
+fi
+N="V51-REFERENCE-$WIN-B10000"
+(
+ cd "$W"
+ RUN_NAME="$N" START_DATE="$START" EVAL_DATE="$EVAL" END_DATE="$END" BALANCE=10000 \
+ FAMNATIVE=false FAMOBS=true CANCONTRACT=true FAMCONF=true GRIDV2=true STOPV2=true JOINT=true CORRIDOR=true ANCHORFORENSICS=true \
+ PQUEUE=false HANDOFF=false NATIVE=false NATIVEBARS=4 DECAY=false HARDLIFE=180 REVALIDATE=false \
+ ALGO="seal/algo/HarmonyBot_V51_Family_Native_Math_Geometry_Economic_Conversion_RC.algo" \
+ IMMUTABLE_DATA="${V71_DATA_SEED_DIR:+true}" BACKTEST_TIMEOUT_SECONDS=1800 "$C/HarmonyBot-V71/tools/run_v51_backtest_safe.sh"
+)
+test -s "$W/seal/logs/$N.log"; test -s "$W/seal/reports/$N.json"
+DATA_FILES=$(find "$W/seal/data" -type f | wc -l | tr -d " ")
+test "$DATA_FILES" -gt 0 || { echo "[V71-DATA-SEED-FAIL] window=$WIN reason=EMPTY_DATA_CACHE"; exit 41; }
+DATA_HASH=$(cd "$W/seal/data" && find . -type f -print0 | LC_ALL=C sort -z | xargs -0 sha256sum | sha256sum | cut -d' ' -f1)
+if [[ -n "${V71_EXPECTED_DATA_SHA256:-}" && "$DATA_HASH" != "$V71_EXPECTED_DATA_SHA256" ]]; then
+  echo "[V71-DATA-CUSTODY-FAIL] window=$WIN stage=post expected=$V71_EXPECTED_DATA_SHA256 actual=$DATA_HASH"
+  exit 44
+fi
+printf "%s\n" "$DATA_HASH" > "$O/DATA_SNAPSHOT_SHA256.txt"
+printf "%s\n" "$DATA_FILES" > "$O/DATA_SNAPSHOT_FILE_COUNT.txt"
+echo "[V71-DATA-SEED] window=$WIN files=$DATA_FILES sha256=$DATA_HASH"
+cp "$W/seal/logs/$N.log" "$O/raw-logs/$N.log"; cp "$W/seal/reports/$N.json" "$O/raw-report.json"
+python3 "$C/HarmonyBot-V71/tools/audit_report.py" --report "$W/seal/reports/$N.json" --log "$W/seal/logs/$N.log"  --out "$O/V51_REFERENCE-$WIN.json" --window "$WIN" --variant "V51_REFERENCE" --years "$YEARS" --balance 10000 --data-snapshot "$O/DATA_SNAPSHOT_SHA256.txt"
