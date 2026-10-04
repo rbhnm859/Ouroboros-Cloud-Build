@@ -304,22 +304,41 @@ def training_continuation_targets(samples):
         future=max(future,event_best[b])
     return target
 
+def event_regret_targets(samples):
+    """Training-only counterfactual labels aligned to the deployed decision:
+    at each event/bar, learn regret to the best concurrently matured legal action
+    and probability of being the event-best action. No target is ever appended to
+    x or computed for burned rows during inference."""
+    regret=[0.0]*len(samples);bestp=[0.0]*len(samples);by=defaultdict(list)
+    for i,s in enumerate(samples):by[(s["window"],s["setup"],s["bar"])].append(i)
+    for ids in by.values():
+      top=max(float(samples[i]["y"]) for i in ids)
+      ties=[i for i in ids if abs(float(samples[i]["y"])-top)<=1e-12]
+      for i in ids:
+        regret[i]=max(0.0,min(6.0,top-float(samples[i]["y"])))
+        bestp[i]=1.0 if i in ties else 0.0
+    return regret,bestp
+
 def fit_value(samples):
     idx=stable_idx(samples,TREE_KFEAT);X=[s["x"] for s in samples]
     ym=[float(s["y"]) for s in samples];yw=[1.0 if s["y"]>0 else 0.0 for s in samples]
     yc=training_continuation_targets(samples)
+    yr,yb=event_regret_targets(samples)
     mm=_boost_train(X,ym,idx,rounds=TREE_ROUNDS,lr=.075)
     wm=_boost_train(X,yw,idx,rounds=TREE_ROUNDS,lr=.075)
     cm=_boost_train(X,yc,idx,rounds=TREE_ROUNDS,lr=.075)
+    rm=_boost_train(X,yr,idx,rounds=TREE_ROUNDS,lr=.075)
+    bm=_boost_train(X,yb,idx,rounds=TREE_ROUNDS,lr=.075)
     pm=[_boost_pred(mm,x)[0] for x in X];pw=[max(0.0,min(1.0,_boost_pred(wm,x)[0])) for x in X]
-    return {"idx":idx,"mean":mm,"win":wm,"continuation":cm,
+    return {"idx":idx,"mean":mm,"win":wm,"continuation":cm,"regret":rm,"best":bm,
             "residuals":_residual_cells(samples,pm,pw)}
 
 def pred_value(md,s):
     mu,s1=_boost_pred(md["mean"],s["x"]);wi,s2=_boost_pred(md["win"],s["x"])
     co,s3=_boost_pred(md["continuation"],s["x"])
-    wi=max(0.0,min(1.0,wi));co=max(0.0,co)
-    adds_m=[];adds_w=[];supports=[s1 or 1,s2 or 1,s3 or 1]
+    rg,s4=_boost_pred(md["regret"],s["x"]);bp,s5=_boost_pred(md["best"],s["x"])
+    wi=max(0.0,min(1.0,wi));co=max(0.0,co);rg=max(0.0,rg);bp=max(0.0,min(1.0,bp))
+    adds_m=[];adds_w=[];supports=[s1 or 1,s2 or 1,s3 or 1,s4 or 1,s5 or 1]
     for lvl,k in (("family",str(s["family"])),
                   ("family_action",str((s["family"],s["action"]))),
                   ("family_base",str((s["family"],s["base"])))):
@@ -329,10 +348,14 @@ def pred_value(md,s):
     if adds_w:wi=max(0.0,min(1.0,wi+med(adds_w)))
     sup=max(1,min(supports));lc=mu-Z*float(md["mean"]["sigma"])/math.sqrt(sup)
     stop_adv=mu-co
-    route_score=mu+1.35*wi+.55*lc
-    admission_score=stop_adv+.65*mu+1.15*wi+.35*lc
-    return {"mean":mu,"win":wi,"lcb":lc,"continuation":co,"stop_advantage":stop_adv,
-            "support":sup,"value_score":route_score,"admission_score":admission_score}
+    # Regret is the primary route-ranking objective because the physical oracle
+    # feasibility comes from choosing the right concurrently legal action inside
+    # each event. Absolute payoff remains the capital-admission objective.
+    route_score=(-1.35*rg)+(1.75*bp)+.35*mu+.45*wi+.20*lc
+    admission_score=.55*stop_adv+.75*mu+1.30*wi+.40*lc-.65*rg+.80*bp
+    return {"mean":mu,"win":wi,"lcb":lc,"continuation":co,"regret":rg,"best_probability":bp,
+            "stop_advantage":stop_adv,"support":sup,"value_score":route_score,
+            "admission_score":admission_score}
 
 def fit_pair(samples):
     idx=stable_idx(samples,PAIR_KFEAT);X=[];yw=[];yd=[]
@@ -508,14 +531,14 @@ def apply_policy(policy,test_rows):
 
 checks=telemetry_guard()
 summary={"version":"HarmonyBot V74 One-Shot Family-Native Causal Action Selector",
- "architecture":"EVENT_NATIVE_MECHANISM_NATIVE_HEADS_CAUSAL_OPTIMAL_STOPPING",
+ "architecture":"EVENT_NATIVE_COUNTERFACTUAL_REGRET_RANKING_CAUSAL_OPTIMAL_STOPPING",
  "gate":{"min_selected_per_year":MIN_N,"min_mean_r":MIN_MEAN,"min_pf_r":MIN_PF,
          "min_win_rate":MIN_WR,"min_average_rr":MIN_RR,"lcb95_gt":0.0},
  "research_training_windows":RESEARCH,"burned_oof_windows":BURNED,
  "policy":{"actions":"EARLY_OR_LATE_COMPLETED_BAR_ENTRY_ACTION__FIXED_F30_QUALIFICATION",
            "harmonic_completion":"DIRECTION_TIME_D_EVENT_IDENTITY__MULTI_GEOMETRY_IS_CONFLUENCE_NOT_SUPPLY",
            "reaction_state":"CAUSAL_FEATURE_NOT_HARD_FILTER","physical_route_contract":"EVENT_NATIVE_EARLY_PLUS_LATE_PLUS_SURVIVAL_FRESH_RAW_BASKETS__FIXED_F30_QUALIFICATION","v75_management_variants_excluded":True,"early_post_entry_m_stage_excluded":True,
-           "route_choice":"MECHANISM_NATIVE_EXPECTED_R_WIN_PROB_CONTINUATION_PLUS_INTRA_SOURCE_PAIRWISE","optimal_stopping":"MECHANISM_NATIVE_TRAINING_ONLY_CONTINUATION_HEAD__EVENT_LEVEL_STOP_VS_DEFER",
+           "route_choice":"EVENT_NATIVE_COUNTERFACTUAL_REGRET_PLUS_BEST_ACTION_PROBABILITY_THEN_ABSOLUTE_PAYOFF","optimal_stopping":"MECHANISM_NATIVE_TRAINING_ONLY_CONTINUATION_HEAD__EVENT_LEVEL_STOP_VS_DEFER",
            "admission":"TRAINING_ONLY_WORST_YEAR_GATE_CALIBRATED_STOP_ADVANTAGE_THRESHOLD",
            "training_coverage_target_per_year":TRAIN_COVERAGE,
            "family_hierarchy":"WITHIN_MECHANISM_GLOBAL_TO_FAMILY_TO_FAMILY_ACTION_TO_FAMILY_BASE_SHRINKAGE",
@@ -547,7 +570,7 @@ for test in BURNED:
         for k in ("n","mean_r","pf_r","win_rate","average_rr","lcb_r","pass")}),flush=True)
 
 alpha=bool(allpass)
-champ="EVENT_NATIVE_MECHANISM_NATIVE_HEADS_CAUSAL_OPTIMAL_STOPPING" if alpha else None
+champ="EVENT_NATIVE_COUNTERFACTUAL_REGRET_RANKING_CAUSAL_OPTIMAL_STOPPING" if alpha else None
 summary["evaluator_runtime_seconds"]=round(time.perf_counter()-t0,3)
 summary["alpha_gate"]=alpha;summary["alpha_champion"]=champ
 summary["execution_semantics_ready"]=False;summary["v74_gate"]=False;summary["champion"]=None
