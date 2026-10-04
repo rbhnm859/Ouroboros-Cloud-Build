@@ -83,7 +83,7 @@ namespace cAlgo.Robots
         private static readonly double[] V74SequentialAdverseCutR = V74SequentialKey.Select(_=>-.15).ToArray();
 
 
-        // V74_CAUSAL_PATH_STATE_V4_REBUILD
+        // V74_SECOND_IMPULSE_REACCEL_V5_REBUILD
         // True late-entry auction reuses the proven 48-route family/native payoff
         // geometry (M05/M10/M15 x R025/R050 x H/D x RR35/RR40 x F20/F30),
         // but moves capital admission to the completed-bar M-stage. Post-entry
@@ -999,25 +999,38 @@ namespace cAlgo.Robots
                 double reactionR=V74LateQualificationReactionR(k);
                 if(o.V74LateAuctionReactionBar[k]<0)
                 {
-                    if(virtualFav+1e-12>=reactionR)o.V74LateAuctionReactionBar[k]=o.BarsActive;
+                    if(virtualFav+1e-12>=reactionR)
+                    {
+                        o.V74LateAuctionReactionBar[k]=o.BarsActive;
+                        // Freeze the first completed reaction impulse extreme. Before a
+                        // pullback is observed this boundary may extend only on later
+                        // completed bars; the pullback bar itself can never move it.
+                        o.V74LateAuctionAnchorEntry[k]=buy?high:low;
+                    }
                     continue; // reaction bar is observation only
                 }
                 if(o.BarsActive<=o.V74LateAuctionReactionBar[k])continue;
 
-                // Stage 2: require a genuine pullback after the observed harmonic reaction.
+                // Stage 2: require a genuine pullback after the observed harmonic
+                // reaction. The pre-pullback impulse extreme is the future rebreak
+                // boundary; this prevents a weak pullback-bar micro-BOS from qualifying.
                 if(!o.V74LateAuctionPending[k])
                 {
                     double pullbackDepth=V74LateQualificationPullbackR(k);
                     double pullbackR=Math.Max(.05,reactionR-pullbackDepth);
                     double pullbackPrice=buy?o.Entry+o.RiskDistance*pullbackR:o.Entry-o.RiskDistance*pullbackR;
                     bool touched=buy?low<=pullbackPrice:high>=pullbackPrice;
-                    if(!touched)continue;
+                    if(!touched)
+                    {
+                        o.V74LateAuctionAnchorEntry[k]=buy?
+                            Math.Max(o.V74LateAuctionAnchorEntry[k],high):
+                            Math.Min(o.V74LateAuctionAnchorEntry[k],low);
+                        continue;
+                    }
 
                     double buffer=Math.Max(PipsToPrice(ModeledCostPips()),_symbol.PipSize);
                     o.V74LateAuctionPending[k]=true;
                     o.V74LateAuctionAnchorBar[k]=o.BarsActive;
-                    // Fixed micro-BOS boundary is the pullback bar extreme in thesis direction.
-                    o.V74LateAuctionAnchorEntry[k]=buy?high:low;
                     o.V74LateAuctionAnchorStop[k]=buy?low-buffer:high+buffer;
                     o.V74LateAuctionAnchorRisk[k]=Math.Max(_symbol.PipSize,
                         Math.Abs(o.V74LateAuctionAnchorEntry[k]-o.V74LateAuctionAnchorStop[k]));
@@ -1040,13 +1053,16 @@ namespace cAlgo.Robots
                 o.V74LateAuctionAnchorMfeR[k]=Math.Max(o.V74LateAuctionAnchorMfeR[k],anchorFav);
                 o.V74LateAuctionAnchorMaeR[k]=Math.Max(o.V74LateAuctionAnchorMaeR[k],anchorAdv);
 
-                bool reclaim=buy?close>boundary:close<boundary;
+                // Stage 3 is a true second impulse. Capital cannot enter merely because
+                // price reclaimed the pullback bar; a completed close must break the
+                // frozen pre-pullback reaction extreme in the harmonic thesis direction.
+                bool rebreak=buy?close>boundary:close<boundary;
                 double range=Math.Max(_symbol.PipSize,high-low);
                 double alignedClose=buy?(close-low)/range:(high-close)/range;
                 bool quality=!V74LateQualificationStrictClose(k)||alignedClose+1e-12>=.65;
                 bool strictTwoBar=V74LateQualificationTwoBar(k);
 
-                if(!(reclaim&&directional&&quality))
+                if(!(rebreak&&directional&&quality))
                 {
                     if(strictTwoBar&&o.V74LateAuctionTriggerBar[k]>=0)o.V74LateAuctionTriggerBar[k]=-1;
                     continue;
@@ -1057,17 +1073,17 @@ namespace cAlgo.Robots
                     if(o.V74LateAuctionTriggerBar[k]<0)
                     {
                         o.V74LateAuctionTriggerBar[k]=o.BarsActive;
-                        continue; // micro-BOS bar is observation only
+                        continue; // first rebreak bar is observation only
                     }
                     if(o.BarsActive<=o.V74LateAuctionTriggerBar[k])continue;
-                    // Current completed bar has held beyond the prior micro-BOS boundary.
+                    // A later completed bar still holds beyond the first impulse extreme.
                 }
                 else o.V74LateAuctionTriggerBar[k]=o.BarsActive;
 
-                // Stage 3: fresh capital only after reaction -> pullback -> reclaim/BOS.
-                // The stop is the observed pullback extreme, never wider than the original
-                // harmonic structural stop. Qualification target is exactly 2.30/2.50 NetRR
-                // and must fit inside the original canonical target runway.
+                // Stage 4: fresh capital only after reaction -> pullback -> second-impulse
+                // re-acceleration. Stop is the full observed retrace extreme, never wider
+                // than the original structural stop. Qualification target remains exactly
+                // 2.30/2.50 NetRR and must fit inside the canonical target runway.
                 double entry=close;
                 double stop=buy?Math.Max(o.Stop,o.V74LateAuctionAnchorStop[k]):
                                 Math.Min(o.Stop,o.V74LateAuctionAnchorStop[k]);
