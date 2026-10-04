@@ -178,7 +178,7 @@ def make_samples(xs):
       for b in BASES:
         for o in all_options(r,b):
           out.append({"window":r["window"],"setup":r["setup"],"family":r["family"],"action":r["action"],
-                      "base":b,"route":o["rid"],"bar":o["bar"],"bars":o["bars"],"x":o["x"],
+                      "source":o["src"],"base":b,"route":o["rid"],"bar":o["bar"],"bars":o["bars"],"x":o["x"],
                       "y":o["y"],"row":r})
       for sf in SURVIVAL_FRESH_KEYS:
         y=r.get("survival_fresh",{}).get(sf);rr=r.get("survival_fresh_rr",{}).get(sf)
@@ -187,7 +187,7 @@ def make_samples(xs):
         if y is None or rr is None or eb<0 or float(rr)+1e-9<MIN_RR:continue
         bars=max(1,int(r.get("survival_fresh_bars",{}).get(sf,r.get("bars",1)) or 1))
         out.append({"window":r["window"],"setup":r["setup"],"family":r["family"],"action":r["action"],
-                    "base":"SURVIVAL_"+sf,"route":"SURVIVAL|"+sf,"bar":eb,"bars":bars,
+                    "source":"SURVIVAL","base":"SURVIVAL_"+sf,"route":"SURVIVAL|"+sf,"bar":eb,"bars":bars,
                     "x":survival_xvec(r,sf,eb),"y":float(y),"row":r})
     return out
 
@@ -449,39 +449,76 @@ def gate_calibrated_threshold(decisions,years,target=TRAIN_COVERAGE):
       best=(min(gate_margin(m) for m in tm.values()),med([gate_margin(m) for m in tm.values()]),th,tm)
     return best[2],limits,supply,best[3],best[0]
 
+def mechanism_decisions(samples,heads):
+    """Route arbitration is mechanism-native; only calibrated action values meet
+    at the event-level capital decision. This prevents EARLY/LATE/SURVIVAL from
+    contaminating each other's feature selection, continuation target and pair model."""
+    out=[]
+    for src in SOURCES:
+      md=heads.get(src)
+      if not md:continue
+      ss=[s for s in samples if s.get("source")==src]
+      if not ss:continue
+      dd=event_decisions(ss,md["value_model"],md["pairwise_ranker"])
+      for e in dd:
+        e["mechanism"]=src
+        # Expected-R and P(win) are already on common physical units. Apply only
+        # a training-derived reliability penalty for weak-support mechanism heads.
+        rel=float(md.get("reliability",1.0))
+        e["score"]=rel*float(e["score"])+(1.0-rel)*float(e["pred"]["lcb"])
+        e["s"]["mechanism"]=src
+      out.extend(dd)
+    return out
+
 def fit_policy(train_rows):
     samples=make_samples(train_rows)
     if len(samples)<1000:raise SystemExit("V74 insufficient legal action samples")
-    vm=fit_value(samples);pm=fit_pair(samples)
-    if not pm.get("valid"):raise SystemExit("V74 pairwise model invalid")
-    dec=event_decisions(samples,vm,pm)
+    heads={}
+    mechanism_training={}
+    for src in SOURCES:
+      ss=[s for s in samples if s.get("source")==src]
+      if len(ss)<250:continue
+      vm=fit_value(ss);pm=fit_pair(ss)
+      if not pm.get("valid"):continue
+      # Reliability is a causal training-only shrinkage term. It cannot improve a
+      # weak head by invention; it only shrinks low-support heads toward their LCB.
+      years=sorted({s["window"] for s in ss})
+      counts=[sum(1 for s in ss if s["window"]==w) for w in years]
+      reliability=min(1.0,min(counts)/750.0) if counts else 0.0
+      heads[src]={"value_model":vm,"pairwise_ranker":pm,"reliability":reliability,
+                  "n":len(ss),"year_counts":dict((w,sum(1 for s in ss if s["window"]==w)) for w in years)}
+      mechanism_training[src]={"n":len(ss),"reliability":reliability,
+                               "selected_features":len(vm.get("idx",[])),
+                               "pairwise_n":pm.get("n",0)}
+    if not heads:raise SystemExit("V74 no valid mechanism-native heads")
+    dec=mechanism_decisions(samples,heads)
     yrs=sorted({r["window"] for r in train_rows})
     th,limits,supply,tm,worst=gate_calibrated_threshold(dec,yrs,TRAIN_COVERAGE)
     training_gate=all(gate(m) for m in tm.values())
-    return {"value_model":vm,"pairwise_ranker":pm,"threshold":th,
+    return {"mechanism_heads":heads,"mechanism_training":mechanism_training,"threshold":th,
             "training_coverage_limits":limits,"training_supply":supply,
             "training_metrics":tm,"training_worst_gate_margin":worst,
             "training_gate":training_gate,"coverage_target":TRAIN_COVERAGE},samples
 
 def apply_policy(policy,test_rows):
     samples=make_samples(test_rows)
-    dec=event_decisions(samples,policy["value_model"],policy["pairwise_ranker"])
+    dec=mechanism_decisions(samples,policy["mechanism_heads"])
     sel=simulate(dec,policy["threshold"])
     return sel,samples,dec
 
 checks=telemetry_guard()
 summary={"version":"HarmonyBot V74 One-Shot Family-Native Causal Action Selector",
- "architecture":"EVENT_NATIVE_FAMILY_CONFLUENCE_BOUNDED_DEPTH3_CAUSAL_OPTIMAL_STOPPING",
+ "architecture":"EVENT_NATIVE_MECHANISM_NATIVE_HEADS_CAUSAL_OPTIMAL_STOPPING",
  "gate":{"min_selected_per_year":MIN_N,"min_mean_r":MIN_MEAN,"min_pf_r":MIN_PF,
          "min_win_rate":MIN_WR,"min_average_rr":MIN_RR,"lcb95_gt":0.0},
  "research_training_windows":RESEARCH,"burned_oof_windows":BURNED,
  "policy":{"actions":"EARLY_OR_LATE_COMPLETED_BAR_ENTRY_ACTION__FIXED_F30_QUALIFICATION",
            "harmonic_completion":"DIRECTION_TIME_D_EVENT_IDENTITY__MULTI_GEOMETRY_IS_CONFLUENCE_NOT_SUPPLY",
            "reaction_state":"CAUSAL_FEATURE_NOT_HARD_FILTER","physical_route_contract":"EVENT_NATIVE_EARLY_PLUS_LATE_PLUS_SURVIVAL_FRESH_RAW_BASKETS__FIXED_F30_QUALIFICATION","v75_management_variants_excluded":True,"early_post_entry_m_stage_excluded":True,
-           "route_choice":"BOUNDED_DEPTH3_EXPECTED_R_WIN_PROB_PLUS_COUNTERFACTUAL_PAIRWISE_DELTA","optimal_stopping":"TRAINING_ONLY_CONTINUATION_VALUE_HEAD__RUNTIME_STOP_VS_DEFER",
+           "route_choice":"MECHANISM_NATIVE_EXPECTED_R_WIN_PROB_CONTINUATION_PLUS_INTRA_SOURCE_PAIRWISE","optimal_stopping":"MECHANISM_NATIVE_TRAINING_ONLY_CONTINUATION_HEAD__EVENT_LEVEL_STOP_VS_DEFER",
            "admission":"TRAINING_ONLY_WORST_YEAR_GATE_CALIBRATED_STOP_ADVANTAGE_THRESHOLD",
            "training_coverage_target_per_year":TRAIN_COVERAGE,
-           "family_hierarchy":"GLOBAL_TO_FAMILY_TO_FAMILY_ACTION_TO_FAMILY_BASE_SHRINKAGE",
+           "family_hierarchy":"WITHIN_MECHANISM_GLOBAL_TO_FAMILY_TO_FAMILY_ACTION_TO_FAMILY_BASE_SHRINKAGE",
            "no_trigger_posttrigger_lock_future_state":True,
            "canonical_family_blanket_blacklist":False,"grid":False,
            "v75_profit_capture_used":False},
@@ -510,7 +547,7 @@ for test in BURNED:
         for k in ("n","mean_r","pf_r","win_rate","average_rr","lcb_r","pass")}),flush=True)
 
 alpha=bool(allpass)
-champ="FAMILY_NATIVE_BOUNDED_DEPTH3_CAUSAL_ENSEMBLE_COVERAGE_CONSTRAINED_OPTIMAL_STOPPING" if alpha else None
+champ="EVENT_NATIVE_MECHANISM_NATIVE_HEADS_CAUSAL_OPTIMAL_STOPPING" if alpha else None
 summary["evaluator_runtime_seconds"]=round(time.perf_counter()-t0,3)
 summary["alpha_gate"]=alpha;summary["alpha_champion"]=champ
 summary["execution_semantics_ready"]=False;summary["v74_gate"]=False;summary["champion"]=None
