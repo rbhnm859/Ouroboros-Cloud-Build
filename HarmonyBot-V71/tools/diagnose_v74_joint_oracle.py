@@ -11,8 +11,9 @@ MIN_N=250;MIN_MEAN=.90;MIN_PF=3.30;MIN_WR=.70;MIN_AVG_RR=2.30;LEGAL_MIN_RR=2.0
 def fixed_f30(keys):
     return [k for k in keys if k.endswith("_F30")]
 def early_entry_keys(keys):
-    # V74 entry Alpha is raw. F10/F20/F30 crystallization is V75 territory.
-    return [k for k in keys if k.startswith("M15_") and k.endswith("_F00")]
+    # V74 entry Alpha is raw F00. M05/M10/M15 are completed-M1 confirmation
+    # horizons, not post-entry management.
+    return [k for k in keys if k.endswith("_F00")]
 KEYS={"EARLY":early_entry_keys(SEQUENTIAL_KEYS),"LATE":fixed_f30(LATE_AUCTION_KEYS),"SURVIVAL":SURVIVAL_FRESH_KEYS,"FAILURE":["FC230"]}
 rows=load_rows(root,YEARS)
 
