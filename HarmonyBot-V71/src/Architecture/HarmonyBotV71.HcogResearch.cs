@@ -155,7 +155,10 @@ namespace cAlgo.Robots
         private static bool V74SequentialQualificationKey(int k)
         {
             string key=V74SequentialKey[k];
-            return key.StartsWith("M15_")&&key.EndsWith("_F30");
+            // Formal V74 EARLY qualification is raw F00. F10/F20/F30 are
+            // post-entry crystallization variants owned by V75 and must not be
+            // substituted by the performance kernel.
+            return key.StartsWith("M15_")&&key.EndsWith("_F00");
         }
         private static bool V74LateQualificationKey(int k) => V74LateAuctionKey[k].EndsWith("_F30");
 
@@ -1455,12 +1458,12 @@ namespace cAlgo.Robots
             var sfParts=new List<string>{"setup="+o.SetupKey,"family="+o.Family,"lane="+o.Lane};
             for(int k=0;k<V74SurvivalFreshKey.Length;k++)
             {
-                if(!V74ResearchQualificationOnly)
-                {
-                    sfParts.Add("m"+k+"="+(string.IsNullOrWhiteSpace(o.V74SurvivalFreshMaturityStateCsv[k])?"NONE":o.V74SurvivalFreshMaturityStateCsv[k]));
-                    sfParts.Add("pb"+k+"="+o.V74SurvivalFreshPullbackBar[k].ToString(System.Globalization.CultureInfo.InvariantCulture));
-                    sfParts.Add("tb"+k+"="+o.V74SurvivalFreshTriggerBar[k].ToString(System.Globalization.CultureInfo.InvariantCulture));
-                }
+                // These three fields are part of the deployed V74 causal feature
+                // contract (maturity->entry delta and pullback/trigger timing).
+                // They must remain present even in the accelerated research kernel.
+                sfParts.Add("m"+k+"="+(string.IsNullOrWhiteSpace(o.V74SurvivalFreshMaturityStateCsv[k])?"NONE":o.V74SurvivalFreshMaturityStateCsv[k]));
+                sfParts.Add("pb"+k+"="+o.V74SurvivalFreshPullbackBar[k].ToString(System.Globalization.CultureInfo.InvariantCulture));
+                sfParts.Add("tb"+k+"="+o.V74SurvivalFreshTriggerBar[k].ToString(System.Globalization.CultureInfo.InvariantCulture));
                 sfParts.Add("e"+k+"="+(string.IsNullOrWhiteSpace(o.V74SurvivalFreshEntryStateCsv[k])?"NONE":o.V74SurvivalFreshEntryStateCsv[k]));
                 sfParts.Add("b"+k+"="+(double.IsFinite(o.V74SurvivalFreshOutcomeR[k])?o.V74SurvivalFreshOutcomeR[k].ToString("R",System.Globalization.CultureInfo.InvariantCulture):"NA"));
                 sfParts.Add("rr"+k+"="+o.V74SurvivalFreshNetRr[k].ToString("R",System.Globalization.CultureInfo.InvariantCulture));
