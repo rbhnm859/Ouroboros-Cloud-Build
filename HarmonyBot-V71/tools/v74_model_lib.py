@@ -16,7 +16,7 @@ FEATURE_NAMES=["geometry","prz","confidence","time_symmetry","pivot_quality","ne
 STATE_IDXS=[0,6,9,34,38]
 PROTECTION_KEYS=["025","050","075","100","150"]
 MILESTONE_FEATURE_COUNT=12
-SEQUENTIAL_STATE_FEATURE_COUNT=56
+SEQUENTIAL_STATE_FEATURE_COUNT=64
 Z=1.645
 
 RX=re.compile(
@@ -49,7 +49,7 @@ def _build_route_keys(fracs):
 
 SEQUENTIAL_KEYS=_build_route_keys(("00","10","20","30"))
 LATE_AUCTION_KEYS=_build_route_keys(("20","30"))
-SURVIVAL_FRESH_KEYS=["SI100","SI125","SI150"]
+SURVIVAL_FRESH_KEYS=["CRT050","CRT075","CRT100"]
 
 def window_of(path,windows):
     s=str(path)

@@ -38,11 +38,15 @@ namespace cAlgo.Robots
         // harmonic basket remains virtual. Capital is admitted only after a completed
         // strong impulse, a later controlled pullback, and a subsequent completed-bar
         // reclaim/reacceleration. Qualification is one fresh raw 2.30R basket.
-        private static readonly double[] V74SurvivalFreshReactionR = { 1.00, 1.25, 1.50 };
-        private static readonly double[] V74SurvivalFreshPullbackR = { .65, .85, 1.05 };
-        private static readonly double[] V74SurvivalFreshReclaimR = { .85, 1.05, 1.30 };
-        private static readonly bool[] V74SurvivalFreshRequireTwoBar = { false, true, true };
-        private static readonly string[] V74SurvivalFreshKey = { "SI100", "SI125", "SI150" };
+        // V74 V9 confirmed-reclaim/retest routes. Do not chase the breakout:
+        // observe reaction -> pullback -> reclaim, then require a later retest/hold
+        // before committing a fresh raw basket.
+        private static readonly double[] V74SurvivalFreshReactionR = { .50, .75, 1.00 };
+        private static readonly double[] V74SurvivalFreshPullbackR = { .20, .40, .60 };
+        private static readonly double[] V74SurvivalFreshReclaimR = { .45, .65, .90 };
+        private static readonly double[] V74SurvivalFreshRetestR = { .35, .55, .80 };
+        private static readonly double[] V74SurvivalFreshFloorR = { -.05, .10, .25 };
+        private static readonly string[] V74SurvivalFreshKey = { "CRT050", "CRT075", "CRT100" };
         // High-conviction delayed capital: preserve canonical payoff asymmetry by waiting
         // until the virtual harmonic thesis has already demonstrated 1.75R/2.00R reaction.
         // Capital then enters only after a later completed M1 hold; stop is the completed
@@ -74,7 +78,9 @@ namespace cAlgo.Robots
         private static double V74SequentialReactionForKey(string k) => k.Contains("_R025_")?.25:.50;
         private static double V74SequentialHoldForKey(string k) => k.Contains("_R025_")?.10:.25;
         private static bool V74SequentialDirectionalForKey(string k) => k.Contains("_D_");
-        private static double V74SequentialDesiredRrForKey(string k) => k.Contains("_RR40_")?4.0:3.5;
+        // Legacy RR35/RR40 labels are retained for artifact compatibility only.
+        // V74 qualification economics are fixed at 2.30/2.50 NetRR.
+        private static double V74SequentialDesiredRrForKey(string k) => k.Contains("_RR40_")?2.50:2.30;
         private static double V74SequentialFractionForKey(string k)
         {
             if(k.EndsWith("_F00"))return 0.0;
@@ -96,7 +102,7 @@ namespace cAlgo.Robots
         private static readonly double[] V74SequentialAdverseCutR = V74SequentialKey.Select(_=>-.15).ToArray();
 
 
-        // V74_EVENT_NATIVE_RAW_ALPHA_STRONG_IMPULSE_V8_REBUILD
+        // V74_EVENT_NATIVE_STRUCTURAL_RAW_ALPHA_CRT_V9_REBUILD
         // True late-entry auction reuses the proven 48-route family/native payoff
         // geometry (M05/M10/M15 x R025/R050 x H/D x RR35/RR40 x F20/F30),
         // but moves capital admission to the completed-bar M-stage. Post-entry
@@ -528,7 +534,7 @@ namespace cAlgo.Robots
         private double[] V74RouteStateFeatures(V72HcogOpportunity o,int i,double entry,double risk,double target,
             int bars,double mfeR,double maeR,double milestoneR)
         {
-            const int FeatureCount=8*7;
+            const int FeatureCount=8*8;
             if(o==null||risk<=0||i<0||i>=_m1Bars.Count)return Enumerable.Repeat(0.0,FeatureCount).ToArray();
             double open=_m1Bars.OpenPrices[i],close=_m1Bars.ClosePrices[i],high=_m1Bars.HighPrices[i],low=_m1Bars.LowPrices[i];
             double atr=Math.Max(_symbol.PipSize,Atr(_m1Bars,14,i)),body=Math.Max(_symbol.PipSize,Math.Abs(close-open));
@@ -578,6 +584,20 @@ namespace cAlgo.Robots
             double rangeCompression=n5>0?range/Math.Max(_symbol.PipSize,avgRange5/n5):1.0;
             double sincePrz=o.PrzTouchUtc.HasValue?Math.Max(0.0,(utc-o.PrzTouchUtc.Value.ToUniversalTime()).TotalMinutes):0.0;
             double sinceProof=o.ProofUtc.HasValue?Math.Max(0.0,(utc-o.ProofUtc.Value.ToUniversalTime()).TotalMinutes):0.0;
+
+            // Actual route geometry block. Previous schemas could describe the
+            // harmonic path but could not distinguish the fresh basket's real risk
+            // geometry. Every quantity is known at the completed decision bar.
+            double originalRisk=Math.Max(o.RiskDistance,_symbol.PipSize);
+            double routeStop=buy?entry-risk:entry+risk;
+            double entryShiftR=(buy?entry-o.Entry:o.Entry-entry)/originalRisk;
+            double stopTighteningR=(buy?routeStop-o.Stop:o.Stop-routeStop)/originalRisk;
+            double targetGapR=Math.Abs(o.Target-target)/originalRisk;
+            double riskAtr=risk/atr;
+            double targetAtr=Math.Abs(target-entry)/atr;
+            double costR=ModeledCostPips()/Math.Max(1e-9,PriceToPips(risk));
+            double riskVsOriginal=risk/originalRisk;
+            double runwayUse=Math.Abs(target-entry)/Math.Max(_symbol.PipSize,Math.Abs(o.Target-entry));
 
             return new[]
             {
@@ -629,7 +649,16 @@ namespace cAlgo.Robots
                 VClamp(n3>0?dir3/n3:0.0),
                 VClamp(n5>0?dir5/n5:0.0),
                 VClamp(sincePrz/180.0),
-                VClamp(sinceProof/120.0)
+                VClamp(sinceProof/120.0),
+
+                VClamp(riskVsOriginal/2.0),
+                VClamp(riskAtr/4.0),
+                VClamp((entryShiftR+1.0)/4.0),
+                VClamp((stopTighteningR+1.0)/4.0),
+                VClamp(targetGapR/4.0),
+                VClamp(targetAtr/8.0),
+                VClamp(costR*4.0),
+                VClamp(runwayUse)
             };
         }
 
@@ -800,24 +829,13 @@ namespace cAlgo.Robots
                     if(targetHit){o.V74SurvivalFreshOutcomeR[k]=o.V74SurvivalFreshNetRr[k];o.V74SurvivalFreshActive[k]=false;continue;}
                     continue;
                 }
-
-                // Before entry this route owns zero capital. Native invalidation/target
-                // cancels the deferred thesis without creating a trade label.
-                if(nativeStop||nativeTarget)
-                {
-                    o.V74SurvivalFreshPending[k]=false;
-                    continue;
-                }
+                if(nativeStop||nativeTarget){o.V74SurvivalFreshPending[k]=false;continue;}
 
                 double reactionR=V74SurvivalFreshReactionR[k];
                 if(o.V74SurvivalFreshReactionBar[k]<0)
                 {
-                    if(virtualFav+1e-12>=reactionR)
-                    {
-                        o.V74SurvivalFreshReactionBar[k]=o.BarsActive;
-                        o.V74SurvivalFreshTriggerBar[k]=-1;
-                    }
-                    continue; // impulse bar is observation only
+                    if(virtualFav+1e-12>=reactionR)o.V74SurvivalFreshReactionBar[k]=o.BarsActive;
+                    continue;
                 }
                 if(o.V74SurvivalFreshReactionBar[k]>100000000||o.BarsActive<=o.V74SurvivalFreshReactionBar[k])continue;
 
@@ -825,7 +843,12 @@ namespace cAlgo.Robots
                                         :o.Entry-o.RiskDistance*V74SurvivalFreshPullbackR[k];
                 double reclaimPrice=buy?o.Entry+o.RiskDistance*V74SurvivalFreshReclaimR[k]
                                        :o.Entry-o.RiskDistance*V74SurvivalFreshReclaimR[k];
+                double retestPrice=buy?o.Entry+o.RiskDistance*V74SurvivalFreshRetestR[k]
+                                      :o.Entry-o.RiskDistance*V74SurvivalFreshRetestR[k];
+                double floorPrice=buy?o.Entry+o.RiskDistance*V74SurvivalFreshFloorR[k]
+                                     :o.Entry-o.RiskDistance*V74SurvivalFreshFloorR[k];
 
+                // Stage 2: a controlled retrace must occur after the reaction.
                 if(!o.V74SurvivalFreshPending[k])
                 {
                     bool touched=buy?low<=pullbackPrice:high>=pullbackPrice;
@@ -834,50 +857,42 @@ namespace cAlgo.Robots
                     o.V74SurvivalFreshPullbackBar[k]=o.BarsActive;
                     o.V74SurvivalFreshPullbackExtreme[k]=buy?low:high;
                     o.V74SurvivalFreshTriggerBar[k]=-1;
-                    continue; // pullback bar cannot enter
+                    continue;
                 }
 
                 o.V74SurvivalFreshPullbackExtreme[k]=buy?
                     Math.Min(o.V74SurvivalFreshPullbackExtreme[k],low):
                     Math.Max(o.V74SurvivalFreshPullbackExtreme[k],high);
-
-                // Reject deep giveback. This turns transient reactions into causal no-trades.
-                double survivalFloorR=Math.Max(.20,V74SurvivalFreshPullbackR[k]-.35);
-                double survivalFloor=buy?o.Entry+o.RiskDistance*survivalFloorR
-                                         :o.Entry-o.RiskDistance*survivalFloorR;
-                bool floorBroken=buy?o.V74SurvivalFreshPullbackExtreme[k]<survivalFloor
-                                     :o.V74SurvivalFreshPullbackExtreme[k]>survivalFloor;
-                if(floorBroken)
+                bool destroyed=buy?o.V74SurvivalFreshPullbackExtreme[k]<floorPrice
+                                   :o.V74SurvivalFreshPullbackExtreme[k]>floorPrice;
+                if(destroyed)
                 {
                     o.V74SurvivalFreshPending[k]=false;
                     o.V74SurvivalFreshReactionBar[k]=int.MaxValue/4;
                     continue;
                 }
 
-                bool reclaimed=buy?close>=reclaimPrice:close<=reclaimPrice;
-                bool quality=directional&&reaccelerating&&alignedClose+1e-12>=.60;
-                if(!(reclaimed&&quality))
+                // Stage 3: completed-bar reclaim proves the second impulse. It is
+                // observation only; V74 explicitly refuses breakout-chasing capital.
+                if(o.V74SurvivalFreshTriggerBar[k]<0)
                 {
-                    if(V74SurvivalFreshRequireTwoBar[k]&&o.V74SurvivalFreshTriggerBar[k]>=0)
-                        o.V74SurvivalFreshTriggerBar[k]=-1;
+                    bool reclaimed=buy?close>=reclaimPrice:close<=reclaimPrice;
+                    if(!(reclaimed&&directional&&reaccelerating&&alignedClose+1e-12>=.58))continue;
+                    o.V74SurvivalFreshTriggerBar[k]=o.BarsActive;
                     continue;
                 }
+                if(o.BarsActive<=o.V74SurvivalFreshTriggerBar[k])continue;
 
-                if(V74SurvivalFreshRequireTwoBar[k])
-                {
-                    if(o.V74SurvivalFreshTriggerBar[k]<0)
-                    {
-                        o.V74SurvivalFreshTriggerBar[k]=o.BarsActive;
-                        continue;
-                    }
-                    if(o.BarsActive<=o.V74SurvivalFreshTriggerBar[k])continue;
-                }
-                else o.V74SurvivalFreshTriggerBar[k]=o.BarsActive;
+                // Stage 4: wait for a SECOND retest of the reclaimed level and require
+                // a completed hold/reacceleration. This gives fresh capital a structural
+                // entry price instead of paying the breakout extreme.
+                bool retested=buy?low<=retestPrice:high>=retestPrice;
+                bool holds=buy?close>=reclaimPrice:close<=reclaimPrice;
+                if(!(retested&&holds&&directional&&reaccelerating&&alignedClose+1e-12>=.55))continue;
 
                 double entry=close;
                 double buffer=Math.Max(PipsToPrice(ModeledCostPips()),_symbol.PipSize);
-                double localStop=buy?o.V74SurvivalFreshPullbackExtreme[k]-buffer
-                                     :o.V74SurvivalFreshPullbackExtreme[k]+buffer;
+                double localStop=buy?low-buffer:high+buffer;
                 double stop=buy?Math.Max(o.Stop,localStop):Math.Min(o.Stop,localStop);
                 double risk=Math.Abs(entry-stop),riskPips=PriceToPips(risk);
                 if(riskPips<MinStopLossPips)continue;
@@ -890,14 +905,10 @@ namespace cAlgo.Robots
                 double rr=(PriceToPips(Math.Abs(target-entry))-ModeledCostPips())/Math.Max(1e-9,riskPips);
                 if(rr+1e-9<2.30)continue;
 
-                // Maturity snapshot is legacy-only; formal V74 Survival uses the
-                // actual fresh-entry state. Avoid serializing an unused 56-vector
-                // in the pure universe kernel.
-                if(!V74ResearchQualificationOnly)
-                    o.V74SurvivalFreshMaturityStateCsv[k]=string.Join(",",V74RouteStateFeatures(
-                        o,i,o.Entry,o.RiskDistance,o.Target,
-                        Math.Max(0,o.BarsActive-o.V74SurvivalFreshReactionBar[k]),o.MfeR,o.MaeR,reactionR)
-                        .Select(v=>v.ToString("R",System.Globalization.CultureInfo.InvariantCulture)));
+                o.V74SurvivalFreshMaturityStateCsv[k]=string.Join(",",V74RouteStateFeatures(
+                    o,i,o.Entry,o.RiskDistance,o.Target,
+                    Math.Max(0,o.BarsActive-o.V74SurvivalFreshReactionBar[k]),o.MfeR,o.MaeR,reactionR)
+                    .Select(v=>v.ToString("R",System.Globalization.CultureInfo.InvariantCulture)));
                 o.V74SurvivalFreshEntryStateCsv[k]=string.Join(",",V74RouteStateFeatures(
                     o,i,entry,risk,target,0,0,0,reactionR)
                     .Select(v=>v.ToString("R",System.Globalization.CultureInfo.InvariantCulture)));
@@ -1084,20 +1095,21 @@ namespace cAlgo.Robots
                     if(o.V74SequentialReactionBar[k]<0||o.BarsActive<=o.V74SequentialReactionBar[k]||nativeStop||nativeTarget)continue;
                     if(virtualCloseR+1e-12<V74SequentialHoldR[k])continue;
                     if(V74SequentialRequireDirectional[k]&&!directional)continue;
-                    double entry=close,netTargetPips=PriceToPips(Math.Abs(o.Target-entry))-ModeledCostPips();
-                    if(netTargetPips<=0)continue;
-                    double desiredRisk=PipsToPrice(netTargetPips/Math.Max(2.30,V74SequentialDesiredRr[k]));
-                    double desiredStop=buy?entry-desiredRisk:entry+desiredRisk;
-                    double stop=buy?Math.Max(o.Stop,desiredStop):Math.Min(o.Stop,desiredStop);
-                    double risk=Math.Abs(entry-stop);
-                    if(PriceToPips(risk)<MinStopLossPips||!GeometryValid(o.Direction,entry,stop,o.Target))continue;
-                    double rr=netTargetPips/Math.Max(1e-9,PriceToPips(risk));if(rr+1e-9<2.30)continue;
-                    o.V74SequentialActive[k]=true;o.V74SequentialEntryBar[k]=o.BarsActive;o.V74SequentialEntry[k]=entry;o.V74SequentialStop[k]=stop;o.V74SequentialTarget[k]=o.Target;
+                    double entry=close,stop=o.Stop,risk=Math.Abs(entry-stop);
+                    double riskPips=PriceToPips(risk);if(riskPips<MinStopLossPips)continue;
+                    double desiredNetRr=V74SequentialDesiredRr[k];
+                    double grossTargetPips=desiredNetRr*riskPips+ModeledCostPips();
+                    double target=buy?entry+PipsToPrice(grossTargetPips):entry-PipsToPrice(grossTargetPips);
+                    bool runway=buy?target<=o.Target+_symbol.PipSize*.5:target>=o.Target-_symbol.PipSize*.5;
+                    if(!runway||!GeometryValid(o.Direction,entry,stop,target))continue;
+                    double rr=(PriceToPips(Math.Abs(target-entry))-ModeledCostPips())/Math.Max(1e-9,riskPips);
+                    if(rr+1e-9<2.30)continue;
+                    o.V74SequentialActive[k]=true;o.V74SequentialEntryBar[k]=o.BarsActive;o.V74SequentialEntry[k]=entry;o.V74SequentialStop[k]=stop;o.V74SequentialTarget[k]=target;
                     o.V74SequentialRisk[k]=risk;o.V74SequentialNetRr[k]=rr;o.V74SequentialBars[k]=0;o.V74SequentialTriggerBar[k]=-1;
                     o.V74SequentialLockBar[k]=-1;o.V74SequentialLockedR[k]=0;o.V74SequentialRouteMfeR[k]=0;o.V74SequentialRouteMaeR[k]=0;
                     o.V74SequentialPositiveArmed[k]=false;
                     o.V74SequentialEntryStateCsv[k]=string.Join(",",V74RouteStateFeatures(
-                        o,i,entry,risk,o.Target,0,0,0,reactionR)
+                        o,i,entry,risk,target,0,0,0,reactionR)
                         .Select(v=>v.ToString("R",System.Globalization.CultureInfo.InvariantCulture)));
                     continue;
                 }
@@ -1130,6 +1142,7 @@ namespace cAlgo.Robots
                 bool stopHit=buy?low<=o.V74SequentialStop[k]:high>=o.V74SequentialStop[k],targetHit=buy?high>=o.V74SequentialTarget[k]:low<=o.V74SequentialTarget[k];
                 if(stopHit){o.V74SequentialOutcomeR[k]=-1.0;o.V74SequentialActive[k]=false;continue;}
                 if(targetHit){o.V74SequentialOutcomeR[k]=o.V74SequentialNetRr[k];o.V74SequentialActive[k]=false;continue;}
+                if(V74SequentialPartialFraction[k]<=1e-12)continue; // F00 = pure raw stop/target qualification
                 if(routeCloseR<=V74SequentialAdverseCutR[k]){o.V74SequentialOutcomeR[k]=Math.Max(-1.0,routeCloseR);o.V74SequentialActive[k]=false;continue;}
                 if(o.V74SequentialTriggerBar[k]<0&&routeFav+1e-12>=V74SequentialTriggerR[k])
                 {

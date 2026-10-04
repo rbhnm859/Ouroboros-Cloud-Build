@@ -82,7 +82,7 @@ def year_oracle(yr,spaces):
 
 report={"type":"DIAGNOSTIC_FUTURE_ORACLE_ONLY","used_for_alpha_training":False,
         "synthetic_outcomes_used":False,
-        "action_space":"EVENT_NATIVE_EARLY_RAW_F00_PLUS_LATE_PREENTRY_F30_PLUS_STRONG_IMPULSE_PULLBACK_RECLAIM_RAW_230R","management_variant_selection_used":False,"early_post_entry_m_stage_selection_used":False,
+        "action_space":"EVENT_NATIVE_EARLY_RAW_F00_PLUS_LATE_PREENTRY_F30_PLUS_REACTION_PULLBACK_RECLAIM_RETEST_RAW_230R","management_variant_selection_used":False,"early_post_entry_m_stage_selection_used":False,
         "gate":{"n":MIN_N,"mean_r":MIN_MEAN,"pf_r":MIN_PF,"win_rate":MIN_WR,"average_rr":MIN_RR,"lcb95_gt":0.0},
         "years":{}}
 joint=True
