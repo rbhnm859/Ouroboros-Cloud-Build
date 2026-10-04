@@ -139,7 +139,7 @@ def all_options(r,b):
     if ck in _OPTION_CACHE:return _OPTION_CACHE[ck]
     z=[]
     for src in SOURCES:
-      for m in MSTAGES:
+      for m in (EARLY_MSTAGES if src=="EARLY" else LATE_MSTAGES):
         for f in (EARLY_FRACTIONS if src=="EARLY" else LATE_FRACTIONS):
           eb=entry_bar(r,src,m,b,f)
           if eb<0:continue
@@ -441,12 +441,12 @@ def apply_policy(policy,test_rows):
 
 checks=telemetry_guard()
 summary={"version":"HarmonyBot V74 One-Shot Family-Native Causal Action Selector",
- "architecture":"FAMILY_NATIVE_BOUNDED_DEPTH3_CAUSAL_ENSEMBLE_COVERAGE_CONSTRAINED_OPTIMAL_STOPPING",
+ "architecture":"EVENT_NATIVE_FAMILY_CONFLUENCE_BOUNDED_DEPTH3_CAUSAL_OPTIMAL_STOPPING",
  "gate":{"min_selected_per_year":MIN_N,"min_mean_r":MIN_MEAN,"min_pf_r":MIN_PF,
          "min_win_rate":MIN_WR,"min_average_rr":MIN_RR,"lcb95_gt":0.0},
  "research_training_windows":RESEARCH,"burned_oof_windows":BURNED,
  "policy":{"actions":"EARLY_OR_LATE_COMPLETED_BAR_ENTRY_ACTION__FIXED_F30_QUALIFICATION",
-           "harmonic_completion":"SETUP_IDENTITY_NOT_AUTOMATIC_ENTRY",
+           "harmonic_completion":"DIRECTION_TIME_D_EVENT_IDENTITY__MULTI_GEOMETRY_IS_CONFLUENCE_NOT_SUPPLY",
            "reaction_state":"CAUSAL_FEATURE_NOT_HARD_FILTER","physical_route_contract":"EARLY_ENTRY_IDENTITY_R_H_RR_ONLY__LATE_M_IS_ENTRY_MATURITY__FIXED_F30_QUALIFICATION","v75_management_variants_excluded":True,"early_post_entry_m_stage_excluded":True,
            "route_choice":"BOUNDED_DEPTH3_EXPECTED_R_WIN_PROB_PLUS_COUNTERFACTUAL_PAIRWISE_DELTA","optimal_stopping":"TRAINING_ONLY_CONTINUATION_VALUE_HEAD__RUNTIME_STOP_VS_DEFER",
            "admission":"TRAINING_ONLY_WORST_YEAR_GATE_CALIBRATED_STOP_ADVANTAGE_THRESHOLD",

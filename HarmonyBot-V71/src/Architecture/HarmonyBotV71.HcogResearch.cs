@@ -263,10 +263,15 @@ namespace cAlgo.Robots
         private void V72HcogTrackRawPool(IEnumerable<PatternSignal> pool,HarmonicState h4,HarmonicState h1,RegimeSnapshot regime)
         {
             if(!EnableV72HcogAlpha && !EnableV72HcapAlpha && !EnableV73OpportunityUniverse && !EnableV74ExternalPolicy && !EnableV74EmbeddedPolicy)return;
-            foreach(var g in (pool??Enumerable.Empty<PatternSignal>()).Where(V71ExpansionIntegrity).GroupBy(BuildSetupGeometryKey))
+            // Event-native identity: alternate X/A/B/C geometries ending at the
+            // same direction/time/D pivot are hypotheses of one harmonic completion.
+            bool eventNative=EnableV73OpportunityUniverse||EnableV74ExternalPolicy||EnableV74EmbeddedPolicy;
+            foreach(var g in (pool??Enumerable.Empty<PatternSignal>()).Where(V71ExpansionIntegrity)
+                .GroupBy(x=>eventNative?V73EventIdentityKey(x):BuildSetupGeometryKey(x)))
             {
-                string setup=g.Key;if(string.IsNullOrWhiteSpace(setup)||!_v72HcogSeen.Add(setup))continue;
+                string eventKey=g.Key;if(string.IsNullOrWhiteSpace(eventKey)||!_v72HcogSeen.Add(eventKey))continue;
                 var xs=g.ToList();var s=V72HcogSelectPrimary(xs);if(s==null)continue;
+                string setup=BuildSetupGeometryKey(s);
                 string fam=V71FamilyKey(s.PatternName);bool abcd=xs.Any(x=>V71FamilyKey(x.PatternName)=="ABCD");bool standalone=fam=="ABCD";
                 if(abcd)_v72HcogAbcdPrimitive++;
                 DateTime now=Server.Time.ToUniversalTime();

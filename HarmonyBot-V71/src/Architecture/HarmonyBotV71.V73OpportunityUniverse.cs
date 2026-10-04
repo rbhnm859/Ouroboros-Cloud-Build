@@ -32,7 +32,19 @@ namespace cAlgo.Robots
         [Parameter("V74 Policy Protection", DefaultValue = "")]
         public string V74PolicyProtection { get; set; }
 
-        private readonly int[] _v73ResearchSwingDepths = { 2, 3, 4, 5, 6, 7, 8 };
+        private readonly int[] _v73ResearchSwingDepths = { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12 };
+
+        // Physical completion-event identity. BuildSetupGeometryKey format:
+        // Direction|CompletionTime|X|A|B|C|D. X/A/B/C alternatives sharing
+        // direction/time/D are confluence hypotheses, not independent supply.
+        private string V73EventIdentityKey(PatternSignal s)
+        {
+            if(s==null)return string.Empty;
+            string g=BuildSetupGeometryKey(s);
+            var p=(g??string.Empty).Split('|');
+            if(p.Length>=7)return p[0]+"|"+p[1]+"|"+p[p.Length-1];
+            return g;
+        }
         private HashSet<string> _v74AllowedHashes;
         private Dictionary<string,double> _v74Utility;
         private Dictionary<string,double> _v74HoldBars;
@@ -151,10 +163,10 @@ namespace cAlgo.Robots
                 var pivots=BuildConfirmedPivots(_m15Bars,m15Index,M15SwingLookback,depth);
                 if(pivots.Count<5)continue;
 
-                for(int dPos=Math.Max(4,pivots.Count-18);dPos<pivots.Count;dPos++)
+                for(int dPos=Math.Max(4,pivots.Count-24);dPos<pivots.Count;dPos++)
                 {
                     var d=pivots[dPos];
-                    if(m15Index-d.Index>8)continue;
+                    if(m15Index-d.Index>10)continue;
 
                     int c0=Math.Max(3,dPos-5);
                     for(int cPos=c0;cPos<dPos;cPos++)
@@ -210,7 +222,7 @@ namespace cAlgo.Robots
         private void V73PrintUniverseSummary()
         {
             if(!EnableV73OpportunityUniverse)return;
-            Print("[V73-UNIVERSE-SUMMARY] swingDepths=2,3,4,5,6,7,8 independentDetected={0} przTouched={1} causalProofs={2} closedOutcomes={3} abcdPrimitive={4} coreOverlapObserved={5} capitalExecutionUsed=False",
+            Print("[V73-UNIVERSE-SUMMARY] swingDepths=1,2,3,4,5,6,7,8,9,10,11,12 independentDetected={0} przTouched={1} causalProofs={2} closedOutcomes={3} abcdPrimitive={4} coreOverlapObserved={5} capitalExecutionUsed=False",
                 _v72HcogDetected,_v72HcogPrzTouched,_v72HcogProofs,_v72HcogClosed,_v72HcogAbcdPrimitive,_v72HcogCoreOverlapAtEntry);
         }
     }
