@@ -20,7 +20,7 @@ concurrency:
   # evaluator cancellation left the previous group occupied. Future runs in this
   # pipeline still cancel obsolete runs within the same generation.
   group: harmonybot-v73-v80-autonomous-evidence-g2
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 permissions:
   contents: write
@@ -78,6 +78,7 @@ jobs:
                 HarmonyBot-V71/tools/v74_model_lib.py|\
                 HarmonyBot-V71/final/V71_BURNED_CALIBRATION_CUSTODY.json|\
                 HarmonyBot-V73/V73_RESEARCH_CUSTODY.json|\
+                HarmonyBot-V71/evidence/V74_FAST_REPLAY_SOURCE.json|\
                 .github/workflows/harmonybot-v74-rapid-decision.yml|\
                 .github/workflows/harmonybot-v74-fast-replay.yml|\
                 .github/workflows/harmonybot-v73-v80-autonomous-evidence-pipeline.yml)

@@ -19,13 +19,14 @@ on:
       - '.github/workflows/harmonybot-v74-rapid-decision.yml'
       - '.github/workflows/harmonybot-v74-fast-replay.yml'
       - '.github/workflows/harmonybot-v73-v80-autonomous-evidence-pipeline.yml'
+      - 'HarmonyBot-V71/evidence/V74_FAST_REPLAY_SOURCE.json'
 
 concurrency:
   group: harmonybot-v74-rapid-decision-${{ github.head_ref || github.ref }}
   cancel-in-progress: false
 
 permissions:
-  contents: read
+  contents: write
   actions: write
 
 jobs:
@@ -317,3 +318,59 @@ jobs:
           REF="${{ github.head_ref || github.ref_name }}"
           gh workflow run harmonybot-v73-v80-autonomous-evidence-pipeline.yml --repo "$GITHUB_REPOSITORY" --ref "$REF"
           echo "[V74-RAPID->FULL] Alpha PASS; dispatched Full pipeline for V51 replay, runtime parity and downstream promotion."
+
+
+  pin_exact_replay_source:
+    needs: rapid_decision
+    if: ${{ always() && needs.rapid_decision.result == 'success' }}
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Pin exact rapid universe for zero-rebuild evaluator replay
+        env:
+          SOURCE_RUN: ${{ github.run_id }}
+          SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          REF_NAME: ${{ github.head_ref || github.ref_name }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          M=HarmonyBot-V71/evidence/V74_FAST_REPLAY_SOURCE.json
+          python3 - "$M" "$SOURCE_RUN" "$SOURCE_SHA" <<'PY'
+          import json,sys
+          p,run,sha=sys.argv[1],int(sys.argv[2]),sys.argv[3]
+          years=range(2016,2024)
+          d={
+            "version":2,
+            "source_run_id":run,
+            "source_head_sha":sha,
+            "branch":"harmonybot/v73-opportunity-universe",
+            "artifact_pattern":"v74-rapid-universe-*",
+            "evidence_origin":"rapid_exact_2016_2023",
+            "required_artifacts":[f"v74-rapid-universe-Y{y}" for y in years],
+            "semantic_guard_paths":[
+              "HarmonyBot-V71/src",
+              "HarmonyBot-V71/HarmonyBotV71.csproj",
+              "HarmonyBot-V71/tools/run_window.sh",
+              "HarmonyBot-V71/tools/run_backtest.sh",
+              "HarmonyBot-V71/tools/resolve_window.sh",
+              "HarmonyBot-V71/tools/run_v51_reference.sh"
+            ],
+            "validation_used":False,
+            "fresh_used":False,
+            "note":"Exact Rapid Decision universe: immutable 2016-2023 custody bytes were hash-verified, all eight windows used the same candidate .algo and run_window R_V73_OPPORTUNITY_UNIVERSE semantics, and V73 was revalidated before decision. Safe for evaluator/oracle-only replay; any guarded semantic drift remains fail-closed."
+          }
+          open(p,"w").write(json.dumps(d,indent=2)+"\n")
+          PY
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if git diff --quiet -- "$M"; then
+            echo "[V74-RAPID-PIN] unchanged"
+            exit 0
+          fi
+          git add "$M"
+          git commit -m "ci(v74): pin exact rapid universe $SOURCE_RUN"
+          git push origin "HEAD:$REF_NAME"
+          echo "[V74-RAPID-PIN] run=$SOURCE_RUN semantic_sha=$SOURCE_SHA"
