@@ -3,7 +3,7 @@
 No synthetic/extrapolated route outcome is permitted. Never used for training.
 """
 import json,math,pathlib,sys
-from v74_model_lib import load_rows,metrics,SEQUENTIAL_KEYS,LATE_AUCTION_KEYS
+from v74_model_lib import load_rows,metrics,SEQUENTIAL_KEYS,LATE_AUCTION_KEYS,SURVIVAL_FRESH_KEYS
 
 root=pathlib.Path(sys.argv[1]);out=pathlib.Path(sys.argv[2]);out.mkdir(parents=True,exist_ok=True)
 YEARS=["Y2021","Y2022","Y2023"]
@@ -14,7 +14,7 @@ def early_entry_keys(keys):
     # EARLY M05/M10/M15 are post-entry management variants, not Alpha actions.
     # Use one fixed qualification management contract (M15/F30) per true entry identity.
     return [k for k in fixed_f30(keys) if k.startswith("M15_")]
-KEYS={"EARLY":early_entry_keys(SEQUENTIAL_KEYS),"LATE":fixed_f30(LATE_AUCTION_KEYS)}
+KEYS={"EARLY":early_entry_keys(SEQUENTIAL_KEYS),"LATE":fixed_f30(LATE_AUCTION_KEYS),"SURVIVAL":SURVIVAL_FRESH_KEYS}
 rows=load_rows(root,YEARS)
 
 def gate(m):
@@ -28,8 +28,10 @@ def margin(m):
 def outcome(r,key,src):
     if src=="EARLY":
         om=r.get("sequential",{});rrm=r.get("sequential_rr",{});bm=r.get("sequential_bars",{})
-    else:
+    elif src=="LATE":
         om=r.get("late_auction",{});rrm=r.get("late_auction_rr",{});bm=r.get("late_auction_bars",{})
+    else:
+        om=r.get("survival_fresh",{});rrm=r.get("survival_fresh_rr",{});bm=r.get("survival_fresh_bars",{})
     v=om.get(key);rr=rrm.get(key)
     if v is None or rr is None:return None
     try:v=float(v);rr=float(rr)
@@ -81,16 +83,17 @@ def year_oracle(yr,spaces):
 
 report={"type":"DIAGNOSTIC_FUTURE_ORACLE_ONLY","used_for_alpha_training":False,
         "synthetic_outcomes_used":False,
-        "action_space":"EVENT_NATIVE_DIRECTION_TIME_D__EARLY_TRUE_ENTRY_PLUS_LATE_MATURITY__FIXED_F30","management_variant_selection_used":False,"early_post_entry_m_stage_selection_used":False,
+        "action_space":"EVENT_NATIVE_EARLY_PLUS_LATE_PLUS_SURVIVAL_FRESH_RAW_BASKETS__FIXED_F30","management_variant_selection_used":False,"early_post_entry_m_stage_selection_used":False,
         "gate":{"n":MIN_N,"mean_r":MIN_MEAN,"pf_r":MIN_PF,"win_rate":MIN_WR,"average_rr":MIN_RR,"lcb95_gt":0.0},
         "years":{}}
 joint=True
 for y in YEARS:
     yr=[r for r in rows if r["window"]==y]
-    unified=year_oracle(yr,("EARLY","LATE"))
+    unified=year_oracle(yr,("EARLY","LATE","SURVIVAL"))
     early=year_oracle(yr,("EARLY",))
     late=year_oracle(yr,("LATE",))
-    report["years"][y]={"unified":unified,"early_only":early,"late_only":late}
+    survival=year_oracle(yr,("SURVIVAL",))
+    report["years"][y]={"unified":unified,"early_only":early,"late_only":late,"survival_only":survival}
     joint=joint and bool(unified["any_n_ge_250_pass"])
 report["joint_oracle_gate_3of3"]=joint
 report["interpretation"]="EVENT_NATIVE_ACTION_SPACE_FEASIBLE__SELECTOR_IS_BLOCKER" if joint else "EVENT_NATIVE_ACTION_SPACE_INSUFFICIENT__UPSTREAM_SUPPLY_OR_ENTRY_MECHANICS_REDESIGN_REQUIRED"

@@ -10,7 +10,9 @@ FEATURE_NAMES=["geometry","prz","confidence","time_symmetry","pivot_quality","ne
                "atr_ratio","atr_percentile","adx_h1","adx_h4","transition","cost_r","direction_buy",
                "abcd_confluence","completion_latency","proof_body_atr","proof_rejection_ratio",
                "proof_sweep_depth_atr","proof_reclaim_atr","proof_bos_atr","proof_retest_atr",
-               "geometry_loss","xab_residual","abc_residual","bcd_residual","xad_residual","abcd_residual"]
+               "geometry_loss","xab_residual","abc_residual","bcd_residual","xad_residual","abcd_residual",
+               "event_hypothesis_count","event_family_count","event_parent_family_count",
+               "event_mean_geometry","event_geometry_range","event_mean_prz","event_mean_confidence"]
 STATE_IDXS=[0,6,9,34,38]
 PROTECTION_KEYS=["025","050","075","100","150"]
 MILESTONE_FEATURE_COUNT=12
@@ -47,6 +49,7 @@ def _build_route_keys(fracs):
 
 SEQUENTIAL_KEYS=_build_route_keys(("00","10","20","30"))
 LATE_AUCTION_KEYS=_build_route_keys(("20","30"))
+SURVIVAL_FRESH_KEYS=["SF060","SF075","SF100"]
 
 def window_of(path,windows):
     s=str(path)
@@ -105,6 +108,43 @@ def load_rows(root,windows):
                                 "reaction_commit":reaction_commit,"high_conviction":high_conviction,
                                 "sequential":{},"sequential_rr":{},"sequential_bars":{},"sequential_reaction_bar":{},"sequential_entry_bar":{},"sequential_trigger_bar":{},"sequential_decision_bar":{},"sequential_state":{},"sequential_entry_state":{},"sequential_trigger_state":{},"sequential_decision_state":{}}
         for line in txt.splitlines():
+
+            if "[V74-SURVIVAL-FRESH-PATH]" in line:
+                payload=line.split("[V74-SURVIVAL-FRESH-PATH]",1)[1].strip();kv={}
+                for tok in payload.split():
+                    if "=" in tok:
+                        a,b=tok.split("=",1);kv[a]=b
+                setup=kv.get("setup")
+                if not setup:continue
+                p=paths.setdefault(setup,{"protect_r":{},"milestones":{},"rcr":{},"hybrid":{},"reaction_commit":{},"high_conviction":{},
+                                          "sequential":{},"sequential_rr":{},"sequential_bars":{},"sequential_state":{},"sequential_entry_state":{},
+                                          "sequential_trigger_state":{},"sequential_decision_state":{}})
+                outcomes={};rrs={};entries={};reaction_bars={};entry_bars={};bars={}
+                for idx,key in enumerate(SURVIVAL_FRESH_KEYS):
+                    raw=kv.get("e"+str(idx))
+                    if raw not in (None,"NONE","NA","NaN","nan"):
+                        try:
+                            vv=[float(x) for x in raw.split(",")]
+                            if len(vv)==SEQUENTIAL_STATE_FEATURE_COUNT and all(math.isfinite(x) for x in vv):entries[key]=vv
+                        except Exception:pass
+                    raw=kv.get("b"+str(idx));rawrr=kv.get("rr"+str(idx))
+                    if raw not in (None,"NA","NaN","nan"):
+                        try:
+                            v=float(raw)
+                            if math.isfinite(v):outcomes[key]=v
+                        except Exception:pass
+                    if rawrr not in (None,"NA","NaN","nan"):
+                        try:
+                            v=float(rawrr)
+                            if math.isfinite(v):rrs[key]=v
+                        except Exception:pass
+                    for prefix,dst in (("re",reaction_bars),("eb",entry_bars),("rb",bars)):
+                        try:dst[key]=int(kv.get(prefix+str(idx),"-1"))
+                        except Exception:pass
+                p["survival_fresh"]=outcomes;p["survival_fresh_rr"]=rrs
+                p["survival_fresh_entry_state"]=entries;p["survival_fresh_reaction_bar"]=reaction_bars
+                p["survival_fresh_entry_bar"]=entry_bars;p["survival_fresh_bars"]=bars
+                continue
 
             if "[V74-LATE-AUCTION-PATH]" in line:
                 payload=line.split("[V74-LATE-AUCTION-PATH]",1)[1].strip();kv={}
@@ -215,6 +255,12 @@ def load_rows(root,windows):
                          "rcr":path.get("rcr",{}),"hybrid":path.get("hybrid",{}),
                          "reaction_commit":path.get("reaction_commit",{}),
                          "high_conviction":path.get("high_conviction",{}),
+                         "survival_fresh":path.get("survival_fresh",{}),
+                         "survival_fresh_rr":path.get("survival_fresh_rr",{}),
+                         "survival_fresh_entry_state":path.get("survival_fresh_entry_state",{}),
+                         "survival_fresh_reaction_bar":path.get("survival_fresh_reaction_bar",{}),
+                         "survival_fresh_entry_bar":path.get("survival_fresh_entry_bar",{}),
+                         "survival_fresh_bars":path.get("survival_fresh_bars",{}),
 
                          "late_auction":path.get("late_auction",{}),
                          "late_auction_rr":path.get("late_auction_rr",{}),

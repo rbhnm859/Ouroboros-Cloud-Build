@@ -30,6 +30,14 @@ namespace cAlgo.Robots
         private static readonly string[] V74ReactionCommitKey = { "RC075_C20", "RC075_C30", "RC100_C20", "RC100_C30" };
         private static readonly double[] V74ReactionCommitStageR = { .25, .50, .75, 1.00, 1.50 };
         private static readonly double[] V74ReactionCommitFloorR = { .05, .20, .40, .65, 1.00 };
+
+        // V74 Survival-Fresh Alpha routes: use the empirically stable reaction->hold
+        // state as PRE-ENTRY evidence, then open a fresh raw basket. No floor, partial,
+        // BE, Grid or post-entry protection is used in these qualification outcomes.
+        private static readonly double[] V74SurvivalFreshReactionR = { .60, .75, 1.00 };
+        private static readonly double[] V74SurvivalFreshHoldR = { .35, .50, .75 };
+        private static readonly double[] V74SurvivalFreshStopFloorR = { .10, .25, .60 };
+        private static readonly string[] V74SurvivalFreshKey = { "SF060", "SF075", "SF100" };
         // High-conviction delayed capital: preserve canonical payoff asymmetry by waiting
         // until the virtual harmonic thesis has already demonstrated 1.75R/2.00R reaction.
         // Capital then enters only after a later completed M1 hold; stop is the completed
@@ -83,7 +91,7 @@ namespace cAlgo.Robots
         private static readonly double[] V74SequentialAdverseCutR = V74SequentialKey.Select(_=>-.15).ToArray();
 
 
-        // V74_SECOND_IMPULSE_REACCEL_V5_REBUILD
+        // V74_EVENT_NATIVE_SURVIVAL_FRESH_V6_REBUILD
         // True late-entry auction reuses the proven 48-route family/native payoff
         // geometry (M05/M10/M15 x R025/R050 x H/D x RR35/RR40 x F20/F30),
         // but moves capital admission to the completed-bar M-stage. Post-entry
@@ -139,6 +147,7 @@ namespace cAlgo.Robots
             public TradeDirection Direction;
             public double LiquidityExtreme, BosBoundary, FailureBoundary, Entry, Stop, Target, RiskDistance, NetRr, MfeR, MaeR;
             public double HcapQ, HcapLcb, HcapHoldBars;
+            public double HypothesisCount, FamilyCount, ParentFamilyCount, MeanGeometryQuality, GeometryQualityRange, MeanPrzConfluence, MeanConfidence;
             public double ProofBodyAtr, ProofRejectionRatio, ProofSweepDepthAtr, ProofReclaimAtr, ProofBosAtr, ProofRetestAtr;
             public bool HcapSelected = true;
             public string HcapFeatureCsv = "", V74FeatureCsv = "", V74LiveProtectionKey = "NONE";
@@ -167,6 +176,17 @@ namespace cAlgo.Robots
             public double[] V74ReactionCommitRisk = new double[4];
             public double[] V74ReactionCommitNetRr = new double[4];
             public double[] V74ReactionCommitOutcomeR = Enumerable.Repeat(double.NaN, 4).ToArray();
+            public int[] V74SurvivalFreshReactionBar = Enumerable.Repeat(-1, V74SurvivalFreshKey.Length).ToArray();
+            public int[] V74SurvivalFreshEntryBar = Enumerable.Repeat(-1, V74SurvivalFreshKey.Length).ToArray();
+            public bool[] V74SurvivalFreshActive = new bool[V74SurvivalFreshKey.Length];
+            public int[] V74SurvivalFreshBars = new int[V74SurvivalFreshKey.Length];
+            public double[] V74SurvivalFreshEntry = new double[V74SurvivalFreshKey.Length];
+            public double[] V74SurvivalFreshStop = new double[V74SurvivalFreshKey.Length];
+            public double[] V74SurvivalFreshTarget = new double[V74SurvivalFreshKey.Length];
+            public double[] V74SurvivalFreshRisk = new double[V74SurvivalFreshKey.Length];
+            public double[] V74SurvivalFreshNetRr = new double[V74SurvivalFreshKey.Length];
+            public double[] V74SurvivalFreshOutcomeR = Enumerable.Repeat(double.NaN, V74SurvivalFreshKey.Length).ToArray();
+            public string[] V74SurvivalFreshEntryStateCsv = new string[V74SurvivalFreshKey.Length];
             public int[] V74HighConvictionReactionBar = Enumerable.Repeat(-1, 4).ToArray();
             public bool[] V74HighConvictionActive = new bool[4];
             public bool[] V74HighConvictionPositiveArmed = new bool[4];
@@ -273,6 +293,12 @@ namespace cAlgo.Robots
                 var xs=g.ToList();var s=V72HcogSelectPrimary(xs);if(s==null)continue;
                 string setup=BuildSetupGeometryKey(s);
                 string fam=V71FamilyKey(s.PatternName);bool abcd=xs.Any(x=>V71FamilyKey(x.PatternName)=="ABCD");bool standalone=fam=="ABCD";
+                var eventFamilies=xs.Select(x=>V71FamilyKey(x.PatternName)).Distinct().ToList();
+                var parentFamilies=eventFamilies.Where(x=>x!="ABCD").ToList();
+                double meanG=xs.Count>0?xs.Average(x=>x.GeometryQuality):0.0;
+                double rangeG=xs.Count>0?xs.Max(x=>x.GeometryQuality)-xs.Min(x=>x.GeometryQuality):0.0;
+                double meanPrz=xs.Count>0?xs.Average(x=>x.PrzConfluence):0.0;
+                double meanConf=xs.Count>0?xs.Average(x=>x.Confidence):0.0;
                 if(abcd)_v72HcogAbcdPrimitive++;
                 DateTime now=Server.Time.ToUniversalTime();
                 var o=new V72HcogOpportunity{Id="HCOG-"+(++_v72HcogSeq).ToString("D7"),SetupKey=setup,Family=fam,
@@ -280,6 +306,8 @@ namespace cAlgo.Robots
                     Conflict=ClassifyMtfConflict(s.Direction,h4,h1),Regime=regime,State=V72HcogState.WAIT_PRZ,DetectedUtc=now,
                     OverallExpiryUtc=now.AddMinutes(15.0*Math.Max(2,Math.Min(V71ExpansionTtlM15Bars,s.Profile.MaxAgeM15Bars))),
                     Direction=s.Direction,HasAbcdConfluence=abcd,StandaloneAbcd=standalone,CapitalSemantic=!standalone,
+                    HypothesisCount=xs.Count,FamilyCount=eventFamilies.Count,ParentFamilyCount=parentFamilies.Count,
+                    MeanGeometryQuality=meanG,GeometryQualityRange=rangeG,MeanPrzConfluence=meanPrz,MeanConfidence=meanConf,
                     Lane=standalone?"HCOG_ABCD_STANDALONE_SHADOW":"HCOG_PENDING"};
                 _v72Hcog[o.Id]=o;_v72HcogDetected++;
                 if(!EnableV73OpportunityUniverse)Print("[V72-HCOG-DETECTED] id={0} setup={1} family={2} hypotheses={3} abcd={4} fitLoss={5:F6} conflict={6}",
@@ -303,7 +331,7 @@ namespace cAlgo.Robots
         private double[] V74ResearchFeatures(V72HcogOpportunity o)
         {
             var s=o==null?null:o.Signal;var r=o==null?null:o.Regime;
-            if(s==null)return Enumerable.Repeat(0.0,46).ToArray();
+            if(s==null)return Enumerable.Repeat(0.0,53).ToArray();
             double atrPips=r==null?0.0:Math.Max(1e-9,r.AtrM15Pips);
             double riskPips=Math.Max(1e-9,PriceToPips(Math.Abs(o.Entry-o.Stop)));
             double targetPips=Math.Max(0.0,PriceToPips(Math.Abs(o.Target-o.Entry)));
@@ -343,7 +371,10 @@ namespace cAlgo.Robots
                 VClamp(o.ProofRejectionRatio/3.0),VClamp(o.ProofSweepDepthAtr/2.0),
                 VClamp(o.ProofReclaimAtr/2.0),VClamp(o.ProofBosAtr/2.0),VClamp(o.ProofRetestAtr/2.0),
                 VClamp(geometryLoss/4.0),VClamp(rxab/4.0),VClamp(rabc/4.0),
-                VClamp(rbcd/4.0),VClamp(rxad/4.0),VClamp(rabcd/4.0)
+                VClamp(rbcd/4.0),VClamp(rxad/4.0),VClamp(rabcd/4.0),
+                VClamp(o.HypothesisCount/12.0),VClamp(o.FamilyCount/12.0),VClamp(o.ParentFamilyCount/11.0),
+                VClamp(o.MeanGeometryQuality),VClamp(o.GeometryQualityRange),
+                VClamp(o.MeanPrzConfluence),VClamp(o.MeanConfidence)
             };
         }
 
@@ -717,6 +748,60 @@ namespace cAlgo.Robots
                 // Conservative ambiguity: if a floor and a later favorable excursion share
                 // one bar, the already-armed protective floor is assumed to fire first.
                 if(floorHit)o.V74HybridOutcomeR[p]=V74ProtectionFloorR[stage];
+            }
+        }
+
+        private void V74UpdateSurvivalFresh(V72HcogOpportunity o,int i,bool nativeStop,bool nativeTarget)
+        {
+            if(o==null||o.RiskDistance<=0||i<1||i>=_m1Bars.Count)return;
+            double open=_m1Bars.OpenPrices[i],close=_m1Bars.ClosePrices[i],high=_m1Bars.HighPrices[i],low=_m1Bars.LowPrices[i];
+            double prevClose=_m1Bars.ClosePrices[i-1];
+            bool buy=o.Direction==TradeDirection.Buy;
+            bool directional=buy?close>open:close<open;
+            bool reaccelerating=buy?close>prevClose:close<prevClose;
+            double range=Math.Max(_symbol.PipSize,high-low);
+            double alignedClose=buy?(close-low)/range:(high-close)/range;
+            double virtualFav=buy?(high-o.Entry)/o.RiskDistance:(o.Entry-low)/o.RiskDistance;
+
+            for(int k=0;k<V74SurvivalFreshKey.Length;k++)
+            {
+                if(double.IsFinite(o.V74SurvivalFreshOutcomeR[k]))continue;
+                if(o.V74SurvivalFreshReactionBar[k]<0&&!nativeStop&&!nativeTarget&&virtualFav+1e-12>=V74SurvivalFreshReactionR[k])
+                {
+                    o.V74SurvivalFreshReactionBar[k]=o.BarsActive;
+                    continue; // reaction bar is observation only
+                }
+                if(!o.V74SurvivalFreshActive[k])
+                {
+                    if(o.V74SurvivalFreshReactionBar[k]<0||o.BarsActive<=o.V74SurvivalFreshReactionBar[k]||nativeStop||nativeTarget)continue;
+                    double holdPrice=buy?o.Entry+o.RiskDistance*V74SurvivalFreshHoldR[k]
+                                        :o.Entry-o.RiskDistance*V74SurvivalFreshHoldR[k];
+                    bool holds=buy?close>holdPrice:close<holdPrice;
+                    if(!(holds&&directional&&reaccelerating&&alignedClose+1e-12>=.55))continue;
+
+                    double entry=close;
+                    double stop=buy?o.Entry+o.RiskDistance*V74SurvivalFreshStopFloorR[k]
+                                   :o.Entry-o.RiskDistance*V74SurvivalFreshStopFloorR[k];
+                    double risk=Math.Abs(entry-stop);
+                    if(PriceToPips(risk)<MinStopLossPips||!GeometryValid(o.Direction,entry,stop,o.Target))continue;
+                    double rr=(PriceToPips(Math.Abs(o.Target-entry))-ModeledCostPips())/Math.Max(1e-9,PriceToPips(risk));
+                    if(rr+1e-9<2.30)continue;
+
+                    o.V74SurvivalFreshActive[k]=true;o.V74SurvivalFreshEntryBar[k]=o.BarsActive;
+                    o.V74SurvivalFreshEntry[k]=entry;o.V74SurvivalFreshStop[k]=stop;o.V74SurvivalFreshTarget[k]=o.Target;
+                    o.V74SurvivalFreshRisk[k]=risk;o.V74SurvivalFreshNetRr[k]=rr;o.V74SurvivalFreshBars[k]=0;
+                    o.V74SurvivalFreshEntryStateCsv[k]=string.Join(",",V74RouteStateFeatures(
+                        o,i,o.Entry,o.RiskDistance,o.Target,
+                        Math.Max(0,o.BarsActive-o.V74SurvivalFreshReactionBar[k]),o.MfeR,o.MaeR,V74SurvivalFreshReactionR[k])
+                        .Select(v=>v.ToString("R",System.Globalization.CultureInfo.InvariantCulture)));
+                    continue; // no same-bar outcome
+                }
+
+                o.V74SurvivalFreshBars[k]++;
+                bool stopHit=buy?low<=o.V74SurvivalFreshStop[k]:high>=o.V74SurvivalFreshStop[k];
+                bool targetHit=buy?high>=o.V74SurvivalFreshTarget[k]:low<=o.V74SurvivalFreshTarget[k];
+                if(stopHit){o.V74SurvivalFreshOutcomeR[k]=-1.0;o.V74SurvivalFreshActive[k]=false;continue;}
+                if(targetHit){o.V74SurvivalFreshOutcomeR[k]=o.V74SurvivalFreshNetRr[k];o.V74SurvivalFreshActive[k]=false;continue;}
             }
         }
 
@@ -1179,6 +1264,18 @@ namespace cAlgo.Robots
             return o==null||o.V74ProtectionTriggerBar==null?0:o.V74ProtectionTriggerBar.Length;
         }
 
+        private void V74FinalizeSurvivalFresh(V72HcogOpportunity o,double close)
+        {
+            if(o==null)return;
+            for(int k=0;k<V74SurvivalFreshKey.Length;k++)
+            {
+                if(double.IsFinite(o.V74SurvivalFreshOutcomeR[k])||!o.V74SurvivalFreshActive[k]||o.V74SurvivalFreshRisk[k]<=0)continue;
+                double closeR=(o.Direction==TradeDirection.Buy?close-o.V74SurvivalFreshEntry[k]:o.V74SurvivalFreshEntry[k]-close)/o.V74SurvivalFreshRisk[k];
+                o.V74SurvivalFreshOutcomeR[k]=Math.Max(-1.0,Math.Min(o.V74SurvivalFreshNetRr[k],closeR));
+                o.V74SurvivalFreshActive[k]=false;
+            }
+        }
+
         private void V74FinalizeReactionConfirmedReentry(V72HcogOpportunity o,double close)
         {
             if(o==null)return;
@@ -1202,6 +1299,7 @@ namespace cAlgo.Robots
             for(int k=0;k<o.V74HybridOutcomeR.Length;k++)if(double.IsNaN(o.V74HybridOutcomeR[k]))o.V74HybridOutcomeR[k]=r;
             V74FinalizeReactionConfirmedReentry(o,close);
             V74FinalizeReactionCommitLadders(o,close);
+            V74FinalizeSurvivalFresh(o,close);
             V74FinalizeHighConvictionDelayedCommit(o,close);
             V74FinalizeCausalSequentialDelayedCommit(o,close);
             V74FinalizeTrueLateEntryAuction(o,close);
@@ -1229,6 +1327,18 @@ namespace cAlgo.Robots
                 double.IsFinite(o.V74HighConvictionOutcomeR[1])?o.V74HighConvictionOutcomeR[1].ToString("R",System.Globalization.CultureInfo.InvariantCulture):"NA",
                 double.IsFinite(o.V74HighConvictionOutcomeR[2])?o.V74HighConvictionOutcomeR[2].ToString("R",System.Globalization.CultureInfo.InvariantCulture):"NA",
                 double.IsFinite(o.V74HighConvictionOutcomeR[3])?o.V74HighConvictionOutcomeR[3].ToString("R",System.Globalization.CultureInfo.InvariantCulture):"NA");
+            var sfParts=new List<string>{"setup="+o.SetupKey,"family="+o.Family,"lane="+o.Lane};
+            for(int k=0;k<V74SurvivalFreshKey.Length;k++)
+            {
+                sfParts.Add("e"+k+"="+(string.IsNullOrWhiteSpace(o.V74SurvivalFreshEntryStateCsv[k])?"NONE":o.V74SurvivalFreshEntryStateCsv[k]));
+                sfParts.Add("b"+k+"="+(double.IsFinite(o.V74SurvivalFreshOutcomeR[k])?o.V74SurvivalFreshOutcomeR[k].ToString("R",System.Globalization.CultureInfo.InvariantCulture):"NA"));
+                sfParts.Add("rr"+k+"="+o.V74SurvivalFreshNetRr[k].ToString("R",System.Globalization.CultureInfo.InvariantCulture));
+                sfParts.Add("re"+k+"="+o.V74SurvivalFreshReactionBar[k].ToString(System.Globalization.CultureInfo.InvariantCulture));
+                sfParts.Add("eb"+k+"="+o.V74SurvivalFreshEntryBar[k].ToString(System.Globalization.CultureInfo.InvariantCulture));
+                sfParts.Add("rb"+k+"="+o.V74SurvivalFreshBars[k].ToString(System.Globalization.CultureInfo.InvariantCulture));
+            }
+            Print("[V74-SURVIVAL-FRESH-PATH] "+string.Join(" ",sfParts));
+
             var seqParts=new List<string>{"setup="+o.SetupKey,"family="+o.Family,"lane="+o.Lane,
                 "m025="+(string.IsNullOrWhiteSpace(o.V74SequentialState025Csv)?"NONE":o.V74SequentialState025Csv),
                 "m050="+(string.IsNullOrWhiteSpace(o.V74SequentialState050Csv)?"NONE":o.V74SequentialState050Csv)};
@@ -1275,6 +1385,7 @@ namespace cAlgo.Robots
             V74UpdateReactionConfirmedReentry(o,i,stop,target);
             V74UpdateHybridSurvivalFrontiers(o,i,stop,target);
             V74UpdateReactionCommitLadders(o,i,stop,target);
+            V74UpdateSurvivalFresh(o,i,stop,target);
             V74UpdateHighConvictionDelayedCommit(o,i,stop,target);
             V74UpdateCausalSequentialDelayedCommit(o,i,stop,target);
             V74UpdateTrueLateEntryAuction(o,i,stop,target);

@@ -15,13 +15,13 @@ profit-capture and Grid/capital-capacity mechanics are intentionally excluded.
 """
 import bisect,json,math,pathlib,statistics,sys,time
 from collections import defaultdict,Counter
-from v74_model_lib import load_rows,metrics,SEQUENTIAL_STATE_FEATURE_COUNT,FAMILIES
+from v74_model_lib import load_rows,metrics,SEQUENTIAL_STATE_FEATURE_COUNT,FAMILIES,SURVIVAL_FRESH_KEYS
 
 root=pathlib.Path(sys.argv[1]);out=pathlib.Path(sys.argv[2]);out.mkdir(parents=True,exist_ok=True)
 RESEARCH=[f"Y{y}" for y in range(2016,2021)]
 BURNED=["Y2021","Y2022","Y2023"];ALL=RESEARCH+BURNED
 MIN_N=250;TRAIN_COVERAGE=275;MIN_MEAN=.90;MIN_PF=3.30;MIN_WR=.70;MIN_RR=2.30;Z=1.645
-SOURCES=("EARLY","LATE");V74_QUALIFICATION_FRACTION="30";EARLY_FRACTIONS=(V74_QUALIFICATION_FRACTION,);LATE_FRACTIONS=(V74_QUALIFICATION_FRACTION,);ALL_FRACTIONS=(V74_QUALIFICATION_FRACTION,);MSTAGES=("05","10","15");EARLY_MSTAGES=("15",);LATE_MSTAGES=MSTAGES
+REGULAR_SOURCES=("EARLY","LATE");SOURCES=("EARLY","LATE","SURVIVAL");V74_QUALIFICATION_FRACTION="30";EARLY_FRACTIONS=(V74_QUALIFICATION_FRACTION,);LATE_FRACTIONS=(V74_QUALIFICATION_FRACTION,);ALL_FRACTIONS=(V74_QUALIFICATION_FRACTION,);MSTAGES=("05","10","15");EARLY_MSTAGES=("15",);LATE_MSTAGES=MSTAGES
 BASES=[f"R{r}_{h}_RR{rr}" for r in ("025","050") for h in ("H","D") for rr in ("35","40")]
 TREE_KFEAT=30;PAIR_KFEAT=26;TREE_ROUNDS=10;PAIR_ROUNDS=8;TREE_DEPTH=3;TOP_PAIR=6
 rows=load_rows(root,ALL)
@@ -96,15 +96,17 @@ def timing_state(r,src,m,b,f,eb):
             max(-1.0,min(6.0,float(ab)/10.0)) if ab is not None else -1.0,
             max(-1.0,min(6.0,float(tb)/10.0)) if tb is not None else -1.0]
 
-def route_cats(r,src,b,m,f):
+def route_cats(r,src,b,m,f,sfkey=None):
     return [1.0 if r["family"]==ff else 0.0 for ff in FAMILIES]+[
       1.0 if r["action"]=="CONTINUATION" else 0.0,
       1.0 if src=="LATE" else 0.0,
+      1.0 if src=="SURVIVAL" else 0.0,
       1.0 if b.startswith("R050_") else 0.0,
       1.0 if "_D_" in b else 0.0,
       1.0 if b.endswith("RR40") else 0.0]+[
       1.0 if m==mm else 0.0 for mm in MSTAGES]+[
-      1.0 if f==ff else 0.0 for ff in ALL_FRACTIONS]
+      1.0 if f==ff else 0.0 for ff in ALL_FRACTIONS]+[
+      1.0 if sfkey==kk else 0.0 for kk in SURVIVAL_FRESH_KEYS]
 
 def xvec(r,src,m,b,f,eb):
     # Missing reaction/path snapshots are explicit evidence, not a hard rejection.
@@ -116,11 +118,22 @@ def xvec(r,src,m,b,f,eb):
     return (list(r.get("features",[]))+route_cats(r,src,b,m,f)+aa+ee+delta+
             [ap,ep,1.0 if ap and ep else 0.0]+timing_state(r,src,m,b,f,eb))
 
+def survival_xvec(r,sf,eb):
+    e=r.get("survival_fresh_entry_state",{}).get(sf)
+    ep=1.0 if e is not None and len(e)==SEQUENTIAL_STATE_FEATURE_COUNT else 0.0
+    ee=[float(x) for x in e] if ep else [0.0]*SEQUENTIAL_STATE_FEATURE_COUNT
+    zero=[0.0]*SEQUENTIAL_STATE_FEATURE_COUNT
+    rb=r.get("survival_fresh_reaction_bar",{}).get(sf,-1)
+    timing=[max(-1.0,min(6.0,float(eb)/10.0)),
+            max(-1.0,min(6.0,float(rb)/10.0)) if rb is not None else -1.0,0.0,0.0]
+    return (list(r.get("features",[]))+route_cats(r,"SURVIVAL","SURVIVAL","SF","30",sf)+
+            ee+ee+zero+[ep,ep,ep]+timing)
+
 def telemetry_guard():
-    legal={"EARLY":0,"LATE":0};with_state={"EARLY":0,"LATE":0}
+    legal={"EARLY":0,"LATE":0,"SURVIVAL":0};with_state={"EARLY":0,"LATE":0,"SURVIVAL":0}
     for r in rows:
       for b in BASES:
-        for src in SOURCES:
+        for src in REGULAR_SOURCES:
           for m in (EARLY_MSTAGES if src=="EARLY" else LATE_MSTAGES):
             for f in (EARLY_FRACTIONS if src=="EARLY" else LATE_FRACTIONS):
               eb=entry_bar(r,src,m,b,f)
@@ -128,6 +141,14 @@ def telemetry_guard():
               legal[src]+=1
               if maturity_state(r,src,m,b,f) is not None and entry_state(r,src,m,b,f) is not None:
                   with_state[src]+=1
+      for sf in SURVIVAL_FRESH_KEYS:
+        try:eb=int(r.get("survival_fresh_entry_bar",{}).get(sf,-1))
+        except:eb=-1
+        y=r.get("survival_fresh",{}).get(sf);rr=r.get("survival_fresh_rr",{}).get(sf)
+        if eb<0 or y is None or rr is None or float(rr)+1e-9<MIN_RR:continue
+        legal["SURVIVAL"]+=1
+        e=r.get("survival_fresh_entry_state",{}).get(sf)
+        if e is not None and len(e)==SEQUENTIAL_STATE_FEATURE_COUNT:with_state["SURVIVAL"]+=1
     if sum(legal.values())==0:raise SystemExit("V74 no legal completed-bar actions")
     return {"legal_actions":legal,"complete_path_state":with_state,
             "missing_state_is_feature_not_veto":True,
@@ -138,7 +159,7 @@ def all_options(r,b):
     ck=(r["window"],r["setup"],b)
     if ck in _OPTION_CACHE:return _OPTION_CACHE[ck]
     z=[]
-    for src in SOURCES:
+    for src in REGULAR_SOURCES:
       for m in (EARLY_MSTAGES if src=="EARLY" else LATE_MSTAGES):
         for f in (EARLY_FRACTIONS if src=="EARLY" else LATE_FRACTIONS):
           eb=entry_bar(r,src,m,b,f)
@@ -159,6 +180,15 @@ def make_samples(xs):
           out.append({"window":r["window"],"setup":r["setup"],"family":r["family"],"action":r["action"],
                       "base":b,"route":o["rid"],"bar":o["bar"],"bars":o["bars"],"x":o["x"],
                       "y":o["y"],"row":r})
+      for sf in SURVIVAL_FRESH_KEYS:
+        y=r.get("survival_fresh",{}).get(sf);rr=r.get("survival_fresh_rr",{}).get(sf)
+        try:eb=int(r.get("survival_fresh_entry_bar",{}).get(sf,-1))
+        except:eb=-1
+        if y is None or rr is None or eb<0 or float(rr)+1e-9<MIN_RR:continue
+        bars=max(1,int(r.get("survival_fresh_bars",{}).get(sf,r.get("bars",1)) or 1))
+        out.append({"window":r["window"],"setup":r["setup"],"family":r["family"],"action":r["action"],
+                    "base":"SURVIVAL_"+sf,"route":"SURVIVAL|"+sf,"bar":eb,"bars":bars,
+                    "x":survival_xvec(r,sf,eb),"y":float(y),"row":r})
     return out
 
 def stable_idx(samples,k):
@@ -447,7 +477,7 @@ summary={"version":"HarmonyBot V74 One-Shot Family-Native Causal Action Selector
  "research_training_windows":RESEARCH,"burned_oof_windows":BURNED,
  "policy":{"actions":"EARLY_OR_LATE_COMPLETED_BAR_ENTRY_ACTION__FIXED_F30_QUALIFICATION",
            "harmonic_completion":"DIRECTION_TIME_D_EVENT_IDENTITY__MULTI_GEOMETRY_IS_CONFLUENCE_NOT_SUPPLY",
-           "reaction_state":"CAUSAL_FEATURE_NOT_HARD_FILTER","physical_route_contract":"EARLY_ENTRY_IDENTITY_R_H_RR_ONLY__LATE_M_IS_ENTRY_MATURITY__FIXED_F30_QUALIFICATION","v75_management_variants_excluded":True,"early_post_entry_m_stage_excluded":True,
+           "reaction_state":"CAUSAL_FEATURE_NOT_HARD_FILTER","physical_route_contract":"EVENT_NATIVE_EARLY_PLUS_LATE_PLUS_SURVIVAL_FRESH_RAW_BASKETS__FIXED_F30_QUALIFICATION","v75_management_variants_excluded":True,"early_post_entry_m_stage_excluded":True,
            "route_choice":"BOUNDED_DEPTH3_EXPECTED_R_WIN_PROB_PLUS_COUNTERFACTUAL_PAIRWISE_DELTA","optimal_stopping":"TRAINING_ONLY_CONTINUATION_VALUE_HEAD__RUNTIME_STOP_VS_DEFER",
            "admission":"TRAINING_ONLY_WORST_YEAR_GATE_CALIBRATED_STOP_ADVANTAGE_THRESHOLD",
            "training_coverage_target_per_year":TRAIN_COVERAGE,
