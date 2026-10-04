@@ -235,16 +235,17 @@ def grouped_events(samples):
     for s in samples:d[(s["window"],s["setup"],s["bar"])].append(s)
     return d
 
-def _tree_fit(X,y,idx,max_depth=TREE_DEPTH,min_leaf=28):
-    # Exact same quantile split search as the reference implementation, but each
-    # feature is sorted once per node and SSE is obtained from prefix sums.
-    def node(ids,depth):
+def _tree_fit(X,y,idx,max_depth=TREE_DEPTH,min_leaf=28,root_orders=None):
+    # Exact same quantile split search as the reference implementation. Root
+    # feature order is invariant across heads/boost rounds, so compute it once.
+    def node(ids,depth,is_root=False):
       n=len(ids);sy=sum(y[i] for i in ids);sy2=sum(y[i]*y[i] for i in ids);mu=sy/n
       leaf={"leaf":mu,"n":n}
       if depth<=0 or n<2*min_leaf:return leaf
       base=sy2-sy*sy/n;best=None
       for j in idx:
-        ordered=sorted(ids,key=lambda i:X[i][j])
+        ordered=(root_orders[j] if is_root and root_orders is not None
+                 else sorted(ids,key=lambda i:X[i][j]))
         vals=[X[i][j] for i in ordered]
         ps=[0.0];ps2=[0.0]
         for i in ordered:
@@ -258,8 +259,8 @@ def _tree_fit(X,y,idx,max_depth=TREE_DEPTH,min_leaf=28):
             best=(gain,j,t,ordered[:p],ordered[p:])
       if best is None or best[0]<=1e-10:return leaf
       _,j,t,li,ri=best
-      return {"j":j,"t":t,"n":n,"left":node(li,depth-1),"right":node(ri,depth-1)}
-    return node(list(range(len(y))),max_depth)
+      return {"j":j,"t":t,"n":n,"left":node(li,depth-1,False),"right":node(ri,depth-1,False)}
+    return node(list(range(len(y))),max_depth,True)
 
 def _tree_pred(t,x):
     n=t
@@ -269,20 +270,29 @@ def _tree_pred(t,x):
       support=min(support,int(n.get("n",1)))
     return float(n["leaf"]),support
 
-def _boost_train(X,y,idx,rounds=TREE_ROUNDS,lr=.08,max_rows=6500):
+def _boost_train(X,y,idx,rounds=TREE_ROUNDS,lr=.08,max_rows=6500,root_orders=None):
     if not y:return {"base":0.0,"trees":[],"lr":lr,"sigma":10.0}
     if len(y)>max_rows:
       step=max(1,math.ceil(len(y)/max_rows));X=X[::step];y=y[::step]
     base=sum(y)/len(y);pred=[base]*len(y);trees=[]
     for _ in range(rounds):
       res=[y[i]-pred[i] for i in range(len(y))]
-      tr=_tree_fit(X,res,idx)
+      tr=_tree_fit(X,res,idx,root_orders=root_orders)
       trees.append(tr)
       for i,x in enumerate(X):
         v,_=_tree_pred(tr,x);pred[i]+=lr*v
     resid=[y[i]-pred[i] for i in range(len(y))]
     sig=statistics.stdev(resid) if len(resid)>1 else 10.0
     return {"base":base,"trees":trees,"lr":lr,"sigma":max(.05,sig)}
+
+def _fit_view(X,ys,max_rows):
+    if len(X)<=max_rows:return X,[list(y) for y in ys]
+    step=max(1,math.ceil(len(X)/max_rows))
+    return X[::step],[list(y)[::step] for y in ys]
+
+def _root_orders(X,idx):
+    ids=list(range(len(X)))
+    return {j:sorted(ids,key=lambda i:X[i][j]) for j in idx}
 
 def _boost_pred(m,x):
     v=float(m["base"]);support=10**9
@@ -340,17 +350,21 @@ def event_regret_targets(samples):
         bestp[i]=1.0 if i in ties else 0.0
     return regret,bestp
 
-def fit_value(samples):
-    idx=stable_idx(samples,TREE_KFEAT);X=[s["x"] for s in samples]
+def fit_value(samples,idx=None):
+    idx=list(idx) if idx is not None else stable_idx(samples,TREE_KFEAT)
+    Xall=[s["x"] for s in samples]
     ym=[float(s["y"]) for s in samples];yw=[1.0 if s["y"]>0 else 0.0 for s in samples]
     yc=training_continuation_targets(samples)
     yr,yb=event_regret_targets(samples)
-    mm=_boost_train(X,ym,idx,rounds=TREE_ROUNDS,lr=.075)
-    wm=_boost_train(X,yw,idx,rounds=TREE_ROUNDS,lr=.075)
-    cm=_boost_train(X,yc,idx,rounds=TREE_ROUNDS,lr=.075)
-    rm=_boost_train(X,yr,idx,rounds=TREE_ROUNDS,lr=.075)
-    bm=_boost_train(X,yb,idx,rounds=TREE_ROUNDS,lr=.075)
-    pm=[_boost_pred(mm,x)[0] for x in X];pw=[max(0.0,min(1.0,_boost_pred(wm,x)[0])) for x in X]
+    X,targets=_fit_view(Xall,[ym,yw,yc,yr,yb],6500)
+    ymf,ywf,ycf,yrf,ybf=targets
+    orders=_root_orders(X,idx)
+    mm=_boost_train(X,ymf,idx,rounds=TREE_ROUNDS,lr=.075,max_rows=10**9,root_orders=orders)
+    wm=_boost_train(X,ywf,idx,rounds=TREE_ROUNDS,lr=.075,max_rows=10**9,root_orders=orders)
+    cm=_boost_train(X,ycf,idx,rounds=TREE_ROUNDS,lr=.075,max_rows=10**9,root_orders=orders)
+    rm=_boost_train(X,yrf,idx,rounds=TREE_ROUNDS,lr=.075,max_rows=10**9,root_orders=orders)
+    bm=_boost_train(X,ybf,idx,rounds=TREE_ROUNDS,lr=.075,max_rows=10**9,root_orders=orders)
+    pm=[_boost_pred(mm,x)[0] for x in Xall];pw=[max(0.0,min(1.0,_boost_pred(wm,x)[0])) for x in Xall]
     return {"idx":idx,"mean":mm,"win":wm,"continuation":cm,"regret":rm,"best":bm,
             "residuals":_residual_cells(samples,pm,pw)}
 
@@ -378,8 +392,8 @@ def pred_value(md,s):
             "stop_advantage":stop_adv,"support":sup,"value_score":route_score,
             "admission_score":admission_score}
 
-def fit_pair(samples):
-    idx=stable_idx(samples,PAIR_KFEAT);X=[];yw=[];yd=[]
+def fit_pair(samples,idx=None):
+    idx=list(idx) if idx is not None else stable_idx(samples,PAIR_KFEAT);X=[];yw=[];yd=[]
     for ev in grouped_events(samples).values():
       if len(ev)<2:continue
       a=sorted(ev,key=lambda z:(z["base"],z["route"]));n=len(a)
@@ -397,9 +411,11 @@ def fit_pair(samples):
     if len(X)>10000:
       step=max(1,math.ceil(len(X)/10000));X=X[::step];yw=yw[::step];yd=yd[::step]
     use=list(range(len(idx)))
+    Xfit,targets=_fit_view(X,[yw,yd],7000);ywf,ydf=targets
+    orders=_root_orders(Xfit,use)
     return {"valid":True,"idx":idx,"n":len(X),
-            "win":_boost_train(X,yw,use,rounds=PAIR_ROUNDS,lr=.08,max_rows=7000),
-            "delta":_boost_train(X,yd,use,rounds=PAIR_ROUNDS,lr=.08,max_rows=7000)}
+            "win":_boost_train(Xfit,ywf,use,rounds=PAIR_ROUNDS,lr=.08,max_rows=10**9,root_orders=orders),
+            "delta":_boost_train(Xfit,ydf,use,rounds=PAIR_ROUNDS,lr=.08,max_rows=10**9,root_orders=orders)}
 
 def pair_pref(pm,a,b):
     if not pm.get("valid"):return 0.0
@@ -522,7 +538,8 @@ def fit_policy(train_rows):
     for src in SOURCES:
       ss=[s for s in samples if s.get("source")==src]
       if len(ss)<250:continue
-      vm=fit_value(ss);pm=fit_pair(ss)
+      ranked=stable_idx(ss,max(TREE_KFEAT,PAIR_KFEAT))
+      vm=fit_value(ss,ranked[:TREE_KFEAT]);pm=fit_pair(ss,ranked[:PAIR_KFEAT])
       if not pm.get("valid"):continue
       # Reliability is a causal training-only shrinkage term. It cannot improve a
       # weak head by invention; it only shrinks low-support heads toward their LCB.
@@ -577,7 +594,7 @@ for test in BURNED:
   tw=[w for w in ALL if int(w[1:])<test_year]
   tr=[r for r in rows if r["window"] in tw];te=[r for r in rows if r["window"]==test]
   policy,_=fit_policy(tr)
-  sel,_,dec=apply_policy(policy,te);m,mr=metric_selected(sel)
+  sel,test_samples,dec=apply_policy(policy,te);m,mr=metric_selected(sel)
   routes=Counter(r.get("sequential_key","NONE") for r in mr)
   fams=Counter(r["family"] for r in mr);acts=Counter(r["action"] for r in mr)
   srcs=Counter(x.split("|",1)[0] for x in routes.elements())
@@ -585,7 +602,7 @@ for test in BURNED:
   summary["folds"][test]={**m,"pass":ps,"training_windows":tw,
     "entry_threshold":policy["threshold"],"training_coverage_target":TRAIN_COVERAGE,"training_gate":policy.get("training_gate"),"training_worst_gate_margin":policy.get("training_worst_gate_margin"),
     "training_supply":policy["training_supply"],"training_year_metrics":policy["training_metrics"],
-    "test_legal_actions":sum(1 for _ in make_samples(te)),"test_decision_events":len(dec),
+    "test_legal_actions":len(test_samples),"test_decision_events":len(dec),
     "selected_route_counts":dict(routes),"selected_family_counts":dict(fams),
     "selected_action_counts":dict(acts),"selected_source_counts":dict(srcs),
     "runtime_seconds":round(time.perf_counter()-ft,3)}

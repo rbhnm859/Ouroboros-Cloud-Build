@@ -139,6 +139,20 @@ namespace cAlgo.Robots
             return V74LateAuctionKey[k].EndsWith("_F30");
         }
 
+        // Pure universe generation has a much smaller formal V74 qualification
+        // surface than the historical research harness.  These guards remove only
+        // routes/telemetry that evaluate_v74_sequential.py never reads.  External
+        // and embedded/runtime modes remain untouched.
+        private bool V74ResearchQualificationOnly =>
+            EnableV73OpportunityUniverse&&!EnableV74ExternalPolicy&&!EnableV74EmbeddedPolicy&&
+            !EnableV72HcogAlpha&&!EnableV72HcapAlpha;
+        private static bool V74SequentialQualificationKey(int k)
+        {
+            string key=V74SequentialKey[k];
+            return key.StartsWith("M15_")&&key.EndsWith("_F30");
+        }
+        private static bool V74LateQualificationKey(int k) => V74LateAuctionKey[k].EndsWith("_F30");
+
         private sealed class V72HcogOpportunity
         {
             public string Id, SetupKey, Family, Hypotheses, Lane, Result;
@@ -876,11 +890,14 @@ namespace cAlgo.Robots
                 double rr=(PriceToPips(Math.Abs(target-entry))-ModeledCostPips())/Math.Max(1e-9,riskPips);
                 if(rr+1e-9<2.30)continue;
 
-                // Maturity is original harmonic path; entry is actual fresh basket geometry.
-                o.V74SurvivalFreshMaturityStateCsv[k]=string.Join(",",V74RouteStateFeatures(
-                    o,i,o.Entry,o.RiskDistance,o.Target,
-                    Math.Max(0,o.BarsActive-o.V74SurvivalFreshReactionBar[k]),o.MfeR,o.MaeR,reactionR)
-                    .Select(v=>v.ToString("R",System.Globalization.CultureInfo.InvariantCulture)));
+                // Maturity snapshot is legacy-only; formal V74 Survival uses the
+                // actual fresh-entry state. Avoid serializing an unused 56-vector
+                // in the pure universe kernel.
+                if(!V74ResearchQualificationOnly)
+                    o.V74SurvivalFreshMaturityStateCsv[k]=string.Join(",",V74RouteStateFeatures(
+                        o,i,o.Entry,o.RiskDistance,o.Target,
+                        Math.Max(0,o.BarsActive-o.V74SurvivalFreshReactionBar[k]),o.MfeR,o.MaeR,reactionR)
+                        .Select(v=>v.ToString("R",System.Globalization.CultureInfo.InvariantCulture)));
                 o.V74SurvivalFreshEntryStateCsv[k]=string.Join(",",V74RouteStateFeatures(
                     o,i,entry,risk,target,0,0,0,reactionR)
                     .Select(v=>v.ToString("R",System.Globalization.CultureInfo.InvariantCulture)));
@@ -1051,6 +1068,7 @@ namespace cAlgo.Robots
 
             for(int k=0;k<V74SequentialKey.Length;k++)
             {
+                if(V74ResearchQualificationOnly&&!V74SequentialQualificationKey(k))continue;
                 if(double.IsFinite(o.V74SequentialOutcomeR[k]))continue;
                 double reactionR=V74SequentialReactionR[k];
                 if(o.V74SequentialReactionBar[k]<0&&!nativeStop&&!nativeTarget&&virtualFav+1e-12>=reactionR)
@@ -1116,16 +1134,18 @@ namespace cAlgo.Robots
                 if(o.V74SequentialTriggerBar[k]<0&&routeFav+1e-12>=V74SequentialTriggerR[k])
                 {
                     o.V74SequentialTriggerBar[k]=o.V74SequentialBars[k];
-                    o.V74SequentialTriggerStateCsv[k]=string.Join(",",V74RouteStateFeatures(o,i,ce,cr,o.V74SequentialTarget[k],o.V74SequentialBars[k],
-                        o.V74SequentialRouteMfeR[k],o.V74SequentialRouteMaeR[k],V74SequentialTriggerR[k])
-                        .Select(v=>v.ToString("R",System.Globalization.CultureInfo.InvariantCulture)));
+                    if(!V74ResearchQualificationOnly)
+                        o.V74SequentialTriggerStateCsv[k]=string.Join(",",V74RouteStateFeatures(o,i,ce,cr,o.V74SequentialTarget[k],o.V74SequentialBars[k],
+                            o.V74SequentialRouteMfeR[k],o.V74SequentialRouteMaeR[k],V74SequentialTriggerR[k])
+                            .Select(v=>v.ToString("R",System.Globalization.CultureInfo.InvariantCulture)));
                     continue;
                 }
                 if(o.V74SequentialTriggerBar[k]>=0&&o.V74SequentialBars[k]>o.V74SequentialTriggerBar[k]&&routeCloseR+1e-12>=V74SequentialPartialHoldR[k])
                 {
-                    o.V74SequentialDecisionStateCsv[k]=string.Join(",",V74RouteStateFeatures(o,i,ce,cr,o.V74SequentialTarget[k],o.V74SequentialBars[k],
-                        o.V74SequentialRouteMfeR[k],o.V74SequentialRouteMaeR[k],routeCloseR)
-                        .Select(v=>v.ToString("R",System.Globalization.CultureInfo.InvariantCulture)));
+                    if(!V74ResearchQualificationOnly)
+                        o.V74SequentialDecisionStateCsv[k]=string.Join(",",V74RouteStateFeatures(o,i,ce,cr,o.V74SequentialTarget[k],o.V74SequentialBars[k],
+                            o.V74SequentialRouteMfeR[k],o.V74SequentialRouteMaeR[k],routeCloseR)
+                            .Select(v=>v.ToString("R",System.Globalization.CultureInfo.InvariantCulture)));
                     double fraction=V74SequentialPartialFraction[k];o.V74SequentialLockedR[k]=fraction*routeCloseR;
                     o.V74SequentialPositiveArmed[k]=true;o.V74SequentialLockBar[k]=o.V74SequentialBars[k];
                 }
@@ -1143,6 +1163,7 @@ namespace cAlgo.Robots
 
             for(int k=0;k<V74LateAuctionKey.Length;k++)
             {
+                if(V74ResearchQualificationOnly&&!V74LateQualificationKey(k))continue;
                 if(double.IsFinite(o.V74LateAuctionOutcomeR[k]))continue;
 
                 // Once capital is committed V74 evaluates only the qualification payoff:
@@ -1380,12 +1401,15 @@ namespace cAlgo.Robots
             if(o==null||!o.Active||o.State!=V72HcogState.ACTIVE||o.RiskDistance<=0)return;
             double close=i>=0&&i<_m1Bars.Count?_m1Bars.ClosePrices[i]:(o.Direction==TradeDirection.Buy?_symbol.Bid:_symbol.Ask);
             double closeR=(o.Direction==TradeDirection.Buy?close-o.Entry:o.Entry-close)/o.RiskDistance,r=forcedR.HasValue?forcedR.Value:Math.Max(-1.0,Math.Min(o.NetRr,closeR));
-            for(int k=0;k<V74ProtectionOutcomeRLength(o);k++)if(double.IsNaN(o.V74ProtectionOutcomeR[k]))o.V74ProtectionOutcomeR[k]=r;
-            for(int k=0;k<o.V74HybridOutcomeR.Length;k++)if(double.IsNaN(o.V74HybridOutcomeR[k]))o.V74HybridOutcomeR[k]=r;
-            V74FinalizeReactionConfirmedReentry(o,close);
-            V74FinalizeReactionCommitLadders(o,close);
+            if(!V74ResearchQualificationOnly)
+            {
+                for(int k=0;k<V74ProtectionOutcomeRLength(o);k++)if(double.IsNaN(o.V74ProtectionOutcomeR[k]))o.V74ProtectionOutcomeR[k]=r;
+                for(int k=0;k<o.V74HybridOutcomeR.Length;k++)if(double.IsNaN(o.V74HybridOutcomeR[k]))o.V74HybridOutcomeR[k]=r;
+                V74FinalizeReactionConfirmedReentry(o,close);
+                V74FinalizeReactionCommitLadders(o,close);
+                V74FinalizeHighConvictionDelayedCommit(o,close);
+            }
             V74FinalizeSurvivalFresh(o,close);
-            V74FinalizeHighConvictionDelayedCommit(o,close);
             V74FinalizeCausalSequentialDelayedCommit(o,close);
             V74FinalizeTrueLateEntryAuction(o,close);
             o.Result=result;o.Active=false;o.State=V72HcogState.CLOSED;_v72HcogClosed++;V72HcogRecord(o,r);
@@ -1393,35 +1417,41 @@ namespace cAlgo.Robots
                 o.Id,o.SetupKey,o.Family,o.Lane,o.HasAbcdConfluence,o.CoreOverlapAtEntry,r,o.MfeR,o.MaeR,o.BarsActive,result,
                 o.HcapSelected,o.HcapQ,o.HcapLcb,o.HcapHoldBars,string.IsNullOrWhiteSpace(o.HcapFeatureCsv)?"NONE":o.HcapFeatureCsv,
                 string.IsNullOrWhiteSpace(o.V74FeatureCsv)?"NONE":o.V74FeatureCsv);
-            Print("[V74-PROTECTION-PATH] setup={0} family={1} lane={2} p025={3:F6} p050={4:F6} p075={5:F6} p100={6:F6} p150={7:F6} m025={8} m050={9} m075={10} m100={11} m150={12} r050010={13} rr050010={14:F6} r075025={15} rr075025={16:F6} r100040={17} rr100040={18:F6} hs20={19:F6} hs30={20:F6} hs40={21:F6} hs50={22:F6} rc075c20={23} rc075c30={24} rc100c20={25} rc100c30={26} hc175h={27} hc175d={28} hc200h={29} hc200d={30}",
-                o.SetupKey,o.Family,o.Lane,o.V74ProtectionOutcomeR[0],o.V74ProtectionOutcomeR[1],o.V74ProtectionOutcomeR[2],o.V74ProtectionOutcomeR[3],o.V74ProtectionOutcomeR[4],
-                string.IsNullOrWhiteSpace(o.V74MilestoneFeatureCsv[0])?"NONE":o.V74MilestoneFeatureCsv[0],
-                string.IsNullOrWhiteSpace(o.V74MilestoneFeatureCsv[1])?"NONE":o.V74MilestoneFeatureCsv[1],
-                string.IsNullOrWhiteSpace(o.V74MilestoneFeatureCsv[2])?"NONE":o.V74MilestoneFeatureCsv[2],
-                string.IsNullOrWhiteSpace(o.V74MilestoneFeatureCsv[3])?"NONE":o.V74MilestoneFeatureCsv[3],
-                string.IsNullOrWhiteSpace(o.V74MilestoneFeatureCsv[4])?"NONE":o.V74MilestoneFeatureCsv[4],
-                double.IsFinite(o.V74RcrOutcomeR[0])?o.V74RcrOutcomeR[0].ToString("R",System.Globalization.CultureInfo.InvariantCulture):"NA",o.V74RcrNetRr[0],
-                double.IsFinite(o.V74RcrOutcomeR[1])?o.V74RcrOutcomeR[1].ToString("R",System.Globalization.CultureInfo.InvariantCulture):"NA",o.V74RcrNetRr[1],
-                double.IsFinite(o.V74RcrOutcomeR[2])?o.V74RcrOutcomeR[2].ToString("R",System.Globalization.CultureInfo.InvariantCulture):"NA",o.V74RcrNetRr[2],
-                o.V74HybridOutcomeR[0],o.V74HybridOutcomeR[1],o.V74HybridOutcomeR[2],o.V74HybridOutcomeR[3],
-                double.IsFinite(o.V74ReactionCommitOutcomeR[0])?o.V74ReactionCommitOutcomeR[0].ToString("R",System.Globalization.CultureInfo.InvariantCulture):"NA",
-                double.IsFinite(o.V74ReactionCommitOutcomeR[1])?o.V74ReactionCommitOutcomeR[1].ToString("R",System.Globalization.CultureInfo.InvariantCulture):"NA",
-                double.IsFinite(o.V74ReactionCommitOutcomeR[2])?o.V74ReactionCommitOutcomeR[2].ToString("R",System.Globalization.CultureInfo.InvariantCulture):"NA",
-                double.IsFinite(o.V74ReactionCommitOutcomeR[3])?o.V74ReactionCommitOutcomeR[3].ToString("R",System.Globalization.CultureInfo.InvariantCulture):"NA",
-                double.IsFinite(o.V74HighConvictionOutcomeR[0])?o.V74HighConvictionOutcomeR[0].ToString("R",System.Globalization.CultureInfo.InvariantCulture):"NA",
-                double.IsFinite(o.V74HighConvictionOutcomeR[1])?o.V74HighConvictionOutcomeR[1].ToString("R",System.Globalization.CultureInfo.InvariantCulture):"NA",
-                double.IsFinite(o.V74HighConvictionOutcomeR[2])?o.V74HighConvictionOutcomeR[2].ToString("R",System.Globalization.CultureInfo.InvariantCulture):"NA",
-                double.IsFinite(o.V74HighConvictionOutcomeR[3])?o.V74HighConvictionOutcomeR[3].ToString("R",System.Globalization.CultureInfo.InvariantCulture):"NA");
+            if(!V74ResearchQualificationOnly)
+            {
+                Print("[V74-PROTECTION-PATH] setup={0} family={1} lane={2} p025={3:F6} p050={4:F6} p075={5:F6} p100={6:F6} p150={7:F6} m025={8} m050={9} m075={10} m100={11} m150={12} r050010={13} rr050010={14:F6} r075025={15} rr075025={16:F6} r100040={17} rr100040={18:F6} hs20={19:F6} hs30={20:F6} hs40={21:F6} hs50={22:F6} rc075c20={23} rc075c30={24} rc100c20={25} rc100c30={26} hc175h={27} hc175d={28} hc200h={29} hc200d={30}",
+                    o.SetupKey,o.Family,o.Lane,o.V74ProtectionOutcomeR[0],o.V74ProtectionOutcomeR[1],o.V74ProtectionOutcomeR[2],o.V74ProtectionOutcomeR[3],o.V74ProtectionOutcomeR[4],
+                    string.IsNullOrWhiteSpace(o.V74MilestoneFeatureCsv[0])?"NONE":o.V74MilestoneFeatureCsv[0],
+                    string.IsNullOrWhiteSpace(o.V74MilestoneFeatureCsv[1])?"NONE":o.V74MilestoneFeatureCsv[1],
+                    string.IsNullOrWhiteSpace(o.V74MilestoneFeatureCsv[2])?"NONE":o.V74MilestoneFeatureCsv[2],
+                    string.IsNullOrWhiteSpace(o.V74MilestoneFeatureCsv[3])?"NONE":o.V74MilestoneFeatureCsv[3],
+                    string.IsNullOrWhiteSpace(o.V74MilestoneFeatureCsv[4])?"NONE":o.V74MilestoneFeatureCsv[4],
+                    double.IsFinite(o.V74RcrOutcomeR[0])?o.V74RcrOutcomeR[0].ToString("R",System.Globalization.CultureInfo.InvariantCulture):"NA",o.V74RcrNetRr[0],
+                    double.IsFinite(o.V74RcrOutcomeR[1])?o.V74RcrOutcomeR[1].ToString("R",System.Globalization.CultureInfo.InvariantCulture):"NA",o.V74RcrNetRr[1],
+                    double.IsFinite(o.V74RcrOutcomeR[2])?o.V74RcrOutcomeR[2].ToString("R",System.Globalization.CultureInfo.InvariantCulture):"NA",o.V74RcrNetRr[2],
+                    o.V74HybridOutcomeR[0],o.V74HybridOutcomeR[1],o.V74HybridOutcomeR[2],o.V74HybridOutcomeR[3],
+                    double.IsFinite(o.V74ReactionCommitOutcomeR[0])?o.V74ReactionCommitOutcomeR[0].ToString("R",System.Globalization.CultureInfo.InvariantCulture):"NA",
+                    double.IsFinite(o.V74ReactionCommitOutcomeR[1])?o.V74ReactionCommitOutcomeR[1].ToString("R",System.Globalization.CultureInfo.InvariantCulture):"NA",
+                    double.IsFinite(o.V74ReactionCommitOutcomeR[2])?o.V74ReactionCommitOutcomeR[2].ToString("R",System.Globalization.CultureInfo.InvariantCulture):"NA",
+                    double.IsFinite(o.V74ReactionCommitOutcomeR[3])?o.V74ReactionCommitOutcomeR[3].ToString("R",System.Globalization.CultureInfo.InvariantCulture):"NA",
+                    double.IsFinite(o.V74HighConvictionOutcomeR[0])?o.V74HighConvictionOutcomeR[0].ToString("R",System.Globalization.CultureInfo.InvariantCulture):"NA",
+                    double.IsFinite(o.V74HighConvictionOutcomeR[1])?o.V74HighConvictionOutcomeR[1].ToString("R",System.Globalization.CultureInfo.InvariantCulture):"NA",
+                    double.IsFinite(o.V74HighConvictionOutcomeR[2])?o.V74HighConvictionOutcomeR[2].ToString("R",System.Globalization.CultureInfo.InvariantCulture):"NA",
+                    double.IsFinite(o.V74HighConvictionOutcomeR[3])?o.V74HighConvictionOutcomeR[3].ToString("R",System.Globalization.CultureInfo.InvariantCulture):"NA");
+            }
             var sfParts=new List<string>{"setup="+o.SetupKey,"family="+o.Family,"lane="+o.Lane};
             for(int k=0;k<V74SurvivalFreshKey.Length;k++)
             {
-                sfParts.Add("m"+k+"="+(string.IsNullOrWhiteSpace(o.V74SurvivalFreshMaturityStateCsv[k])?"NONE":o.V74SurvivalFreshMaturityStateCsv[k]));
+                if(!V74ResearchQualificationOnly)
+                {
+                    sfParts.Add("m"+k+"="+(string.IsNullOrWhiteSpace(o.V74SurvivalFreshMaturityStateCsv[k])?"NONE":o.V74SurvivalFreshMaturityStateCsv[k]));
+                    sfParts.Add("pb"+k+"="+o.V74SurvivalFreshPullbackBar[k].ToString(System.Globalization.CultureInfo.InvariantCulture));
+                    sfParts.Add("tb"+k+"="+o.V74SurvivalFreshTriggerBar[k].ToString(System.Globalization.CultureInfo.InvariantCulture));
+                }
                 sfParts.Add("e"+k+"="+(string.IsNullOrWhiteSpace(o.V74SurvivalFreshEntryStateCsv[k])?"NONE":o.V74SurvivalFreshEntryStateCsv[k]));
                 sfParts.Add("b"+k+"="+(double.IsFinite(o.V74SurvivalFreshOutcomeR[k])?o.V74SurvivalFreshOutcomeR[k].ToString("R",System.Globalization.CultureInfo.InvariantCulture):"NA"));
                 sfParts.Add("rr"+k+"="+o.V74SurvivalFreshNetRr[k].ToString("R",System.Globalization.CultureInfo.InvariantCulture));
                 sfParts.Add("re"+k+"="+o.V74SurvivalFreshReactionBar[k].ToString(System.Globalization.CultureInfo.InvariantCulture));
-                sfParts.Add("pb"+k+"="+o.V74SurvivalFreshPullbackBar[k].ToString(System.Globalization.CultureInfo.InvariantCulture));
-                sfParts.Add("tb"+k+"="+o.V74SurvivalFreshTriggerBar[k].ToString(System.Globalization.CultureInfo.InvariantCulture));
                 sfParts.Add("eb"+k+"="+o.V74SurvivalFreshEntryBar[k].ToString(System.Globalization.CultureInfo.InvariantCulture));
                 sfParts.Add("rb"+k+"="+o.V74SurvivalFreshBars[k].ToString(System.Globalization.CultureInfo.InvariantCulture));
             }
@@ -1432,22 +1462,27 @@ namespace cAlgo.Robots
                 "m050="+(string.IsNullOrWhiteSpace(o.V74SequentialState050Csv)?"NONE":o.V74SequentialState050Csv)};
             for(int k=0;k<V74SequentialKey.Length;k++)
             {
+                if(V74ResearchQualificationOnly&&!V74SequentialQualificationKey(k))continue;
                 seqParts.Add("e"+k+"="+(string.IsNullOrWhiteSpace(o.V74SequentialEntryStateCsv[k])?"NONE":o.V74SequentialEntryStateCsv[k]));
-                seqParts.Add("t"+k+"="+(string.IsNullOrWhiteSpace(o.V74SequentialTriggerStateCsv[k])?"NONE":o.V74SequentialTriggerStateCsv[k]));
-                seqParts.Add("d"+k+"="+(string.IsNullOrWhiteSpace(o.V74SequentialDecisionStateCsv[k])?"NONE":o.V74SequentialDecisionStateCsv[k]));
+                if(!V74ResearchQualificationOnly)
+                {
+                    seqParts.Add("t"+k+"="+(string.IsNullOrWhiteSpace(o.V74SequentialTriggerStateCsv[k])?"NONE":o.V74SequentialTriggerStateCsv[k]));
+                    seqParts.Add("d"+k+"="+(string.IsNullOrWhiteSpace(o.V74SequentialDecisionStateCsv[k])?"NONE":o.V74SequentialDecisionStateCsv[k]));
+                    seqParts.Add("tb"+k+"="+(o.V74SequentialEntryBar[k]>=0&&o.V74SequentialTriggerBar[k]>=0?o.V74SequentialEntryBar[k]+o.V74SequentialTriggerBar[k]:-1).ToString(System.Globalization.CultureInfo.InvariantCulture));
+                    seqParts.Add("lb"+k+"="+(o.V74SequentialEntryBar[k]>=0&&o.V74SequentialLockBar[k]>=0?o.V74SequentialEntryBar[k]+o.V74SequentialLockBar[k]:-1).ToString(System.Globalization.CultureInfo.InvariantCulture));
+                }
                 seqParts.Add("b"+k+"="+(double.IsFinite(o.V74SequentialOutcomeR[k])?o.V74SequentialOutcomeR[k].ToString("R",System.Globalization.CultureInfo.InvariantCulture):"NA"));
                 seqParts.Add("rr"+k+"="+o.V74SequentialNetRr[k].ToString("R",System.Globalization.CultureInfo.InvariantCulture));
                 seqParts.Add("rb"+k+"="+o.V74SequentialBars[k].ToString(System.Globalization.CultureInfo.InvariantCulture));
                 seqParts.Add("re"+k+"="+o.V74SequentialReactionBar[k].ToString(System.Globalization.CultureInfo.InvariantCulture));
                 seqParts.Add("eb"+k+"="+o.V74SequentialEntryBar[k].ToString(System.Globalization.CultureInfo.InvariantCulture));
-                seqParts.Add("tb"+k+"="+(o.V74SequentialEntryBar[k]>=0&&o.V74SequentialTriggerBar[k]>=0?o.V74SequentialEntryBar[k]+o.V74SequentialTriggerBar[k]:-1).ToString(System.Globalization.CultureInfo.InvariantCulture));
-                seqParts.Add("lb"+k+"="+(o.V74SequentialEntryBar[k]>=0&&o.V74SequentialLockBar[k]>=0?o.V74SequentialEntryBar[k]+o.V74SequentialLockBar[k]:-1).ToString(System.Globalization.CultureInfo.InvariantCulture));
             }
             Print("[V74-SEQUENTIAL-PATH] "+string.Join(" ",seqParts));
 
             var auctionParts=new List<string>{"setup="+o.SetupKey,"family="+o.Family,"lane="+o.Lane};
             for(int k=0;k<V74LateAuctionKey.Length;k++)
             {
+                if(V74ResearchQualificationOnly&&!V74LateQualificationKey(k))continue;
                 auctionParts.Add("m"+k+"="+(string.IsNullOrWhiteSpace(o.V74LateAuctionMaturityStateCsv[k])?"NONE":o.V74LateAuctionMaturityStateCsv[k]));
                 auctionParts.Add("e"+k+"="+(string.IsNullOrWhiteSpace(o.V74LateAuctionEntryStateCsv[k])?"NONE":o.V74LateAuctionEntryStateCsv[k]));
                 auctionParts.Add("b"+k+"="+(double.IsFinite(o.V74LateAuctionOutcomeR[k])?o.V74LateAuctionOutcomeR[k].ToString("R",System.Globalization.CultureInfo.InvariantCulture):"NA"));
@@ -1457,8 +1492,11 @@ namespace cAlgo.Robots
                 auctionParts.Add("tb"+k+"="+o.V74LateAuctionTriggerBar[k].ToString(System.Globalization.CultureInfo.InvariantCulture));
                 auctionParts.Add("eb"+k+"="+o.V74LateAuctionEntryBar[k].ToString(System.Globalization.CultureInfo.InvariantCulture));
                 auctionParts.Add("rb"+k+"="+o.V74LateAuctionBars[k].ToString(System.Globalization.CultureInfo.InvariantCulture));
-                auctionParts.Add("pt"+k+"="+o.V74LateAuctionPostTriggerBar[k].ToString(System.Globalization.CultureInfo.InvariantCulture));
-                auctionParts.Add("lb"+k+"="+o.V74LateAuctionLockBar[k].ToString(System.Globalization.CultureInfo.InvariantCulture));
+                if(!V74ResearchQualificationOnly)
+                {
+                    auctionParts.Add("pt"+k+"="+o.V74LateAuctionPostTriggerBar[k].ToString(System.Globalization.CultureInfo.InvariantCulture));
+                    auctionParts.Add("lb"+k+"="+o.V74LateAuctionLockBar[k].ToString(System.Globalization.CultureInfo.InvariantCulture));
+                }
             }
             Print("[V74-LATE-AUCTION-PATH] "+string.Join(" ",auctionParts));
 
@@ -1469,12 +1507,15 @@ namespace cAlgo.Robots
             if(utc<=o.EntryUtc)return;o.BarsActive++;double high=_m1Bars.HighPrices[i],low=_m1Bars.LowPrices[i];
             double fav=o.Direction==TradeDirection.Buy?(high-o.Entry)/o.RiskDistance:(o.Entry-low)/o.RiskDistance,adv=o.Direction==TradeDirection.Buy?(o.Entry-low)/o.RiskDistance:(high-o.Entry)/o.RiskDistance;
             o.MfeR=Math.Max(o.MfeR,fav);o.MaeR=Math.Max(o.MaeR,adv);bool stop=o.Direction==TradeDirection.Buy?low<=o.Stop:high>=o.Stop,target=o.Direction==TradeDirection.Buy?high>=o.Target:low<=o.Target;
-            V74UpdateProtectionCounterfactuals(o,i,stop,target);
-            V74UpdateReactionConfirmedReentry(o,i,stop,target);
-            V74UpdateHybridSurvivalFrontiers(o,i,stop,target);
-            V74UpdateReactionCommitLadders(o,i,stop,target);
+            if(!V74ResearchQualificationOnly)
+            {
+                V74UpdateProtectionCounterfactuals(o,i,stop,target);
+                V74UpdateReactionConfirmedReentry(o,i,stop,target);
+                V74UpdateHybridSurvivalFrontiers(o,i,stop,target);
+                V74UpdateReactionCommitLadders(o,i,stop,target);
+                V74UpdateHighConvictionDelayedCommit(o,i,stop,target);
+            }
             V74UpdateSurvivalFresh(o,i,stop,target);
-            V74UpdateHighConvictionDelayedCommit(o,i,stop,target);
             V74UpdateCausalSequentialDelayedCommit(o,i,stop,target);
             V74UpdateTrueLateEntryAuction(o,i,stop,target);
             if(stop&&target){V72HcogFinalizeOutcome(o,i,"AMBIGUOUS_STOP_FIRST_CONSERVATIVE",-1.0);return;}if(stop){V72HcogFinalizeOutcome(o,i,"STRUCTURAL_STOP",-1.0);return;}
