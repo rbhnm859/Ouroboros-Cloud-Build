@@ -1,7 +1,8 @@
 {
   "version": 2,
-  "source_run_id": 37235660605,
-  "source_head_sha": "68cf4fc682c944fa8b81f1711f5773b3e839014c",
+  "source_run_id": 37237121870,
+  "source_head_sha": "934f60a2de08c00e39bc463bf436fbc0a9d50266",
+  "semantic_fingerprint": "87ca261e38ce3c674b0271d901ee640e167c7378fffc0c7d38723b1cc1518551",
   "branch": "harmonybot/v73-opportunity-universe",
   "artifact_pattern": "v74-rapid-universe-*",
   "evidence_origin": "rapid_exact_2016_2023",
