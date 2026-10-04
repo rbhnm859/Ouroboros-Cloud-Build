@@ -16,6 +16,7 @@ profit-capture and Grid/capital-capacity mechanics are intentionally excluded.
 import bisect,json,math,os,pathlib,statistics,sys,time,multiprocessing as mp
 from collections import defaultdict,Counter
 from v74_model_lib import load_rows,metrics,SEQUENTIAL_STATE_FEATURE_COUNT,FAMILIES,SURVIVAL_FRESH_KEYS
+from v74_model_lib import event_identity
 
 root=pathlib.Path(sys.argv[1]);out=pathlib.Path(sys.argv[2]);out.mkdir(parents=True,exist_ok=True)
 RESEARCH=[f"Y{y}" for y in range(2016,2021)]
@@ -231,7 +232,7 @@ def stable_idx(samples,k):
 
 def grouped_events(samples):
     d=defaultdict(list)
-    for s in samples:d[(s["window"],s["setup"],s["bar"])].append(s)
+    for s in samples:d[(s["window"],event_identity(s["setup"]),s["bar"])].append(s)
     return d
 
 def _tree_fit(X,y,idx,max_depth=TREE_DEPTH,min_leaf=28,root_orders=None):
@@ -322,7 +323,7 @@ def training_continuation_targets(samples):
     This target may use later training outcomes, but it is never appended to x and
     is never computed from a burned/test row at inference time."""
     target=[0.0]*len(samples);by=defaultdict(list)
-    for i,s in enumerate(samples):by[(s["window"],s["setup"])].append((s["bar"],i))
+    for i,s in enumerate(samples):by[(s["window"],event_identity(s["setup"]))].append((s["bar"],i))
     for items in by.values():
       bars=defaultdict(list)
       for b,i in items:bars[b].append(i)
@@ -340,7 +341,7 @@ def event_regret_targets(samples):
     and probability of being the event-best action. No target is ever appended to
     x or computed for burned rows during inference."""
     regret=[0.0]*len(samples);bestp=[0.0]*len(samples);by=defaultdict(list)
-    for i,s in enumerate(samples):by[(s["window"],s["setup"],s["bar"])].append(i)
+    for i,s in enumerate(samples):by[(s["window"],event_identity(s["setup"]),s["bar"])].append(i)
     for ids in by.values():
       top=max(float(samples[i]["y"]) for i in ids)
       ties=[i for i in ids if abs(float(samples[i]["y"])-top)<=1e-12]
@@ -455,7 +456,7 @@ def simulate(decisions,th,window=None):
     d=defaultdict(list)
     for e in decisions:
       if window is not None and e["s"]["window"]!=window:continue
-      d[(e["s"]["window"],e["s"]["setup"])].append(e)
+      d[(e["s"]["window"],event_identity(e["s"]["setup"]))].append(e)
     sel=[]
     for ev in d.values():
       ev.sort(key=lambda e:(e["s"]["bar"],-e["score"],e["s"]["route"]))
@@ -481,7 +482,7 @@ def gate_calibrated_threshold(decisions,years,target=TRAIN_COVERAGE):
     by=defaultdict(lambda:defaultdict(lambda:-math.inf))
     scores=[]
     for e in decisions:
-      w=e["s"]["window"];setup=e["s"]["setup"];z=float(e["score"])
+      w=e["s"]["window"];setup=event_identity(e["s"]["setup"]);z=float(e["score"])
       by[w][setup]=max(by[w][setup],z);scores.append(z)
     supply={w:len(by[w]) for w in years}
     limits={}
