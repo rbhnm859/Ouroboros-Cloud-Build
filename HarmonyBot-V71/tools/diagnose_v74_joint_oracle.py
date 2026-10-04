@@ -8,13 +8,16 @@ from v74_model_lib import load_rows,metrics,SEQUENTIAL_KEYS,LATE_AUCTION_KEYS,SU
 root=pathlib.Path(sys.argv[1]);out=pathlib.Path(sys.argv[2]);out.mkdir(parents=True,exist_ok=True)
 YEARS=["Y2021","Y2022","Y2023"]
 MIN_N=250;MIN_MEAN=.90;MIN_PF=3.30;MIN_WR=.70;MIN_AVG_RR=2.30;LEGAL_MIN_RR=2.0
-def fixed_f30(keys):
-    return [k for k in keys if k.endswith("_F30")]
+def late_entry_keys(keys):
+    # C# runtime and causal selector both define F20/F30 as pre-entry
+    # confirmation strictness for the late auction. Physical feasibility must
+    # include the complete deployable late-entry surface, not F30 only.
+    return [k for k in keys if k.endswith("_F20") or k.endswith("_F30")]
 def early_entry_keys(keys):
     # V74 entry Alpha is raw F00. M05/M10/M15 are completed-M1 confirmation
     # horizons, not post-entry management.
     return [k for k in keys if k.endswith("_F00")]
-KEYS={"EARLY":early_entry_keys(SEQUENTIAL_KEYS),"LATE":fixed_f30(LATE_AUCTION_KEYS),"SURVIVAL":SURVIVAL_FRESH_KEYS,"FAILURE":["FC230"]}
+KEYS={"EARLY":early_entry_keys(SEQUENTIAL_KEYS),"LATE":late_entry_keys(LATE_AUCTION_KEYS),"SURVIVAL":SURVIVAL_FRESH_KEYS,"FAILURE":["FC230"]}
 rows=load_rows(root,YEARS)
 
 def gate(m):
@@ -85,7 +88,7 @@ def year_oracle(yr,spaces):
 
 report={"type":"DIAGNOSTIC_FUTURE_ORACLE_ONLY","used_for_alpha_training":False,
         "synthetic_outcomes_used":False,
-        "action_space":"EVENT_NATIVE_REVERSAL_PLUS_FAILURE_CONTINUATION_PLUS_THEORY_COMPLETE_FIB_REENTRY_236_382_500_618_786_X_R025_050_075_100_X_RR230_250","management_variant_selection_used":False,"early_post_entry_m_stage_selection_used":False,
+        "action_space":"EVENT_NATIVE_EARLY_F00_M05_M10_M15_PLUS_LATE_PREENTRY_F20_F30_PLUS_FAILURE_CONTINUATION_PLUS_FIB_REENTRY_236_382_500_618_786_X_R025_050_075_100_X_RR230_250","management_variant_selection_used":False,"early_post_entry_m_stage_selection_used":False,
         "gate":{"n":MIN_N,"mean_r":MIN_MEAN,"pf_r":MIN_PF,"win_rate":MIN_WR,"average_rr":MIN_AVG_RR,"lcb95_gt":0.0},
         "years":{}}
 joint=True
