@@ -1,7 +1,7 @@
 {
   "version": 2,
-  "source_run_id": 37233268495,
-  "source_head_sha": "b885d26ab808a498e0839a02be2421db4ffe7475",
+  "source_run_id": 37235660605,
+  "source_head_sha": "68cf4fc682c944fa8b81f1711f5773b3e839014c",
   "branch": "harmonybot/v73-opportunity-universe",
   "artifact_pattern": "v74-rapid-universe-*",
   "evidence_origin": "rapid_exact_2016_2023",
@@ -25,5 +25,5 @@
   ],
   "validation_used": false,
   "fresh_used": false,
-  "note": "Pinned exact V7 Rapid Decision universe from run 37233268495. All eight 2016-2023 windows used hash-verified immutable custody bytes and the same semantic candidate at b885d26a; V73 event-native supply/custody was revalidated before OOF. Safe for evaluator/oracle-only replay. Any guarded execution/data semantic drift remains fail-closed."
+  "note": "Exact Rapid Decision universe: immutable 2016-2023 custody bytes were hash-verified, all eight windows used the same candidate .algo and run_window R_V73_OPPORTUNITY_UNIVERSE semantics, and V73 was revalidated before decision. Safe for evaluator/oracle-only replay; any guarded semantic drift remains fail-closed."
 }
