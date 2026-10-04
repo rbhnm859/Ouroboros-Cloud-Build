@@ -83,7 +83,7 @@ namespace cAlgo.Robots
         private static readonly double[] V74SequentialAdverseCutR = V74SequentialKey.Select(_=>-.15).ToArray();
 
 
-        // V74_PHYSICAL_F00_F10_ACTION_SCHEMA_V3_REBUILD
+        // V74_CAUSAL_PATH_STATE_V4_REBUILD
         // True late-entry auction reuses the proven 48-route family/native payoff
         // geometry (M05/M10/M15 x R025/R050 x H/D x RR35/RR40 x F20/F30),
         // but moves capital admission to the completed-bar M-stage. Post-entry
@@ -468,7 +468,7 @@ namespace cAlgo.Robots
         private double[] V74RouteStateFeatures(V72HcogOpportunity o,int i,double entry,double risk,double target,
             int bars,double mfeR,double maeR,double milestoneR)
         {
-            const int FeatureCount=6*7;
+            const int FeatureCount=8*7;
             if(o==null||risk<=0||i<0||i>=_m1Bars.Count)return Enumerable.Repeat(0.0,FeatureCount).ToArray();
             double open=_m1Bars.OpenPrices[i],close=_m1Bars.ClosePrices[i],high=_m1Bars.HighPrices[i],low=_m1Bars.LowPrices[i];
             double atr=Math.Max(_symbol.PipSize,Atr(_m1Bars,14,i)),body=Math.Max(_symbol.PipSize,Math.Abs(close-open));
@@ -550,7 +550,26 @@ namespace cAlgo.Robots
                 VClamp(sinceProof/120.0),
                 o.HasAbcdConfluence?1.0:0.0,
                 o.StandaloneAbcd?1.0:0.0,
-                VClamp(Math.Max(0.0,mfeR-maeR+1.0)/4.0)
+                VClamp(Math.Max(0.0,mfeR-maeR+1.0)/4.0),
+
+                // V74 causal reaction->decision path block. All values are computed
+                // from bars at or before i. This repairs the information gap where
+                // EARLY entry-state previously passed mfeR=maeR=0 and therefore lost
+                // the persistence/giveback structure between reaction and capital entry.
+                VClamp(Math.Max(0.0,mfeR)/3.0),
+                VClamp(Math.Max(0.0,maeR)/2.0),
+                VClamp(Math.Max(0.0,mfeR-closeR)/2.0),
+                VClamp((closeR+1.0)/4.0),
+                VClamp(mfeR>1e-9?Math.Max(0.0,Math.Min(1.5,closeR/mfeR))/1.5:0.0),
+                VClamp(Math.Max(0.0,mfeR-maeR+1.0)/4.0),
+                VClamp((mom3+3.0)/6.0),
+                VClamp((mom5+4.0)/8.0),
+                VClamp(pathEff3),
+                VClamp(pathEff5),
+                VClamp(n3>0?dir3/n3:0.0),
+                VClamp(n5>0?dir5/n5:0.0),
+                VClamp(sincePrz/180.0),
+                VClamp(sinceProof/120.0)
             };
         }
 
@@ -882,7 +901,9 @@ namespace cAlgo.Robots
                     o.V74SequentialRisk[k]=risk;o.V74SequentialNetRr[k]=rr;o.V74SequentialBars[k]=0;o.V74SequentialTriggerBar[k]=-1;
                     o.V74SequentialLockBar[k]=-1;o.V74SequentialLockedR[k]=0;o.V74SequentialRouteMfeR[k]=0;o.V74SequentialRouteMaeR[k]=0;
                     o.V74SequentialPositiveArmed[k]=false;
-                    o.V74SequentialEntryStateCsv[k]=string.Join(",",V74RouteStateFeatures(o,i,entry,risk,o.Target,0,0,0,reactionR)
+                    o.V74SequentialEntryStateCsv[k]=string.Join(",",V74RouteStateFeatures(
+                        o,i,o.Entry,o.RiskDistance,o.Target,
+                        Math.Max(0,o.BarsActive-o.V74SequentialReactionBar[k]),o.MfeR,o.MaeR,reactionR)
                         .Select(v=>v.ToString("R",System.Globalization.CultureInfo.InvariantCulture)));
                     continue;
                 }
@@ -1068,7 +1089,8 @@ namespace cAlgo.Robots
                     Math.Max(0,o.BarsActive-o.V74LateAuctionReactionBar[k]),o.MfeR,o.MaeR,reactionR)
                     .Select(v=>v.ToString("R",System.Globalization.CultureInfo.InvariantCulture)));
                 o.V74LateAuctionEntryStateCsv[k]=string.Join(",",V74RouteStateFeatures(
-                    o,i,entry,risk,target,0,0,0,reactionR)
+                    o,i,o.Entry,o.RiskDistance,o.Target,
+                    Math.Max(0,o.BarsActive-o.V74LateAuctionReactionBar[k]),o.MfeR,o.MaeR,reactionR)
                     .Select(v=>v.ToString("R",System.Globalization.CultureInfo.InvariantCulture)));
 
                 o.V74LateAuctionPending[k]=false;
