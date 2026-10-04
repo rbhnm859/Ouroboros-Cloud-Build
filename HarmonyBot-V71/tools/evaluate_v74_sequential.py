@@ -199,31 +199,30 @@ def make_samples(xs):
     return out
 
 def stable_idx(samples,k):
-    """Training-only nonlinear stability screen.
+    """Training-only nonlinear stability screen; exact semantics, fewer scans.
 
-    Harmonic/regime variables are often U-shaped or interval-optimal.  The old
-    median-sign screen discarded those effects.  Rank a feature by payoff
-    dispersion across quantile bins, but only when the dispersion is present in
-    multiple training years.  No burned/test outcome participates.
+    Pre-partitioning immutable sampled rows by year removes the former
+    feature×year full-list rescans. Quantiles, binning, means, score formula and
+    tie ordering are unchanged, so the selected feature set is identical.
     """
     if not samples:return []
     step=max(1,len(samples)//12000);ss=samples[::step];p=len(ss[0]["x"])
     yrs=sorted({s["window"] for s in ss});ranked=[]
+    by_year={w:[s for s in ss if s["window"]==w] for w in yrs}
     for j in range(p):
       vals=[float(s["x"][j]) for s in ss]
       cuts=sorted(set(qtile(vals,q) for q in (.15,.30,.50,.70,.85)))
       if len(cuts)<2:continue
       yearly=[]
       for w in yrs:
-        q=[s for s in ss if s["window"]==w]
         bins=[[] for _ in range(len(cuts)+1)]
-        for s in q:bins[bisect.bisect_right(cuts,float(s["x"][j]))].append(float(s["y"]))
+        for s in by_year[w]:
+          bins[bisect.bisect_right(cuts,float(s["x"][j]))].append(float(s["y"]))
         means=[statistics.mean(z) for z in bins if len(z)>=10]
         if len(means)<3:continue
         yearly.append(max(means)-min(means))
       need=max(2,(len(yrs)+1)//2)
       if len(yearly)<need:continue
-      # Robust to one exceptional year: median signal plus weakest-half support.
       ys=sorted(yearly);lower=statistics.mean(ys[:max(1,len(ys)//2)])
       sc=.65*statistics.median(yearly)+.35*lower
       if sc>1e-8:ranked.append((sc,j))
@@ -510,14 +509,14 @@ def gate_calibrated_threshold(decisions,years,target=TRAIN_COVERAGE):
     return best[2],limits,supply,best[3],best[0]
 
 def mechanism_decisions(samples,heads):
-    """Route arbitration is mechanism-native; only calibrated action values meet
-    at the event-level capital decision. This prevents EARLY/LATE/SURVIVAL from
-    contaminating each other's feature selection, continuation target and pair model."""
+    """Route arbitration is mechanism-native; exact source partition cached once."""
     out=[]
+    by_source=defaultdict(list)
+    for s in samples:by_source[s.get("source")].append(s)
     for src in SOURCES:
       md=heads.get(src)
       if not md:continue
-      ss=[s for s in samples if s.get("source")==src]
+      ss=by_source.get(src,[])
       if not ss:continue
       dd=event_decisions(ss,md["value_model"],md["pairwise_ranker"])
       for e in dd:
@@ -535,8 +534,10 @@ def fit_policy(train_rows):
     if len(samples)<1000:raise SystemExit("V74 insufficient legal action samples")
     heads={}
     mechanism_training={}
+    by_source=defaultdict(list)
+    for s in samples:by_source[s.get("source")].append(s)
     for src in SOURCES:
-      ss=[s for s in samples if s.get("source")==src]
+      ss=by_source.get(src,[])
       if len(ss)<250:continue
       ranked=stable_idx(ss,max(TREE_KFEAT,PAIR_KFEAT))
       vm=fit_value(ss,ranked[:TREE_KFEAT]);pm=fit_pair(ss,ranked[:PAIR_KFEAT])
