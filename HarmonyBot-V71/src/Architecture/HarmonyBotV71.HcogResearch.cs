@@ -369,7 +369,7 @@ namespace cAlgo.Robots
             {
                 string eventKey=g.Key;if(string.IsNullOrWhiteSpace(eventKey)||!_v72HcogSeen.Add(eventKey))continue;
                 var xs=g.ToList();var s=V72HcogSelectPrimary(xs);if(s==null)continue;
-                string setup=BuildSetupGeometryKey(s);
+                string setup=eventNative?eventKey:BuildSetupGeometryKey(s);
                 string fam=V71FamilyKey(s.PatternName);bool abcd=xs.Any(x=>V71FamilyKey(x.PatternName)=="ABCD");bool standalone=fam=="ABCD";
                 var eventFamilies=xs.Select(x=>V71FamilyKey(x.PatternName)).Distinct().ToList();
                 var parentFamilies=eventFamilies.Where(x=>x!="ABCD").ToList();
