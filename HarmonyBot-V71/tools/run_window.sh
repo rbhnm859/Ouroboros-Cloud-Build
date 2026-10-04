@@ -2,6 +2,7 @@
 set -euo pipefail
 : "${1:?variant}"; : "${2:?window}"; : "${3:?start}"; : "${4:?eval}"; : "${5:?end}"; : "${6:?years}"
 VAR="$1"; WIN="$2"; START="$3"; EVAL="$4"; END="$5"; YEARS="$6"
+# V74 exact-kernel performance verification rerun; execution semantics unchanged.
 EXPSHADOW=false; EXPEXEC=false; EXPGRID=false; EXPADAPRISK=false; EXPRISK=1.0; V72BIFURCATION=false; V72FAMILYNATIVE=false; V72FAILUREAUCTION=false; V72HCOG=false; V72HCAP=false; V73UNIVERSE=false; V74EXTERNAL=false; V74EMBEDDED=false
 case "$VAR" in
  SHADOW_PREPASS) EXPSHADOW=true; V72BIFURCATION=true;;
