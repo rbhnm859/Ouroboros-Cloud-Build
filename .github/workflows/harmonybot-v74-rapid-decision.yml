@@ -10,16 +10,11 @@ on:
       - 'HarmonyBot-V71/tools/run_window.sh'
       - 'HarmonyBot-V71/tools/run_backtest.sh'
       - 'HarmonyBot-V71/tools/resolve_window.sh'
-      - 'HarmonyBot-V71/tools/evaluate_v73_universe.py'
-      - 'HarmonyBot-V71/tools/evaluate_v74_sequential.py'
-      - 'HarmonyBot-V71/tools/diagnose_v74_joint_oracle.py'
-      - 'HarmonyBot-V71/tools/v74_model_lib.py'
+      # Rapid owns only changes that can alter exact cTrader telemetry/data semantics.
+      # Evaluator/model/workflow/evidence-only changes are handled by Fast Replay and
+      # must never cancel an in-flight semantic universe generation.
       - 'HarmonyBot-V71/final/V71_BURNED_CALIBRATION_CUSTODY.json'
       - 'HarmonyBot-V73/V73_RESEARCH_CUSTODY.json'
-      - '.github/workflows/harmonybot-v74-rapid-decision.yml'
-      - '.github/workflows/harmonybot-v74-fast-replay.yml'
-      - '.github/workflows/harmonybot-v73-v80-autonomous-evidence-pipeline.yml'
-      - 'HarmonyBot-V71/evidence/V74_FAST_REPLAY_SOURCE.json'
 
 concurrency:
   group: harmonybot-v74-rapid-decision-${{ github.head_ref || github.ref }}
