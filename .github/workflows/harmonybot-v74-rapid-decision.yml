@@ -367,13 +367,54 @@ jobs:
           }
           open(p,"w").write(json.dumps(d,indent=2)+"\n")
           PY
+          cp "$M" /tmp/v74-pin.json
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          if git diff --quiet -- "$M"; then
-            echo "[V74-RAPID-PIN] unchanged"
-            exit 0
-          fi
-          git add "$M"
-          git commit -m "ci(v74): pin exact rapid universe $SOURCE_RUN"
-          git push origin "HEAD:$REF_NAME"
-          echo "[V74-RAPID-PIN] run=$SOURCE_RUN semantic_sha=$SOURCE_SHA"
+
+          # Transactional pin: branch automation may advance while this job runs.
+          # Rebase the manifest onto the latest branch only when the exact telemetry
+          # semantic fingerprint is still identical. Never let stale evidence win.
+          for attempt in 1 2 3 4; do
+            git fetch origin "$REF_NAME"
+            git reset --hard "origin/$REF_NAME"
+
+            mapfile -t SEMANTIC_FILES < <(
+              {
+                find HarmonyBot-V71/src -type f -name '*.cs' -print
+                printf '%s\n' \
+                  HarmonyBot-V71/HarmonyBotV71.csproj \
+                  HarmonyBot-V71/tools/run_window.sh \
+                  HarmonyBot-V71/tools/run_backtest.sh \
+                  HarmonyBot-V71/tools/resolve_window.sh \
+                  HarmonyBot-V71/final/V71_BURNED_CALIBRATION_CUSTODY.json \
+                  HarmonyBot-V73/V73_RESEARCH_CUSTODY.json
+              } | LC_ALL=C sort -u
+            )
+            CURRENT_FP=$(
+              for p in "${SEMANTIC_FILES[@]}"; do
+                test -f "$p"
+                printf '%s  ' "$p"
+                sha256sum "$p" | cut -d' ' -f1
+              done | sha256sum | cut -d' ' -f1
+            )
+            if [[ "$CURRENT_FP" != "$SEMANTIC_FP" ]]; then
+              echo "[V74-RAPID-PIN-STALE] run=$SOURCE_RUN source_fp=$SEMANTIC_FP current_fp=$CURRENT_FP"
+              exit 0
+            fi
+
+            cp /tmp/v74-pin.json "$M"
+            if git diff --quiet -- "$M"; then
+              echo "[V74-RAPID-PIN] unchanged run=$SOURCE_RUN fingerprint=$SEMANTIC_FP"
+              exit 0
+            fi
+            git add "$M"
+            git commit -m "ci(v74): pin exact rapid universe $SOURCE_RUN"
+            if git push origin "HEAD:$REF_NAME"; then
+              echo "[V74-RAPID-PIN] run=$SOURCE_RUN semantic_sha=$SOURCE_SHA fingerprint=$SEMANTIC_FP attempt=$attempt"
+              exit 0
+            fi
+            echo "[V74-RAPID-PIN-RETRY] attempt=$attempt"
+            sleep 2
+          done
+          echo "[V74-RAPID-PIN-FAIL] exhausted non-fast-forward retries"
+          exit 73
