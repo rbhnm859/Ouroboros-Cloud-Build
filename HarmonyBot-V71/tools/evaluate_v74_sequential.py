@@ -257,17 +257,39 @@ def _residual_cells(samples,pred_mean,pred_win):
         levels[name][k]={"n":n,"dm":dm,"dw":dw}
     return levels
 
+def training_continuation_targets(samples):
+    """Training label only: best future matured payoff after the current event bar.
+    This target may use later training outcomes, but it is never appended to x and
+    is never computed from a burned/test row at inference time."""
+    target=[0.0]*len(samples);by=defaultdict(list)
+    for i,s in enumerate(samples):by[(s["window"],s["setup"])].append((s["bar"],i))
+    for items in by.values():
+      bars=defaultdict(list)
+      for b,i in items:bars[b].append(i)
+      ordered=sorted(bars)
+      event_best={b:max(float(samples[i]["y"]) for i in bars[b]) for b in ordered}
+      future=0.0
+      for b in reversed(ordered):
+        for i in bars[b]:target[i]=max(0.0,future)
+        future=max(future,event_best[b])
+    return target
+
 def fit_value(samples):
     idx=stable_idx(samples,TREE_KFEAT);X=[s["x"] for s in samples]
     ym=[float(s["y"]) for s in samples];yw=[1.0 if s["y"]>0 else 0.0 for s in samples]
+    yc=training_continuation_targets(samples)
     mm=_boost_train(X,ym,idx,rounds=TREE_ROUNDS,lr=.075)
     wm=_boost_train(X,yw,idx,rounds=TREE_ROUNDS,lr=.075)
+    cm=_boost_train(X,yc,idx,rounds=TREE_ROUNDS,lr=.075)
     pm=[_boost_pred(mm,x)[0] for x in X];pw=[max(0.0,min(1.0,_boost_pred(wm,x)[0])) for x in X]
-    return {"idx":idx,"mean":mm,"win":wm,"residuals":_residual_cells(samples,pm,pw)}
+    return {"idx":idx,"mean":mm,"win":wm,"continuation":cm,
+            "residuals":_residual_cells(samples,pm,pw)}
 
 def pred_value(md,s):
     mu,s1=_boost_pred(md["mean"],s["x"]);wi,s2=_boost_pred(md["win"],s["x"])
-    wi=max(0.0,min(1.0,wi));adds_m=[];adds_w=[];supports=[s1 or 1,s2 or 1]
+    co,s3=_boost_pred(md["continuation"],s["x"])
+    wi=max(0.0,min(1.0,wi));co=max(0.0,co)
+    adds_m=[];adds_w=[];supports=[s1 or 1,s2 or 1,s3 or 1]
     for lvl,k in (("family",str(s["family"])),
                   ("family_action",str((s["family"],s["action"]))),
                   ("family_base",str((s["family"],s["base"])))):
@@ -276,8 +298,11 @@ def pred_value(md,s):
     if adds_m:mu+=med(adds_m)
     if adds_w:wi=max(0.0,min(1.0,wi+med(adds_w)))
     sup=max(1,min(supports));lc=mu-Z*float(md["mean"]["sigma"])/math.sqrt(sup)
-    score=mu+1.35*wi+.55*lc
-    return {"mean":mu,"win":wi,"lcb":lc,"support":sup,"value_score":score}
+    stop_adv=mu-co
+    route_score=mu+1.35*wi+.55*lc
+    admission_score=stop_adv+.65*mu+1.15*wi+.35*lc
+    return {"mean":mu,"win":wi,"lcb":lc,"continuation":co,"stop_advantage":stop_adv,
+            "support":sup,"value_score":route_score,"admission_score":admission_score}
 
 def fit_pair(samples):
     idx=stable_idx(samples,PAIR_KFEAT);X=[];yw=[];yd=[]
@@ -324,14 +349,17 @@ def event_decisions(samples,vm,pm):
         for j in range(i+1,len(cand)):
           z=pair_pref(pm,cand[i][2],cand[j][2]);pair[i]+=z;pair[j]-=z
       scored=[]
-      for i,(base,p,s) in enumerate(cand):
+      for i,(route_score,p,s) in enumerate(cand):
         adv=pair[i]/max(1,len(cand)-1)
-        score=base+.35*adv
-        scored.append((score,adv,p,s))
-      scored.sort(key=lambda z:(z[0],z[2]["lcb"],z[2]["win"],z[3]["route"]),reverse=True)
-      score,adv,p,s=scored[0];second=scored[1][0] if len(scored)>1 else score
-      q=dict(s);q["pair_advantage"]=adv;q["decision_score"]=score;q["decision_margin"]=score-second
-      out.append({"score":score,"pred":dict(p,pair_advantage=adv),"s":q})
+        route_rank=route_score+.35*adv
+        admission=p["admission_score"]+.20*adv
+        scored.append((route_rank,admission,adv,p,s))
+      scored.sort(key=lambda z:(z[0],z[3]["lcb"],z[3]["win"],z[4]["route"]),reverse=True)
+      route_rank,admission,adv,p,s=scored[0]
+      second=scored[1][0] if len(scored)>1 else route_rank
+      q=dict(s);q["pair_advantage"]=adv;q["decision_score"]=admission;q["decision_margin"]=route_rank-second
+      out.append({"score":admission,"route_rank":route_rank,
+                  "pred":dict(p,pair_advantage=adv),"s":q})
     return out
 
 def simulate(decisions,th,window=None):
@@ -353,21 +381,43 @@ def metric_selected(sel):
       s=e["s"];q=dict(s["row"]);q["r"]=s["y"];q["bars"]=s["bars"];q["sequential_key"]=s["route"];rr.append(q)
     return metrics(rr),rr
 
-def coverage_threshold(decisions,years,target=TRAIN_COVERAGE):
-    # Highest training-only threshold that preserves target unique setups in every year.
+def gate_margin(m):
+    if m["n"]<=0:return -999.0
+    return min(m["n"]/MIN_N,m["mean_r"]/MIN_MEAN,m["pf_r"]/MIN_PF,
+               m["win_rate"]/MIN_WR,m["average_rr"]/MIN_RR,1.0+m["lcb_r"]/.25)
+
+def gate_calibrated_threshold(decisions,years,target=TRAIN_COVERAGE):
+    # Training-only constrained ERM: choose the admission threshold that maximizes
+    # the weakest training-year V74 gate margin while retaining a 10% N buffer.
     by=defaultdict(lambda:defaultdict(lambda:-math.inf))
+    scores=[]
     for e in decisions:
-      w=e["s"]["window"];setup=e["s"]["setup"]
-      by[w][setup]=max(by[w][setup],float(e["score"]))
-    limits={};supply={}
+      w=e["s"]["window"];setup=e["s"]["setup"];z=float(e["score"])
+      by[w][setup]=max(by[w][setup],z);scores.append(z)
+    supply={w:len(by[w]) for w in years}
+    limits={}
     for w in years:
-      vals=sorted(by[w].values(),reverse=True);supply[w]=len(vals)
-      if not vals:limits[w]=-math.inf;continue
-      k=min(target,len(vals))
-      limits[w]=vals[k-1]
-    finite=[v for v in limits.values() if math.isfinite(v)]
-    th=min(finite) if finite else -math.inf
-    return th,limits,supply
+      vals=sorted(by[w].values(),reverse=True)
+      k=min(target,len(vals));limits[w]=vals[k-1] if vals else -math.inf
+    upper=min(limits.values()) if limits else -math.inf
+    admissible=[z for z in scores if z<=upper+1e-12]
+    qs=[i/40.0 for i in range(0,41)]
+    candidates=sorted(set([upper]+[qtile(admissible,q) for q in qs if admissible]),reverse=True)
+    best=None
+    for th in candidates:
+      tm={};ok=True
+      for w in years:
+        m,_=metric_selected(simulate(dec,th,w));tm[w]=m
+        if m["n"]<target:ok=False;break
+      if not ok:continue
+      worst=min(gate_margin(m) for m in tm.values())
+      medm=med([gate_margin(m) for m in tm.values()],-999.0)
+      cand=(worst,medm,th,tm)
+      if best is None or cand[:3]>best[:3]:best=cand
+    if best is None:
+      th=upper;tm={w:metric_selected(simulate(dec,th,w))[0] for w in years}
+      best=(min(gate_margin(m) for m in tm.values()),med([gate_margin(m) for m in tm.values()]),th,tm)
+    return best[2],limits,supply,best[3],best[0]
 
 def fit_policy(train_rows):
     samples=make_samples(train_rows)
@@ -376,13 +426,12 @@ def fit_policy(train_rows):
     if not pm.get("valid"):raise SystemExit("V74 pairwise model invalid")
     dec=event_decisions(samples,vm,pm)
     yrs=sorted({r["window"] for r in train_rows})
-    th,limits,supply=coverage_threshold(dec,yrs,TRAIN_COVERAGE)
-    tm={}
-    for w in yrs:
-      m,_=metric_selected(simulate(dec,th,w));tm[w]=m
+    th,limits,supply,tm,worst=gate_calibrated_threshold(dec,yrs,TRAIN_COVERAGE)
+    training_gate=all(gate(m) for m in tm.values())
     return {"value_model":vm,"pairwise_ranker":pm,"threshold":th,
             "training_coverage_limits":limits,"training_supply":supply,
-            "training_metrics":tm,"coverage_target":TRAIN_COVERAGE},samples
+            "training_metrics":tm,"training_worst_gate_margin":worst,
+            "training_gate":training_gate,"coverage_target":TRAIN_COVERAGE},samples
 
 def apply_policy(policy,test_rows):
     samples=make_samples(test_rows)
@@ -399,8 +448,8 @@ summary={"version":"HarmonyBot V74 One-Shot Family-Native Causal Action Selector
  "policy":{"actions":"EARLY_OR_LATE_COMPLETED_BAR_ENTRY_ACTION__FIXED_F30_QUALIFICATION",
            "harmonic_completion":"SETUP_IDENTITY_NOT_AUTOMATIC_ENTRY",
            "reaction_state":"CAUSAL_FEATURE_NOT_HARD_FILTER","physical_route_contract":"EARLY_ENTRY_IDENTITY_R_H_RR_ONLY__LATE_M_IS_ENTRY_MATURITY__FIXED_F30_QUALIFICATION","v75_management_variants_excluded":True,"early_post_entry_m_stage_excluded":True,
-           "route_choice":"BOUNDED_DEPTH3_EXPECTED_R_WIN_PROB_PLUS_COUNTERFACTUAL_PAIRWISE_DELTA",
-           "admission":"TRAINING_ONLY_COVERAGE_CONSTRAINED_SCORE_THRESHOLD",
+           "route_choice":"BOUNDED_DEPTH3_EXPECTED_R_WIN_PROB_PLUS_COUNTERFACTUAL_PAIRWISE_DELTA","optimal_stopping":"TRAINING_ONLY_CONTINUATION_VALUE_HEAD__RUNTIME_STOP_VS_DEFER",
+           "admission":"TRAINING_ONLY_WORST_YEAR_GATE_CALIBRATED_STOP_ADVANTAGE_THRESHOLD",
            "training_coverage_target_per_year":TRAIN_COVERAGE,
            "family_hierarchy":"GLOBAL_TO_FAMILY_TO_FAMILY_ACTION_TO_FAMILY_BASE_SHRINKAGE",
            "no_trigger_posttrigger_lock_future_state":True,
@@ -420,7 +469,7 @@ for test in BURNED:
   srcs=Counter(x.split("|",1)[0] for x in routes.elements())
   ps=gate(m);allpass=allpass and ps
   summary["folds"][test]={**m,"pass":ps,"training_windows":tw,
-    "entry_threshold":policy["threshold"],"training_coverage_target":TRAIN_COVERAGE,
+    "entry_threshold":policy["threshold"],"training_coverage_target":TRAIN_COVERAGE,"training_gate":policy.get("training_gate"),"training_worst_gate_margin":policy.get("training_worst_gate_margin"),
     "training_supply":policy["training_supply"],"training_year_metrics":policy["training_metrics"],
     "test_legal_actions":sum(1 for _ in make_samples(te)),"test_decision_events":len(dec),
     "selected_route_counts":dict(routes),"selected_family_counts":dict(fams),
