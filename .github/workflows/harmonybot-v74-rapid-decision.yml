@@ -18,7 +18,9 @@ on:
 
 concurrency:
   group: harmonybot-v74-rapid-decision-${{ github.head_ref || github.ref }}
-  cancel-in-progress: false
+  # Rapid is triggered only by execution/data-semantic paths. A newer Rapid
+  # therefore supersedes an older semantic universe for the same branch.
+  cancel-in-progress: true
 
 permissions:
   contents: write
