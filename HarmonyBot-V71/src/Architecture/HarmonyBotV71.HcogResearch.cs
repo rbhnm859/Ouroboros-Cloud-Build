@@ -876,8 +876,11 @@ namespace cAlgo.Robots
         private double[] V74SurvivalPathV2(V72HcogOpportunity o,int i,int reactionBar,int pullbackBar,
             double fibPrice,double impulseExtreme,double pullbackExtreme)
         {
-            // Path-space sufficient statistics, all measurable at completed bar i.
-            // The window begins at the causal reaction observation, never after entry.
+            // V74 Path-V3: two-scale causal path signature frozen at the completed
+            // fresh-entry decision bar.  No post-entry price, MFE/MAE, TP/SL or
+            // outcome is referenced.  The first 16 coordinates preserve V2 exactly;
+            // the second 16 add local curvature/Fibonacci-boundary dynamics that
+            // V2's long-window averages could wash out.
             int n=Math.Max(1,Math.Min(60,o.BarsActive-reactionBar+1));
             int start=Math.Max(1,i-n+1);
             bool buy=o.Direction==TradeDirection.Buy;
@@ -914,12 +917,76 @@ namespace cAlgo.Robots
             double pullAge=pullbackBar>=0?Math.Max(0,o.BarsActive-pullbackBar):duration;
             double impulse=Math.Max(_symbol.PipSize,Math.Abs(impulseExtreme-o.Entry));
             double pbDepth=buy?(impulseExtreme-pullbackExtreme)/impulse:(pullbackExtreme-impulseExtreme)/impulse;
+
+            // Local eight-bar path signature.  These coordinates approximate the
+            // first/second discrete derivatives and a Haar-like multiscale component
+            // of the approach/reclaim trajectory around the Fibonacci boundary.
+            int localStart=Math.Max(1,i-7);
+            int ln=Math.Max(1,i-localStart+1);
+            double lSigned=0,lAbs=0,lSq=0,lPos=0,lNeg=0,lTurns=0,lAcc=0,lJerk=0;
+            double lCloseLoc=0,lRange=0,fdSum=0,fdSq=0,fdFirst=0,fdLast=0,fdAcc=0;
+            double reclaimed=0,crossings=0,prevLStep=0,prevAcc=0,prevFd=0,prevPrevFd=0;
+            double earlyWave=0,lateWave=0;
+            bool havePrevFd=false,havePrevPrevFd=false;
+            for(int j=localStart;j<=i;j++)
+            {
+                double op=_m1Bars.OpenPrices[j],cl=_m1Bars.ClosePrices[j],hi=_m1Bars.HighPrices[j],lo=_m1Bars.LowPrices[j];
+                double pc=_m1Bars.ClosePrices[j-1];
+                double step=(buy?cl-pc:pc-cl)/risk;
+                lSigned+=step;lAbs+=Math.Abs(step);lSq+=step*step;
+                if(step>0)lPos++;else if(step<0)lNeg++;
+                if(j>localStart&&step*prevLStep<0)lTurns++;
+                if(j>localStart)
+                {
+                    double acc=step-prevLStep;
+                    lAcc+=Math.Abs(acc);
+                    if(j>localStart+1)lJerk+=Math.Abs(acc-prevAcc);
+                    prevAcc=acc;
+                }
+                prevLStep=step;
+
+                double range=Math.Max(_symbol.PipSize,hi-lo);
+                lCloseLoc+=buy?(cl-lo)/range:(hi-cl)/range;
+                lRange+=range/atr;
+
+                double fd=(buy?cl-fibPrice:fibPrice-cl)/impulse;
+                if(j==localStart)fdFirst=fd;
+                fdLast=fd;fdSum+=fd;fdSq+=fd*fd;
+                if(fd>=0)reclaimed++;
+                if(havePrevFd&&fd*prevFd<0)crossings++;
+                if(havePrevPrevFd)fdAcc+=Math.Abs(fd-2.0*prevFd+prevPrevFd);
+                prevPrevFd=prevFd;havePrevPrevFd=havePrevFd;
+                prevFd=fd;havePrevFd=true;
+
+                int rel=j-localStart;
+                if(rel<Math.Max(0,ln-4))earlyWave+=step;
+                if(rel>=Math.Max(0,ln-4))lateWave+=step;
+            }
+            double lEff=Math.Abs(lSigned)/Math.Max(1e-9,lAbs);
+            double lRv=Math.Sqrt(Math.Max(0,lSq));
+            double lImbalance=(lPos-lNeg)/ln;
+            double fdMean=fdSum/ln;
+            double fdVar=Math.Max(0,fdSq/ln-fdMean*fdMean);
+            double fdStd=Math.Sqrt(fdVar);
+            double fdSlope=(fdLast-fdFirst)/Math.Max(1.0,ln-1.0);
+            double fdAccel=fdAcc/Math.Max(1.0,ln-2.0);
+            double wave=lateWave-earlyWave;
+
             return new[]{
+                // V2 invariant block.
                 VClamp((signedNet+3.0)/6.0),VClamp(absVar/6.0),VClamp(rv/3.0),VClamp(eff),
                 VClamp((imbalance+1.0)/2.0),VClamp(turns/Math.Max(1.0,nn-1.0)),VClamp(curv/6.0),
                 VClamp((maxFav+1.0)/4.0),VClamp(maxAdv/3.0),VClamp(przOcc/nn),VClamp(reclaimOcc/nn),
                 VClamp(closeLocSum/nn),VClamp(rangeSum/nn/3.0),VClamp(duration/60.0),VClamp(pullAge/30.0),
-                VClamp(pbDepth/1.5)
+                VClamp(pbDepth/1.5),
+
+                // V3 local/multiscale block.
+                VClamp((lSigned+2.0)/4.0),VClamp(lRv/2.0),VClamp(lEff),VClamp((lImbalance+1.0)/2.0),
+                VClamp(lTurns/Math.Max(1.0,ln-1.0)),VClamp(lAcc/Math.Max(1.0,ln-1.0)/2.0),
+                VClamp(lJerk/Math.Max(1.0,ln-2.0)/2.0),VClamp(lCloseLoc/ln),
+                VClamp(lRange/ln/3.0),VClamp((fdMean+1.0)/2.0),VClamp(fdStd),
+                VClamp((fdSlope+.50)/1.0),VClamp(fdAccel),VClamp(reclaimed/ln),
+                VClamp(crossings/Math.Max(1.0,ln-1.0)),VClamp((wave+2.0)/4.0)
             };
         }
 
