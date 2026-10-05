@@ -1909,13 +1909,21 @@ def _fit_survival_distribution(samples,spec,manifold):
     yp=[1.0 if float(s["y"])>0 else 0.0 for s in ss]
     win=[i for i,s in enumerate(ss) if float(s["y"])>0];loss=[i for i,s in enumerate(ss) if float(s["y"])<=0]
     if len(win)<80 or len(loss)<80:return None
-    kw={"rounds":spec["rounds"],"lr":spec["lr"],"max_rows":5200,
+    kw={"rounds":spec["rounds"],"lr":spec["lr"],"max_rows":10**9,
         "max_depth":spec["depth"],"min_leaf":spec["min_leaf"]}
-    Xp,tp=_fit_view(X,[yp],5200);ypf=tp[0];orders=_root_orders(Xp,idx)
-    pm=_boost_train(Xp,ypf,idx,root_orders=orders,**kw)
+    # Subsample BEFORE building root-order indices.  Building orders on the full
+    # win/loss matrix and then letting _boost_train subsample internally leaves
+    # stale row indices and can trigger an IndexError inside _tree_fit.
+    Xp,tp=_fit_view(X,[yp],5200);ypf=tp[0]
     Xw=[X[i] for i in win];yw=[float(ss[i]["y"]) for i in win]
     Xl=[X[i] for i in loss];yl=[max(0.0,-float(ss[i]["y"])) for i in loss]
-    ow=_root_orders(Xw,idx);ol=_root_orders(Xl,idx)
+    Xw,tw=_fit_view(Xw,[yw],5200);yw=tw[0]
+    Xl,tl=_fit_view(Xl,[yl],5200);yl=tl[0]
+    dim=len(Xp[0]) if Xp else 0
+    if dim<=0 or any(len(x)!=dim for x in Xp+Xw+Xl) or any(j<0 or j>=dim for j in idx):
+        raise SystemExit("V74 survival distribution dimension contract failure")
+    orders=_root_orders(Xp,idx);ow=_root_orders(Xw,idx);ol=_root_orders(Xl,idx)
+    pm=_boost_train(Xp,ypf,idx,root_orders=orders,**kw)
     wm=_boost_train(Xw,yw,idx,root_orders=ow,**kw)
     lm=_boost_train(Xl,yl,idx,root_orders=ol,**kw)
     return {"type":"SURVIVAL_PWL_DISTRIBUTION","spec":spec,"layout":layout,"idx":idx,
