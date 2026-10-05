@@ -1388,7 +1388,36 @@ def _structural_specs():
             sid+=1
     return specs
 
-def _fit_structural_head(samples,spec):
+def _build_structural_fit_context(samples,max_kfeat=40):
+    """Fold-local immutable cache shared by the whole architecture bank.
+
+    stable_idx_target(..., k) is a prefix of the same deterministic ranking, so
+    computing the maximum requested k once is mathematically identical to
+    rescanning the same fold for every smaller architecture.
+    """
+    if len(samples)<450:return None
+    yw=[1.0 if float(s["y"])>0.0 else 0.0 for s in samples]
+    yvalue=[(max(-1.0,min(2.5,float(s["y"])))+1.0)/3.5 for s in samples]
+    ystrong=[1.0 if float(s["y"])>=1.0 else 0.0 for s in samples]
+    iw_full=stable_idx_target(samples,yw,max_kfeat)
+    iv_full=stable_idx_target(samples,yvalue,max_kfeat)
+    is_full=stable_idx_target(samples,ystrong,max_kfeat)
+    fallback=stable_idx(samples,max_kfeat) if not iw_full else []
+    if not iw_full:iw_full=list(fallback)
+    X=[s["x"] for s in samples]
+    # _fit_view subsamples only by X length, so a joint call preserves the exact
+    # row indices previously produced by the two-target calls.
+    Xf,targets=_fit_view(X,[yw,yvalue,ystrong],5200)
+    ywf,yvf,ysf=targets
+    use=sorted(set(iw_full+iv_full+is_full))
+    orders=_root_orders(Xf,use)
+    return {"yw":yw,"yvalue":yvalue,"ystrong":ystrong,
+            "iw_full":iw_full,"iv_full":iv_full,"is_full":is_full,
+            "fallback":fallback,"Xf":Xf,"ywf":ywf,"yvf":yvf,"ysf":ysf,
+            "orders":orders,"prior":_fit_struct_prior(samples)}
+
+def _fit_structural_head_reference(samples,spec):
+    """Pre-cache reference implementation, retained only for parity probing."""
     if len(samples)<450:return None
     yw=[1.0 if float(s["y"])>0.0 else 0.0 for s in samples]
     if spec["aux"]=="STRONG":
@@ -1408,6 +1437,44 @@ def _fit_structural_head(samples,spec):
     return {"type":"NONLINEAR_CAUSAL_ADMISSION_HEAD","spec":spec,
             "win":mw,"aux":ma,"idx_win":iw,"idx_aux":ia,
             "prior":_fit_struct_prior(samples)}
+
+def _fit_structural_head(samples,spec,ctx=None):
+    if len(samples)<450:return None
+    ctx=ctx or _build_structural_fit_context(samples,max(40,int(spec["kfeat"])))
+    if ctx is None:return None
+    k=int(spec["kfeat"])
+    iw=list(ctx["iw_full"][:k])
+    aux_full=ctx["is_full"] if spec["aux"]=="STRONG" else ctx["iv_full"]
+    ia=list(aux_full[:k])
+    if not iw:iw=list(ctx["fallback"][:k])
+    if not ia:ia=list(iw)
+    Xf=ctx["Xf"];ywf=ctx["ywf"]
+    yaf=ctx["ysf"] if spec["aux"]=="STRONG" else ctx["yvf"]
+    kw={"rounds":spec["rounds"],"lr":spec["lr"],"max_rows":10**9,
+        "root_orders":ctx["orders"],"max_depth":spec["depth"],"min_leaf":spec["min_leaf"]}
+    mw=_boost_train(Xf,ywf,iw,**kw);ma=_boost_train(Xf,yaf,ia,**kw)
+    return {"type":"NONLINEAR_CAUSAL_ADMISSION_HEAD","spec":spec,
+            "win":mw,"aux":ma,"idx_win":iw,"idx_aux":ia,
+            "prior":ctx["prior"]}
+
+def _assert_structural_fit_cache_parity(samples,spec,ctx):
+    ref=_fit_structural_head_reference(samples,spec)
+    opt=_fit_structural_head(samples,spec,ctx)
+    if ref is None or opt is None:raise SystemExit("V74 structural cache parity missing model")
+    if ref["idx_win"]!=opt["idx_win"] or ref["idx_aux"]!=opt["idx_aux"]:
+        raise SystemExit("V74 structural cache parity failure: feature ranking")
+    if ref["prior"]!=opt["prior"]:
+        raise SystemExit("V74 structural cache parity failure: prior")
+    # Compare exact model outputs on deterministic probes rather than serialized
+    # tree object ordering.
+    step=max(1,len(samples)//64)
+    for s in samples[::step][:64]:
+        x=s["x"]
+        for key in ("win","aux"):
+            a,_=_boost_pred(ref[key],x);b,_=_boost_pred(opt[key],x)
+            if abs(float(a)-float(b))>1e-12:
+                raise SystemExit("V74 structural cache parity failure: "+key)
+    print("[V74-STRUCT-CACHE-PARITY] pass=true spec="+str(spec["id"]),flush=True)
 
 def _pred_structural_head(model,e):
     if model is None:return (.5,.5,.5)
@@ -1434,8 +1501,13 @@ def _build_nested_structural_bank(all_action_samples,years):
       tr_adm=_struct_samples_from_reps(tr_reps)
       start=len(oof_reps);oof_reps.extend(va_reps);end=len(oof_reps)
       fold_slices.append((vw,start,end))
+      fit_ctx=_build_structural_fit_context(tr_adm,max(s["kfeat"] for s in specs))
+      if fit_ctx is None:raise SystemExit("V74 structural fit context failure")
+      # One reference probe per inner fold proves cached feature/prior/matrix
+      # reuse does not change the original implementation.
+      _assert_structural_fit_cache_parity(tr_adm,specs[0],fit_ctx)
       for si,spec in enumerate(specs):
-        md=_fit_structural_head(tr_adm,spec)
+        md=_fit_structural_head(tr_adm,spec,fit_ctx)
         if md is None:raise SystemExit("V74 structural head fit failure "+str(spec["id"]))
         bank_chunks[si].extend([_pred_structural_head(md,e) for e in va_reps])
       nested_meta.append({"validation_year":vw,"training_years":sorted({s["window"] for s in tr}),
@@ -1522,8 +1594,10 @@ def _fit_structural_tournament(all_action_samples,route_decisions,years):
     full_reps=admission_route_representatives(route_decisions)
     full_adm=_struct_samples_from_reps(full_reps)
     specs=nested["specs"];heads={}
+    final_ctx=_build_structural_fit_context(full_adm,max(s["kfeat"] for s in specs))
+    if final_ctx is None:raise SystemExit("V74 final structural fit context failure")
     for mid in sorted(set(bcfg["models"])):
-      md=_fit_structural_head(full_adm,specs[mid])
+      md=_fit_structural_head(full_adm,specs[mid],final_ctx)
       if md is None:raise SystemExit("V74 final structural head fit failure")
       heads[str(mid)]=md
     final_model={"type":"NESTED_WALK_FORWARD_NONLINEAR_ADMISSION_BANK",
