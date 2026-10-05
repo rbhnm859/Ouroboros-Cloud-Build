@@ -263,6 +263,7 @@ namespace cAlgo.Robots
             public double[] V74SurvivalFreshOutcomeR = Enumerable.Repeat(double.NaN, V74SurvivalFreshKey.Length).ToArray();
             public string[] V74SurvivalFreshMaturityStateCsv = new string[V74SurvivalFreshKey.Length];
             public string[] V74SurvivalFreshEntryStateCsv = new string[V74SurvivalFreshKey.Length];
+            public string[] V74SurvivalFreshMorphologyCsv = new string[V74SurvivalFreshKey.Length];
 
             // V74 V12: event-native post-stop failure continuation. The original
             // harmonic reversal remains a -1R outcome; this is a distinct fresh,
@@ -870,6 +871,7 @@ namespace cAlgo.Robots
             bool directional=buy?close>open:close<open;
             bool reaccelerating=buy?close>prevClose:close<prevClose;
             double range=Math.Max(_symbol.PipSize,high-low);
+            double atr=Math.Max(_symbol.PipSize,Atr(_m1Bars,14,i));
             double alignedClose=buy?(close-low)/range:(high-close)/range;
             double virtualFav=buy?(high-o.Entry)/o.RiskDistance:(o.Entry-low)/o.RiskDistance;
 
@@ -959,6 +961,32 @@ namespace cAlgo.Robots
                 if(rr+1e-9<2.30)continue;
 
                 o.V74SurvivalFreshTriggerBar[k]=o.BarsActive;
+
+                // V74 causal rejection-morphology v1. These values describe only the
+                // observed reaction -> Fibonacci touch -> completed-bar reclaim path.
+                // Every term is known before the fresh basket is admitted; no future
+                // MFE/MAE/outcome or Validation/Fresh information is referenced.
+                double pullbackExtreme=o.V74SurvivalFreshPullbackExtreme[k];
+                double actualRetrace=buy?(impulseExtreme-pullbackExtreme)/impulse:(pullbackExtreme-impulseExtreme)/impulse;
+                double penetration=buy?Math.Max(0.0,fibPrice-pullbackExtreme)/impulse:Math.Max(0.0,pullbackExtreme-fibPrice)/impulse;
+                double reclaimImpulse=buy?(close-fibPrice)/impulse:(fibPrice-close)/impulse;
+                double reclaimAtr=buy?(close-fibPrice)/atr:(fibPrice-close)/atr;
+                double impulseOriginalR=impulse/Math.Max(o.RiskDistance,_symbol.PipSize);
+                double reactionToPullback=Math.Max(0,o.V74SurvivalFreshPullbackBar[k]-o.V74SurvivalFreshReactionBar[k]);
+                double pullbackToTrigger=Math.Max(0,o.BarsActive-o.V74SurvivalFreshPullbackBar[k]);
+                double pullbackOriginalR=(buy?pullbackExtreme-o.Entry:o.Entry-pullbackExtreme)/Math.Max(o.RiskDistance,_symbol.PipSize);
+                o.V74SurvivalFreshMorphologyCsv[k]=string.Join(",",new[]
+                {
+                    VClamp(actualRetrace/1.5),
+                    VClamp(penetration/.50),
+                    VClamp(Math.Max(0.0,reclaimImpulse)/.50),
+                    VClamp(Math.Max(0.0,reclaimAtr)/2.0),
+                    VClamp(impulseOriginalR/3.0),
+                    VClamp(reactionToPullback/60.0),
+                    VClamp(pullbackToTrigger/30.0),
+                    VClamp((pullbackOriginalR+1.0)/4.0)
+                }.Select(v=>v.ToString("R",System.Globalization.CultureInfo.InvariantCulture)));
+
                 o.V74SurvivalFreshMaturityStateCsv[k]=string.Join(",",V74RouteStateFeatures(
                     o,i,o.Entry,o.RiskDistance,o.Target,
                     Math.Max(0,o.BarsActive-o.V74SurvivalFreshReactionBar[k]),o.MfeR,o.MaeR,reactionR)
@@ -1601,6 +1629,7 @@ namespace cAlgo.Robots
                 sfParts.Add("pb"+k+"="+o.V74SurvivalFreshPullbackBar[k].ToString(System.Globalization.CultureInfo.InvariantCulture));
                 sfParts.Add("tb"+k+"="+o.V74SurvivalFreshTriggerBar[k].ToString(System.Globalization.CultureInfo.InvariantCulture));
                 sfParts.Add("e"+k+"="+(string.IsNullOrWhiteSpace(o.V74SurvivalFreshEntryStateCsv[k])?"NONE":o.V74SurvivalFreshEntryStateCsv[k]));
+                sfParts.Add("q"+k+"="+(string.IsNullOrWhiteSpace(o.V74SurvivalFreshMorphologyCsv[k])?"NONE":o.V74SurvivalFreshMorphologyCsv[k]));
                 sfParts.Add("b"+k+"="+(double.IsFinite(o.V74SurvivalFreshOutcomeR[k])?o.V74SurvivalFreshOutcomeR[k].ToString("R",System.Globalization.CultureInfo.InvariantCulture):"NA"));
                 sfParts.Add("rr"+k+"="+o.V74SurvivalFreshNetRr[k].ToString("R",System.Globalization.CultureInfo.InvariantCulture));
                 sfParts.Add("re"+k+"="+o.V74SurvivalFreshReactionBar[k].ToString(System.Globalization.CultureInfo.InvariantCulture));
