@@ -574,7 +574,7 @@ def event_decisions(samples,vm,pm):
                   "pred":dict(p,pair_advantage=adv),"s":q})
     return out
 
-def simulate(decisions,th,window=None):
+def simulate(decisions,th,window=None,stop_margin=-math.inf):
     d=defaultdict(list)
     for e in decisions:
       if window is not None and e["s"]["window"]!=window:continue
@@ -583,6 +583,10 @@ def simulate(decisions,th,window=None):
     for ev in d.values():
       ev.sort(key=lambda e:(e["s"]["bar"],-e["score"],e["s"]["route"]))
       for e in ev:
+        # Explicit causal optimal-stopping gate.  If the current ENTER value does
+        # not dominate learned continuation value by the training-only margin,
+        # capital waits; a later completed-bar decision may still enter.
+        if float(e.get("stop_advantage",math.inf))+1e-12<stop_margin:continue
         if e["score"]+1e-12>=th:
           sel.append(e);break
     return sel
@@ -2111,13 +2115,84 @@ def _survival_decisions(samples,model,prepared=None):
             hist.append(base);last_bar=bar
     return out
 
+def _stopping_feature_vector(e,route_model):
+    s=e["s"];p=e["pred"];x=s.get("x",[])
+    layout=route_model.get("layout",{})
+    use=[]
+    for g in ("path_v2","timing","regime","manifold"):
+      a,b=layout.get(g,(0,0));use.extend(range(a,b))
+    z=[float(x[j]) for j in use if 0<=j<len(x)]
+    z.extend([
+      max(0.0,min(1.0,float(p.get("win",0.0)))),
+      max(0.0,min(1.0,float(p.get("win_lcb",0.0)))),
+      math.tanh(float(p.get("mean",0.0))/2.0),
+      math.tanh(math.log(max(1e-6,float(p.get("pf",1.0))))/3.0),
+      min(1.0,float(p.get("support",0.0))/100.0),
+      min(1.0,max(0.0,float(s.get("bar",0)))/180.0)
+    ])
+    return [1.0]+z
+
+def _continuation_targets_from_decisions(decisions):
+    """Best later payoff of the causally selected route, training labels only."""
+    y=[0.0]*len(decisions);by=defaultdict(list)
+    for i,e in enumerate(decisions):
+      s=e["s"];by[(s["window"],event_identity(s["setup"]))].append((int(s["bar"]),i))
+    for vv in by.values():
+      vv.sort();future=0.0
+      for bar,i in reversed(vv):
+        y[i]=max(0.0,future)
+        future=max(future,float(decisions[i]["s"]["y"]))
+    return y
+
+def _fit_stopping_model(samples,route_model,prepared=None):
+    dec=_survival_decisions(samples,route_model,prepared)
+    if len(dec)<250:return {"valid":False}
+    X=[_stopping_feature_vector(e,route_model) for e in dec]
+    y=_continuation_targets_from_decisions(dec)
+    d=len(X[0]);lam=3.0
+    a=[[0.0]*d for _ in range(d)];b=[0.0]*d
+    for x,t in zip(X,y):
+      for i in range(d):
+        b[i]+=x[i]*t
+        xi=x[i]
+        for j in range(i,d):a[i][j]+=xi*x[j]
+    for i in range(d):
+      for j in range(i):a[i][j]=a[j][i]
+      if i>0:a[i][i]+=lam
+    inv=_mat_inverse(a)
+    if inv is None:return {"valid":False}
+    beta=[sum(inv[i][j]*b[j] for j in range(d)) for i in range(d)]
+    resid=[y[k]-sum(beta[j]*X[k][j] for j in range(d)) for k in range(len(y))]
+    sigma=statistics.pstdev(resid) if len(resid)>1 else 10.0
+    return {"valid":True,"beta":beta,"sigma":max(.05,float(sigma)),"dim":d,
+            "train_decisions":len(dec),"target_mean":sum(y)/len(y)}
+
+def _predict_continuation(stop_model,e,route_model):
+    if not stop_model or not stop_model.get("valid"):return 0.0
+    x=_stopping_feature_vector(e,route_model)
+    if len(x)!=int(stop_model["dim"]):raise SystemExit("V74 stopping feature dimension drift")
+    return max(0.0,sum(float(stop_model["beta"][j])*x[j] for j in range(len(x))))
+
+def _survival_stopping_decisions(samples,route_model,stop_model,prepared=None):
+    dec=_survival_decisions(samples,route_model,prepared)
+    for e in dec:
+      co=_predict_continuation(stop_model,e,route_model)
+      enter=float(e["pred"].get("mean",0.0))
+      adv=enter-co
+      e["pred"]["continuation"]=co;e["pred"]["stop_advantage"]=adv
+      e["stop_advantage"]=adv
+    return dec
+
 def _compact_tournament_decision(e):
     """Minimal lossless decision payload for inner-OOF architecture selection."""
     s=e["s"];p=e["pred"]
     cs={k:s[k] for k in ("window","setup","family","action","source","base","route","bar","bars","y")}
     cs["row"]={}
     return {"score":float(e["score"]),"route_rank":float(e.get("route_rank",-999.0)),
-            "pred":{"regime_id":int(p.get("regime_id",0))},"s":cs}
+            "stop_advantage":float(e.get("stop_advantage",-999.0)),
+            "pred":{"regime_id":int(p.get("regime_id",0)),
+                    "continuation":float(p.get("continuation",0.0)),
+                    "stop_advantage":float(p.get("stop_advantage",-999.0))},"s":cs}
 
 def _compute_shared_inner_survival_year(vw):
     """One causal inner year; safe to compute once and reuse by later outer folds."""
@@ -2133,7 +2208,9 @@ def _compute_shared_inner_survival_year(vw):
     for spec in _survival_specs():
         md=_fit_survival_distribution(tr,spec,manifold,ctx)
         if md is None:raise SystemExit("V74 shared inner survival fit failure "+vw+" spec="+str(spec["id"]))
-        banks.append([_compact_tournament_decision(e) for e in _survival_decisions(va,md,prepared)])
+        sm=_fit_stopping_model(tr,md)
+        if not sm.get("valid"):raise SystemExit("V74 shared inner stopping fit failure "+vw+" spec="+str(spec["id"]))
+        banks.append([_compact_tournament_decision(e) for e in _survival_stopping_decisions(va,md,sm,prepared)])
     meta={"validation_year":vw,"training_years":sorted({s["window"] for s in tr}),
           "train_survival_actions":len(tr),"validation_survival_actions":len(va)}
     return vw,{"banks":banks,"meta":meta}
@@ -2150,28 +2227,33 @@ def _precision_rank(tm):
             statistics.median(float(m["win_rate"]) for m in ms))
 
 def _precision_threshold(decisions,years,target):
-    by=defaultdict(lambda:defaultdict(lambda:-math.inf))
-    scores=[]
-    for e in decisions:
+    adv=[float(e.get("stop_advantage",-999.0)) for e in decisions]
+    margins=sorted(set([-math.inf]+[qtile(adv,q) for q in (0.10,0.25,0.40,0.55,0.70)]))
+    best=None
+    for margin in margins:
+      by=defaultdict(lambda:defaultdict(lambda:-math.inf));scores=[]
+      for e in decisions:
+        if float(e.get("stop_advantage",-999.0))+1e-12<margin:continue
         w=e["s"]["window"];eid=event_identity(e["s"]["setup"]);z=float(e["score"])
         by[w][eid]=max(by[w][eid],z);scores.append(z)
-    limits={}
-    for w in years:
+      limits={};feasible=True
+      for w in years:
         vals=sorted(by[w].values(),reverse=True);k=min(int(target),len(vals))
-        if k<MIN_N:return None
+        if k<MIN_N:feasible=False;break
         limits[w]=vals[k-1]
-    upper=min(limits.values())
-    cand=sorted(set([upper]+[qtile([z for z in scores if z<=upper+1e-12],q)
-                               for q in [i/50.0 for i in range(51)]]),reverse=True)
-    best=None
-    for th in cand:
-        tm={w:metric_selected(simulate(decisions,th,w))[0] for w in years}
+      if not feasible or not scores:continue
+      upper=min(limits.values())
+      base=[z for z in scores if z<=upper+1e-12]
+      cand=sorted(set([upper]+[qtile(base,q) for q in [i/50.0 for i in range(51)]]),reverse=True)
+      for th in cand:
+        tm={w:metric_selected(simulate(decisions,th,w,margin))[0] for w in years}
         if any(m["n"]<target for m in tm.values()):continue
-        rank=_precision_rank(tm);z=(rank,th,tm)
-        if best is None or z[:2]>best[:2]:best=z
+        rank=_precision_rank(tm);z=(rank,margin,th,tm,limits,by)
+        if best is None or z[:3]>best[:3]:best=z
     if best is None:return None
-    return {"rank":best[0],"threshold":best[1],"metrics":best[2],"limits":limits,
-            "supply":{w:len(by[w]) for w in years}}
+    return {"rank":best[0],"stop_margin":best[1],"threshold":best[2],
+            "metrics":best[3],"limits":best[4],
+            "supply":{w:len(best[5][w]) for w in years}}
 
 def _conditional_mi_bits(decisions):
     """OOF conditional information in score about win, conditioning on family/regime."""
@@ -2242,15 +2324,18 @@ def _fit_survival_state_space_tournament(samples,years):
     final_ctx=_build_survival_fit_context(samples,full_manifold)
     final=_fit_survival_distribution(samples,chosen,full_manifold,final_ctx)
     if final is None:raise SystemExit("V74 survival final distribution fit failure")
+    stop_model=_fit_stopping_model(samples,final)
+    if not stop_model.get("valid"):raise SystemExit("V74 survival final stopping fit failure")
     full_prepared=_prepare_survival_inference(samples,full_manifold,final_ctx["prior"])
-    full_dec=_survival_decisions(samples,final,full_prepared)
+    full_dec=_survival_stopping_decisions(samples,final,stop_model,full_prepared)
     oof_scores=[float(e["score"]) for e in banks[si]]
     full_scores=[float(e["score"]) for e in full_dec]
     om=med(oof_scores,0.0);fm=med(full_scores,0.0)
     oq1,oq3=qtile(oof_scores,.25),qtile(oof_scores,.75);fq1,fq3=qtile(full_scores,.25),qtile(full_scores,.75)
     scale=max(.25,min(4.0,(fq3-fq1)/max(1e-9,oq3-oq1)))
     transferred=fm+(float(z["threshold"])-om)*scale
-    return {"model":final,"threshold":transferred,"oof_threshold":z["threshold"],
+    return {"model":final,"stopping_model":stop_model,"threshold":transferred,
+            "stop_margin":z["stop_margin"],"oof_threshold":z["threshold"],
             "training_metrics":z["metrics"],"training_rank":list(rank),
             "training_limits":z["limits"],"training_supply":z["supply"],
             "coverage_target":target,"inner_oof_years":val_years,"nested_meta":meta,
@@ -2273,6 +2358,7 @@ def fit_policy(train_rows,prebuilt_samples=None):
     return {"mechanism_heads":{},"mechanism_training":{},"admission_model":ss["model"],
             "admission_fit_years":yrs,"admission_calibration_year":ss["inner_oof_years"][-1],
             "admission_inner_oof_years":ss["inner_oof_years"],"threshold":ss["threshold"],
+            "stop_margin":ss["stop_margin"],"stopping_model":ss["stopping_model"],
             "oof_threshold":ss["oof_threshold"],"training_coverage_limits":ss["training_limits"],
             "training_supply":ss["training_supply"],"training_metrics":tm,
             "training_worst_gate_margin":worst,"training_oracle_admission":training_oracle,
@@ -2290,8 +2376,8 @@ def fit_policy(train_rows,prebuilt_samples=None):
 def apply_policy(policy,test_rows,prebuilt_samples=None):
     samples=list(prebuilt_samples) if prebuilt_samples is not None else make_samples(test_rows)
     surv=[s for s in samples if s.get("source")=="SURVIVAL"]
-    dec=_survival_decisions(surv,policy["admission_model"])
-    sel=simulate(dec,policy["threshold"])
+    dec=_survival_stopping_decisions(surv,policy["admission_model"],policy["stopping_model"])
+    sel=simulate(dec,policy["threshold"],stop_margin=policy["stop_margin"])
     return sel,surv,dec
 
 def _diag_metrics(samples):
@@ -2371,7 +2457,7 @@ summary={"version":"HarmonyBot V74 One-Shot Family-Native Causal Action Selector
  "policy":{"actions":"EARLY_OR_LATE_COMPLETED_BAR_ENTRY_ACTION__RAW_F00_EARLY__PREENTRY_CONFIRMATION_F20_F30_LATE",
            "harmonic_completion":"DIRECTION_TIME_D_EVENT_IDENTITY__MULTI_GEOMETRY_IS_CONFLUENCE_NOT_SUPPLY",
            "reaction_state":"CAUSAL_FEATURE_NOT_HARD_FILTER","physical_route_contract":"EVENT_NATIVE_CANONICAL_EVENT_FULL_COMPLETED_BAR_ENTRY_TIMING__EARLY_F00_M05_M10_M15__LATE_PREENTRY_F20_F30__SURVIVAL_FRESH__NETRR_GE230","v75_management_variants_excluded":True,"all_entry_maturity_stages_completed_bar_only":True,
-           "route_choice":"SURVIVAL_ONLY_CAUSAL_ROUTE_RANK_BY_WIN_LCB_THEN_EXPECTED_R","optimal_stopping":"FIRST_SURVIVAL_EVENT_BAR_CROSSING_PRECISION_CALIBRATED_THRESHOLD",
+           "route_choice":"SURVIVAL_ONLY_CAUSAL_ROUTE_RANK_BY_WIN_LCB_THEN_EXPECTED_R","optimal_stopping":"CAUSAL_ENTER_VS_WAIT__PREDICTED_CONTINUATION_VALUE__TRAINING_ONLY_STOP_MARGIN",
            "admission":"FAMILY_MANIFOLD_PLUS_CONTINUOUS_FIBONACCI_ROUTE_PLUS_FORWARD_LATENT_REGIME_PLUS_P_WIN_WINR_LOSSR_DISTRIBUTION__PRECISION_AT_250",
            "training_coverage_target_per_year":TRAIN_COVERAGE,
            "family_hierarchy":"12_FAMILY_CANONICAL_MANIFOLD_WITH_TRAINING_ONLY_COVARIANCE_SHRINKAGE__SURVIVAL_PRIMARY__OTHER_LANES_SHADOW",
