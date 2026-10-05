@@ -18,6 +18,7 @@ PROTECTION_KEYS=["025","050","075","100","150"]
 MILESTONE_FEATURE_COUNT=12
 SEQUENTIAL_STATE_FEATURE_COUNT=64
 SURVIVAL_MORPH_FEATURE_COUNT=8
+SURVIVAL_PATH_V2_FEATURE_COUNT=16
 Z=1.645
 
 RX=re.compile(
@@ -161,7 +162,7 @@ def load_rows(root,windows):
                 p=paths.setdefault(setup,{"protect_r":{},"milestones":{},"rcr":{},"hybrid":{},"reaction_commit":{},"high_conviction":{},
                                           "sequential":{},"sequential_rr":{},"sequential_bars":{},"sequential_state":{},"sequential_entry_state":{},
                                           "sequential_trigger_state":{},"sequential_decision_state":{}})
-                outcomes={};rrs={};maturities={};entries={};morphology={};reaction_bars={};pullback_bars={};trigger_bars={};entry_bars={};bars={}
+                outcomes={};rrs={};maturities={};entries={};morphology={};path_v2={};reaction_bars={};pullback_bars={};trigger_bars={};entry_bars={};bars={}
                 for idx,key in enumerate(SURVIVAL_FRESH_KEYS):
                     raw=kv.get("m"+str(idx))
                     if raw not in (None,"NONE","NA","NaN","nan"):
@@ -181,6 +182,12 @@ def load_rows(root,windows):
                             vv=[float(x) for x in raw.split(",")]
                             if len(vv)==SURVIVAL_MORPH_FEATURE_COUNT and all(math.isfinite(x) for x in vv):morphology[key]=vv
                         except Exception:pass
+                    raw=kv.get("p"+str(idx))
+                    if raw not in (None,"NONE","NA","NaN","nan"):
+                        try:
+                            vv=[float(x) for x in raw.split(",")]
+                            if len(vv)==SURVIVAL_PATH_V2_FEATURE_COUNT and all(math.isfinite(x) for x in vv):path_v2[key]=vv
+                        except Exception:pass
                     raw=kv.get("b"+str(idx));rawrr=kv.get("rr"+str(idx))
                     if raw not in (None,"NA","NaN","nan"):
                         try:
@@ -197,7 +204,7 @@ def load_rows(root,windows):
                         except Exception:pass
                 p["survival_fresh"]=outcomes;p["survival_fresh_rr"]=rrs
                 p["survival_fresh_maturity_state"]=maturities;p["survival_fresh_entry_state"]=entries
-                p["survival_fresh_morphology"]=morphology
+                p["survival_fresh_morphology"]=morphology;p["survival_fresh_path_v2"]=path_v2
                 p["survival_fresh_reaction_bar"]=reaction_bars;p["survival_fresh_pullback_bar"]=pullback_bars
                 p["survival_fresh_trigger_bar"]=trigger_bars;p["survival_fresh_entry_bar"]=entry_bars;p["survival_fresh_bars"]=bars
                 continue
