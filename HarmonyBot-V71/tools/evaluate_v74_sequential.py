@@ -133,6 +133,15 @@ def route_cats(r,src,b,m,f,sfkey=None,action_override=None):
       1.0 if f==ff else 0.0 for ff in ALL_FRACTIONS]+[
       1.0 if sfkey==kk else 0.0 for kk in SURVIVAL_FRESH_KEYS]
 
+_HARMONIC_PRECISION_CACHE={}
+def _precision_vector(r):
+    k=(r.get("window"),r.get("setup"))
+    z=_HARMONIC_PRECISION_CACHE.get(k)
+    if z is None:
+        z=tuple(harmonic_precision_vector(r.get("family","ABCD"),list(r.get("features",[]))))
+        _HARMONIC_PRECISION_CACHE[k]=z
+    return list(z)
+
 def xvec(r,src,m,b,f,eb):
     # Missing reaction/path snapshots are explicit evidence, not a hard rejection.
     a=maturity_state(r,src,m,b,f);e=entry_state(r,src,m,b,f)
@@ -140,7 +149,7 @@ def xvec(r,src,m,b,f,eb):
     aa=a if a is not None else [0.0]*SEQUENTIAL_STATE_FEATURE_COUNT
     ee=e if e is not None else [0.0]*SEQUENTIAL_STATE_FEATURE_COUNT
     delta=[ee[i]-aa[i] if ap and ep else 0.0 for i in range(SEQUENTIAL_STATE_FEATURE_COUNT)]
-    hp=harmonic_precision_vector(r.get("family","ABCD"),list(r.get("features",[])))
+    hp=_precision_vector(r)
     return (list(r.get("features",[]))+hp+route_cats(r,src,b,m,f)+aa+ee+delta+
             [ap,ep,1.0 if ap and ep else 0.0]+timing_state(r,src,m,b,f,eb)+
             [0.0]*SURVIVAL_MORPH_FEATURE_COUNT)
@@ -162,7 +171,7 @@ def survival_xvec(r,sf,eb):
             max(-1.0,min(6.0,float(tb)/10.0)) if tb is not None else -1.0]
     q=r.get("survival_fresh_morphology",{}).get(sf)
     morph=[float(x) for x in q] if q is not None and len(q)==SURVIVAL_MORPH_FEATURE_COUNT else [0.0]*SURVIVAL_MORPH_FEATURE_COUNT
-    hp=harmonic_precision_vector(r.get("family","ABCD"),list(r.get("features",[])))
+    hp=_precision_vector(r)
     return (list(r.get("features",[]))+hp+route_cats(r,"SURVIVAL","SURVIVAL","FIB","00",sf)+
             aa+ee+delta+[ap,ep,1.0 if ap and ep else 0.0]+timing+morph)
 
@@ -181,7 +190,7 @@ def failure_xvec(r,eb):
             max(-1.0,min(6.0,float(bb)/10.0)) if bb is not None else -1.0,
             max(-1.0,min(6.0,float(rb)/10.0)) if rb is not None else -1.0,
             max(-1.0,min(6.0,float(eb-rb)/10.0)) if rb is not None and rb>=0 else -1.0]
-    hp=harmonic_precision_vector(r.get("family","ABCD"),list(r.get("features",[])))
+    hp=_precision_vector(r)
     return (list(r.get("features",[]))+hp+route_cats(r,"FAILURE","FAILURE","FC230","00",None,"CONTINUATION")+
             aa+ee+delta+[ap,ep,1.0 if ap and ep else 0.0]+timing+
             [0.0]*SURVIVAL_MORPH_FEATURE_COUNT)
@@ -626,13 +635,13 @@ def mechanism_decisions(samples,heads):
       if not ss:continue
       dd=event_decisions(ss,md["value_model"],md["pairwise_ranker"])
       for e in dd:
-        e["mechanism"]=src
+        q=dict(e);q["mechanism"]=src
         # Expected-R and P(win) are already on common physical units. Apply only
         # a training-derived reliability penalty for weak-support mechanism heads.
         rel=float(md.get("reliability",1.0))
-        e["score"]=rel*float(e["score"])+(1.0-rel)*float(e["pred"]["lcb"])
-        e["s"]["mechanism"]=src
-      out.extend(dd)
+        q["score"]=rel*float(e["score"])+(1.0-rel)*float(e["pred"]["lcb"])
+        ss=dict(e["s"]);ss["mechanism"]=src;q["s"]=ss
+        out.append(q)
     return out
 
 def _consensus_stats(vals):
@@ -1714,9 +1723,9 @@ def _score_structural_decisions(route_decisions,model):
       out.append(q)
     return out
 
-def fit_policy(train_rows):
+def fit_policy(train_rows,prebuilt_samples=None):
     """Final V74 policy: route heads + nested OOF-selected nonlinear admission."""
-    samples=make_samples(train_rows)
+    samples=list(prebuilt_samples) if prebuilt_samples is not None else make_samples(train_rows)
     if len(samples)<1000:raise SystemExit("V74 insufficient legal action samples")
     heads,mechanism_training=fit_mechanism_heads_from_samples(samples)
     route_dec=mechanism_decisions(samples,heads)
@@ -1753,8 +1762,8 @@ def fit_policy(train_rows):
               "nested_meta":structural["nested_meta"],
               "threshold_transfer":admission_model.get("threshold_transfer")}},samples
 
-def apply_policy(policy,test_rows):
-    samples=make_samples(test_rows)
+def apply_policy(policy,test_rows,prebuilt_samples=None):
+    samples=list(prebuilt_samples) if prebuilt_samples is not None else make_samples(test_rows)
     route_dec=mechanism_decisions(samples,policy["mechanism_heads"])
     am=policy["admission_model"]
     if am.get("type")=="NESTED_WALK_FORWARD_NONLINEAR_ADMISSION_BANK":
@@ -1850,9 +1859,13 @@ models={"architecture":summary["architecture"],"folds":{}}
 def evaluate_burned_fold(test):
     ft=time.perf_counter();test_year=int(test[1:])
     tw=[w for w in ALL if int(w[1:])<test_year]
+    # Preserve the original global row/sample order exactly: deterministic
+    # training subsampling depends on sequence order even when membership matches.
     tr=[r for r in rows if r["window"] in tw];te=[r for r in rows if r["window"]==test]
-    policy,_=fit_policy(tr)
-    sel,test_samples,dec=apply_policy(policy,te);m,mr=metric_selected(sel)
+    tr_samples=[s for s in _ALL_SAMPLES if s["window"] in tw]
+    te_samples=[s for s in _ALL_SAMPLES if s["window"]==test]
+    policy,_=fit_policy(tr,tr_samples)
+    sel,test_samples,dec=apply_policy(policy,te,te_samples);m,mr=metric_selected(sel)
     two_axis=two_axis_oracle_diagnostic(test_samples,dec,sel)
     score_threshold_oracle=score_threshold_oracle_diagnostic(dec)
     routes=Counter(r.get("sequential_key","NONE") for r in mr)
@@ -1874,6 +1887,26 @@ def evaluate_burned_fold(test):
     return test,fold,policy
 
 t0=time.perf_counter()
+# Build causal action samples once in the parent. Fork workers then share these
+# pages read-only; no fold rebuilds route vectors or harmonic precision features.
+_ALL_SAMPLES=make_samples(rows)
+# Fail closed on any ordering/content drift introduced by prebuilding. A direct
+# single-window rebuild must be byte-for-byte numerically equivalent and ordered.
+_probe_window="Y2020" if "Y2020" in ALL else ALL[0]
+_probe_rows=[r for r in rows if r["window"]==_probe_window]
+_probe_direct=make_samples(_probe_rows)
+_probe_cached=[s for s in _ALL_SAMPLES if s["window"]==_probe_window]
+def _sample_parity_key(s):
+    return (s["window"],s["setup"],s["family"],s["action"],s["source"],s["base"],
+            s["route"],int(s["bar"]),int(s["bars"]),float(s["y"]),tuple(float(x) for x in s["x"]))
+if len(_probe_direct)!=len(_probe_cached) or any(
+        _sample_parity_key(a)!=_sample_parity_key(b)
+        for a,b in zip(_probe_direct,_probe_cached)):
+    raise SystemExit("V74 prebuild sample parity failure")
+print("[V74-PREBUILD-PARITY] pass=true window="+_probe_window+
+      " n="+str(len(_probe_cached)),flush=True)
+print("[V74-PREBUILD] rows="+str(len(rows))+" samples="+str(len(_ALL_SAMPLES))+
+      " precision_cache="+str(len(_HARMONIC_PRECISION_CACHE)),flush=True)
 parallel_used=False
 fold_results=None
 # Each burned fold is causally independent and reads immutable rows only. Fork
