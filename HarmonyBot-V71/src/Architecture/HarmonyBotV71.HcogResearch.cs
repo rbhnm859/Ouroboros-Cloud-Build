@@ -597,13 +597,13 @@ namespace cAlgo.Robots
         }
 
         private double[] V74RouteStateFeatures(V72HcogOpportunity o,int i,double entry,double risk,double target,
-            int bars,double mfeR,double maeR,double milestoneR)
+            int bars,double mfeR,double maeR,double milestoneR,bool reverseDirection=false)
         {
             const int FeatureCount=8*8;
             if(o==null||risk<=0||i<0||i>=_m1Bars.Count)return Enumerable.Repeat(0.0,FeatureCount).ToArray();
             double open=_m1Bars.OpenPrices[i],close=_m1Bars.ClosePrices[i],high=_m1Bars.HighPrices[i],low=_m1Bars.LowPrices[i];
             double atr=Math.Max(_symbol.PipSize,Atr(_m1Bars,14,i)),body=Math.Max(_symbol.PipSize,Math.Abs(close-open));
-            bool buy=o.Direction==TradeDirection.Buy;
+            bool buy=reverseDirection?o.Direction==TradeDirection.Sell:o.Direction==TradeDirection.Buy;
             double closeR=(buy?close-entry:entry-close)/risk;
             double favWick=buy?Math.Max(0,high-Math.Max(open,close)):Math.Max(0,Math.Min(open,close)-low);
             double adverseWick=buy?Math.Max(0,Math.Min(open,close)-low):Math.Max(0,high-Math.Max(open,close));
@@ -1115,11 +1115,18 @@ namespace cAlgo.Robots
             double rr=(PriceToPips(Math.Abs(target-entry))-ModeledCostPips())/Math.Max(1e-9,riskPips);
             if(rr+1e-9<2.30)return;
 
+            // Failure continuation is an opposite-direction fresh action. Its
+            // telemetry must be expressed in the continuation direction, not the
+            // invalidated harmonic-reversal direction. The maturity vector uses
+            // only the already-observed failure boundary/retest/BOS state; no
+            // future route payoff participates in inference.
             o.V74FailureMaturityStateCsv=string.Join(",",V74RouteStateFeatures(
-                o,i,o.Entry,o.RiskDistance,o.Target,Math.Max(0,o.BarsActive-o.V74FailureBreakBar),
-                o.MfeR,o.MaeR,0.0).Select(v=>v.ToString("R",System.Globalization.CultureInfo.InvariantCulture)));
+                o,i,o.V74FailureBoundary,Math.Max(o.RiskDistance,_symbol.PipSize),target,
+                Math.Max(0,o.BarsActive-o.V74FailureBreakBar),0,0,0.0,true)
+                .Select(v=>v.ToString("R",System.Globalization.CultureInfo.InvariantCulture)));
             o.V74FailureEntryStateCsv=string.Join(",",V74RouteStateFeatures(
-                o,i,entry,risk,target,0,0,0,0.0).Select(v=>v.ToString("R",System.Globalization.CultureInfo.InvariantCulture)));
+                o,i,entry,risk,target,0,0,0,0.0,true)
+                .Select(v=>v.ToString("R",System.Globalization.CultureInfo.InvariantCulture)));
             o.V74FailureEntryBar=o.BarsActive;o.V74FailureEntry=entry;o.V74FailureStop=stop;
             o.V74FailureTarget=target;o.V74FailureRisk=risk;o.V74FailureNetRr=rr;
             o.V74FailureFreshBars=0;o.V74FailureFreshActive=true;
