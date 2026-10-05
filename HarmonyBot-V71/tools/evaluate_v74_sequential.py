@@ -765,21 +765,34 @@ def fit_admission_model(route_decisions,fit_years,source=None):
     if len(ss)<350:return None
     X=[s["x"] for s in ss]
     ye,yd,yr,ya=_optimal_admission_targets(ss)
-    # Winner purity is the binding hard gate. Feature stability is therefore
-    # aligned to ENTER, while DEFER/REJECT remain explicit competing actions.
-    idx=stable_idx_target(ss,ye,TREE_KFEAT)
-    if not idx:
+
+    # Each action head has a different causal question. Reusing ENTER-selected
+    # features for DEFER/REJECT can make the competing-action estimates unstable
+    # and destroy the final ENTER-vs-competitor ranking. Screen each target
+    # independently using training years only; no burned/test outcome is used.
+    idx_enter=stable_idx_target(ss,ye,TREE_KFEAT)
+    idx_defer=stable_idx_target(ss,yd,TREE_KFEAT)
+    idx_reject=stable_idx_target(ss,yr,TREE_KFEAT)
+    idx_adv=stable_idx_target(ss,ya,TREE_KFEAT)
+
+    core_ok=bool(idx_enter and idx_defer and idx_reject)
+    if not core_ok:
       if source is not None:return None
-      raise SystemExit("V74 no temporally stable global ENTER features")
+      missing=[name for name,idx0 in (("ENTER",idx_enter),("DEFER",idx_defer),("REJECT",idx_reject)) if not idx0]
+      raise SystemExit("V74 no temporally stable global admission features for "+",".join(missing))
+    if not idx_adv:idx_adv=list(idx_enter)
+
     Xf,targets=_fit_view(X,[ye,yd,yr,ya],6500);yef,ydf,yrf,yaf=targets
-    orders=_root_orders(Xf,idx)
-    em=_boost_train(Xf,yef,idx,rounds=TREE_ROUNDS,lr=.075,max_rows=10**9,root_orders=orders)
-    dm=_boost_train(Xf,ydf,idx,rounds=TREE_ROUNDS,lr=.075,max_rows=10**9,root_orders=orders)
-    rm=_boost_train(Xf,yrf,idx,rounds=TREE_ROUNDS,lr=.075,max_rows=10**9,root_orders=orders)
-    am=_boost_train(Xf,yaf,idx,rounds=TREE_ROUNDS,lr=.075,max_rows=10**9,root_orders=orders)
+    all_idx=sorted(set(idx_enter+idx_defer+idx_reject+idx_adv))
+    orders=_root_orders(Xf,all_idx)
+    em=_boost_train(Xf,yef,idx_enter,rounds=TREE_ROUNDS,lr=.075,max_rows=10**9,root_orders=orders)
+    dm=_boost_train(Xf,ydf,idx_defer,rounds=TREE_ROUNDS,lr=.075,max_rows=10**9,root_orders=orders)
+    rm=_boost_train(Xf,yrf,idx_reject,rounds=TREE_ROUNDS,lr=.075,max_rows=10**9,root_orders=orders)
+    am=_boost_train(Xf,yaf,idx_adv,rounds=TREE_ROUNDS,lr=.075,max_rows=10**9,root_orders=orders)
     return {"type":"MECHANISM_NATIVE_CAUSAL_ENTER_DEFER_REJECT","source":source or "GLOBAL",
-            "fit_years":list(fit_years),"idx":idx,"enter":em,"defer":dm,
-            "reject":rm,"advantage":am,"n":len(ss)}
+            "fit_years":list(fit_years),"idx":all_idx,
+            "idx_enter":idx_enter,"idx_defer":idx_defer,"idx_reject":idx_reject,"idx_advantage":idx_adv,
+            "enter":em,"defer":dm,"reject":rm,"advantage":am,"n":len(ss)}
 
 def fit_admission_bundle(route_decisions,fit_years):
     glob=fit_admission_model(route_decisions,fit_years,None)
@@ -797,12 +810,17 @@ def pred_admission(bundle,e):
     en,s1=_boost_pred(model["enter"],x);de,s2=_boost_pred(model["defer"],x)
     re,s3=_boost_pred(model["reject"],x);ad,s4=_boost_pred(model["advantage"],x)
     en=max(0.0,min(1.0,en));de=max(0.0,min(1.0,de));re=max(0.0,min(1.0,re))
-    sup=max(1,min(s1 or 1,s2 or 1,s3 or 1,s4 or 1))
-    enter_lcb=en-Z*max(.05,float(model["enter"]["sigma"]))/math.sqrt(sup)
-    adv_lcb=ad-Z*max(.05,float(model["advantage"]["sigma"]))/math.sqrt(sup)
+
+    # ENTER is the only lower-confidence-bound term in the deployed admission
+    # score. Its uncertainty must therefore use ENTER support, not the minimum
+    # leaf support of unrelated DEFER/REJECT/advantage heads.
+    enter_sup=max(1,s1 or 1);adv_sup=max(1,s4 or 1)
+    enter_lcb=en-Z*max(.05,float(model["enter"]["sigma"]))/math.sqrt(enter_sup)
+    adv_lcb=ad-Z*max(.05,float(model["advantage"]["sigma"]))/math.sqrt(adv_sup)
     return {"enter":en,"enter_lcb":enter_lcb,"defer":de,"reject":re,
-            "advantage":ad,"advantage_lcb":adv_lcb,"support":sup,
-            "head_source":model.get("source","GLOBAL")}
+            "advantage":ad,"advantage_lcb":adv_lcb,"support":enter_sup,
+            "defer_support":max(1,s2 or 1),"reject_support":max(1,s3 or 1),
+            "advantage_support":adv_sup,"head_source":model.get("source","GLOBAL")}
 
 def score_admission_decisions(route_decisions,bundle):
     out=[]
