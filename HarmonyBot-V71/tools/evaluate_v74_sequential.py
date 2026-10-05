@@ -98,9 +98,10 @@ def timing_state(r,src,m,b,f,eb):
             max(-1.0,min(6.0,float(ab)/10.0)) if ab is not None else -1.0,
             max(-1.0,min(6.0,float(tb)/10.0)) if tb is not None else -1.0]
 
-def route_cats(r,src,b,m,f,sfkey=None):
+def route_cats(r,src,b,m,f,sfkey=None,action_override=None):
+    action=action_override or r["action"]
     return [1.0 if r["family"]==ff else 0.0 for ff in FAMILIES]+[
-      1.0 if r["action"]=="CONTINUATION" else 0.0,
+      1.0 if action=="CONTINUATION" else 0.0,
       1.0 if src=="LATE" else 0.0,
       1.0 if src=="SURVIVAL" else 0.0,
       1.0 if src=="FAILURE" else 0.0,
@@ -157,7 +158,7 @@ def failure_xvec(r,eb):
             max(-1.0,min(6.0,float(bb)/10.0)) if bb is not None else -1.0,
             max(-1.0,min(6.0,float(rb)/10.0)) if rb is not None else -1.0,
             max(-1.0,min(6.0,float(eb-rb)/10.0)) if rb is not None and rb>=0 else -1.0]
-    return (list(r.get("features",[]))+route_cats(r,"FAILURE","FAILURE","FC230","00",None)+
+    return (list(r.get("features",[]))+route_cats(r,"FAILURE","FAILURE","FC230","00",None,"CONTINUATION")+
             aa+ee+delta+[ap,ep,1.0 if ap and ep else 0.0]+timing+
             [0.0]*SURVIVAL_MORPH_FEATURE_COUNT)
 
