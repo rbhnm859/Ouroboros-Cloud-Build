@@ -733,6 +733,13 @@ def fit_admission_model(route_decisions,fit_years,source=None):
     # previous screen ranked features by raw route payoff, which is a different
     # task and can discard timing/terminality predictors.
     idx=stable_idx_target(ss,ys,TREE_KFEAT)
+    if not idx:
+      # Fail closed for the global admission surface. For a source-specific
+      # surface, omit the unstable head so inference falls back to the global
+      # temporally-stable head instead of silently overriding it with a constant
+      # base-rate model.
+      if source is not None:return None
+      raise SystemExit("V74 no temporally stable global admission features")
     Xf,targets=_fit_view(X,[yw,ys,ya,yf],6500);ywf,ysf,yaf,yff=targets
     orders=_root_orders(Xf,idx)
     wm=_boost_train(Xf,ywf,idx,rounds=TREE_ROUNDS,lr=.075,max_rows=10**9,root_orders=orders)
