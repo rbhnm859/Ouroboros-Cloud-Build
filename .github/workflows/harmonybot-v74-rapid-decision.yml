@@ -2,24 +2,27 @@ name: HarmonyBot V74 Rapid Decision
 
 on:
   workflow_dispatch:
-  pull_request:
-    branches: [main]
+  # PR path filters are cumulative against the base branch. Once this long-lived
+  # PR contains a C# change, evaluator-only commits also satisfy the filter and
+  # can repeatedly supersede an in-flight semantic universe. Use push semantics
+  # on the formal development branch so only the files in the actual push decide
+  # whether Rapid is started.
+  push:
+    branches:
+      - 'harmonybot/v73-opportunity-universe'
     paths:
       - 'HarmonyBot-V71/src/**'
       - 'HarmonyBot-V71/HarmonyBotV71.csproj'
       - 'HarmonyBot-V71/tools/run_window.sh'
       - 'HarmonyBot-V71/tools/run_backtest.sh'
       - 'HarmonyBot-V71/tools/resolve_window.sh'
-      # Rapid owns only changes that can alter exact cTrader telemetry/data semantics.
-      # Evaluator/model/workflow/evidence-only changes are handled by Fast Replay and
-      # must never cancel an in-flight semantic universe generation.
       - 'HarmonyBot-V71/final/V71_BURNED_CALIBRATION_CUSTODY.json'
       - 'HarmonyBot-V73/V73_RESEARCH_CUSTODY.json'
 
 concurrency:
   group: harmonybot-v74-rapid-decision-v2-${{ github.head_ref || github.ref }}
-  # Rapid is triggered only by execution/data-semantic paths. A newer Rapid
-  # therefore supersedes an older semantic universe for the same branch.
+  # Push path filtering is per-push here, so cancellation is now safe: only a
+  # newer execution/data-semantic push can supersede an older Rapid run.
   cancel-in-progress: true
 
 permissions:
@@ -88,7 +91,7 @@ jobs:
 
   rapid_build:
     needs: rapid_change_gate
-    if: ${{ needs.rapid_change_gate.outputs.full == 'true' && (github.event_name == 'workflow_dispatch' || github.head_ref == 'harmonybot/v73-opportunity-universe') }}
+    if: ${{ needs.rapid_change_gate.outputs.full == 'true' && (github.event_name == 'workflow_dispatch' || github.ref_name == 'harmonybot/v73-opportunity-universe') }}
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
