@@ -254,11 +254,22 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          echo "[V74-FAST-VERDICT] physical_pass=${{ steps.oracle.outputs.physical_pass }}"
+          PHYSICAL="${{ steps.oracle.outputs.physical_pass }}"
+          echo "[V74-FAST-VERDICT] physical_pass=$PHYSICAL"
           if [[ -s tournament/alpha_pass.txt ]]; then
-            echo "[V74-FAST-VERDICT] alpha_pass=$(cat tournament/alpha_pass.txt)"
+            ALPHA=$(cat tournament/alpha_pass.txt)
+            echo "[V74-FAST-VERDICT] alpha_pass=$ALPHA"
+            if [[ "$ALPHA" == "true" ]]; then
+              echo "[V74-FAST-VERDICT] state=PASS"
+            else
+              echo "[V74-FAST-VERDICT] state=ALPHA_FAIL"
+            fi
+          elif [[ "$PHYSICAL" != "true" ]]; then
+            echo "[V74-FAST-VERDICT] alpha_pass=not_run"
+            echo "[V74-FAST-VERDICT] state=PHYSICAL_FAIL"
           else
-            echo "[V74-FAST-VERDICT] alpha_pass=false (tournament skipped because physical feasibility failed)"
+            echo "[V74-FAST-VERDICT] alpha_pass=not_produced"
+            echo "[V74-FAST-VERDICT] state=EVALUATOR_ERROR"
           fi
 
       - uses: actions/upload-artifact@v4
