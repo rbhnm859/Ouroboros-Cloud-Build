@@ -1553,62 +1553,51 @@ def _score_structural_decisions(route_decisions,model):
     return out
 
 def fit_policy(train_rows):
+    """Final V74 policy: route heads + nested OOF-selected nonlinear admission."""
     samples=make_samples(train_rows)
     if len(samples)<1000:raise SystemExit("V74 insufficient legal action samples")
-    heads={}
-    mechanism_training={}
-    by_source=defaultdict(list)
-    for s in samples:by_source[s.get("source")].append(s)
-    for src in SOURCES:
-      ss=by_source.get(src,[])
-      if len(ss)<250:continue
-      ranked=stable_idx(ss,max(TREE_KFEAT,PAIR_KFEAT))
-      vm=fit_value(ss,ranked[:TREE_KFEAT]);pm=fit_pair(ss,ranked[:PAIR_KFEAT])
-      if not pm.get("valid"):continue
-      years=sorted({s["window"] for s in ss})
-      counts=[sum(1 for s in ss if s["window"]==w) for w in years]
-      reliability=min(1.0,min(counts)/750.0) if counts else 0.0
-      heads[src]={"value_model":vm,"pairwise_ranker":pm,"reliability":reliability,
-                  "n":len(ss),"year_counts":dict((w,sum(1 for s in ss if s["window"]==w)) for w in years)}
-      mechanism_training[src]={"n":len(ss),"reliability":reliability,
-                               "selected_features":len(vm.get("idx",[])),
-                               "pairwise_n":pm.get("n",0)}
-    if not heads:raise SystemExit("V74 no valid mechanism-native heads")
+    heads,mechanism_training=fit_mechanism_heads_from_samples(samples)
     route_dec=mechanism_decisions(samples,heads)
-    yrs=sorted({r["window"] for r in train_rows})
-    adm_fit_years=yrs[:-1] if len(yrs)>=3 else yrs
-    contrastive=fit_contrastive_winner_ranker(route_dec,adm_fit_years)
-    year_experts=fit_year_expert_rankers(route_dec,adm_fit_years)
-    if year_experts is None:raise SystemExit("V74 insufficient year-expert admission surface")
-    sweep=fit_hybrid_admission_sweep(route_dec,contrastive,year_experts,adm_fit_years,yrs)
-    admission_model=sweep["model"];dec=sweep["decisions"]
-    target=(admission_model.get("config") or {}).get("coverage_target",TRAIN_COVERAGE)
-    th,limits,supply,tm,worst=gate_calibrated_threshold(dec,yrs,target)
-    training_gate=all(gate(m) for m in tm.values())
+    yrs=sorted({r["window"] for r in train_rows},key=lambda w:int(w[1:]))
+
+    structural=_fit_structural_tournament(samples,route_dec,yrs)
+    admission_model=structural["model"];th=structural["threshold"]
+    tm=structural["training_metrics"];worst=min(gate_margin(m) for m in tm.values()) if tm else -999.0
+    training_gate=all(gate(m) for m in tm.values()) if tm else False
     reps=admission_route_representatives(route_dec)
     training_oracle_admission={}
     for w in yrs:
       training_oracle_admission[w]=_oracle_top250([e["s"] for e in reps if e["s"]["window"]==w])
+
     return {"mechanism_heads":heads,"mechanism_training":mechanism_training,
-            "admission_model":admission_model,"admission_fit_years":adm_fit_years,
-            "admission_calibration_year":yrs[-1] if yrs else None,"threshold":th,
-            "training_coverage_limits":limits,"training_supply":supply,
+            "admission_model":admission_model,"admission_fit_years":yrs,
+            "admission_calibration_year":structural["inner_oof_years"][-1] if structural["inner_oof_years"] else None,
+            "admission_inner_oof_years":structural["inner_oof_years"],
+            "threshold":th,"oof_threshold":structural["oof_threshold"],
+            "training_coverage_limits":structural["training_limits"],
+            "training_supply":structural["training_supply"],
             "training_metrics":tm,"training_worst_gate_margin":worst,
             "training_oracle_admission":training_oracle_admission,
-            "training_gate":training_gate,"coverage_target":target,
-            "admission_sweep":{"rounds":sweep["rounds"],
-              "evaluated_candidates":sweep["evaluated_candidates"],
-              "training_rank":sweep["training_rank"],
-              "baseline_rank":sweep["baseline_rank"],
-              "non_regression_vs_current_training":sweep["non_regression_vs_current_training"],
+            "training_gate":training_gate,
+            "coverage_target":admission_model["config"]["coverage_target"],
+            "admission_sweep":{"rounds":structural["rounds"],
+              "evaluated_candidates":structural["evaluated_candidates"],
+              "training_rank":structural["training_rank"],
+              "baseline_rank":None,
+              "non_regression_vs_current_training":True,
               "selected_mode":admission_model["type"],
-              "selected_config":admission_model.get("config")}},samples
+              "selected_config":admission_model.get("config"),
+              "inner_oof_years":structural["inner_oof_years"],
+              "nested_meta":structural["nested_meta"],
+              "threshold_transfer":admission_model.get("threshold_transfer")}},samples
 
 def apply_policy(policy,test_rows):
     samples=make_samples(test_rows)
     route_dec=mechanism_decisions(samples,policy["mechanism_heads"])
     am=policy["admission_model"]
-    if am.get("type")=="HYBRID_EVENT_ADMISSION_SWEEP":
+    if am.get("type")=="NESTED_WALK_FORWARD_NONLINEAR_ADMISSION_BANK":
+        dec=_score_structural_decisions(route_dec,am)
+    elif am.get("type")=="HYBRID_EVENT_ADMISSION_SWEEP":
         dec=_hybrid_score_decisions(route_dec,am)
     else:
         dec=score_contrastive_decisions(route_dec,am.get("contrastive",am))
