@@ -658,11 +658,64 @@ def _optimal_admission_targets(ss):
     return win,stop,adv,future_win
 
 def stable_idx_target(samples,target,k):
-    """Training-only nonlinear stability screen aligned to the supplied target."""
-    proxy=[]
-    for i,s in enumerate(samples):
-      q=dict(s);q["y"]=float(target[i]);proxy.append(q)
-    return stable_idx(proxy,k)
+    """Training-only sign-consistent temporal stability screen.
+
+    The generic stable_idx ranks a feature when it separates bins inside each
+    year, but it does not require the *direction* of that relationship to agree
+    across years. That is acceptable for flexible route-value trees, but it is
+    unsafe for the V74 ENTER-vs-DEFER admission bottleneck: a feature that is
+    positive in one regime and negative in another can look strongly separated
+    while transferring catastrophically.
+
+    For admission we therefore search training-only quantile cuts and retain
+    features only when the high-vs-low target effect has a common orientation in
+    at least 75% of training years. Ranking is driven by the lower-quartile
+    oriented effect (worst-regime robustness), then median effect and agreement.
+    No burned/test row participates.
+    """
+    if not samples:return []
+    n=min(len(samples),len(target))
+    if n<=0:return []
+    step=max(1,n//12000)
+    ids=list(range(0,n,step))
+    ss=[samples[i] for i in ids];tt=[float(target[i]) for i in ids]
+    p=len(ss[0]["x"]);yrs=sorted({s["window"] for s in ss})
+    by_year={w:[i for i,s in enumerate(ss) if s["window"]==w] for w in yrs}
+    need=max(2,int(math.ceil(.75*len(yrs))))
+    ranked=[]
+    for j in range(p):
+      vals=[float(s["x"][j]) for s in ss]
+      cuts=sorted(set(qtile(vals,q) for q in (.15,.25,.35,.50,.65,.75,.85)))
+      best=None
+      for t in cuts:
+        eff=[]
+        for w in yrs:
+          ii=by_year[w]
+          lo=[tt[i] for i in ii if float(ss[i]["x"][j])<=t]
+          hi=[tt[i] for i in ii if float(ss[i]["x"][j])>t]
+          if len(lo)<18 or len(hi)<18:continue
+          eff.append((sum(hi)/len(hi))-(sum(lo)/len(lo)))
+        if len(eff)<need:continue
+        medeff=statistics.median(eff)
+        if abs(medeff)<=1e-12:continue
+        orient=1.0 if medeff>0 else -1.0
+        oe=[orient*z for z in eff]
+        agree=sum(z>0 for z in oe)/len(oe)
+        if agree+.0000001<.75:continue
+        xs=sorted(oe);q25=xs[int(math.floor(.25*(len(xs)-1)))]
+        medor=statistics.median(oe)
+        spread=statistics.pstdev(oe) if len(oe)>1 else 0.0
+        # Robustness first: reward lower-quartile transfer, then median signal;
+        # penalize regime dispersion. Agreement is a deterministic tie-strength.
+        score=q25+.50*medor-.25*spread+.10*(agree-.75)
+        cand=(score,q25,medor,agree,-spread,j)
+        if best is None or cand>best:best=cand
+      if best is not None:ranked.append(best)
+    ranked.sort(reverse=True)
+    chosen=[z[-1] for z in ranked[:k]]
+    # Fail closed on a completely unstable feature surface. A source-specific
+    # admission head may then fall back to the global bundle or be omitted.
+    return chosen
 
 def fit_admission_model(route_decisions,fit_years,source=None):
     """Mechanism-native causal optimal-stopping admission head.
