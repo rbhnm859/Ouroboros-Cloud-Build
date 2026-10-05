@@ -51,6 +51,12 @@ def qtile(v,q):
     x=sorted(float(z) for z in v);p=(len(x)-1)*q;a=int(math.floor(p));b=int(math.ceil(p))
     return x[a] if a==b else x[a]*(b-p)+x[b]*(p-a)
 def med(v,d=0.0):return statistics.median(v) if v else d
+def _qtile_sorted(x,q):
+    """qtile() equivalent for an already ascending numeric sequence."""
+    if not x:return 0.0
+    p=(len(x)-1)*q;a=int(math.floor(p));b=int(math.ceil(p))
+    return float(x[a]) if a==b else float(x[a])*(b-p)+float(x[b])*(p-a)
+
 def key(m,b,f):return f"M{m}_{b}_F{f}"
 def lev(b):return "025" if b.startswith("R025_") else "050"
 
@@ -312,7 +318,7 @@ def _tree_fit(X,y,idx,max_depth=TREE_DEPTH,min_leaf=28,root_orders=None):
         ps=[0.0];ps2=[0.0]
         for i in ordered:
           v=y[i];ps.append(ps[-1]+v);ps2.append(ps2[-1]+v*v)
-        for t in sorted(set(qtile(vals,q) for q in (.20,.40,.60,.80))):
+        for t in sorted(set(_qtile_sorted(vals,q) for q in (.20,.40,.60,.80))):
           p=bisect.bisect_right(vals,t);ln=p;rn=n-p
           if ln<min_leaf or rn<min_leaf:continue
           ls=ps[p];ls2=ps2[p];rs=sy-ls;rs2=sy2-ls2
