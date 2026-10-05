@@ -2053,11 +2053,19 @@ def _pred_survival_distribution(model,s):
     return _pred_survival_distribution_prepared(model,s,x,rid,prior)
 
 def _survival_decisions(samples,model,prepared=None):
+    """Causal event-time route choice plus WAIT-aware stopping state.
+
+    Route multiplicity is collapsed first.  Then each event is traversed in
+    completed-bar order.  The score at bar t may use only predictions observed
+    at bars <=t: no later route, price, outcome or future best score is visible.
+    Persistence and draw-up encode whether the latent reversal belief is
+    strengthening enough to justify consuming the single capital slot now.
+    """
     pp=prepared if prepared is not None else _prepare_survival_inference(samples,model["manifold"],model["prior"])
     by=defaultdict(list)
     for z in pp:
         s=z["s"];by[(s["window"],event_identity(s["setup"]),s["bar"])].append(z)
-    out=[]
+    raw=[]
     for ev in by.values():
         cand=[]
         for z in ev:
@@ -2067,7 +2075,40 @@ def _survival_decisions(samples,model,prepared=None):
         cand.sort(reverse=True,key=lambda z:(z[0],z[1],z[2],z[3],z[4]))
         if not cand:continue
         _,_,_,_,_,p,s=cand[0];q=dict(s);q["regime_id"]=p["regime_id"]
-        out.append({"score":p["admission_score"],"route_rank":p["win_lcb"],"pred":p,"s":q})
+        raw.append({"score":p["admission_score"],"route_rank":p["win_lcb"],"pred":p,"s":q})
+
+    events=defaultdict(list)
+    for e in raw:events[(e["s"]["window"],event_identity(e["s"]["setup"]))].append(e)
+    out=[]
+    for ev in events.values():
+        ev.sort(key=lambda e:(int(e["s"]["bar"]),e["s"]["route"]))
+        hist=[];last_bar=None
+        for e in ev:
+            base=float(e["score"]);pred=e["pred"];bar=int(e["s"]["bar"])
+            prior_best=max(hist) if hist else base
+            drawup=base-prior_best
+            # One-sided causal persistence: reward a belief that is not merely a
+            # single-bar spike.  Same-bar alternatives were already collapsed.
+            persist=0.0
+            if hist:
+                persist=sum(1.0 for z in hist[-2:] if base>=z-.015)/min(2,len(hist))
+            age_gap=0.0 if last_bar is None else min(1.0,max(0,bar-last_bar)/10.0)
+            uncertainty=max(0.0,float(pred["win"])-float(pred["win_lcb"]))
+            continuation=max(0.0,prior_best-base)
+            # Fixed ex-ante stopping utility; coefficients are architectural,
+            # not searched on burned outcomes.
+            stop_score=(base
+                        +.025*math.tanh(drawup/.05)
+                        +.018*persist
+                        -.030*math.tanh(continuation/.05)
+                        -.020*math.tanh(uncertainty/.10)
+                        -.006*age_gap)
+            q=dict(e);q["score"]=stop_score
+            q["pred"]=dict(pred,raw_admission_score=base,stopping_score=stop_score,
+                           causal_persistence=persist,causal_drawup=drawup,
+                           continuation_penalty=continuation,uncertainty=uncertainty)
+            out.append(q)
+            hist.append(base);last_bar=bar
     return out
 
 def _compact_tournament_decision(e):
