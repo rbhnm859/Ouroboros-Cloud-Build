@@ -198,7 +198,7 @@ def failure_xvec(r,eb):
 
 def telemetry_guard():
     legal={"EARLY":0,"LATE":0,"SURVIVAL":0,"FAILURE":0};with_state={"EARLY":0,"LATE":0,"SURVIVAL":0,"FAILURE":0}
-    survival_morphology=0
+    survival_morphology=0;survival_path_v2=0
     for r in rows:
       for b in BASES:
         for src in REGULAR_SOURCES:
@@ -219,6 +219,8 @@ def telemetry_guard():
         if e is not None and len(e)==SEQUENTIAL_STATE_FEATURE_COUNT:with_state["SURVIVAL"]+=1
         q=r.get("survival_fresh_morphology",{}).get(sf)
         if q is not None and len(q)==SURVIVAL_MORPH_FEATURE_COUNT:survival_morphology+=1
+        pv=r.get("survival_fresh_path_v2",{}).get(sf)
+        if pv is not None and len(pv)==SURVIVAL_PATH_V2_FEATURE_COUNT:survival_path_v2+=1
       fy=r.get("failure_continuation",{}).get("FC230")
       frr=r.get("failure_continuation_rr",{}).get("FC230")
       try:feb=int(r.get("failure_continuation_entry_bar",{}).get("FC230",-1))
@@ -230,9 +232,15 @@ def telemetry_guard():
         if fm is not None and fe is not None and len(fm)==SEQUENTIAL_STATE_FEATURE_COUNT and len(fe)==SEQUENTIAL_STATE_FEATURE_COUNT:
             with_state["FAILURE"]+=1
     if sum(legal.values())==0:raise SystemExit("V74 no legal completed-bar actions")
+    if legal["SURVIVAL"]>0 and survival_path_v2!=legal["SURVIVAL"]:
+        raise SystemExit("V74 survival path-v3 completeness contract failure "+
+                         str(survival_path_v2)+"/"+str(legal["SURVIVAL"]))
     return {"legal_actions":legal,"complete_path_state":with_state,
             "survival_morphology_complete":survival_morphology,
             "survival_morphology_missing":max(0,legal["SURVIVAL"]-survival_morphology),
+            "survival_path_v3_complete":survival_path_v2,
+            "survival_path_v3_missing":max(0,legal["SURVIVAL"]-survival_path_v2),
+            "survival_path_v3_contract_pass":survival_path_v2==legal["SURVIVAL"],
             "missing_state_is_feature_not_veto":True,
             "future_trigger_decision_lock_state_used":False}
 
