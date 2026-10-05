@@ -15,6 +15,7 @@ No post-decision trigger/lock/outcome state is admitted as a feature. V75 exit,
 profit-capture and Grid/capital-capacity mechanics are intentionally excluded.
 """
 import bisect,json,math,os,pathlib,statistics,sys,time,multiprocessing as mp
+# V74 performance-engine generation: immutable-prebuild/shared-inner-context-v1
 from collections import defaultdict,Counter
 from v74_model_lib import load_rows,metrics,SEQUENTIAL_STATE_FEATURE_COUNT,SURVIVAL_MORPH_FEATURE_COUNT,FAMILIES,SURVIVAL_FRESH_KEYS
 from v74_model_lib import event_identity
