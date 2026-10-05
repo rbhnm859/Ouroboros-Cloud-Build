@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """V74 one-shot family-native causal action selector.
+# C1_PIN_REPLAY_CONTRACT: raw exact universe may contain confirmed _C1 routes; parser/model lattice must enumerate them.
 
 Final V74 Alpha architecture:
 * harmonic completion remains the setup identity;
