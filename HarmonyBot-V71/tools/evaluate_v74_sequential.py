@@ -1350,35 +1350,71 @@ def _struct_samples_from_reps(reps):
                   "x":list(s.get("admission_x",s["x"])),"y":float(s["y"]),"row":s["row"]})
     return out
 
+def _market_regime_key(s):
+    """Causal discrete regime cell from pre-entry HCOG telemetry only."""
+    row=s.get("row",{});x=list(row.get("features",[]))
+    def g(i,d=0.0):
+        try:return float(x[i])
+        except:return d
+    atrp=max(0.0,min(1.0,g(26,.5)))
+    vol="VL" if atrp<.25 else "VM" if atrp<.70 else "VH"
+    transition="T1" if g(29,0.0)>=.5 else "T0"
+    ts=abs(g(9,0.0));trend="R" if ts<.25 else "M" if ts<.60 else "S"
+    mt=g(11,0.0);mtf="C" if mt<-.15 else "N" if mt<.20 else "A"
+    return "|".join((vol,transition,trend,mtf))
+
 def _fit_struct_prior(samples,shrink=36.0):
-    """Year-robust causal category prior; outcomes are training labels only."""
+    """Year-robust hierarchical Beta-like causal prior with regime adaptation.
+
+    Regime is computed only from completed pre-entry telemetry. Per-year cell
+    rates are shrunk to that year's global rate, then pooled by lower-quartile
+    robustness so one favourable regime/year cannot dominate deployment.
+    """
     yrs=sorted({s["window"] for s in samples});by=defaultdict(list)
     for s in samples:by[s["window"]].append(s)
-    banks={"source":defaultdict(list),"family":defaultdict(list),
-           "source_family":defaultdict(list),"source_action":defaultdict(list)}
-    globals_=[]
+    names=("source","family","source_family","source_action",
+           "regime","family_regime","source_regime")
+    banks={k:defaultdict(list) for k in names};globals_=[]
     for w in yrs:
       ww=by[w]
-      gp=(sum(float(s["y"])>0.0 for s in ww)+1.0)/(len(ww)+2.0);globals_.append(gp)
+      # Jeffreys-style 0.5/0.5 stabilization before hierarchical shrinkage.
+      gp=(sum(float(s["y"])>0.0 for s in ww)+.5)/(len(ww)+1.0);globals_.append(gp)
       loc={k:defaultdict(list) for k in banks}
       for s in ww:
-        z=1.0 if float(s["y"])>0.0 else 0.0;src=s["source"];fam=s["family"];act=s["action"]
+        z=1.0 if float(s["y"])>0.0 else 0.0
+        src=s["source"];fam=s["family"];act=s["action"];reg=_market_regime_key(s)
         loc["source"][src].append(z);loc["family"][fam].append(z)
         loc["source_family"][str((src,fam))].append(z)
         loc["source_action"][str((src,act))].append(z)
+        loc["regime"][reg].append(z)
+        loc["family_regime"][str((fam,reg))].append(z)
+        loc["source_regime"][str((src,reg))].append(z)
       for name,d in loc.items():
         for k,v in d.items():
-          banks[name][k].append((sum(v)+shrink*gp)/(len(v)+shrink))
+          # posterior-like shrink to year-global; no test-year outcome involved
+          banks[name][k].append((sum(v)+float(shrink)*gp)/(len(v)+float(shrink)))
     fb=_q25_safe(globals_,.5)
     return {"fallback":fb,**{name:{k:_q25_safe(v,fb) for k,v in d.items()} for name,d in banks.items()}}
 
 def _pred_struct_prior(pr,s):
     fb=float(pr.get("fallback",.5));src=s.get("source","NONE");fam=s.get("family","NONE");act=s.get("action","NONE")
-    sf=pr.get("source_family",{}).get(str((src,fam)))
-    sa=pr.get("source_action",{}).get(str((src,act)))
-    vals=[pr.get("source",{}).get(src),pr.get("family",{}).get(fam),sf,sa]
+    reg=_market_regime_key(s)
+    vals=[
+      pr.get("source",{}).get(src),
+      pr.get("family",{}).get(fam),
+      pr.get("source_family",{}).get(str((src,fam))),
+      pr.get("source_action",{}).get(str((src,act))),
+      pr.get("regime",{}).get(reg),
+      pr.get("family_regime",{}).get(str((fam,reg))),
+      pr.get("source_regime",{}).get(str((src,reg)))
+    ]
     z=[float(x) for x in vals if x is not None]
-    return sum(z)/len(z) if z else fb
+    if not z:return fb
+    # Robust harmonic mean penalizes a weak regime-specific component more than
+    # an arithmetic average while remaining bounded and monotone.
+    eps=1e-6
+    hm=len(z)/sum(1.0/max(eps,min(1.0,x)) for x in z)
+    return .65*hm+.35*(sum(z)/len(z))
 
 def _structural_specs():
     """Broad but bounded causal architecture bank.
