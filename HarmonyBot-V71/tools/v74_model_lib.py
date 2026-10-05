@@ -323,6 +323,7 @@ def load_rows(root,windows):
                          "survival_fresh_maturity_state":path.get("survival_fresh_maturity_state",{}),
                          "survival_fresh_entry_state":path.get("survival_fresh_entry_state",{}),
                          "survival_fresh_morphology":path.get("survival_fresh_morphology",{}),
+                         "survival_fresh_path_v2":path.get("survival_fresh_path_v2",{}),
                          "survival_fresh_reaction_bar":path.get("survival_fresh_reaction_bar",{}),
                          "survival_fresh_pullback_bar":path.get("survival_fresh_pullback_bar",{}),
                          "survival_fresh_trigger_bar":path.get("survival_fresh_trigger_bar",{}),
