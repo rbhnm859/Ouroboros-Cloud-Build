@@ -1444,7 +1444,7 @@ def _fit_structural_head_reference(samples,spec):
             "win":mw,"aux":ma,"idx_win":iw,"idx_aux":ia,
             "prior":_fit_struct_prior(samples)}
 
-def _fit_structural_head(samples,spec,ctx=None):
+def _fit_structural_head(samples,spec,ctx=None,model_cache=None):
     if len(samples)<450:return None
     ctx=ctx or _build_structural_fit_context(samples,max(40,int(spec["kfeat"])))
     if ctx is None:return None
@@ -1458,14 +1458,22 @@ def _fit_structural_head(samples,spec,ctx=None):
     yaf=ctx["ysf"] if spec["aux"]=="STRONG" else ctx["yvf"]
     kw={"rounds":spec["rounds"],"lr":spec["lr"],"max_rows":10**9,
         "root_orders":ctx["orders"],"max_depth":spec["depth"],"min_leaf":spec["min_leaf"]}
-    mw=_boost_train(Xf,ywf,iw,**kw);ma=_boost_train(Xf,yaf,ia,**kw)
+    cache=model_cache if model_cache is not None else {}
+    wk=("WIN",tuple(iw),int(spec["depth"]),int(spec["rounds"]),float(spec["lr"]),int(spec["min_leaf"]))
+    ak=("AUX",spec["aux"],tuple(ia),int(spec["depth"]),int(spec["rounds"]),float(spec["lr"]),int(spec["min_leaf"]))
+    mw=cache.get(wk)
+    if mw is None:
+        mw=_boost_train(Xf,ywf,iw,**kw);cache[wk]=mw
+    ma=cache.get(ak)
+    if ma is None:
+        ma=_boost_train(Xf,yaf,ia,**kw);cache[ak]=ma
     return {"type":"NONLINEAR_CAUSAL_ADMISSION_HEAD","spec":spec,
             "win":mw,"aux":ma,"idx_win":iw,"idx_aux":ia,
             "prior":ctx["prior"]}
 
 def _assert_structural_fit_cache_parity(samples,spec,ctx):
     ref=_fit_structural_head_reference(samples,spec)
-    opt=_fit_structural_head(samples,spec,ctx)
+    opt=_fit_structural_head(samples,spec,ctx,{})
     if ref is None or opt is None:raise SystemExit("V74 structural cache parity missing model")
     if ref["idx_win"]!=opt["idx_win"] or ref["idx_aux"]!=opt["idx_aux"]:
         raise SystemExit("V74 structural cache parity failure: feature ranking")
@@ -1512,8 +1520,9 @@ def _build_nested_structural_bank(all_action_samples,years):
       # One reference probe per inner fold proves cached feature/prior/matrix
       # reuse does not change the original implementation.
       _assert_structural_fit_cache_parity(tr_adm,specs[0],fit_ctx)
+      model_cache={}
       for si,spec in enumerate(specs):
-        md=_fit_structural_head(tr_adm,spec,fit_ctx)
+        md=_fit_structural_head(tr_adm,spec,fit_ctx,model_cache)
         if md is None:raise SystemExit("V74 structural head fit failure "+str(spec["id"]))
         bank_chunks[si].extend([_pred_structural_head(md,e) for e in va_reps])
       nested_meta.append({"validation_year":vw,"training_years":sorted({s["window"] for s in tr}),
@@ -1602,8 +1611,9 @@ def _fit_structural_tournament(all_action_samples,route_decisions,years):
     specs=nested["specs"];heads={}
     final_ctx=_build_structural_fit_context(full_adm,max(s["kfeat"] for s in specs))
     if final_ctx is None:raise SystemExit("V74 final structural fit context failure")
+    final_model_cache={}
     for mid in sorted(set(bcfg["models"])):
-      md=_fit_structural_head(full_adm,specs[mid],final_ctx)
+      md=_fit_structural_head(full_adm,specs[mid],final_ctx,final_model_cache)
       if md is None:raise SystemExit("V74 final structural head fit failure")
       heads[str(mid)]=md
     final_model={"type":"NESTED_WALK_FORWARD_NONLINEAR_ADMISSION_BANK",
