@@ -1125,38 +1125,53 @@ def _hybrid_score_decisions(route_decisions,model):
         out.append(q)
     return out
 
-def _quick_candidate_eval(decisions,years,target):
-    """Cheap exact-runtime screen at three training-only coverage cutoffs.
+def _build_sweep_runtime(reps,years):
+    """Immutable event/index cache shared by all sweep candidates in a fold."""
+    yy=set(years);events=defaultdict(list);year_events=defaultdict(list)
+    ys=[];bars=[];windows=[]
+    for i,e in enumerate(reps):
+        s=e["s"];ys.append(float(s["y"]));bars.append(max(1,int(s.get("bars",1) or 1)))
+        windows.append(s["window"])
+        if s["window"] in yy:
+            k=(s["window"],event_identity(s["setup"]))
+            events[k].append(i)
+    for (w,k),ids in events.items():
+        ids.sort(key=lambda i:(int(reps[i]["s"]["bar"]),reps[i]["s"]["route"]))
+        year_events[w].append(ids)
+    return {"reps":reps,"years":list(years),"events":events,"year_events":year_events,
+            "y":ys,"bars":bars,"windows":windows}
 
-    Performance contract: candidate scores are immutable inside this call, so
-    event grouping/order and per-year score order are prepared exactly once and
-    reused across all three cutoffs. This is semantically identical to calling
-    simulate() repeatedly; it only removes redundant grouping/sorting work.
-    """
-    yy=set(years)
-    by=defaultdict(lambda:defaultdict(lambda:-math.inf))
-    event_seq=defaultdict(list)
-    for e in decisions:
-        s=e["s"];w=s["window"]
-        if w not in yy:continue
-        k=event_identity(s["setup"]);z=float(e["score"])
-        by[w][k]=max(by[w][k],z)
-        event_seq[(w,k)].append(e)
+def _fast_metrics_ids(rt,ids):
+    v=[rt["y"][i] for i in ids];n=len(v)
+    if not n:return {"n":0,"mean_r":0.0,"pf_r":0.0,"lcb_r":-999.0,"win_rate":0.0,
+                     "average_rr":0.0,"median_hold_bars":0.0}
+    mean=sum(v)/n;gp=sum(x for x in v if x>0);gl=-sum(x for x in v if x<0)
+    pf=gp/gl if gl else (999.0 if gp else 0.0);wr=sum(x>0 for x in v)/n
+    sd=statistics.stdev(v) if n>1 else 999.0
+    lcb=mean-Z*sd/math.sqrt(n) if n>1 else -999.0
+    wins=[x for x in v if x>0];losses=[-x for x in v if x<0]
+    aw=sum(wins)/len(wins) if wins else 0.0;al=sum(losses)/len(losses) if losses else 0.0
+    rr=aw/al if al>0 else (999.0 if aw>0 else 0.0)
+    return {"n":n,"mean_r":mean,"pf_r":pf,"lcb_r":lcb,"win_rate":wr,"average_rr":rr,
+            "median_hold_bars":float(statistics.median(rt["bars"][i] for i in ids))}
 
-    events_by_year=defaultdict(list)
-    for (w,_),ev in event_seq.items():
-        ev.sort(key=lambda e:(e["s"]["bar"],-e["score"],e["s"]["route"]))
-        events_by_year[w].append(ev)
-    year_vals={w:sorted(by[w].values(),reverse=True) for w in years}
+def _score_components_matrix(comp_rows,weights):
+    w=weights
+    return [sum(float(a)*float(b) for a,b in zip(w,x)) for _,x in comp_rows]
 
-    def prepared_metrics(w,th):
-        sel=[]
-        for ev in events_by_year.get(w,()):
-            for e in ev:
-                if e["score"]+1e-12>=th:
-                    sel.append(e);break
-        return metric_selected(sel)[0]
+def _runtime_event_max(rt,scores,w):
+    return [max(scores[i] for i in ids) for ids in rt["year_events"].get(w,())]
 
+def _runtime_selected_ids(rt,scores,w,th):
+    sel=[]
+    for ids in rt["year_events"].get(w,()):
+        for i in ids:
+            if scores[i]+1e-12>=th:
+                sel.append(i);break
+    return sel
+
+def _quick_candidate_eval_cached(rt,scores,years,target):
+    year_vals={w:sorted(_runtime_event_max(rt,scores,w),reverse=True) for w in years}
     tests=[]
     for extra in (0,50,100):
         limits=[];ok=True
@@ -1167,16 +1182,43 @@ def _quick_candidate_eval(decisions,years,target):
             limits.append(vals[k-1])
         if not ok:continue
         th=min(limits)
-        tm={w:prepared_metrics(w,th) for w in years}
+        tm={w:_fast_metrics_ids(rt,_runtime_selected_ids(rt,scores,w,th)) for w in years}
         if any(m["n"]<MIN_N for m in tm.values()):continue
-        rank=_guard_rank(tm)
-        tests.append((rank,th,tm))
+        rank=_guard_rank(tm);tests.append((rank,th,tm))
     if not tests:return ((-999.0,)*6,-math.inf,{})
     tests.sort(key=lambda z:(z[0],z[1]),reverse=True)
     return tests[0]
 
+def _gate_calibrated_threshold_cached(rt,scores,years,target=TRAIN_COVERAGE):
+    supply={w:len(rt["year_events"].get(w,())) for w in years}
+    limits={}
+    for w in years:
+        vals=sorted(_runtime_event_max(rt,scores,w),reverse=True)
+        k=min(target,len(vals));limits[w]=vals[k-1] if vals else -math.inf
+    upper=min(limits.values()) if limits else -math.inf
+    admissible=[z for z in scores if z<=upper+1e-12]
+    qs=[i/40.0 for i in range(0,41)]
+    candidates=sorted(set([upper]+[qtile(admissible,q) for q in qs if admissible]),reverse=True)
+    best=None
+    for th in candidates:
+        tm={};ok=True
+        for w in years:
+            m=_fast_metrics_ids(rt,_runtime_selected_ids(rt,scores,w,th));tm[w]=m
+            if m["n"]<target:ok=False;break
+        if not ok:continue
+        worst=min(gate_margin(m) for m in tm.values())
+        medm=med([gate_margin(m) for m in tm.values()],-999.0)
+        cand=(worst,medm,th,tm)
+        if best is None or cand[:3]>best[:3]:best=cand
+    if best is None:
+        th=upper
+        tm={w:_fast_metrics_ids(rt,_runtime_selected_ids(rt,scores,w,th)) for w in years}
+        best=(min(gate_margin(m) for m in tm.values()),
+              med([gate_margin(m) for m in tm.values()]),th,tm)
+    return best[2],limits,supply,best[3],best[0]
+
 def fit_hybrid_admission_sweep(route_decisions,contrastive_model,expert_model,fit_years,eval_years):
-    """10x100 deterministic training-only admission search.
+    """100x100 deterministic training-only admission search.
 
     Route arbitration stays frozen. The sweep only recombines causal event-level
     signals and robust training priors. No burned/test row participates in the
@@ -1187,6 +1229,7 @@ def fit_hybrid_admission_sweep(route_decisions,contrastive_model,expert_model,fi
     comp_cache={}
     for shrink,pri in prior_cache.items():
         comp_cache[shrink]=[(e,_admission_components(e,contrastive_model,expert_model,pri)) for e in reps]
+    runtime=_build_sweep_runtime(reps,eval_years)
 
     base_dec=score_contrastive_decisions(route_decisions,contrastive_model)
     bth,_,_,btm,bworst=gate_calibrated_threshold(base_dec,eval_years,TRAIN_COVERAGE)
@@ -1198,29 +1241,21 @@ def fit_hybrid_admission_sweep(route_decisions,contrastive_model,expert_model,fi
 
     for ri in range(SWEEP_ROUNDS):
         quick=[]
+        score_cache={}
         for ci in range(SWEEP_CANDIDATES_PER_ROUND):
             cfg=_sweep_candidate(ri,ci,center)
-            dd=[]
-            for e,x in comp_cache[cfg["shrink"]]:
-                dd.append({"score":_score_from_components(cfg["weights"],x),
-                           "route_rank":e.get("route_rank",-999.0),"pred":e["pred"],"s":e["s"]})
-            qr,_,_= _quick_candidate_eval(dd,eval_years,cfg["coverage_target"])
+            scores=_score_components_matrix(comp_cache[cfg["shrink"]],cfg["weights"])
+            score_cache[cfg["candidate"]]=(cfg["shrink"],scores)
+            qr,_,_=_quick_candidate_eval_cached(runtime,scores,eval_years,cfg["coverage_target"])
             quick.append((qr,cfg))
         quick.sort(key=lambda z:z[0],reverse=True)
 
         finalists=[]
         for _,cfg in quick[:6]:
             pri=prior_cache[cfg["shrink"]]
-            # Exact component cache reuse: finalists use the same causal
-            # components already computed for the quick screen. Previously
-            # _hybrid_score_decisions() recomputed contrastive predictions and
-            # representatives six times per round with identical values.
-            dd=[]
-            for e,x in comp_cache[cfg["shrink"]]:
-                q=dict(e);q["score"]=_score_from_components(cfg["weights"],x)
-                q["pred"]=dict(e["pred"],hybrid_admission_score=q["score"])
-                dd.append(q)
-            th,_,_,tm,worst=gate_calibrated_threshold(dd,eval_years,cfg["coverage_target"])
+            _,scores=score_cache[cfg["candidate"]]
+            th,_,_,tm,worst=_gate_calibrated_threshold_cached(
+                runtime,scores,eval_years,cfg["coverage_target"])
             rank=_guard_rank(tm)
             finalists.append((rank,th,tm,cfg,pri))
         finalists.sort(key=lambda z:(z[0],z[1]),reverse=True)
