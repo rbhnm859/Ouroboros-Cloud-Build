@@ -1918,39 +1918,82 @@ def _idx_for_spec(layout,spec):
         a,b=layout[name];z.extend(range(a,b))
     return z
 
-def _fit_survival_distribution(samples,spec,manifold):
+_SURVIVAL_CONTEXT_PARITY_DONE=False
+
+def _build_survival_fit_context(samples,manifold):
+    """Immutable fold context shared by every SURVIVAL architecture spec.
+
+    Feature vectors, P/W/L targets, deterministic fit views, hierarchical prior
+    and root feature orders depend on the fold, not on depth/rounds/spec. Build
+    them once and reuse exactly; architecture search space remains unchanged.
+    """
     ss,layout=_prepare_survival(samples,manifold)
     if len(ss)<500:return None
-    idx=_idx_for_spec(layout,spec);X=[s["x"] for s in ss]
+    X=[s["x"] for s in ss]
     yp=[1.0 if float(s["y"])>0 else 0.0 for s in ss]
-    win=[i for i,s in enumerate(ss) if float(s["y"])>0];loss=[i for i,s in enumerate(ss) if float(s["y"])<=0]
+    win=[i for i,s in enumerate(ss) if float(s["y"])>0]
+    loss=[i for i,s in enumerate(ss) if float(s["y"])<=0]
     if len(win)<80 or len(loss)<80:return None
-    kw={"rounds":spec["rounds"],"lr":spec["lr"],"max_rows":10**9,
-        "max_depth":spec["depth"],"min_leaf":spec["min_leaf"]}
-    # Subsample BEFORE building root-order indices.  Building orders on the full
-    # win/loss matrix and then letting _boost_train subsample internally leaves
-    # stale row indices and can trigger an IndexError inside _tree_fit.
     Xp,tp=_fit_view(X,[yp],5200);ypf=tp[0]
     Xw=[X[i] for i in win];yw=[float(ss[i]["y"]) for i in win]
     Xl=[X[i] for i in loss];yl=[max(0.0,-float(ss[i]["y"])) for i in loss]
     Xw,tw=_fit_view(Xw,[yw],5200);yw=tw[0]
     Xl,tl=_fit_view(Xl,[yl],5200);yl=tl[0]
     dim=len(Xp[0]) if Xp else 0
-    if dim<=0 or any(len(x)!=dim for x in Xp+Xw+Xl) or any(j<0 or j>=dim for j in idx):
-        raise SystemExit("V74 survival distribution dimension contract failure")
-    orders=_root_orders(Xp,idx);ow=_root_orders(Xw,idx);ol=_root_orders(Xl,idx)
-    pm=_boost_train(Xp,ypf,idx,root_orders=orders,**kw)
-    wm=_boost_train(Xw,yw,idx,root_orders=ow,**kw)
-    lm=_boost_train(Xl,yl,idx,root_orders=ol,**kw)
+    specs=_survival_specs()
+    use=sorted(set(j for spec in specs for j in _idx_for_spec(layout,spec)))
+    if dim<=0 or any(len(x)!=dim for x in Xp+Xw+Xl) or any(j<0 or j>=dim for j in use):
+        raise SystemExit("V74 survival fit-context dimension contract failure")
+    return {"ss":ss,"layout":layout,"Xp":Xp,"yp":ypf,"Xw":Xw,"yw":yw,
+            "Xl":Xl,"yl":yl,"orders":_root_orders(Xp,use),
+            "ow":_root_orders(Xw,use),"ol":_root_orders(Xl,use),
+            "prior":_fit_struct_prior(ss),"wins":len(win),"losses":len(loss),
+            "dim":dim,"use":use}
+
+def _assert_survival_context_parity(samples,manifold,ctx):
+    """One exact input/order probe proves context reuse cannot alter training."""
+    global _SURVIVAL_CONTEXT_PARITY_DONE
+    if _SURVIVAL_CONTEXT_PARITY_DONE:return
+    ref,layout=_prepare_survival(samples,manifold)
+    if layout!=ctx["layout"] or len(ref)!=len(ctx["ss"]):
+        raise SystemExit("V74 survival context parity failure: layout/count")
+    for a,b in zip(ref,ctx["ss"]):
+        if (a["window"],a["setup"],a["route"],a["bar"],a["y"]) != (b["window"],b["setup"],b["route"],b["bar"],b["y"]) or tuple(a["x"])!=tuple(b["x"]):
+            raise SystemExit("V74 survival context parity failure: sample")
+    spec=_survival_specs()[0];idx=_idx_for_spec(layout,spec)
+    direct=_root_orders(ctx["Xp"],idx)
+    if any(direct[j]!=ctx["orders"][j] for j in idx):
+        raise SystemExit("V74 survival context parity failure: root orders")
+    _SURVIVAL_CONTEXT_PARITY_DONE=True
+    print("[V74-SURVIVAL-CONTEXT-PARITY] pass=true",flush=True)
+
+def _fit_survival_distribution(samples,spec,manifold,fit_ctx=None):
+    ctx=fit_ctx or _build_survival_fit_context(samples,manifold)
+    if ctx is None:return None
+    layout=ctx["layout"];idx=_idx_for_spec(layout,spec)
+    kw={"rounds":spec["rounds"],"lr":spec["lr"],"max_rows":10**9,
+        "max_depth":spec["depth"],"min_leaf":spec["min_leaf"]}
+    pm=_boost_train(ctx["Xp"],ctx["yp"],idx,root_orders=ctx["orders"],**kw)
+    wm=_boost_train(ctx["Xw"],ctx["yw"],idx,root_orders=ctx["ow"],**kw)
+    lm=_boost_train(ctx["Xl"],ctx["yl"],idx,root_orders=ctx["ol"],**kw)
     return {"type":"SURVIVAL_PWL_DISTRIBUTION","spec":spec,"layout":layout,"idx":idx,
             "p":pm,"w":wm,"l":lm,"manifold":manifold,
-            "prior":_fit_struct_prior(ss),"n":len(ss),"wins":len(win),"losses":len(loss)}
+            "prior":ctx["prior"],"n":len(ctx["ss"]),
+            "wins":ctx["wins"],"losses":ctx["losses"]}
 
-def _pred_survival_distribution(model,s):
-    x,_,rid=_survival_vector(s,model["manifold"])
+def _prepare_survival_inference(samples,manifold,prior):
+    """Prepare identical inference vectors/prior once for a topology bank."""
+    out=[]
+    for s in samples:
+        if s.get("source")!="SURVIVAL":continue
+        x,_,rid=_survival_vector(s,manifold)
+        pv=_pred_struct_prior(prior,dict(s,x=x))
+        out.append({"s":s,"x":x,"regime_id":rid,"prior":pv})
+    return out
+
+def _pred_survival_distribution_prepared(model,s,x,rid,prior):
     p,sp=_boost_pred(model["p"],x);w,sw=_boost_pred(model["w"],x);l,sl=_boost_pred(model["l"],x)
-    p=max(.001,min(.999,p));prior=_pred_struct_prior(model["prior"],dict(s,x=x))
-    p=.82*p+.18*prior
+    p=max(.001,min(.999,p));p=.82*p+.18*float(prior)
     w=max(.05,float(w));l=max(.05,float(l))
     support=max(8,min(sp or 8,sw or 8,sl or 8))
     se=math.sqrt(max(.02,p*(1.0-p))/support)
@@ -1961,19 +2004,55 @@ def _pred_survival_distribution(model,s):
     return {"win":p,"win_lcb":plcb,"expected_win_r":w,"expected_loss_r":l,
             "mean":er,"pf":pf,"support":support,"regime_id":rid,"admission_score":score}
 
-def _survival_decisions(samples,model):
-    ss=[s for s in samples if s.get("source")=="SURVIVAL"]
-    by=grouped_events(ss);out=[]
+def _pred_survival_distribution(model,s):
+    x,_,rid=_survival_vector(s,model["manifold"])
+    prior=_pred_struct_prior(model["prior"],dict(s,x=x))
+    return _pred_survival_distribution_prepared(model,s,x,rid,prior)
+
+def _survival_decisions(samples,model,prepared=None):
+    pp=prepared if prepared is not None else _prepare_survival_inference(samples,model["manifold"],model["prior"])
+    by=defaultdict(list)
+    for z in pp:
+        s=z["s"];by[(s["window"],event_identity(s["setup"]),s["bar"])].append(z)
+    out=[]
     for ev in by.values():
         cand=[]
-        for s in ev:
-            p=_pred_survival_distribution(model,s)
+        for z in ev:
+            s=z["s"];p=_pred_survival_distribution_prepared(
+                model,s,z["x"],z["regime_id"],z["prior"])
             cand.append((p["admission_score"],p["win_lcb"],p["win"],p["mean"],s["route"],p,s))
         cand.sort(reverse=True,key=lambda z:(z[0],z[1],z[2],z[3],z[4]))
         if not cand:continue
         _,_,_,_,_,p,s=cand[0];q=dict(s);q["regime_id"]=p["regime_id"]
         out.append({"score":p["admission_score"],"route_rank":p["win_lcb"],"pred":p,"s":q})
     return out
+
+def _compact_tournament_decision(e):
+    """Minimal lossless decision payload for inner-OOF architecture selection."""
+    s=e["s"];p=e["pred"]
+    cs={k:s[k] for k in ("window","setup","family","action","source","base","route","bar","bars","y")}
+    cs["row"]={}
+    return {"score":float(e["score"]),"route_rank":float(e.get("route_rank",-999.0)),
+            "pred":{"regime_id":int(p.get("regime_id",0))},"s":cs}
+
+def _compute_shared_inner_survival_year(vw):
+    """One causal inner year; safe to compute once and reuse by later outer folds."""
+    vy=int(vw[1:])
+    tr=[s for s in _ALL_SURVIVAL_SAMPLES if int(s["window"][1:])<vy]
+    va=[s for s in _ALL_SURVIVAL_SAMPLES if s["window"]==vw]
+    manifold=_fit_family_manifold(tr)
+    ctx=_build_survival_fit_context(tr,manifold)
+    if ctx is None:raise SystemExit("V74 shared inner survival context failure "+vw)
+    _assert_survival_context_parity(tr,manifold,ctx)
+    prepared=_prepare_survival_inference(va,manifold,ctx["prior"])
+    banks=[]
+    for spec in _survival_specs():
+        md=_fit_survival_distribution(tr,spec,manifold,ctx)
+        if md is None:raise SystemExit("V74 shared inner survival fit failure "+vw+" spec="+str(spec["id"]))
+        banks.append([_compact_tournament_decision(e) for e in _survival_decisions(va,md,prepared)])
+    meta={"validation_year":vw,"training_years":sorted({s["window"] for s in tr}),
+          "train_survival_actions":len(tr),"validation_survival_actions":len(va)}
+    return vw,{"banks":banks,"meta":meta}
 
 def _precision_rank(tm):
     if not tm:return (-999.0,)*7
@@ -2038,15 +2117,27 @@ def _fit_survival_state_space_tournament(samples,years):
     val_years=eligible[-min(3,len(eligible)):]
     if len(val_years)<2:raise SystemExit("V74 survival state-space insufficient inner years")
     banks=[[] for _ in specs];meta=[]
+    shared=globals().get("_INNER_SURVIVAL_OOF_CACHE",{})
     for vw in val_years:
         vy=int(vw[1:]);tr=[s for s in samples if int(s["window"][1:])<vy];va=[s for s in samples if s["window"]==vw]
+        expected={"validation_year":vw,"training_years":sorted({s["window"] for s in tr}),
+                  "train_survival_actions":len(tr),"validation_survival_actions":len(va)}
+        cached=shared.get(vw)
+        if cached is not None:
+            if cached.get("meta")!=expected or len(cached.get("banks",[]))!=len(specs):
+                raise SystemExit("V74 shared inner cache semantic mismatch "+vw)
+            for si in range(len(specs)):banks[si].extend(cached["banks"][si])
+            meta.append(expected);continue
         manifold=_fit_family_manifold(tr)
+        ctx=_build_survival_fit_context(tr,manifold)
+        if ctx is None:raise SystemExit("V74 survival fit context failure "+vw)
+        _assert_survival_context_parity(tr,manifold,ctx)
+        prepared=_prepare_survival_inference(va,manifold,ctx["prior"])
         for si,spec in enumerate(specs):
-            md=_fit_survival_distribution(tr,spec,manifold)
+            md=_fit_survival_distribution(tr,spec,manifold,ctx)
             if md is None:raise SystemExit("V74 survival distribution fit failure "+str(spec["id"]))
-            banks[si].extend(_survival_decisions(va,md))
-        meta.append({"validation_year":vw,"training_years":sorted({s["window"] for s in tr}),
-                     "train_survival_actions":len(tr),"validation_survival_actions":len(va)})
+            banks[si].extend(_survival_decisions(va,md,prepared))
+        meta.append(expected)
     candidates=[]
     for si,spec in enumerate(specs):
         dec=banks[si];cmi=_conditional_mi_bits(dec)
@@ -2064,9 +2155,11 @@ def _fit_survival_state_space_tournament(samples,years):
           "rank":list(rank),"conditional_mi_bits":cmi},sort_keys=True),flush=True)
 
     full_manifold=_fit_family_manifold(samples)
-    final=_fit_survival_distribution(samples,chosen,full_manifold)
+    final_ctx=_build_survival_fit_context(samples,full_manifold)
+    final=_fit_survival_distribution(samples,chosen,full_manifold,final_ctx)
     if final is None:raise SystemExit("V74 survival final distribution fit failure")
-    full_dec=_survival_decisions(samples,final)
+    full_prepared=_prepare_survival_inference(samples,full_manifold,final_ctx["prior"])
+    full_dec=_survival_decisions(samples,final,full_prepared)
     oof_scores=[float(e["score"]) for e in banks[si]]
     full_scores=[float(e["score"]) for e in full_dec]
     om=med(oof_scores,0.0);fm=med(full_scores,0.0)
@@ -2117,6 +2210,22 @@ def apply_policy(policy,test_rows,prebuilt_samples=None):
     sel=simulate(dec,policy["threshold"])
     return sel,surv,dec
 
+def _diag_metrics(samples):
+    rr=[]
+    for s in samples:
+      q=dict(s.get("row",{}));q["r"]=float(s["y"]);q["bars"]=max(1,int(s.get("bars",1) or 1));rr.append(q)
+    return metrics(rr)
+
+def _oracle_top250(samples):
+    by=defaultdict(list)
+    for s in samples:by[(s["window"],event_identity(s["setup"]))].append(s)
+    best=[]
+    for ev in by.values():
+      if ev:best.append(max(ev,key=lambda s:(float(s["y"]),s["route"],-int(s["bar"]))))
+    best.sort(key=lambda s:(float(s["y"]),s["route"]),reverse=True)
+    top=best[:MIN_N];m=_diag_metrics(top)
+    return {"metrics":m,"pass":gate(m),"available_events":len(best)}
+
 def two_axis_oracle_diagnostic(test_samples,dec,sel):
     """Post-hoc burned diagnostic only; outcomes never feed training/inference.
     Axis A holds causal admission time/event fixed and replaces only the route
@@ -2162,6 +2271,12 @@ def two_axis_oracle_diagnostic(test_samples,dec,sel):
                        "BOTH_AXES" if not gate(a) and not b["pass"] else
                        "BOTH_AXES_INDIVIDUALLY_SUFFICIENT"
     }
+
+# Fail before any expensive tournament work if a diagnostic dependency was
+# accidentally removed by a future refactor.
+for _required_fn in ("_diag_metrics","_oracle_top250","_fit_survival_state_space_tournament"):
+    if not callable(globals().get(_required_fn)):
+        raise SystemExit("V74 evaluator preflight missing callable "+_required_fn)
 
 checks=telemetry_guard()
 summary={"version":"HarmonyBot V74 One-Shot Family-Native Causal Action Selector",
@@ -2216,6 +2331,7 @@ t0=time.perf_counter()
 # Build causal action samples once in the parent. Fork workers then share these
 # pages read-only; no fold rebuilds route vectors or harmonic precision features.
 _ALL_SAMPLES=make_samples(rows)
+_ALL_SURVIVAL_SAMPLES=[s for s in _ALL_SAMPLES if s.get("source")=="SURVIVAL"]
 # Fail closed on any ordering/content drift introduced by prebuilding. A direct
 # single-window rebuild must be byte-for-byte numerically equivalent and ordered.
 _probe_window="Y2020" if "Y2020" in ALL else ALL[0]
@@ -2233,6 +2349,33 @@ print("[V74-PREBUILD-PARITY] pass=true window="+_probe_window+
       " n="+str(len(_probe_cached)),flush=True)
 print("[V74-PREBUILD] rows="+str(len(rows))+" samples="+str(len(_ALL_SAMPLES))+
       " precision_cache="+str(len(_HARMONIC_PRECISION_CACHE)),flush=True)
+
+# The three burned folds consume nine inner validation-fold instances but only
+# five unique causal validation years (2018..2022). Compute those five once,
+# concurrently, then reuse compact OOF decisions. No future year is visible to
+# any cached fold: each item is trained strictly on years < validation_year.
+_inner_needed=sorted(set(
+    vw for test in BURNED
+    for vw in (lambda yrs:(yrs[2:])[-min(3,len(yrs[2:])):])(
+        sorted([w for w in ALL if int(w[1:])<int(test[1:])],key=lambda w:int(w[1:])))
+))
+_t_inner=time.perf_counter();_INNER_SURVIVAL_OOF_CACHE={}
+if os.environ.get("V74_DISABLE_SHARED_INNER_CACHE","0")!="1" and _inner_needed:
+    try:
+        _ctx=mp.get_context("fork")
+        _workers=min(len(_inner_needed),max(1,int(os.cpu_count() or 1)))
+        if _workers>1:
+            with _ctx.Pool(processes=_workers) as _pool:
+                _inner_results=_pool.map(_compute_shared_inner_survival_year,_inner_needed)
+        else:
+            _inner_results=[_compute_shared_inner_survival_year(w) for w in _inner_needed]
+        _INNER_SURVIVAL_OOF_CACHE=dict(_inner_results)
+    except Exception as ex:
+        print("[V74-INNER-CACHE-FALLBACK] "+repr(ex),flush=True)
+        _INNER_SURVIVAL_OOF_CACHE={}
+print("[V74-INNER-CACHE] years="+str(_inner_needed)+" built="+
+      str(sorted(_INNER_SURVIVAL_OOF_CACHE))+" seconds="+
+      str(round(time.perf_counter()-_t_inner,3)),flush=True)
 parallel_used=False
 fold_results=None
 # Each burned fold is causally independent and reads immutable rows only. Fork
@@ -2245,8 +2388,11 @@ if os.environ.get("V74_DISABLE_PARALLEL_FOLDS","0")!="1":
             with ctx.Pool(processes=workers) as pool:
                 fold_results=pool.map(evaluate_burned_fold,BURNED)
             parallel_used=True
-    except Exception as ex:
-        print("[V74-PARALLEL-FALLBACK]",repr(ex),flush=True)
+    except OSError as ex:
+        # Only runner/fork infrastructure failures may fall back. Programming,
+        # model, data-contract and parity errors must fail immediately instead
+        # of silently paying for a second full sequential tournament.
+        print("[V74-PARALLEL-FALLBACK] infrastructure="+repr(ex),flush=True)
 if fold_results is None:
     fold_results=[evaluate_burned_fold(test) for test in BURNED]
 
@@ -2274,6 +2420,11 @@ summary["historical_best_guard"]={"baseline":HISTORICAL_BEST_GUARD,
  "rule":"EXPERIMENTS_MAY_FAIL__ACCEPTED_DEVELOPMENT_CHAMPION_MUST_NOT_REGRESS"}
 print("[V74-NONREGRESSION]",json.dumps(summary["historical_best_guard"],sort_keys=True),flush=True)
 summary["evaluator_runtime_seconds"]=round(time.perf_counter()-t0,3)
+summary["performance_engine"]={"immutable_sample_prebuild":True,
+ "shared_unique_inner_oof_years":sorted(globals().get("_INNER_SURVIVAL_OOF_CACHE",{})),
+ "survival_fold_context_reuse":True,"prepared_inference_reuse":True,
+ "inner_cache_build_seconds":round(time.perf_counter()-_t_inner,3) if "_t_inner" in globals() else None,
+ "parity_fail_closed":True}
 summary["root_cause_rearchitecture"]="HARMONIC_SURVIVAL_STATE_SPACE_ALPHA_V1"
 summary["survival_primary_alpha"]=True
 summary["generic_early_late_failure_shadow_only"]=True
