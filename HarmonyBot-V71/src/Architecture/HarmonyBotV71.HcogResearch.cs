@@ -57,7 +57,11 @@ namespace cAlgo.Robots
             foreach(var r in new[]{"025","050","075","100"})
                 foreach(var f in new[]{"236","382","500","618","786"})
                     foreach(var rr in new[]{"23","25"})
-                        keys.Add("R"+r+"_F"+f+"_RR"+rr);
+                    {
+                        string b="R"+r+"_F"+f+"_RR"+rr;
+                        keys.Add(b);
+                        keys.Add(b+"_C1");
+                    }
             return keys.ToArray();
         }
         private static readonly string[] V74SurvivalFreshKey=V74BuildSurvivalFreshKeys();
@@ -76,7 +80,8 @@ namespace cAlgo.Robots
             if(k.Contains("_F618_"))return .618;
             return .786;
         }
-        private static double V74SurvivalFreshDesiredRrForKey(string k) => k.EndsWith("_RR25")?2.50:2.30;
+        private static double V74SurvivalFreshDesiredRrForKey(string k) => k.Contains("_RR25")?2.50:2.30;
+        private static bool V74SurvivalFreshRequiresConfirmation(string k) => k.EndsWith("_C1");
         private static readonly double[] V74SurvivalFreshReactionR=V74SurvivalFreshKey.Select(V74SurvivalFreshReactionForKey).ToArray();
         private static readonly double[] V74SurvivalFreshFibRetrace=V74SurvivalFreshKey.Select(V74SurvivalFreshFibForKey).ToArray();
         private static readonly double[] V74SurvivalFreshDesiredRr=V74SurvivalFreshKey.Select(V74SurvivalFreshDesiredRrForKey).ToArray();
@@ -255,6 +260,8 @@ namespace cAlgo.Robots
             public int[] V74SurvivalFreshBars = new int[V74SurvivalFreshKey.Length];
             public double[] V74SurvivalFreshImpulseExtreme = new double[V74SurvivalFreshKey.Length];
             public double[] V74SurvivalFreshPullbackExtreme = new double[V74SurvivalFreshKey.Length];
+            public double[] V74SurvivalFreshReclaimHigh = new double[V74SurvivalFreshKey.Length];
+            public double[] V74SurvivalFreshReclaimLow = new double[V74SurvivalFreshKey.Length];
             public double[] V74SurvivalFreshEntry = new double[V74SurvivalFreshKey.Length];
             public double[] V74SurvivalFreshStop = new double[V74SurvivalFreshKey.Length];
             public double[] V74SurvivalFreshTarget = new double[V74SurvivalFreshKey.Length];
@@ -937,12 +944,51 @@ namespace cAlgo.Robots
                         Math.Min(o.V74SurvivalFreshPullbackExtreme[k],low):
                         Math.Max(o.V74SurvivalFreshPullbackExtreme[k],high);
 
-                // Completed-bar Fibonacci rejection/reclaim. A same-bar touch is legal:
-                // the entry occurs only after the bar closes, so there is no intra-bar
-                // or future information in the admission decision.
+                // Completed-bar Fibonacci rejection/reclaim. Existing routes may
+                // enter on this completed reclaim bar. C1 routes deliberately require
+                // a second independent completed M1 bar: the first reclaim is only
+                // observation; the next bar must still hold the Fibonacci level and
+                // close through the reclaim bar's favorable extreme (BOS/follow-through).
+                // This creates a genuinely later causal decision point instead of
+                // attempting to classify the same noisy rejection bar more aggressively.
                 bool reclaimed=buy?close>=fibPrice:close<=fibPrice;
                 bool quality=directional&&reaccelerating&&alignedClose+1e-12>=.55;
-                if(!(reclaimed&&quality))continue;
+                bool confirm=V74SurvivalFreshRequiresConfirmation(V74SurvivalFreshKey[k]);
+                if(confirm)
+                {
+                    if(o.V74SurvivalFreshTriggerBar[k]<0)
+                    {
+                        if(!(reclaimed&&quality))continue;
+                        o.V74SurvivalFreshTriggerBar[k]=o.BarsActive;
+                        o.V74SurvivalFreshReclaimHigh[k]=high;
+                        o.V74SurvivalFreshReclaimLow[k]=low;
+                        continue; // first reclaim bar is observation only
+                    }
+
+                    // Fail closed on anything other than immediate next-bar proof.
+                    if(o.BarsActive!=o.V74SurvivalFreshTriggerBar[k]+1)
+                    {
+                        o.V74SurvivalFreshTriggerBar[k]=-1;
+                        continue;
+                    }
+                    if(!reclaimed)
+                    {
+                        o.V74SurvivalFreshTriggerBar[k]=-1;
+                        continue;
+                    }
+                    bool bos=buy?close>o.V74SurvivalFreshReclaimHigh[k]
+                                :close<o.V74SurvivalFreshReclaimLow[k];
+                    if(!(bos&&quality))
+                    {
+                        o.V74SurvivalFreshTriggerBar[k]=-1;
+                        continue;
+                    }
+                }
+                else
+                {
+                    if(!(reclaimed&&quality))continue;
+                    o.V74SurvivalFreshTriggerBar[k]=o.BarsActive;
+                }
 
                 double entry=close;
                 double buffer=Math.Max(PipsToPrice(ModeledCostPips()),_symbol.PipSize);
@@ -960,7 +1006,9 @@ namespace cAlgo.Robots
                 double rr=(PriceToPips(Math.Abs(target-entry))-ModeledCostPips())/Math.Max(1e-9,riskPips);
                 if(rr+1e-9<2.30)continue;
 
-                o.V74SurvivalFreshTriggerBar[k]=o.BarsActive;
+                // For immediate routes TriggerBar == EntryBar. For C1 routes it
+                // intentionally remains the prior reclaim-observation bar.
+                if(!confirm)o.V74SurvivalFreshTriggerBar[k]=o.BarsActive;
 
                 // V74 causal rejection-morphology v1. These values describe only the
                 // observed reaction -> Fibonacci touch -> completed-bar reclaim path.
