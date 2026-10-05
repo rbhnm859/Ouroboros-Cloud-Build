@@ -1217,6 +1217,25 @@ def _gate_calibrated_threshold_cached(rt,scores,years,target=TRAIN_COVERAGE):
               med([gate_margin(m) for m in tm.values()]),th,tm)
     return best[2],limits,supply,best[3],best[0]
 
+def _assert_sweep_cache_parity(rt,comp_rows,weights,years,target):
+    """Fail closed if optimized cache changes exact selector/calibration semantics."""
+    scores=_score_components_matrix(comp_rows,weights)
+    dd=[]
+    for i,(e,x) in enumerate(comp_rows):
+        q=dict(e);q["score"]=scores[i];q["pred"]=dict(e["pred"],hybrid_admission_score=scores[i])
+        dd.append(q)
+    a=gate_calibrated_threshold(dd,years,target)
+    b=_gate_calibrated_threshold_cached(rt,scores,years,target)
+    if abs(float(a[0])-float(b[0]))>1e-12:
+        raise SystemExit("V74 sweep-cache parity failure: threshold")
+    for w in years:
+        ma=a[3][w];mb=b[3][w]
+        for k in ("n","mean_r","pf_r","lcb_r","win_rate","average_rr","median_hold_bars"):
+            va=float(ma[k]);vb=float(mb[k])
+            if abs(va-vb)>1e-12:
+                raise SystemExit("V74 sweep-cache parity failure: "+w+"/"+k)
+    print("[V74-SWEEP-CACHE-PARITY] pass=true",flush=True)
+
 def fit_hybrid_admission_sweep(route_decisions,contrastive_model,expert_model,fit_years,eval_years):
     """100x100 deterministic training-only admission search.
 
@@ -1237,6 +1256,9 @@ def fit_hybrid_admission_sweep(route_decisions,contrastive_model,expert_model,fi
     best={"rank":base_rank,"threshold":bth,"metrics":btm,
           "config":None,"priors":None,"mode":"BASE_CONTRASTIVE"}
     center=_norm_weights([1.25,1.00,1.35,1.10,.80,.65,.95,.75,.85,.80,.70,.60,.45,.35,.40,.45,.80,.65,.55,.40])
+    # One deterministic probe per outer fold proves the optimized runtime is
+    # bit-for-bit equivalent on the quantities that drive candidate acceptance.
+    _assert_sweep_cache_parity(runtime,comp_cache[32],center,eval_years,TRAIN_COVERAGE)
     rounds=[]
 
     for ri in range(SWEEP_ROUNDS):
