@@ -586,6 +586,13 @@ def _optimal_admission_targets(ss):
         future_best=max(future_best,y)
     return win,stop,adv,future_win
 
+def stable_idx_target(samples,target,k):
+    """Training-only nonlinear stability screen aligned to the supplied target."""
+    proxy=[]
+    for i,s in enumerate(samples):
+      q=dict(s);q["y"]=float(target[i]);proxy.append(q)
+    return stable_idx(proxy,k)
+
 def fit_admission_model(route_decisions,fit_years,source=None):
     """Mechanism-native causal optimal-stopping admission head.
     Route arbitration is frozen first. Each source learns ENTER-vs-DEFER on its
@@ -596,9 +603,12 @@ def fit_admission_model(route_decisions,fit_years,source=None):
     ss=_admission_training_samples(route_decisions,fit_years)
     if source is not None:ss=[s for s in ss if s.get("source")==source]
     if len(ss)<350:return None
-    idx=stable_idx(ss,TREE_KFEAT)
     X=[s["x"] for s in ss]
     yw,ys,ya,yf=_optimal_admission_targets(ss)
+    # Align the feature screen to the actual ENTER-vs-DEFER objective. The
+    # previous screen ranked features by raw route payoff, which is a different
+    # task and can discard timing/terminality predictors.
+    idx=stable_idx_target(ss,ys,TREE_KFEAT)
     Xf,targets=_fit_view(X,[yw,ys,ya,yf],6500);ywf,ysf,yaf,yff=targets
     orders=_root_orders(Xf,idx)
     wm=_boost_train(Xf,ywf,idx,rounds=TREE_ROUNDS,lr=.075,max_rows=10**9,root_orders=orders)
