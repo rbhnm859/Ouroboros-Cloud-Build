@@ -557,6 +557,37 @@ def gate_calibrated_threshold(decisions,years,target=TRAIN_COVERAGE):
       best=(min(gate_margin(m) for m in tm.values()),med([gate_margin(m) for m in tm.values()]),th,tm)
     return best[2],limits,supply,best[3],best[0]
 
+def score_threshold_oracle_diagnostic(decisions):
+    """Post-hoc threshold diagnostic on an already-causal admission score.
+
+    The score/features/routes remain exactly causal. Only this diagnostic is
+    allowed to inspect realized outcomes to ask whether *any* fixed threshold on
+    the frozen score ranking can satisfy the hard gate. It is never used to
+    train, tune, freeze, or deploy a threshold.
+
+    If this fails, threshold calibration cannot rescue the policy: the score
+    ranking/telemetry itself is insufficient. If it passes, the remaining
+    blocker is temporal/calibration transfer rather than physical action supply.
+    """
+    vals=sorted(set(float(e["score"]) for e in decisions if math.isfinite(float(e["score"]))),reverse=True)
+    best=None;first=None;checked=0
+    for th in vals:
+      sel=simulate(decisions,th)
+      m,_=metric_selected(sel)
+      if m["n"]<MIN_N:continue
+      checked+=1
+      z={"threshold":th,"margin":gate_margin(m),"metrics":m,"pass":gate(m)}
+      if best is None or (z["margin"],-m["n"],th)>(best["margin"],-best["metrics"]["n"],best["threshold"]):
+          best=z
+      if first is None and z["pass"]:first=z
+    return {"type":"DIAGNOSTIC_FUTURE_THRESHOLD_ORACLE_ONLY__NEVER_DEPLOYED",
+            "thresholds_with_n_ge_250":checked,
+            "any_threshold_pass":first is not None,
+            "first_passing":first,
+            "best_gate_margin":best,
+            "interpretation":"CALIBRATION_TRANSFER_BLOCKER" if first is not None
+                             else "SCORE_RANKING_OR_TELEMETRY_BLOCKER"}
+
 def mechanism_decisions(samples,heads):
     """Route arbitration is mechanism-native; exact source partition cached once."""
     out=[]
@@ -728,14 +759,18 @@ def fit_policy(train_rows):
     training_gate=all(gate(m) for m in tm.values())
     reps=admission_route_representatives(route_dec)
     training_oracle_admission={}
+    training_score_threshold_oracle={}
     for w in yrs:
       training_oracle_admission[w]=_oracle_top250([e["s"] for e in reps if e["s"]["window"]==w])
+      training_score_threshold_oracle[w]=score_threshold_oracle_diagnostic(
+          [e for e in dec if e["s"]["window"]==w])
     return {"mechanism_heads":heads,"mechanism_training":mechanism_training,
             "admission_model":admission_model,"admission_fit_years":adm_fit_years,
             "admission_calibration_year":yrs[-1] if yrs else None,"threshold":th,
             "training_coverage_limits":limits,"training_supply":supply,
             "training_metrics":tm,"training_worst_gate_margin":worst,
             "training_oracle_admission":training_oracle_admission,
+            "training_score_threshold_oracle":training_score_threshold_oracle,
             "training_gate":training_gate,"coverage_target":TRAIN_COVERAGE},samples
 
 def apply_policy(policy,test_rows):
@@ -833,6 +868,7 @@ def evaluate_burned_fold(test):
     policy,_=fit_policy(tr)
     sel,test_samples,dec=apply_policy(policy,te);m,mr=metric_selected(sel)
     two_axis=two_axis_oracle_diagnostic(test_samples,dec,sel)
+    score_threshold_oracle=score_threshold_oracle_diagnostic(dec)
     routes=Counter(r.get("sequential_key","NONE") for r in mr)
     fams=Counter(r["family"] for r in mr);acts=Counter(r["action"] for r in mr)
     srcs=Counter(x.split("|",1)[0] for x in routes.elements())
@@ -842,8 +878,10 @@ def evaluate_burned_fold(test):
       "training_gate":policy.get("training_gate"),"training_worst_gate_margin":policy.get("training_worst_gate_margin"),
       "training_supply":policy["training_supply"],"training_year_metrics":policy["training_metrics"],
       "training_oracle_admission":policy.get("training_oracle_admission",{}),
+      "training_score_threshold_oracle":policy.get("training_score_threshold_oracle",{}),
       "test_legal_actions":len(test_samples),"test_decision_events":len(dec),
       "two_axis_oracle":two_axis,
+      "score_threshold_oracle":score_threshold_oracle,
       "selected_route_counts":dict(routes),"selected_family_counts":dict(fams),
       "selected_action_counts":dict(acts),"selected_source_counts":dict(srcs),
       "runtime_seconds":round(time.perf_counter()-ft,3)}
