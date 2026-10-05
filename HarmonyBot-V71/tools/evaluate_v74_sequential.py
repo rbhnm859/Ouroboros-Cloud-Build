@@ -18,6 +18,7 @@ import bisect,json,math,os,pathlib,statistics,sys,time,multiprocessing as mp
 from collections import defaultdict,Counter
 from v74_model_lib import load_rows,metrics,SEQUENTIAL_STATE_FEATURE_COUNT,SURVIVAL_MORPH_FEATURE_COUNT,FAMILIES,SURVIVAL_FRESH_KEYS
 from v74_model_lib import event_identity
+from harmonic_precision_contract import harmonic_precision_vector
 
 root=pathlib.Path(sys.argv[1]);out=pathlib.Path(sys.argv[2]);out.mkdir(parents=True,exist_ok=True)
 RESEARCH=[f"Y{y}" for y in range(2016,2021)]
@@ -139,7 +140,8 @@ def xvec(r,src,m,b,f,eb):
     aa=a if a is not None else [0.0]*SEQUENTIAL_STATE_FEATURE_COUNT
     ee=e if e is not None else [0.0]*SEQUENTIAL_STATE_FEATURE_COUNT
     delta=[ee[i]-aa[i] if ap and ep else 0.0 for i in range(SEQUENTIAL_STATE_FEATURE_COUNT)]
-    return (list(r.get("features",[]))+route_cats(r,src,b,m,f)+aa+ee+delta+
+    hp=harmonic_precision_vector(r.get("family","ABCD"),list(r.get("features",[])))
+    return (list(r.get("features",[]))+hp+route_cats(r,src,b,m,f)+aa+ee+delta+
             [ap,ep,1.0 if ap and ep else 0.0]+timing_state(r,src,m,b,f,eb)+
             [0.0]*SURVIVAL_MORPH_FEATURE_COUNT)
 
@@ -160,7 +162,8 @@ def survival_xvec(r,sf,eb):
             max(-1.0,min(6.0,float(tb)/10.0)) if tb is not None else -1.0]
     q=r.get("survival_fresh_morphology",{}).get(sf)
     morph=[float(x) for x in q] if q is not None and len(q)==SURVIVAL_MORPH_FEATURE_COUNT else [0.0]*SURVIVAL_MORPH_FEATURE_COUNT
-    return (list(r.get("features",[]))+route_cats(r,"SURVIVAL","SURVIVAL","FIB","00",sf)+
+    hp=harmonic_precision_vector(r.get("family","ABCD"),list(r.get("features",[])))
+    return (list(r.get("features",[]))+hp+route_cats(r,"SURVIVAL","SURVIVAL","FIB","00",sf)+
             aa+ee+delta+[ap,ep,1.0 if ap and ep else 0.0]+timing+morph)
 
 
@@ -178,7 +181,8 @@ def failure_xvec(r,eb):
             max(-1.0,min(6.0,float(bb)/10.0)) if bb is not None else -1.0,
             max(-1.0,min(6.0,float(rb)/10.0)) if rb is not None else -1.0,
             max(-1.0,min(6.0,float(eb-rb)/10.0)) if rb is not None and rb>=0 else -1.0]
-    return (list(r.get("features",[]))+route_cats(r,"FAILURE","FAILURE","FC230","00",None,"CONTINUATION")+
+    hp=harmonic_precision_vector(r.get("family","ABCD"),list(r.get("features",[])))
+    return (list(r.get("features",[]))+hp+route_cats(r,"FAILURE","FAILURE","FC230","00",None,"CONTINUATION")+
             aa+ee+delta+[ap,ep,1.0 if ap and ep else 0.0]+timing+
             [0.0]*SURVIVAL_MORPH_FEATURE_COUNT)
 
