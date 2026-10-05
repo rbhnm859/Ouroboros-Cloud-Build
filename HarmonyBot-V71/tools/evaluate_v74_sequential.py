@@ -565,42 +565,68 @@ def _admission_training_samples(route_decisions,years):
                   "x":list(s["x"]),"y":float(s["y"]),"row":s["row"]})
     return out
 
+def _optimal_admission_targets(ss):
+    """Training-only optimal-stopping labels.
+    Future outcomes define the supervision target, never an inference feature.
+    stop=1 only when ENTER now is positive and no later matured causal route
+    offers a strictly better realized payoff for the same event.
+    """
+    n=len(ss);win=[0.0]*n;stop=[0.0]*n;adv=[0.0]*n;future_win=[0.0]*n
+    by=defaultdict(list)
+    for i,s in enumerate(ss):by[(s["window"],event_identity(s["setup"]))].append(i)
+    for ids in by.values():
+      ids=sorted(ids,key=lambda i:(int(ss[i]["bar"]),ss[i]["route"]))
+      future_best=0.0
+      for i in reversed(ids):
+        y=float(ss[i]["y"])
+        win[i]=1.0 if y>0 else 0.0
+        future_win[i]=1.0 if future_best>0 else 0.0
+        adv[i]=max(-4.0,min(4.0,y-max(0.0,future_best)))
+        stop[i]=1.0 if y>0 and y+1e-12>=future_best else 0.0
+        future_best=max(future_best,y)
+    return win,stop,adv,future_win
+
 def fit_admission_model(route_decisions,fit_years):
-    """Dedicated ENTER-vs-DEFER head on the already-causal route.
-    The last training year is withheld from this model and remains a temporal
-    calibration check. Primary score is a lower confidence bound on P(win),
-    directly matching the V74 winner-purity bottleneck instead of mixing route
-    regret and admission in one heuristic score.
+    """Dedicated causal optimal-stopping admission head.
+    Route arbitration is frozen first. The model then learns whether ENTER now
+    is both likely profitable and preferable to DEFER. Training labels may use
+    later training outcomes; runtime inference receives only the current x-vector.
     """
     ss=_admission_training_samples(route_decisions,fit_years)
     if len(ss)<500:raise SystemExit("V74 insufficient decision-level admission samples")
     idx=stable_idx(ss,TREE_KFEAT)
     X=[s["x"] for s in ss]
-    yw=[1.0 if s["y"]>0 else 0.0 for s in ss]
-    ym=[float(s["y"]) for s in ss]
-    Xf,targets=_fit_view(X,[yw,ym],6500);ywf,ymf=targets
+    yw,ys,ya,yf=_optimal_admission_targets(ss)
+    Xf,targets=_fit_view(X,[yw,ys,ya,yf],6500);ywf,ysf,yaf,yff=targets
     orders=_root_orders(Xf,idx)
     wm=_boost_train(Xf,ywf,idx,rounds=TREE_ROUNDS,lr=.075,max_rows=10**9,root_orders=orders)
-    mm=_boost_train(Xf,ymf,idx,rounds=TREE_ROUNDS,lr=.075,max_rows=10**9,root_orders=orders)
-    return {"type":"DECISION_LEVEL_WIN_LCB_ADMISSION","fit_years":list(fit_years),
-            "idx":idx,"win":wm,"mean":mm,"n":len(ss)}
+    sm=_boost_train(Xf,ysf,idx,rounds=TREE_ROUNDS,lr=.075,max_rows=10**9,root_orders=orders)
+    am=_boost_train(Xf,yaf,idx,rounds=TREE_ROUNDS,lr=.075,max_rows=10**9,root_orders=orders)
+    fm=_boost_train(Xf,yff,idx,rounds=TREE_ROUNDS,lr=.075,max_rows=10**9,root_orders=orders)
+    return {"type":"DECISION_LEVEL_CAUSAL_OPTIMAL_STOPPING","fit_years":list(fit_years),
+            "idx":idx,"win":wm,"stop":sm,"advantage":am,"future_win":fm,"n":len(ss)}
 
 def pred_admission(model,e):
-    s=e["s"];wi,s1=_boost_pred(model["win"],s["x"]);mu,s2=_boost_pred(model["mean"],s["x"])
-    wi=max(0.0,min(1.0,wi));sup=max(1,min(s1 or 1,s2 or 1))
+    s=e["s"]
+    wi,s1=_boost_pred(model["win"],s["x"]);st,s2=_boost_pred(model["stop"],s["x"])
+    ad,s3=_boost_pred(model["advantage"],s["x"]);fw,s4=_boost_pred(model["future_win"],s["x"])
+    wi=max(0.0,min(1.0,wi));st=max(0.0,min(1.0,st));fw=max(0.0,min(1.0,fw))
+    sup=max(1,min(s1 or 1,s2 or 1,s3 or 1,s4 or 1))
     win_lcb=wi-Z*max(.05,float(model["win"]["sigma"]))/math.sqrt(sup)
-    mean_lcb=mu-Z*max(.05,float(model["mean"]["sigma"]))/math.sqrt(sup)
-    return {"win":wi,"win_lcb":win_lcb,"mean":mu,"mean_lcb":mean_lcb,"support":sup}
+    stop_lcb=st-Z*max(.05,float(model["stop"]["sigma"]))/math.sqrt(sup)
+    adv_lcb=ad-Z*max(.05,float(model["advantage"]["sigma"]))/math.sqrt(sup)
+    return {"win":wi,"win_lcb":win_lcb,"stop":st,"stop_lcb":stop_lcb,
+            "advantage":ad,"advantage_lcb":adv_lcb,"future_win":fw,"support":sup}
 
 def score_admission_decisions(route_decisions,model):
     out=[]
     for e in admission_route_representatives(route_decisions):
       z=pred_admission(model,e);q=dict(e);q["pred"]=dict(e["pred"],admission=z)
-      # No weight roulette: V74's binding purity gate is WR>=70%, while legal
-      # route economics already enforce RR. Rank capital admission by conservative
-      # P(win) only; mean-R LCB is retained as a deterministic tie-break.
-      q["score"]=float(z["win_lcb"])
-      q["admission_mean_lcb"]=float(z["mean_lcb"])
+      # Gate purity requires both a likely win and a stopping-time justification.
+      # min() is a conjunctive lower bound, not a tunable weighted score.
+      q["score"]=min(float(z["win_lcb"]),float(z["stop_lcb"]))
+      q["admission_advantage_lcb"]=float(z["advantage_lcb"])
+      q["defer_probability"]=float(z["future_win"])
       out.append(q)
     return out
 
@@ -637,11 +663,16 @@ def fit_policy(train_rows):
     dec=score_admission_decisions(route_dec,admission_model)
     th,limits,supply,tm,worst=gate_calibrated_threshold(dec,yrs,TRAIN_COVERAGE)
     training_gate=all(gate(m) for m in tm.values())
+    reps=admission_route_representatives(route_dec)
+    training_oracle_admission={}
+    for w in yrs:
+      training_oracle_admission[w]=_oracle_top250([e["s"] for e in reps if e["s"]["window"]==w])
     return {"mechanism_heads":heads,"mechanism_training":mechanism_training,
             "admission_model":admission_model,"admission_fit_years":adm_fit_years,
             "admission_calibration_year":yrs[-1] if yrs else None,"threshold":th,
             "training_coverage_limits":limits,"training_supply":supply,
             "training_metrics":tm,"training_worst_gate_margin":worst,
+            "training_oracle_admission":training_oracle_admission,
             "training_gate":training_gate,"coverage_target":TRAIN_COVERAGE},samples
 
 def apply_policy(policy,test_rows):
@@ -723,7 +754,7 @@ summary={"version":"HarmonyBot V74 One-Shot Family-Native Causal Action Selector
            "harmonic_completion":"DIRECTION_TIME_D_EVENT_IDENTITY__MULTI_GEOMETRY_IS_CONFLUENCE_NOT_SUPPLY",
            "reaction_state":"CAUSAL_FEATURE_NOT_HARD_FILTER","physical_route_contract":"EVENT_NATIVE_CANONICAL_EVENT_FULL_COMPLETED_BAR_ENTRY_TIMING__EARLY_F00_M05_M10_M15__LATE_PREENTRY_F20_F30__SURVIVAL_FRESH__NETRR_GE230","v75_management_variants_excluded":True,"all_entry_maturity_stages_completed_bar_only":True,
            "route_choice":"STRICT_WALK_FORWARD_NONLINEAR_STABLE_EVENT_REGRET_PLUS_BEST_ACTION_PROBABILITY","optimal_stopping":"MECHANISM_NATIVE_TRAINING_ONLY_CONTINUATION_HEAD__EVENT_LEVEL_STOP_VS_DEFER",
-           "admission":"DECISION_LEVEL_CAUSAL_ROUTE_WIN_PROBABILITY_LCB__LAST_TRAIN_YEAR_TEMPORAL_CALIBRATION",
+           "admission":"DECISION_LEVEL_CAUSAL_OPTIMAL_STOPPING__WIN_LCB_AND_STOP_LCB__LAST_TRAIN_YEAR_TEMPORAL_CALIBRATION",
            "training_coverage_target_per_year":TRAIN_COVERAGE,
            "family_hierarchy":"WITHIN_MECHANISM_GLOBAL_TO_FAMILY_TO_FAMILY_ACTION_TO_FAMILY_BASE_SHRINKAGE",
            "no_trigger_posttrigger_lock_future_state":True,
@@ -747,6 +778,7 @@ def evaluate_burned_fold(test):
       "entry_threshold":policy["threshold"],"training_coverage_target":TRAIN_COVERAGE,
       "training_gate":policy.get("training_gate"),"training_worst_gate_margin":policy.get("training_worst_gate_margin"),
       "training_supply":policy["training_supply"],"training_year_metrics":policy["training_metrics"],
+      "training_oracle_admission":policy.get("training_oracle_admission",{}),
       "test_legal_actions":len(test_samples),"test_decision_events":len(dec),
       "two_axis_oracle":two_axis,
       "selected_route_counts":dict(routes),"selected_family_counts":dict(fams),
