@@ -586,14 +586,16 @@ def _optimal_admission_targets(ss):
         future_best=max(future_best,y)
     return win,stop,adv,future_win
 
-def fit_admission_model(route_decisions,fit_years):
-    """Dedicated causal optimal-stopping admission head.
-    Route arbitration is frozen first. The model then learns whether ENTER now
-    is both likely profitable and preferable to DEFER. Training labels may use
-    later training outcomes; runtime inference receives only the current x-vector.
+def fit_admission_model(route_decisions,fit_years,source=None):
+    """Mechanism-native causal optimal-stopping admission head.
+    Route arbitration is frozen first. Each source learns ENTER-vs-DEFER on its
+    own causal state manifold so SURVIVAL-only Fibonacci rejection morphology is
+    not diluted by zero-padded EARLY/LATE rows. Training labels may use later
+    outcomes only inside training years; runtime inference uses current x only.
     """
     ss=_admission_training_samples(route_decisions,fit_years)
-    if len(ss)<500:raise SystemExit("V74 insufficient decision-level admission samples")
+    if source is not None:ss=[s for s in ss if s.get("source")==source]
+    if len(ss)<350:return None
     idx=stable_idx(ss,TREE_KFEAT)
     X=[s["x"] for s in ss]
     yw,ys,ya,yf=_optimal_admission_targets(ss)
@@ -603,11 +605,22 @@ def fit_admission_model(route_decisions,fit_years):
     sm=_boost_train(Xf,ysf,idx,rounds=TREE_ROUNDS,lr=.075,max_rows=10**9,root_orders=orders)
     am=_boost_train(Xf,yaf,idx,rounds=TREE_ROUNDS,lr=.075,max_rows=10**9,root_orders=orders)
     fm=_boost_train(Xf,yff,idx,rounds=TREE_ROUNDS,lr=.075,max_rows=10**9,root_orders=orders)
-    return {"type":"DECISION_LEVEL_CAUSAL_OPTIMAL_STOPPING","fit_years":list(fit_years),
-            "idx":idx,"win":wm,"stop":sm,"advantage":am,"future_win":fm,"n":len(ss)}
+    return {"type":"MECHANISM_NATIVE_CAUSAL_OPTIMAL_STOPPING","source":source or "GLOBAL",
+            "fit_years":list(fit_years),"idx":idx,"win":wm,"stop":sm,
+            "advantage":am,"future_win":fm,"n":len(ss)}
 
-def pred_admission(model,e):
-    s=e["s"]
+def fit_admission_bundle(route_decisions,fit_years):
+    glob=fit_admission_model(route_decisions,fit_years,None)
+    if glob is None:raise SystemExit("V74 insufficient global admission samples")
+    by={}
+    for src in SOURCES:
+      md=fit_admission_model(route_decisions,fit_years,src)
+      if md is not None:by[src]=md
+    return {"type":"MECHANISM_NATIVE_CAUSAL_OPTIMAL_STOPPING_BUNDLE",
+            "fit_years":list(fit_years),"global":glob,"by_source":by}
+
+def pred_admission(bundle,e):
+    s=e["s"];model=bundle.get("by_source",{}).get(s.get("source"),bundle["global"])
     wi,s1=_boost_pred(model["win"],s["x"]);st,s2=_boost_pred(model["stop"],s["x"])
     ad,s3=_boost_pred(model["advantage"],s["x"]);fw,s4=_boost_pred(model["future_win"],s["x"])
     wi=max(0.0,min(1.0,wi));st=max(0.0,min(1.0,st));fw=max(0.0,min(1.0,fw))
@@ -616,14 +629,14 @@ def pred_admission(model,e):
     stop_lcb=st-Z*max(.05,float(model["stop"]["sigma"]))/math.sqrt(sup)
     adv_lcb=ad-Z*max(.05,float(model["advantage"]["sigma"]))/math.sqrt(sup)
     return {"win":wi,"win_lcb":win_lcb,"stop":st,"stop_lcb":stop_lcb,
-            "advantage":ad,"advantage_lcb":adv_lcb,"future_win":fw,"support":sup}
+            "advantage":ad,"advantage_lcb":adv_lcb,"future_win":fw,"support":sup,
+            "head_source":model.get("source","GLOBAL")}
 
-def score_admission_decisions(route_decisions,model):
+def score_admission_decisions(route_decisions,bundle):
     out=[]
     for e in admission_route_representatives(route_decisions):
-      z=pred_admission(model,e);q=dict(e);q["pred"]=dict(e["pred"],admission=z)
-      # Gate purity requires both a likely win and a stopping-time justification.
-      # min() is a conjunctive lower bound, not a tunable weighted score.
+      z=pred_admission(bundle,e);q=dict(e);q["pred"]=dict(e["pred"],admission=z)
+      # Conjunctive purity/optimal-stopping lower bound; no score-weight search.
       q["score"]=min(float(z["win_lcb"]),float(z["stop_lcb"]))
       q["admission_advantage_lcb"]=float(z["advantage_lcb"])
       q["defer_probability"]=float(z["future_win"])
@@ -659,7 +672,7 @@ def fit_policy(train_rows):
     # Hold the most recent training year out of the admission model itself. It
     # remains available to threshold calibration as a temporal transfer check.
     adm_fit_years=yrs[:-1] if len(yrs)>=3 else yrs
-    admission_model=fit_admission_model(route_dec,adm_fit_years)
+    admission_model=fit_admission_bundle(route_dec,adm_fit_years)
     dec=score_admission_decisions(route_dec,admission_model)
     th,limits,supply,tm,worst=gate_calibrated_threshold(dec,yrs,TRAIN_COVERAGE)
     training_gate=all(gate(m) for m in tm.values())
