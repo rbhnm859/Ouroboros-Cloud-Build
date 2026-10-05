@@ -23,7 +23,7 @@ root=pathlib.Path(sys.argv[1]);out=pathlib.Path(sys.argv[2]);out.mkdir(parents=T
 RESEARCH=[f"Y{y}" for y in range(2016,2021)]
 BURNED=["Y2021","Y2022","Y2023"];ALL=RESEARCH+BURNED
 MIN_N=250;TRAIN_COVERAGE=275;MIN_MEAN=.90;MIN_PF=3.30;MIN_WR=.70;MIN_AVG_RR=2.30;LEGAL_MIN_RR=2.0;Z=1.645
-REGULAR_SOURCES=("EARLY","LATE");SOURCES=("EARLY","LATE","SURVIVAL");EARLY_QUALIFICATION_FRACTION="00";EARLY_FRACTIONS=(EARLY_QUALIFICATION_FRACTION,);LATE_FRACTIONS=("20","30");ALL_FRACTIONS=(EARLY_QUALIFICATION_FRACTION,)+LATE_FRACTIONS;MSTAGES=("05","10","15");EARLY_MSTAGES=MSTAGES;LATE_MSTAGES=MSTAGES
+REGULAR_SOURCES=("EARLY","LATE");SOURCES=("EARLY","LATE","SURVIVAL","FAILURE");EARLY_QUALIFICATION_FRACTION="00";EARLY_FRACTIONS=(EARLY_QUALIFICATION_FRACTION,);LATE_FRACTIONS=("20","30");ALL_FRACTIONS=(EARLY_QUALIFICATION_FRACTION,)+LATE_FRACTIONS;MSTAGES=("05","10","15");EARLY_MSTAGES=MSTAGES;LATE_MSTAGES=MSTAGES
 BASES=[f"R{r}_{h}_RR{rr}" for r in ("025","050") for h in ("H","D") for rr in ("35","40")]
 TREE_KFEAT=30;PAIR_KFEAT=26;TREE_ROUNDS=10;PAIR_ROUNDS=8;TREE_DEPTH=3;TOP_PAIR=6
 rows=load_rows(root,ALL)
@@ -103,6 +103,7 @@ def route_cats(r,src,b,m,f,sfkey=None):
       1.0 if r["action"]=="CONTINUATION" else 0.0,
       1.0 if src=="LATE" else 0.0,
       1.0 if src=="SURVIVAL" else 0.0,
+      1.0 if src=="FAILURE" else 0.0,
       1.0 if b.startswith("R050_") else 0.0,
       1.0 if "_D_" in b else 0.0,
       1.0 if b.endswith("RR40") else 0.0]+[
@@ -141,8 +142,27 @@ def survival_xvec(r,sf,eb):
     return (list(r.get("features",[]))+route_cats(r,"SURVIVAL","SURVIVAL","FIB","00",sf)+
             aa+ee+delta+[ap,ep,1.0 if ap and ep else 0.0]+timing+morph)
 
+
+def failure_xvec(r,eb):
+    a=r.get("failure_continuation_maturity_state",{}).get("FC230")
+    e=r.get("failure_continuation_entry_state",{}).get("FC230")
+    ap=1.0 if a is not None and len(a)==SEQUENTIAL_STATE_FEATURE_COUNT else 0.0
+    ep=1.0 if e is not None and len(e)==SEQUENTIAL_STATE_FEATURE_COUNT else 0.0
+    aa=[float(x) for x in a] if ap else [0.0]*SEQUENTIAL_STATE_FEATURE_COUNT
+    ee=[float(x) for x in e] if ep else [0.0]*SEQUENTIAL_STATE_FEATURE_COUNT
+    delta=[ee[i]-aa[i] if ap and ep else 0.0 for i in range(SEQUENTIAL_STATE_FEATURE_COUNT)]
+    bb=r.get("failure_continuation_break_bar",{}).get("FC230",-1)
+    rb=r.get("failure_continuation_retest_bar",{}).get("FC230",-1)
+    timing=[max(-1.0,min(6.0,float(eb)/10.0)),
+            max(-1.0,min(6.0,float(bb)/10.0)) if bb is not None else -1.0,
+            max(-1.0,min(6.0,float(rb)/10.0)) if rb is not None else -1.0,
+            max(-1.0,min(6.0,float(eb-rb)/10.0)) if rb is not None and rb>=0 else -1.0]
+    return (list(r.get("features",[]))+route_cats(r,"FAILURE","FAILURE","FC230","00",None)+
+            aa+ee+delta+[ap,ep,1.0 if ap and ep else 0.0]+timing+
+            [0.0]*SURVIVAL_MORPH_FEATURE_COUNT)
+
 def telemetry_guard():
-    legal={"EARLY":0,"LATE":0,"SURVIVAL":0};with_state={"EARLY":0,"LATE":0,"SURVIVAL":0}
+    legal={"EARLY":0,"LATE":0,"SURVIVAL":0,"FAILURE":0};with_state={"EARLY":0,"LATE":0,"SURVIVAL":0,"FAILURE":0}
     survival_morphology=0
     for r in rows:
       for b in BASES:
@@ -164,6 +184,16 @@ def telemetry_guard():
         if e is not None and len(e)==SEQUENTIAL_STATE_FEATURE_COUNT:with_state["SURVIVAL"]+=1
         q=r.get("survival_fresh_morphology",{}).get(sf)
         if q is not None and len(q)==SURVIVAL_MORPH_FEATURE_COUNT:survival_morphology+=1
+      fy=r.get("failure_continuation",{}).get("FC230")
+      frr=r.get("failure_continuation_rr",{}).get("FC230")
+      try:feb=int(r.get("failure_continuation_entry_bar",{}).get("FC230",-1))
+      except:feb=-1
+      if feb>=0 and fy is not None and frr is not None and float(frr)+1e-9>=LEGAL_MIN_RR:
+        legal["FAILURE"]+=1
+        fm=r.get("failure_continuation_maturity_state",{}).get("FC230")
+        fe=r.get("failure_continuation_entry_state",{}).get("FC230")
+        if fm is not None and fe is not None and len(fm)==SEQUENTIAL_STATE_FEATURE_COUNT and len(fe)==SEQUENTIAL_STATE_FEATURE_COUNT:
+            with_state["FAILURE"]+=1
     if sum(legal.values())==0:raise SystemExit("V74 no legal completed-bar actions")
     return {"legal_actions":legal,"complete_path_state":with_state,
             "survival_morphology_complete":survival_morphology,
@@ -206,6 +236,14 @@ def make_samples(xs):
         out.append({"window":r["window"],"setup":r["setup"],"family":r["family"],"action":r["action"],
                     "source":"SURVIVAL","base":"SURVIVAL_"+sf,"route":"SURVIVAL|"+sf,"bar":eb,"bars":bars,
                     "x":survival_xvec(r,sf,eb),"y":float(y),"row":r})
+      fy=r.get("failure_continuation",{}).get("FC230");frr=r.get("failure_continuation_rr",{}).get("FC230")
+      try:feb=int(r.get("failure_continuation_entry_bar",{}).get("FC230",-1))
+      except:feb=-1
+      if fy is not None and frr is not None and feb>=0 and float(frr)+1e-9>=LEGAL_MIN_RR:
+        fbars=max(1,int(r.get("failure_continuation_bars",{}).get("FC230",r.get("bars",1)) or 1))
+        out.append({"window":r["window"],"setup":r["setup"],"family":r["family"],"action":"CONTINUATION",
+                    "source":"FAILURE","base":"FAILURE_FC230","route":"FAILURE|FC230","bar":feb,"bars":fbars,
+                    "x":failure_xvec(r,feb),"y":float(fy),"row":r})
     return out
 
 def stable_idx(samples,k):
