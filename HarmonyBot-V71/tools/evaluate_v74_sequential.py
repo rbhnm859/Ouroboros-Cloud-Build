@@ -1497,6 +1497,25 @@ def _pred_structural_head(model,e):
     pw=max(0.0,min(1.0,pw));pa=max(0.0,min(1.0,pa))
     return (pw,pa,_pred_struct_prior(model["prior"],s))
 
+def _predict_structural_bank(models,reps):
+    """Predict many structural heads with exact booster-output reuse."""
+    if not models:return {}
+    first=next(iter(models.values()))
+    prior_vals=[_pred_struct_prior(first["prior"],e["s"]) for e in reps]
+    booster_cache={}
+    out={}
+    for key,md in models.items():
+        wk=id(md["win"]);ak=id(md["aux"])
+        if wk not in booster_cache:
+            booster_cache[wk]=[max(0.0,min(1.0,_boost_pred(md["win"],e["s"].get("admission_x",e["s"]["x"]))[0]))
+                               for e in reps]
+        if ak not in booster_cache:
+            booster_cache[ak]=[max(0.0,min(1.0,_boost_pred(md["aux"],e["s"].get("admission_x",e["s"]["x"]))[0]))
+                               for e in reps]
+        pw=booster_cache[wk];pa=booster_cache[ak]
+        out[key]=[(pw[i],pa[i],prior_vals[i]) for i in range(len(reps))]
+    return out
+
 def _build_nested_structural_bank(all_action_samples,years):
     """True nested expanding-year OOF bank, including OOF route arbitration."""
     specs=_structural_specs()
@@ -1520,11 +1539,14 @@ def _build_nested_structural_bank(all_action_samples,years):
       # One reference probe per inner fold proves cached feature/prior/matrix
       # reuse does not change the original implementation.
       _assert_structural_fit_cache_parity(tr_adm,specs[0],fit_ctx)
-      model_cache={}
+      model_cache={};fold_models={}
       for si,spec in enumerate(specs):
         md=_fit_structural_head(tr_adm,spec,fit_ctx,model_cache)
         if md is None:raise SystemExit("V74 structural head fit failure "+str(spec["id"]))
-        bank_chunks[si].extend([_pred_structural_head(md,e) for e in va_reps])
+        fold_models[str(si)]=md
+      fold_pred=_predict_structural_bank(fold_models,va_reps)
+      for si in range(len(specs)):
+        bank_chunks[si].extend(fold_pred[str(si)])
       nested_meta.append({"validation_year":vw,"training_years":sorted({s["window"] for s in tr}),
                           "validation_events":len({event_identity(e["s"]["setup"]) for e in va_reps})})
     return {"specs":specs,"val_years":val_years,"reps":oof_reps,
@@ -1620,9 +1642,10 @@ def _fit_structural_tournament(all_action_samples,route_decisions,years):
                  "config":bcfg,"specs":specs,"heads":heads,
                  "inner_oof_years":nested["val_years"],"nested_meta":nested["nested_meta"],
                  "oof_threshold":bth}
+    predicted=_predict_structural_bank(heads,full_reps)
     full_bank=[]
     for mid in range(len(specs)):
-      if str(mid) in heads:full_bank.append([_pred_structural_head(heads[str(mid)],e) for e in full_reps])
+      if str(mid) in predicted:full_bank.append(predicted[str(mid)])
       else:full_bank.append([(.5,.5,.5)]*len(full_reps))
     full_scores=_struct_scores(full_bank,bcfg)
     om=med(boof_scores,0.0);fm=med(full_scores,0.0)
@@ -1641,10 +1664,10 @@ def _fit_structural_tournament(all_action_samples,route_decisions,years):
 
 def _score_structural_decisions(route_decisions,model):
     reps=admission_route_representatives(route_decisions);specs=model["specs"];heads=model["heads"]
+    predicted=_predict_structural_bank(heads,reps)
     bank=[]
     for mid in range(len(specs)):
-      md=heads.get(str(mid))
-      bank.append([_pred_structural_head(md,e) for e in reps] if md is not None else [(.5,.5,.5)]*len(reps))
+      bank.append(predicted.get(str(mid),[(.5,.5,.5)]*len(reps)))
     scores=_struct_scores(bank,model["config"]);out=[]
     for i,e in enumerate(reps):
       q=dict(e);q["score"]=scores[i];q["pred"]=dict(e["pred"],structural_admission_score=scores[i])
