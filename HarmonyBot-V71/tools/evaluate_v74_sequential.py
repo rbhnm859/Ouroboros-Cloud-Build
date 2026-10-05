@@ -835,6 +835,101 @@ def score_admission_decisions(route_decisions,bundle):
       out.append(q)
     return out
 
+def _contrast_anchor_rows(xs,count=5):
+    """Deterministic training-only reference anchors; never test-derived."""
+    if not xs:return []
+    a=sorted(xs,key=lambda s:(s["window"],event_identity(s["setup"]),int(s["bar"]),s["route"]))
+    qs=(.10,.30,.50,.70,.90) if count>=5 else tuple((i+.5)/count for i in range(count))
+    out=[]
+    for q in qs[:count]:
+      i=int(round((len(a)-1)*q));out.append(a[max(0,min(len(a)-1,i))])
+    return out
+
+def fit_contrastive_winner_ranker(route_decisions,fit_years):
+    """Year-balanced pairwise winner-vs-loser admission ranking.
+
+    The two-axis and threshold-oracle diagnostics prove that the remaining V74
+    blocker is event admission ranking, not route feasibility or threshold
+    transfer. Absolute ENTER regressors have repeatedly collapsed toward the
+    ~30% base win rate. This ranker instead learns only within-year winner-minus-
+    loser feature contrasts, which removes year-level regime/base-rate offsets.
+
+    Training outcomes create pair labels only. Runtime inference compares the
+    current contemporaneous admission_x with fixed loser anchors frozen from
+    training years; no current/future outcome, Validation or Fresh data is used.
+    """
+    ss=_admission_training_samples(route_decisions,fit_years)
+    if len(ss)<500:raise SystemExit("V74 insufficient contrastive admission samples")
+    win=[1.0 if float(s["y"])>0.0 else 0.0 for s in ss]
+    idx=stable_idx_target(ss,win,TREE_KFEAT)
+    if not idx:raise SystemExit("V74 no temporally stable contrastive winner features")
+
+    by=defaultdict(list)
+    for s in ss:by[s["window"]].append(s)
+    X=[];yy=[];pairs_per_year={};loser_anchors={}
+    for w in fit_years:
+      ww=by.get(w,[])
+      pos=sorted([s for s in ww if float(s["y"])>0.0],
+                 key=lambda s:(event_identity(s["setup"]),int(s["bar"]),s["route"]))
+      neg=sorted([s for s in ww if float(s["y"])<=0.0],
+                 key=lambda s:(event_identity(s["setup"]),int(s["bar"]),s["route"]))
+      if len(pos)<25 or len(neg)<25:continue
+      # Equal pair budget per year => no high-supply regime can dominate.
+      cap=900
+      for t in range(cap):
+        p=pos[(t*37+t//max(1,len(neg)))%len(pos)]
+        n=neg[(t*53+t//max(1,len(pos)))%len(neg)]
+        d=[float(p["x"][j])-float(n["x"][j]) for j in idx]
+        X.append(d);yy.append(1.0)
+        X.append([-v for v in d]);yy.append(0.0)
+      pairs_per_year[w]=cap
+      loser_anchors[w]=[
+        [float(s["x"][j]) for j in idx]
+        for s in _contrast_anchor_rows(neg,5)
+      ]
+
+    if len(X)<1000 or len(loser_anchors)<2:
+      raise SystemExit("V74 insufficient year-balanced contrastive pairs")
+    use=list(range(len(idx)))
+    Xf,targets=_fit_view(X,[yy],7000);yf=targets[0]
+    orders=_root_orders(Xf,use)
+    pair=_boost_train(Xf,yf,use,rounds=TREE_ROUNDS,lr=.075,max_rows=10**9,root_orders=orders)
+    return {"type":"YEAR_BALANCED_CONTRASTIVE_WINNER_RANKER",
+            "fit_years":list(fit_years),"idx":idx,"pair":pair,
+            "pairs_per_year":pairs_per_year,"loser_anchors":loser_anchors,
+            "pair_rows":len(X)}
+
+def pred_contrastive_winner(model,e):
+    s=e["s"];x=s.get("admission_x",s["x"]);idx=model["idx"]
+    xx=[float(x[j]) for j in idx]
+    per_year=[];supports=[]
+    for w in model["fit_years"]:
+      anchors=model.get("loser_anchors",{}).get(w,[])
+      if not anchors:continue
+      pp=[]
+      for a in anchors:
+        d=[xx[i]-float(a[i]) for i in range(len(xx))]
+        rd=[-v for v in d]
+        fw,s1=_boost_pred(model["pair"],d);bw,s2=_boost_pred(model["pair"],rd)
+        p=.5*(max(0.0,min(1.0,fw))+(1.0-max(0.0,min(1.0,bw))))
+        pp.append(p);supports.extend([s1 or 1,s2 or 1])
+      per_year.append(sum(pp)/len(pp))
+    if not per_year:return {"score":-999.0,"median":0.0,"per_year":[],"support":0}
+    z=sorted(per_year)
+    q25=z[int(math.floor(.25*(len(z)-1)))]
+    return {"score":q25,"median":statistics.median(per_year),"per_year":per_year,
+            "support":max(1,min(supports)) if supports else 1}
+
+def score_contrastive_decisions(route_decisions,model):
+    out=[]
+    for e in admission_route_representatives(route_decisions):
+      z=pred_contrastive_winner(model,e);q=dict(e)
+      q["pred"]=dict(e["pred"],contrastive_admission=z)
+      q["score"]=float(z["score"])
+      q["contrastive_median"]=float(z["median"])
+      out.append(q)
+    return out
+
 def fit_policy(train_rows):
     samples=make_samples(train_rows)
     if len(samples)<1000:raise SystemExit("V74 insufficient legal action samples")
@@ -864,8 +959,8 @@ def fit_policy(train_rows):
     # Hold the most recent training year out of the admission model itself. It
     # remains available to threshold calibration as a temporal transfer check.
     adm_fit_years=yrs[:-1] if len(yrs)>=3 else yrs
-    admission_model=fit_admission_bundle(route_dec,adm_fit_years)
-    dec=score_admission_decisions(route_dec,admission_model)
+    admission_model=fit_contrastive_winner_ranker(route_dec,adm_fit_years)
+    dec=score_contrastive_decisions(route_dec,admission_model)
     th,limits,supply,tm,worst=gate_calibrated_threshold(dec,yrs,TRAIN_COVERAGE)
     training_gate=all(gate(m) for m in tm.values())
     reps=admission_route_representatives(route_dec)
@@ -883,7 +978,7 @@ def fit_policy(train_rows):
 def apply_policy(policy,test_rows):
     samples=make_samples(test_rows)
     route_dec=mechanism_decisions(samples,policy["mechanism_heads"])
-    dec=score_admission_decisions(route_dec,policy["admission_model"])
+    dec=score_contrastive_decisions(route_dec,policy["admission_model"])
     sel=simulate(dec,policy["threshold"])
     return sel,samples,dec
 
@@ -951,15 +1046,15 @@ def two_axis_oracle_diagnostic(test_samples,dec,sel):
 
 checks=telemetry_guard()
 summary={"version":"HarmonyBot V74 One-Shot Family-Native Causal Action Selector",
- "architecture":"STRICT_WALK_FORWARD_CAUSAL_ROUTE_PLUS_EVENT_CONSENSUS_ENTER_DEFER_REJECT",
+ "architecture":"STRICT_WALK_FORWARD_CAUSAL_ROUTE_PLUS_YEAR_BALANCED_CONTRASTIVE_WINNER_RANKING",
  "gate":{"min_selected_per_year":MIN_N,"min_mean_r":MIN_MEAN,"min_pf_r":MIN_PF,
          "min_win_rate":MIN_WR,"min_average_rr":MIN_AVG_RR,"lcb95_gt":0.0},
  "research_training_windows":RESEARCH,"burned_oof_windows":BURNED,
  "policy":{"actions":"EARLY_OR_LATE_COMPLETED_BAR_ENTRY_ACTION__RAW_F00_EARLY__PREENTRY_CONFIRMATION_F20_F30_LATE",
            "harmonic_completion":"DIRECTION_TIME_D_EVENT_IDENTITY__MULTI_GEOMETRY_IS_CONFLUENCE_NOT_SUPPLY",
            "reaction_state":"CAUSAL_FEATURE_NOT_HARD_FILTER","physical_route_contract":"EVENT_NATIVE_CANONICAL_EVENT_FULL_COMPLETED_BAR_ENTRY_TIMING__EARLY_F00_M05_M10_M15__LATE_PREENTRY_F20_F30__SURVIVAL_FRESH__NETRR_GE230","v75_management_variants_excluded":True,"all_entry_maturity_stages_completed_bar_only":True,
-           "route_choice":"STRICT_WALK_FORWARD_NONLINEAR_STABLE_EVENT_REGRET_PLUS_BEST_ACTION_PROBABILITY","optimal_stopping":"EVENT_BAR_CAUSAL_CONSENSUS__ENTER_DEFER_REJECT__FIRST_LEGAL_ENTER",
-           "admission":"EVENT_NATIVE_CAUSAL_CONSENSUS__ENTER_LCB_VS_DEFER_REJECT_MARGIN__TEMPORAL_STABILITY",
+           "route_choice":"STRICT_WALK_FORWARD_NONLINEAR_STABLE_EVENT_REGRET_PLUS_BEST_ACTION_PROBABILITY","optimal_stopping":"FIRST_MATURED_EVENT_BAR_CROSSING_TRAINING_ONLY_CONTRASTIVE_ADMISSION_THRESHOLD",
+           "admission":"YEAR_BALANCED_WITHIN_YEAR_WINNER_MINUS_LOSER_RANKING__ROBUST_Q25_VS_TRAINING_LOSER_ANCHORS",
            "training_coverage_target_per_year":TRAIN_COVERAGE,
            "family_hierarchy":"WITHIN_MECHANISM_GLOBAL_TO_FAMILY_TO_FAMILY_ACTION_TO_FAMILY_BASE_SHRINKAGE",
            "no_trigger_posttrigger_lock_future_state":True,
