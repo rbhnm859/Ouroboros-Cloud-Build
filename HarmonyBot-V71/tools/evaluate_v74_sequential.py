@@ -746,7 +746,7 @@ def two_axis_oracle_diagnostic(test_samples,dec,sel):
 
 checks=telemetry_guard()
 summary={"version":"HarmonyBot V74 One-Shot Family-Native Causal Action Selector",
- "architecture":"STRICT_WALK_FORWARD_NONLINEAR_STABLE_EVENT_REGRET_POLICY",
+ "architecture":"STRICT_WALK_FORWARD_CAUSAL_ROUTE_PLUS_OPTIMAL_STOPPING_ADMISSION",
  "gate":{"min_selected_per_year":MIN_N,"min_mean_r":MIN_MEAN,"min_pf_r":MIN_PF,
          "min_win_rate":MIN_WR,"min_average_rr":MIN_AVG_RR,"lcb95_gt":0.0},
  "research_training_windows":RESEARCH,"burned_oof_windows":BURNED,
@@ -813,7 +813,7 @@ for test,fold,policy in fold_results:
           for k in ("n","mean_r","pf_r","win_rate","average_rr","lcb_r","pass")}),flush=True)
 
 alpha=bool(allpass)
-champ="STRICT_WALK_FORWARD_NONLINEAR_STABLE_EVENT_REGRET_POLICY" if alpha else None
+champ="STRICT_WALK_FORWARD_CAUSAL_ROUTE_PLUS_OPTIMAL_STOPPING_ADMISSION" if alpha else None
 summary["evaluator_runtime_seconds"]=round(time.perf_counter()-t0,3)
 summary["parallel_fold_execution"]=parallel_used
 summary["parallel_fold_workers"]=min(len(BURNED),max(1,int(os.cpu_count() or 1))) if parallel_used else 1
