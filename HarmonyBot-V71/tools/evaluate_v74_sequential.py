@@ -354,8 +354,24 @@ def _tree_pred(t,x):
 def _boost_train(X,y,idx,rounds=TREE_ROUNDS,lr=.08,max_rows=6500,root_orders=None,
                  max_depth=TREE_DEPTH,min_leaf=28):
     if not y:return {"base":0.0,"trees":[],"lr":lr,"sigma":10.0}
+    if len(X)!=len(y):
+      raise SystemExit("V74 booster X/y length contract failure")
     if len(y)>max_rows:
+      if root_orders is not None:
+        # Root orders index the caller's exact matrix.  Silent internal
+        # subsampling would invalidate those indices and can also alter the
+        # deterministic model.  Require callers to pre-subsample instead.
+        raise SystemExit("V74 booster root-order/subsample contract failure")
       step=max(1,math.ceil(len(y)/max_rows));X=X[::step];y=y[::step]
+    dim=len(X[0]) if X else 0
+    if any(len(x)!=dim for x in X) or any(j<0 or j>=dim for j in idx):
+      raise SystemExit("V74 booster feature dimension contract failure")
+    if root_orders is not None:
+      n=len(X)
+      for j in idx:
+        oo=root_orders.get(j)
+        if oo is None or len(oo)!=n or sorted(oo)!=list(range(n)):
+          raise SystemExit("V74 booster root-order index contract failure")
     base=sum(y)/len(y);pred=[base]*len(y);trees=[]
     for _ in range(rounds):
       res=[y[i]-pred[i] for i in range(len(y))]
