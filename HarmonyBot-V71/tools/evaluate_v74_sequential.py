@@ -15,7 +15,7 @@ profit-capture and Grid/capital-capacity mechanics are intentionally excluded.
 """
 import bisect,json,math,os,pathlib,statistics,sys,time,multiprocessing as mp
 from collections import defaultdict,Counter
-from v74_model_lib import load_rows,metrics,SEQUENTIAL_STATE_FEATURE_COUNT,FAMILIES,SURVIVAL_FRESH_KEYS
+from v74_model_lib import load_rows,metrics,SEQUENTIAL_STATE_FEATURE_COUNT,SURVIVAL_MORPH_FEATURE_COUNT,FAMILIES,SURVIVAL_FRESH_KEYS
 from v74_model_lib import event_identity
 
 root=pathlib.Path(sys.argv[1]);out=pathlib.Path(sys.argv[2]);out.mkdir(parents=True,exist_ok=True)
@@ -117,7 +117,8 @@ def xvec(r,src,m,b,f,eb):
     ee=e if e is not None else [0.0]*SEQUENTIAL_STATE_FEATURE_COUNT
     delta=[ee[i]-aa[i] if ap and ep else 0.0 for i in range(SEQUENTIAL_STATE_FEATURE_COUNT)]
     return (list(r.get("features",[]))+route_cats(r,src,b,m,f)+aa+ee+delta+
-            [ap,ep,1.0 if ap and ep else 0.0]+timing_state(r,src,m,b,f,eb))
+            [ap,ep,1.0 if ap and ep else 0.0]+timing_state(r,src,m,b,f,eb)+
+            [0.0]*SURVIVAL_MORPH_FEATURE_COUNT)
 
 def survival_xvec(r,sf,eb):
     a=r.get("survival_fresh_maturity_state",{}).get(sf)
@@ -134,11 +135,14 @@ def survival_xvec(r,sf,eb):
             max(-1.0,min(6.0,float(rb)/10.0)) if rb is not None else -1.0,
             max(-1.0,min(6.0,float(pb)/10.0)) if pb is not None else -1.0,
             max(-1.0,min(6.0,float(tb)/10.0)) if tb is not None else -1.0]
+    q=r.get("survival_fresh_morphology",{}).get(sf)
+    morph=[float(x) for x in q] if q is not None and len(q)==SURVIVAL_MORPH_FEATURE_COUNT else [0.0]*SURVIVAL_MORPH_FEATURE_COUNT
     return (list(r.get("features",[]))+route_cats(r,"SURVIVAL","SURVIVAL","FIB","00",sf)+
-            aa+ee+delta+[ap,ep,1.0 if ap and ep else 0.0]+timing)
+            aa+ee+delta+[ap,ep,1.0 if ap and ep else 0.0]+timing+morph)
 
 def telemetry_guard():
     legal={"EARLY":0,"LATE":0,"SURVIVAL":0};with_state={"EARLY":0,"LATE":0,"SURVIVAL":0}
+    survival_morphology=0
     for r in rows:
       for b in BASES:
         for src in REGULAR_SOURCES:
@@ -157,8 +161,12 @@ def telemetry_guard():
         legal["SURVIVAL"]+=1
         e=r.get("survival_fresh_entry_state",{}).get(sf)
         if e is not None and len(e)==SEQUENTIAL_STATE_FEATURE_COUNT:with_state["SURVIVAL"]+=1
+        q=r.get("survival_fresh_morphology",{}).get(sf)
+        if q is not None and len(q)==SURVIVAL_MORPH_FEATURE_COUNT:survival_morphology+=1
     if sum(legal.values())==0:raise SystemExit("V74 no legal completed-bar actions")
     return {"legal_actions":legal,"complete_path_state":with_state,
+            "survival_morphology_complete":survival_morphology,
+            "survival_morphology_missing":max(0,legal["SURVIVAL"]-survival_morphology),
             "missing_state_is_feature_not_veto":True,
             "future_trigger_decision_lock_state_used":False}
 
