@@ -317,31 +317,49 @@ def grouped_events(samples):
     for s in samples:d[(s["window"],event_identity(s["setup"]),s["bar"])].append(s)
     return d
 
-def _tree_fit(X,y,idx,max_depth=TREE_DEPTH,min_leaf=28,root_orders=None):
-    # Exact same quantile split search as the reference implementation. Root
-    # feature order is invariant across heads/boost rounds, so compute it once.
+def _tree_fit(X,y,idx,max_depth=TREE_DEPTH,min_leaf=28,root_orders=None,weights=None):
+    # Event-balanced weighted SSE.  With weights=None this is exactly the former
+    # unweighted objective.  SURVIVAL supplies cluster weights so one harmonic
+    # event/time contributes unit mass regardless of how many legal route rows it
+    # expands into (up to 80), removing pseudo-replication without discarding any
+    # route geometry.
+    w=[1.0]*len(y) if weights is None else [max(0.0,float(z)) for z in weights]
+    if len(w)!=len(y):raise SystemExit("V74 tree weight length contract failure")
+    def stats(ids):
+      sw=sum(w[i] for i in ids);sw2=sum(w[i]*w[i] for i in ids)
+      sy=sum(w[i]*y[i] for i in ids);sy2=sum(w[i]*y[i]*y[i] for i in ids)
+      en=(sw*sw/max(1e-18,sw2)) if sw2>0 else 0.0
+      return sw,sy,sy2,en
     def node(ids,depth,is_root=False):
-      n=len(ids);sy=sum(y[i] for i in ids);sy2=sum(y[i]*y[i] for i in ids);mu=sy/n
-      leaf={"leaf":mu,"n":n}
-      if depth<=0 or n<2*min_leaf:return leaf
-      base=sy2-sy*sy/n;best=None
+      sw,sy,sy2,en=stats(ids)
+      if sw<=1e-18:return {"leaf":0.0,"n":0}
+      mu=sy/sw;leaf={"leaf":mu,"n":max(1,int(round(en)))}
+      if depth<=0 or en<2*min_leaf:return leaf
+      base=sy2-sy*sy/sw;best=None
       for j in idx:
         ordered=(root_orders[j] if is_root and root_orders is not None
                  else sorted(ids,key=lambda i:X[i][j]))
         vals=[X[i][j] for i in ordered]
-        ps=[0.0];ps2=[0.0]
+        pw=[0.0];pw2=[0.0];py=[0.0];py2=[0.0]
         for i in ordered:
-          v=y[i];ps.append(ps[-1]+v);ps2.append(ps2[-1]+v*v)
+          wi=w[i];yi=y[i]
+          pw.append(pw[-1]+wi);pw2.append(pw2[-1]+wi*wi)
+          py.append(py[-1]+wi*yi);py2.append(py2[-1]+wi*yi*yi)
         for t in sorted(set(_qtile_sorted(vals,q) for q in (.20,.40,.60,.80))):
-          p=bisect.bisect_right(vals,t);ln=p;rn=n-p
-          if ln<min_leaf or rn<min_leaf:continue
-          ls=ps[p];ls2=ps2[p];rs=sy-ls;rs2=sy2-ls2
-          sse=(ls2-ls*ls/ln)+(rs2-rs*rs/rn);gain=base-sse
+          p=bisect.bisect_right(vals,t)
+          lw=pw[p];rw=sw-lw
+          if lw<=1e-18 or rw<=1e-18:continue
+          le=lw*lw/max(1e-18,pw2[p])
+          rw2=pw2[-1]-pw2[p];re=rw*rw/max(1e-18,rw2)
+          if le<min_leaf or re<min_leaf:continue
+          ly=py[p];ly2=py2[p];ry=sy-ly;ry2=sy2-ly2
+          sse=(ly2-ly*ly/lw)+(ry2-ry*ry/rw);gain=base-sse
           if best is None or gain>best[0]:
             best=(gain,j,t,ordered[:p],ordered[p:])
       if best is None or best[0]<=1e-10:return leaf
       _,j,t,li,ri=best
-      return {"j":j,"t":t,"n":n,"left":node(li,depth-1,False),"right":node(ri,depth-1,False)}
+      return {"j":j,"t":t,"n":max(1,int(round(en))),
+              "left":node(li,depth-1,False),"right":node(ri,depth-1,False)}
     return node(list(range(len(y))),max_depth,True)
 
 def _tree_pred(t,x):
@@ -353,17 +371,16 @@ def _tree_pred(t,x):
     return float(n["leaf"]),support
 
 def _boost_train(X,y,idx,rounds=TREE_ROUNDS,lr=.08,max_rows=6500,root_orders=None,
-                 max_depth=TREE_DEPTH,min_leaf=28):
+                 max_depth=TREE_DEPTH,min_leaf=28,weights=None):
     if not y:return {"base":0.0,"trees":[],"lr":lr,"sigma":10.0}
     if len(X)!=len(y):
       raise SystemExit("V74 booster X/y length contract failure")
+    w=[1.0]*len(y) if weights is None else [max(0.0,float(z)) for z in weights]
+    if len(w)!=len(y):raise SystemExit("V74 booster weight length contract failure")
     if len(y)>max_rows:
       if root_orders is not None:
-        # Root orders index the caller's exact matrix.  Silent internal
-        # subsampling would invalidate those indices and can also alter the
-        # deterministic model.  Require callers to pre-subsample instead.
         raise SystemExit("V74 booster root-order/subsample contract failure")
-      step=max(1,math.ceil(len(y)/max_rows));X=X[::step];y=y[::step]
+      step=max(1,math.ceil(len(y)/max_rows));X=X[::step];y=y[::step];w=w[::step]
     dim=len(X[0]) if X else 0
     if any(len(x)!=dim for x in X) or any(j<0 or j>=dim for j in idx):
       raise SystemExit("V74 booster feature dimension contract failure")
@@ -373,17 +390,22 @@ def _boost_train(X,y,idx,rounds=TREE_ROUNDS,lr=.08,max_rows=6500,root_orders=Non
         oo=root_orders.get(j)
         if oo is None or len(oo)!=n or sorted(oo)!=list(range(n)):
           raise SystemExit("V74 booster root-order index contract failure")
-    base=sum(y)/len(y);pred=[base]*len(y);trees=[]
+    sw=sum(w)
+    if sw<=1e-18:raise SystemExit("V74 booster zero weight mass")
+    base=sum(w[i]*y[i] for i in range(len(y)))/sw
+    pred=[base]*len(y);trees=[]
     for _ in range(rounds):
       res=[y[i]-pred[i] for i in range(len(y))]
-      tr=_tree_fit(X,res,idx,max_depth=max_depth,min_leaf=min_leaf,root_orders=root_orders)
+      tr=_tree_fit(X,res,idx,max_depth=max_depth,min_leaf=min_leaf,
+                   root_orders=root_orders,weights=w)
       trees.append(tr)
       for i,x in enumerate(X):
         v,_=_tree_pred(tr,x);pred[i]+=lr*v
     resid=[y[i]-pred[i] for i in range(len(y))]
-    sig=statistics.stdev(resid) if len(resid)>1 else 10.0
+    sig=math.sqrt(sum(w[i]*resid[i]*resid[i] for i in range(len(y)))/sw) if len(resid)>1 else 10.0
     return {"base":base,"trees":trees,"lr":lr,"sigma":max(.05,sig),
-            "max_depth":int(max_depth),"min_leaf":int(min_leaf)}
+            "max_depth":int(max_depth),"min_leaf":int(min_leaf),
+            "event_balanced":weights is not None}
 
 def _fit_view(X,ys,max_rows):
     if len(X)<=max_rows:return X,[list(y) for y in ys]
@@ -1925,6 +1947,20 @@ def _idx_for_spec(layout,spec):
 
 _SURVIVAL_CONTEXT_PARITY_DONE=False
 
+def _event_balanced_weights(samples,eligible=None):
+    """Each (year,event,decision-bar) cluster has total weight 1.
+
+    eligible optionally supplies row indices for a conditional P/W/L head; the
+    cluster is renormalized inside that head so route multiplicity cannot make an
+    event statistically louder merely because more lattice actions share it.
+    """
+    ids=list(range(len(samples))) if eligible is None else list(eligible)
+    by=defaultdict(list)
+    for i in ids:
+      s=samples[i];by[(s["window"],event_identity(s["setup"]),int(s["bar"]))].append(i)
+    out={i:1.0/max(1,len(v)) for v in by.values() for i in v}
+    return [out.get(i,0.0) for i in range(len(samples))]
+
 def _build_survival_fit_context(samples,manifold):
     """Immutable fold context shared by every SURVIVAL architecture spec.
 
@@ -1939,18 +1975,20 @@ def _build_survival_fit_context(samples,manifold):
     win=[i for i,s in enumerate(ss) if float(s["y"])>0]
     loss=[i for i,s in enumerate(ss) if float(s["y"])<=0]
     if len(win)<80 or len(loss)<80:return None
-    Xp,tp=_fit_view(X,[yp],5200);ypf=tp[0]
-    Xw=[X[i] for i in win];yw=[float(ss[i]["y"]) for i in win]
-    Xl=[X[i] for i in loss];yl=[max(0.0,-float(ss[i]["y"])) for i in loss]
-    Xw,tw=_fit_view(Xw,[yw],5200);yw=tw[0]
-    Xl,tl=_fit_view(Xl,[yl],5200);yl=tl[0]
+    wp0=_event_balanced_weights(ss)
+    ww0=_event_balanced_weights(ss,win);wl0=_event_balanced_weights(ss,loss)
+    Xp,tp=_fit_view(X,[yp,wp0],5200);ypf,wp=tp
+    Xw=[X[i] for i in win];yw=[float(ss[i]["y"]) for i in win];ww=[ww0[i] for i in win]
+    Xl=[X[i] for i in loss];yl=[max(0.0,-float(ss[i]["y"])) for i in loss];wl=[wl0[i] for i in loss]
+    Xw,tw=_fit_view(Xw,[yw,ww],5200);yw,ww=tw
+    Xl,tl=_fit_view(Xl,[yl,wl],5200);yl,wl=tl
     dim=len(Xp[0]) if Xp else 0
     specs=_survival_specs()
     use=sorted(set(j for spec in specs for j in _idx_for_spec(layout,spec)))
     if dim<=0 or any(len(x)!=dim for x in Xp+Xw+Xl) or any(j<0 or j>=dim for j in use):
         raise SystemExit("V74 survival fit-context dimension contract failure")
-    return {"ss":ss,"layout":layout,"Xp":Xp,"yp":ypf,"Xw":Xw,"yw":yw,
-            "Xl":Xl,"yl":yl,"orders":_root_orders(Xp,use),
+    return {"ss":ss,"layout":layout,"Xp":Xp,"yp":ypf,"wp":wp,"Xw":Xw,"yw":yw,"ww":ww,
+            "Xl":Xl,"yl":yl,"wl":wl,"orders":_root_orders(Xp,use),
             "ow":_root_orders(Xw,use),"ol":_root_orders(Xl,use),
             "prior":_fit_struct_prior(ss),"wins":len(win),"losses":len(loss),
             "dim":dim,"use":use}
@@ -1978,9 +2016,9 @@ def _fit_survival_distribution(samples,spec,manifold,fit_ctx=None):
     layout=ctx["layout"];idx=_idx_for_spec(layout,spec)
     kw={"rounds":spec["rounds"],"lr":spec["lr"],"max_rows":10**9,
         "max_depth":spec["depth"],"min_leaf":spec["min_leaf"]}
-    pm=_boost_train(ctx["Xp"],ctx["yp"],idx,root_orders=ctx["orders"],**kw)
-    wm=_boost_train(ctx["Xw"],ctx["yw"],idx,root_orders=ctx["ow"],**kw)
-    lm=_boost_train(ctx["Xl"],ctx["yl"],idx,root_orders=ctx["ol"],**kw)
+    pm=_boost_train(ctx["Xp"],ctx["yp"],idx,root_orders=ctx["orders"],weights=ctx["wp"],**kw)
+    wm=_boost_train(ctx["Xw"],ctx["yw"],idx,root_orders=ctx["ow"],weights=ctx["ww"],**kw)
+    lm=_boost_train(ctx["Xl"],ctx["yl"],idx,root_orders=ctx["ol"],weights=ctx["wl"],**kw)
     return {"type":"SURVIVAL_PWL_DISTRIBUTION","spec":spec,"layout":layout,"idx":idx,
             "p":pm,"w":wm,"l":lm,"manifold":manifold,
             "prior":ctx["prior"],"n":len(ctx["ss"]),
