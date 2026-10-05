@@ -1052,24 +1052,48 @@ def _hybrid_score_decisions(route_decisions,model):
     return out
 
 def _quick_candidate_eval(decisions,years,target):
-    """Cheap exact-runtime screen at three training-only coverage cutoffs."""
+    """Cheap exact-runtime screen at three training-only coverage cutoffs.
+
+    Performance contract: candidate scores are immutable inside this call, so
+    event grouping/order and per-year score order are prepared exactly once and
+    reused across all three cutoffs. This is semantically identical to calling
+    simulate() repeatedly; it only removes redundant grouping/sorting work.
+    """
+    yy=set(years)
     by=defaultdict(lambda:defaultdict(lambda:-math.inf))
+    event_seq=defaultdict(list)
     for e in decisions:
         s=e["s"];w=s["window"]
-        if w in years:
-            k=event_identity(s["setup"]);by[w][k]=max(by[w][k],float(e["score"]))
+        if w not in yy:continue
+        k=event_identity(s["setup"]);z=float(e["score"])
+        by[w][k]=max(by[w][k],z)
+        event_seq[(w,k)].append(e)
+
+    events_by_year=defaultdict(list)
+    for (w,_),ev in event_seq.items():
+        ev.sort(key=lambda e:(e["s"]["bar"],-e["score"],e["s"]["route"]))
+        events_by_year[w].append(ev)
+    year_vals={w:sorted(by[w].values(),reverse=True) for w in years}
+
+    def prepared_metrics(w,th):
+        sel=[]
+        for ev in events_by_year.get(w,()):
+            for e in ev:
+                if e["score"]+1e-12>=th:
+                    sel.append(e);break
+        return metric_selected(sel)[0]
+
     tests=[]
     for extra in (0,50,100):
-        limits=[]
-        ok=True
+        limits=[];ok=True
         for w in years:
-            vals=sorted(by[w].values(),reverse=True)
+            vals=year_vals[w]
             k=min(len(vals),max(MIN_N,int(target)+extra))
             if k<MIN_N or not vals:ok=False;break
             limits.append(vals[k-1])
         if not ok:continue
         th=min(limits)
-        tm={w:metric_selected(simulate(decisions,th,w))[0] for w in years}
+        tm={w:prepared_metrics(w,th) for w in years}
         if any(m["n"]<MIN_N for m in tm.values()):continue
         rank=_guard_rank(tm)
         tests.append((rank,th,tm))
@@ -1113,9 +1137,15 @@ def fit_hybrid_admission_sweep(route_decisions,contrastive_model,fit_years,eval_
         finalists=[]
         for _,cfg in quick[:6]:
             pri=prior_cache[cfg["shrink"]]
-            model={"type":"HYBRID_EVENT_ADMISSION_SWEEP","contrastive":contrastive_model,
-                   "config":cfg,"priors":pri}
-            dd=_hybrid_score_decisions(route_decisions,model)
+            # Exact component cache reuse: finalists use the same causal
+            # components already computed for the quick screen. Previously
+            # _hybrid_score_decisions() recomputed contrastive predictions and
+            # representatives six times per round with identical values.
+            dd=[]
+            for e,x in comp_cache[cfg["shrink"]]:
+                q=dict(e);q["score"]=_score_from_components(cfg["weights"],x)
+                q["pred"]=dict(e["pred"],hybrid_admission_score=q["score"])
+                dd.append(q)
             th,_,_,tm,worst=gate_calibrated_threshold(dd,eval_years,cfg["coverage_target"])
             rank=_guard_rank(tm)
             finalists.append((rank,th,tm,cfg,pri))
