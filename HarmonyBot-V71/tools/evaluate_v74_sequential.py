@@ -23,6 +23,20 @@ root=pathlib.Path(sys.argv[1]);out=pathlib.Path(sys.argv[2]);out.mkdir(parents=T
 RESEARCH=[f"Y{y}" for y in range(2016,2021)]
 BURNED=["Y2021","Y2022","Y2023"];ALL=RESEARCH+BURNED
 MIN_N=250;TRAIN_COVERAGE=275;MIN_MEAN=.90;MIN_PF=3.30;MIN_WR=.70;MIN_AVG_RR=2.30;LEGAL_MIN_RR=2.0;Z=1.645
+SWEEP_ROUNDS=10;SWEEP_CANDIDATES_PER_ROUND=100
+# Accepted-development results are fail-closed against the best authoritative
+# burned-OOF fast replay observed before this sweep (#134 / run 37252848131).
+# Experimental candidates may be worse; they can never replace this ledger.
+HISTORICAL_BEST_GUARD={
+ "run_id":37252848131,
+ "head_sha":"8025da81",
+ "worst_gate_margin":-0.05651506277777777,
+ "median_gate_margin":0.004264444444444444,
+ "min_mean_r":-0.0508635565,
+ "min_pf_r":0.928376,
+ "min_win_rate":0.283668,
+ "min_lcb_r":-0.18455
+}
 REGULAR_SOURCES=("EARLY","LATE");SOURCES=("EARLY","LATE","SURVIVAL","FAILURE");EARLY_QUALIFICATION_FRACTION="00";EARLY_FRACTIONS=(EARLY_QUALIFICATION_FRACTION,);LATE_FRACTIONS=("20","30");ALL_FRACTIONS=(EARLY_QUALIFICATION_FRACTION,)+LATE_FRACTIONS;MSTAGES=("05","10","15");EARLY_MSTAGES=MSTAGES;LATE_MSTAGES=MSTAGES
 BASES=[f"R{r}_{h}_RR{rr}" for r in ("025","050") for h in ("H","D") for rr in ("35","40")]
 TREE_KFEAT=30;PAIR_KFEAT=26;TREE_ROUNDS=10;PAIR_ROUNDS=8;TREE_DEPTH=3;TOP_PAIR=6
@@ -930,6 +944,204 @@ def score_contrastive_decisions(route_decisions,model):
       out.append(q)
     return out
 
+
+def _guard_rank(metrics_by_year):
+    ms=list(metrics_by_year.values())
+    if not ms:return (-999.0,)*6
+    gm=[gate_margin(m) for m in ms]
+    return (min(gm),statistics.median(gm),min(float(m["mean_r"]) for m in ms),
+            min(float(m["pf_r"]) for m in ms),min(float(m["win_rate"]) for m in ms),
+            min(float(m["lcb_r"]) for m in ms))
+
+def _q25_safe(v,default=0.0):
+    z=sorted(float(x) for x in v if math.isfinite(float(x)))
+    if not z:return default
+    return z[int(math.floor(.25*(len(z)-1)))]
+
+def _fit_robust_admission_priors(reps,fit_years,shrink):
+    """Training-only source/family priors with per-year shrinkage and Q25 pooling."""
+    yy=set(fit_years);rr=[e for e in reps if e["s"]["window"] in yy]
+    by_year=defaultdict(list)
+    for e in rr:by_year[e["s"]["window"]].append(e)
+    src_year=defaultdict(list);sf_year=defaultdict(list);globals_=[]
+    for w in fit_years:
+        ww=by_year.get(w,[])
+        if not ww:continue
+        gp=(sum(float(e["s"]["y"])>0.0 for e in ww)+1.0)/(len(ww)+2.0)
+        globals_.append(gp)
+        bsrc=defaultdict(list);bsf=defaultdict(list)
+        for e in ww:
+            s=e["s"];win=1.0 if float(s["y"])>0.0 else 0.0
+            bsrc[s.get("source","NONE")].append(win)
+            bsf[str((s.get("source","NONE"),s.get("family","NONE")))].append(win)
+        for k,v in bsrc.items():
+            src_year[k].append((sum(v)+float(shrink)*gp)/(len(v)+float(shrink)))
+        for k,v in bsf.items():
+            sf_year[k].append((sum(v)+float(shrink)*gp)/(len(v)+float(shrink)))
+    fallback=_q25_safe(globals_,.5)
+    return {"shrink":int(shrink),"fallback":fallback,
+            "source":{k:_q25_safe(v,fallback) for k,v in src_year.items()},
+            "source_family":{k:_q25_safe(v,fallback) for k,v in sf_year.items()}}
+
+def _admission_components(e,contrastive_model,priors):
+    """All components are causal at the current completed decision bar."""
+    s=e["s"];p=e["pred"];z=pred_contrastive_winner(contrastive_model,e)
+    con=list(s.get("admission_consensus",[]))
+    def cg(i,d=0.0):
+        try:return float(con[i])
+        except:return d
+    src=s.get("source","NONE");fam=s.get("family","NONE")
+    prior=float(priors.get("source_family",{}).get(str((src,fam)),
+                priors.get("source",{}).get(src,priors.get("fallback",.5))))
+    return [
+      2.0*(float(z.get("score",.5))-.5),
+      2.0*(float(z.get("median",.5))-.5),
+      2.0*(float(p.get("win",.5))-.5),
+      math.tanh(float(p.get("mean",0.0))/2.0),
+      math.tanh(float(p.get("lcb",0.0))/2.0),
+      2.0*(float(p.get("best_probability",.5))-.5),
+      -math.tanh(float(p.get("regret",0.0))/2.0),
+      math.tanh(float(p.get("stop_advantage",0.0))/2.0),
+      math.tanh(float(s.get("pair_advantage",0.0))),
+      math.tanh(2.0*float(s.get("decision_margin",0.0))),
+      2.0*(cg(5,.5)-.5),
+      2.0*(cg(7,.5)-.5),
+      2.0*(prior-.5)
+    ]
+
+def _score_from_components(w,x):
+    return sum(float(a)*float(b) for a,b in zip(w,x))
+
+def _lcg_values(seed,n):
+    x=int(seed)&0x7fffffff;out=[]
+    for _ in range(n):
+        x=(1103515245*x+12345)&0x7fffffff
+        out.append(x/2147483648.0)
+    return out
+
+def _norm_weights(v):
+    z=[max(1e-6,float(x)) for x in v];s=sum(z)
+    return [x/s for x in z]
+
+def _sweep_candidate(round_i,cand_i,center):
+    seed=7400003+(round_i+1)*100003+(cand_i+1)*1009
+    u=_lcg_values(seed,len(center)+3)
+    if round_i==0:
+        raw=[math.exp(2.4*(q-.5)) for q in u[:len(center)]]
+        raw[cand_i%len(raw)]*=2.75
+    else:
+        amp=max(.055,.55*(.72**round_i))
+        raw=[]
+        for j,b in enumerate(center):
+            raw.append(max(1e-5,float(b)*math.exp(amp*(2.0*u[j]-1.0))+
+                           .018*amp*(.25+u[(j+3)%len(center)])))
+        if cand_i==0:raw=list(center)
+    cover=(250,275,300,325,350)[int(u[-2]*5.0)%5]
+    shrink=(16,32,64,96)[int(u[-1]*4.0)%4]
+    return {"weights":_norm_weights(raw),"coverage_target":int(cover),"shrink":int(shrink),
+            "round":int(round_i+1),"candidate":int(cand_i+1)}
+
+def _hybrid_score_decisions(route_decisions,model):
+    reps=admission_route_representatives(route_decisions)
+    priors=model["priors"];w=model["config"]["weights"]
+    out=[]
+    for e in reps:
+        q=dict(e);q["score"]=_score_from_components(w,_admission_components(e,model["contrastive"],priors))
+        q["pred"]=dict(e["pred"],hybrid_admission_score=q["score"])
+        out.append(q)
+    return out
+
+def _quick_candidate_eval(decisions,years,target):
+    """Cheap exact-runtime screen at three training-only coverage cutoffs."""
+    by=defaultdict(lambda:defaultdict(lambda:-math.inf))
+    for e in decisions:
+        s=e["s"];w=s["window"]
+        if w in years:
+            k=event_identity(s["setup"]);by[w][k]=max(by[w][k],float(e["score"]))
+    tests=[]
+    for extra in (0,50,100):
+        limits=[]
+        ok=True
+        for w in years:
+            vals=sorted(by[w].values(),reverse=True)
+            k=min(len(vals),max(MIN_N,int(target)+extra))
+            if k<MIN_N or not vals:ok=False;break
+            limits.append(vals[k-1])
+        if not ok:continue
+        th=min(limits)
+        tm={w:metric_selected(simulate(decisions,th,w))[0] for w in years}
+        if any(m["n"]<MIN_N for m in tm.values()):continue
+        rank=_guard_rank(tm)
+        tests.append((rank,th,tm))
+    if not tests:return ((-999.0,)*6,-math.inf,{})
+    tests.sort(key=lambda z:(z[0],z[1]),reverse=True)
+    return tests[0]
+
+def fit_hybrid_admission_sweep(route_decisions,contrastive_model,fit_years,eval_years):
+    """10x100 deterministic training-only admission search.
+
+    Route arbitration stays frozen. The sweep only recombines causal event-level
+    signals and robust training priors. No burned/test row participates in the
+    candidate search for its own outer fold.
+    """
+    reps=admission_route_representatives(route_decisions)
+    prior_cache={s:_fit_robust_admission_priors(reps,fit_years,s) for s in (16,32,64,96)}
+    comp_cache={}
+    for shrink,pri in prior_cache.items():
+        comp_cache[shrink]=[(e,_admission_components(e,contrastive_model,pri)) for e in reps]
+
+    base_dec=score_contrastive_decisions(route_decisions,contrastive_model)
+    bth,_,_,btm,bworst=gate_calibrated_threshold(base_dec,eval_years,TRAIN_COVERAGE)
+    base_rank=_guard_rank(btm)
+    best={"rank":base_rank,"threshold":bth,"metrics":btm,
+          "config":None,"priors":None,"mode":"BASE_CONTRASTIVE"}
+    center=_norm_weights([1.35,1.10,1.00,.85,.95,.90,.75,.65,.40,.35,.45,.50,.80])
+    rounds=[]
+
+    for ri in range(SWEEP_ROUNDS):
+        quick=[]
+        for ci in range(SWEEP_CANDIDATES_PER_ROUND):
+            cfg=_sweep_candidate(ri,ci,center)
+            dd=[]
+            for e,x in comp_cache[cfg["shrink"]]:
+                dd.append({"score":_score_from_components(cfg["weights"],x),
+                           "route_rank":e.get("route_rank",-999.0),"pred":e["pred"],"s":e["s"]})
+            qr,_,_= _quick_candidate_eval(dd,eval_years,cfg["coverage_target"])
+            quick.append((qr,cfg))
+        quick.sort(key=lambda z:z[0],reverse=True)
+
+        finalists=[]
+        for _,cfg in quick[:6]:
+            pri=prior_cache[cfg["shrink"]]
+            model={"type":"HYBRID_EVENT_ADMISSION_SWEEP","contrastive":contrastive_model,
+                   "config":cfg,"priors":pri}
+            dd=_hybrid_score_decisions(route_decisions,model)
+            th,_,_,tm,worst=gate_calibrated_threshold(dd,eval_years,cfg["coverage_target"])
+            rank=_guard_rank(tm)
+            finalists.append((rank,th,tm,cfg,pri))
+        finalists.sort(key=lambda z:(z[0],z[1]),reverse=True)
+        rr,th,tm,cfg,pri=finalists[0]
+        center=list(cfg["weights"])
+        if rr>best["rank"]:
+            best={"rank":rr,"threshold":th,"metrics":tm,"config":cfg,
+                  "priors":pri,"mode":"HYBRID_EVENT_ADMISSION_SWEEP"}
+        rounds.append({"round":ri+1,"candidates":SWEEP_CANDIDATES_PER_ROUND,
+                       "best_rank":list(rr),"coverage_target":cfg["coverage_target"],
+                       "shrink":cfg["shrink"],"weights":[round(x,8) for x in cfg["weights"]]})
+        print("[V74-SWEEP]",json.dumps(rounds[-1],sort_keys=True),flush=True)
+
+    if best["mode"]=="BASE_CONTRASTIVE":
+        model={"type":"BASE_CONTRASTIVE","contrastive":contrastive_model}
+        final_dec=base_dec
+    else:
+        model={"type":"HYBRID_EVENT_ADMISSION_SWEEP","contrastive":contrastive_model,
+               "config":best["config"],"priors":best["priors"]}
+        final_dec=_hybrid_score_decisions(route_decisions,model)
+    return {"model":model,"decisions":final_dec,"threshold":best["threshold"],
+            "training_metrics":best["metrics"],"training_rank":list(best["rank"]),
+            "rounds":rounds,"evaluated_candidates":SWEEP_ROUNDS*SWEEP_CANDIDATES_PER_ROUND,
+            "baseline_rank":list(base_rank),"non_regression_vs_current_training":best["rank"]>=base_rank}
+
 def fit_policy(train_rows):
     samples=make_samples(train_rows)
     if len(samples)<1000:raise SystemExit("V74 insufficient legal action samples")
@@ -943,8 +1155,6 @@ def fit_policy(train_rows):
       ranked=stable_idx(ss,max(TREE_KFEAT,PAIR_KFEAT))
       vm=fit_value(ss,ranked[:TREE_KFEAT]);pm=fit_pair(ss,ranked[:PAIR_KFEAT])
       if not pm.get("valid"):continue
-      # Reliability is a causal training-only shrinkage term. It cannot improve a
-      # weak head by invention; it only shrinks low-support heads toward their LCB.
       years=sorted({s["window"] for s in ss})
       counts=[sum(1 for s in ss if s["window"]==w) for w in years]
       reliability=min(1.0,min(counts)/750.0) if counts else 0.0
@@ -956,12 +1166,12 @@ def fit_policy(train_rows):
     if not heads:raise SystemExit("V74 no valid mechanism-native heads")
     route_dec=mechanism_decisions(samples,heads)
     yrs=sorted({r["window"] for r in train_rows})
-    # Hold the most recent training year out of the admission model itself. It
-    # remains available to threshold calibration as a temporal transfer check.
     adm_fit_years=yrs[:-1] if len(yrs)>=3 else yrs
-    admission_model=fit_contrastive_winner_ranker(route_dec,adm_fit_years)
-    dec=score_contrastive_decisions(route_dec,admission_model)
-    th,limits,supply,tm,worst=gate_calibrated_threshold(dec,yrs,TRAIN_COVERAGE)
+    contrastive=fit_contrastive_winner_ranker(route_dec,adm_fit_years)
+    sweep=fit_hybrid_admission_sweep(route_dec,contrastive,adm_fit_years,yrs)
+    admission_model=sweep["model"];dec=sweep["decisions"]
+    target=(admission_model.get("config") or {}).get("coverage_target",TRAIN_COVERAGE)
+    th,limits,supply,tm,worst=gate_calibrated_threshold(dec,yrs,target)
     training_gate=all(gate(m) for m in tm.values())
     reps=admission_route_representatives(route_dec)
     training_oracle_admission={}
@@ -973,12 +1183,23 @@ def fit_policy(train_rows):
             "training_coverage_limits":limits,"training_supply":supply,
             "training_metrics":tm,"training_worst_gate_margin":worst,
             "training_oracle_admission":training_oracle_admission,
-            "training_gate":training_gate,"coverage_target":TRAIN_COVERAGE},samples
+            "training_gate":training_gate,"coverage_target":target,
+            "admission_sweep":{"rounds":sweep["rounds"],
+              "evaluated_candidates":sweep["evaluated_candidates"],
+              "training_rank":sweep["training_rank"],
+              "baseline_rank":sweep["baseline_rank"],
+              "non_regression_vs_current_training":sweep["non_regression_vs_current_training"],
+              "selected_mode":admission_model["type"],
+              "selected_config":admission_model.get("config")}},samples
 
 def apply_policy(policy,test_rows):
     samples=make_samples(test_rows)
     route_dec=mechanism_decisions(samples,policy["mechanism_heads"])
-    dec=score_contrastive_decisions(route_dec,policy["admission_model"])
+    am=policy["admission_model"]
+    if am.get("type")=="HYBRID_EVENT_ADMISSION_SWEEP":
+        dec=_hybrid_score_decisions(route_dec,am)
+    else:
+        dec=score_contrastive_decisions(route_dec,am.get("contrastive",am))
     sel=simulate(dec,policy["threshold"])
     return sel,samples,dec
 
@@ -1046,7 +1267,7 @@ def two_axis_oracle_diagnostic(test_samples,dec,sel):
 
 checks=telemetry_guard()
 summary={"version":"HarmonyBot V74 One-Shot Family-Native Causal Action Selector",
- "architecture":"STRICT_WALK_FORWARD_CAUSAL_ROUTE_PLUS_YEAR_BALANCED_CONTRASTIVE_WINNER_RANKING",
+ "architecture":"STRICT_WALK_FORWARD_CAUSAL_ROUTE_PLUS_10X100_EVENT_ADMISSION_BREAKTHROUGH_SWEEP",
  "gate":{"min_selected_per_year":MIN_N,"min_mean_r":MIN_MEAN,"min_pf_r":MIN_PF,
          "min_win_rate":MIN_WR,"min_average_rr":MIN_AVG_RR,"lcb95_gt":0.0},
  "research_training_windows":RESEARCH,"burned_oof_windows":BURNED,
@@ -1054,7 +1275,7 @@ summary={"version":"HarmonyBot V74 One-Shot Family-Native Causal Action Selector
            "harmonic_completion":"DIRECTION_TIME_D_EVENT_IDENTITY__MULTI_GEOMETRY_IS_CONFLUENCE_NOT_SUPPLY",
            "reaction_state":"CAUSAL_FEATURE_NOT_HARD_FILTER","physical_route_contract":"EVENT_NATIVE_CANONICAL_EVENT_FULL_COMPLETED_BAR_ENTRY_TIMING__EARLY_F00_M05_M10_M15__LATE_PREENTRY_F20_F30__SURVIVAL_FRESH__NETRR_GE230","v75_management_variants_excluded":True,"all_entry_maturity_stages_completed_bar_only":True,
            "route_choice":"STRICT_WALK_FORWARD_NONLINEAR_STABLE_EVENT_REGRET_PLUS_BEST_ACTION_PROBABILITY","optimal_stopping":"FIRST_MATURED_EVENT_BAR_CROSSING_TRAINING_ONLY_CONTRASTIVE_ADMISSION_THRESHOLD",
-           "admission":"YEAR_BALANCED_WITHIN_YEAR_WINNER_MINUS_LOSER_RANKING__ROBUST_Q25_VS_TRAINING_LOSER_ANCHORS",
+           "admission":"EVENT_LEVEL_HYBRID_CAUSAL_RANKING__10_ROUNDS_X_100__TRAINING_ONLY_NON_REGRESSION",
            "training_coverage_target_per_year":TRAIN_COVERAGE,
            "family_hierarchy":"WITHIN_MECHANISM_GLOBAL_TO_FAMILY_TO_FAMILY_ACTION_TO_FAMILY_BASE_SHRINKAGE",
            "no_trigger_posttrigger_lock_future_state":True,
@@ -1080,6 +1301,7 @@ def evaluate_burned_fold(test):
       "training_gate":policy.get("training_gate"),"training_worst_gate_margin":policy.get("training_worst_gate_margin"),
       "training_supply":policy["training_supply"],"training_year_metrics":policy["training_metrics"],
       "training_oracle_admission":policy.get("training_oracle_admission",{}),
+      "admission_sweep":policy.get("admission_sweep",{}),
       "test_legal_actions":len(test_samples),"test_decision_events":len(dec),
       "two_axis_oracle":two_axis,
       "score_threshold_oracle":score_threshold_oracle,
@@ -1116,13 +1338,26 @@ for test,fold,policy in fold_results:
 
 alpha=bool(allpass)
 champ="STRICT_WALK_FORWARD_CAUSAL_ROUTE_PLUS_OPTIMAL_STOPPING_ADMISSION" if alpha else None
+fold_metrics={w:{k:summary["folds"][w][k] for k in ("n","mean_r","pf_r","win_rate","average_rr","lcb_r")}
+              for w in BURNED}
+current_rank=_guard_rank(fold_metrics)
+historical_rank=(HISTORICAL_BEST_GUARD["worst_gate_margin"],HISTORICAL_BEST_GUARD["median_gate_margin"],
+                 HISTORICAL_BEST_GUARD["min_mean_r"],HISTORICAL_BEST_GUARD["min_pf_r"],
+                 HISTORICAL_BEST_GUARD["min_win_rate"],HISTORICAL_BEST_GUARD["min_lcb_r"])
+non_regression=bool(current_rank>=historical_rank)
+summary["historical_best_guard"]={"baseline":HISTORICAL_BEST_GUARD,
+ "current_rank":list(current_rank),"historical_rank":list(historical_rank),
+ "non_regression_pass":non_regression,
+ "accepted_development_source":"CURRENT_SWEEP" if non_regression else "HISTORICAL_RUN_37252848131",
+ "rule":"EXPERIMENTS_MAY_FAIL__ACCEPTED_DEVELOPMENT_CHAMPION_MUST_NOT_REGRESS"}
+print("[V74-NONREGRESSION]",json.dumps(summary["historical_best_guard"],sort_keys=True),flush=True)
 summary["evaluator_runtime_seconds"]=round(time.perf_counter()-t0,3)
 summary["parallel_fold_execution"]=parallel_used
 summary["parallel_fold_workers"]=min(len(BURNED),max(1,int(os.cpu_count() or 1))) if parallel_used else 1
 summary["alpha_gate"]=alpha;summary["alpha_champion"]=champ
 summary["execution_semantics_ready"]=False;summary["v74_gate"]=False;summary["champion"]=None
 summary["promotion_blocker"]="ONE_SHOT_RUNTIME_POLICY_NOT_FROZEN" if alpha else "ALPHA_OOF_GATE_FAIL"
-summary["positive_asset"]="ONE_SHOT_CAUSAL_ALPHA_OOF" if alpha else "NO_MODEL_EARNED_VERSION_PROMOTION"
+summary["positive_asset"]="ONE_SHOT_CAUSAL_ALPHA_OOF" if alpha else ("IMPROVED_BURNED_DEVELOPMENT_CANDIDATE" if non_regression else "HISTORICAL_BEST_RETAINED__NEW_CANDIDATE_REJECTED")
 (out/"V74_TOURNAMENT_MANIFEST.json").write_text(json.dumps(summary,indent=2))
 (out/"V74_MODELS.json").write_text(json.dumps(models,indent=2))
 (out/"alpha_pass.txt").write_text("true" if alpha else "false")
