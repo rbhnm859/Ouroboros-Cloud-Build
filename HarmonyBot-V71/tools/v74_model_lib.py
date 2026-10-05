@@ -51,10 +51,11 @@ def _build_route_keys(fracs):
 SEQUENTIAL_KEYS=_build_route_keys(("00","10","20","30"))
 LATE_AUCTION_KEYS=_build_route_keys(("20","30"))
 SURVIVAL_FRESH_KEYS=[
-    f"R{r}_F{f}_RR{rr}"
+    f"R{r}_F{f}_RR{rr}{suffix}"
     for r in ("025","050","075","100")
     for f in ("236","382","500","618","786")
     for rr in ("23","25")
+    for suffix in ("","_C1")
 ]
 
 def event_identity(setup):
