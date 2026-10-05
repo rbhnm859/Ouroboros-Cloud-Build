@@ -17,7 +17,7 @@ on:
       - 'HarmonyBot-V73/V73_RESEARCH_CUSTODY.json'
 
 concurrency:
-  group: harmonybot-v74-rapid-decision-${{ github.head_ref || github.ref }}
+  group: harmonybot-v74-rapid-decision-v2-${{ github.head_ref || github.ref }}
   # Rapid is triggered only by execution/data-semantic paths. A newer Rapid
   # therefore supersedes an older semantic universe for the same branch.
   cancel-in-progress: true
