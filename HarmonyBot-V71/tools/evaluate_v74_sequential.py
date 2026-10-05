@@ -1371,16 +1371,21 @@ def _pred_struct_prior(pr,s):
     return sum(z)/len(z) if z else fb
 
 def _structural_specs():
+    """Broad but bounded causal architecture bank.
+
+    The dimensions change representation capacity, target semantics and
+    regularisation. They are architecture alternatives, not score-weight aliases.
+    """
     specs=[];sid=0
-    for kfeat in (16,24,32):
-      for depth in (1,2):
+    for kfeat in (12,18,24,32,40):
+      for depth in (1,2,3):
         for aux in ("VALUE","STRONG"):
-          variant=sid%2
-          specs.append({"id":sid,"kfeat":kfeat,"depth":depth,"aux":aux,
-                        "rounds":8+3*depth+2*variant,
-                        "lr":.055 if variant==0 else .085,
-                        "min_leaf":24 if variant==0 else 40})
-          sid+=1
+          for reg in ("TIGHT","FLEX"):
+            specs.append({"id":sid,"kfeat":kfeat,"depth":depth,"aux":aux,
+              "rounds":6+3*depth+(2 if reg=="FLEX" else 0),
+              "lr":.045 if reg=="TIGHT" else .075,
+              "min_leaf":52 if reg=="TIGHT" else 28})
+            sid+=1
     return specs
 
 def _fit_structural_head(samples,spec):
@@ -1443,8 +1448,12 @@ def _struct_candidate(ri,ci,center,nmodels):
     u=_lcg_values(seed,16)
     if center is None or ri==0:
       ids=[]
-      for z in u[:3]:
-        k=int(z*nmodels)%nmodels
+      # Stratify the initial population across the full topology bank so round
+      # one explores materially different capacity/target/regularisation cells.
+      stride=max(1,nmodels//3)
+      base=(ci*7+int(u[0]*nmodels))%nmodels
+      for off in (0,stride,2*stride):
+        k=(base+off)%nmodels
         while k in ids:k=(k+1)%nmodels
         ids.append(k)
       ww=_norm_weights([.2+.8*u[3],.2+.8*u[4],.2+.8*u[5]])
