@@ -17,7 +17,7 @@ profit-capture and Grid/capital-capacity mechanics are intentionally excluded.
 import bisect,json,math,os,pathlib,statistics,sys,time,multiprocessing as mp
 # V74 performance-engine generation: immutable-prebuild/shared-inner-context-v1
 from collections import defaultdict,Counter
-from v74_model_lib import load_rows,metrics,SEQUENTIAL_STATE_FEATURE_COUNT,SURVIVAL_MORPH_FEATURE_COUNT,FAMILIES,SURVIVAL_FRESH_KEYS
+from v74_model_lib import load_rows,metrics,SEQUENTIAL_STATE_FEATURE_COUNT,SURVIVAL_MORPH_FEATURE_COUNT,SURVIVAL_PATH_V2_FEATURE_COUNT,FAMILIES,SURVIVAL_FRESH_KEYS
 from v74_model_lib import event_identity
 from harmonic_precision_contract import harmonic_precision_vector
 
@@ -1871,6 +1871,9 @@ def _survival_vector(s,manifold):
     delta=[float(ee[i])-float(aa[i]) for i in _SURVIVAL_STATE_FEATURES]
     q=row.get("survival_fresh_morphology",{}).get(sf)
     morph=[float(x) for x in q] if q is not None and len(q)==SURVIVAL_MORPH_FEATURE_COUNT else [0.0]*SURVIVAL_MORPH_FEATURE_COUNT
+    pv=row.get("survival_fresh_path_v2",{}).get(sf)
+    path_v2=[float(x) for x in pv] if pv is not None and len(pv)==SURVIVAL_PATH_V2_FEATURE_COUNT else [0.0]*SURVIVAL_PATH_V2_FEATURE_COUNT
+    path_v2_present=1.0 if pv is not None and len(pv)==SURVIVAL_PATH_V2_FEATURE_COUNT else 0.0
     rb=row.get("survival_fresh_reaction_bar",{}).get(sf,-1)
     pb=row.get("survival_fresh_pullback_bar",{}).get(sf,-1)
     tb=row.get("survival_fresh_trigger_bar",{}).get(sf,-1)
@@ -1881,11 +1884,12 @@ def _survival_vector(s,manifold):
     manifold_x=_manifold_features(s,manifold)
     parts={
       "core":core,"harmonic":hp,"route":route,"morphology":morph,
+      "path_v2":path_v2+[path_v2_present],
       "timing":timing,"entry_state":entry,"state_delta":delta,
       "regime":regime,"manifold":manifold_x
     }
     x=[];layout={};p=0
-    for name in ("core","harmonic","route","morphology","timing","entry_state","state_delta","regime","manifold"):
+    for name in ("core","harmonic","route","morphology","path_v2","timing","entry_state","state_delta","regime","manifold"):
         z=parts[name];layout[name]=(p,p+len(z));x.extend(z);p+=len(z)
     rid=max(range(len(_REGIME_PROTOTYPES)),key=lambda i:regime[len(_REGIME_PROTOTYPES)+i])
     return x,layout,rid
@@ -1901,10 +1905,10 @@ def _survival_specs():
     # Group-preserving architecture alternatives.  No univariate pre-screening:
     # interaction-only signals survive into the tree learner.
     group_sets=(
-      ("core","harmonic","route","morphology","timing","entry_state","state_delta","regime","manifold"),
-      ("harmonic","route","morphology","timing","entry_state","state_delta","regime","manifold"),
-      ("core","harmonic","route","morphology","regime","manifold"),
-      ("harmonic","route","morphology","entry_state","state_delta","regime","manifold"),
+      ("core","harmonic","route","morphology","path_v2","timing","entry_state","state_delta","regime","manifold"),
+      ("harmonic","route","morphology","path_v2","timing","entry_state","state_delta","regime","manifold"),
+      ("core","harmonic","route","morphology","path_v2","regime","manifold"),
+      ("harmonic","route","morphology","path_v2","entry_state","state_delta","regime","manifold"),
     )
     out=[];sid=0
     for groups in group_sets:
