@@ -271,6 +271,10 @@ namespace cAlgo.Robots
             public string[] V74SurvivalFreshMaturityStateCsv = new string[V74SurvivalFreshKey.Length];
             public string[] V74SurvivalFreshEntryStateCsv = new string[V74SurvivalFreshKey.Length];
             public string[] V74SurvivalFreshMorphologyCsv = new string[V74SurvivalFreshKey.Length];
+            // V74 path-information V2: frozen at the causal fresh-entry decision bar.
+            // These are online sufficient statistics of completed M1 bars only; no
+            // post-entry price, MFE/MAE, TP/SL or outcome can enter this vector.
+            public string[] V74SurvivalFreshPathV2Csv = new string[V74SurvivalFreshKey.Length];
 
             // V74 V12: event-native post-stop failure continuation. The original
             // harmonic reversal remains a -1R outcome; this is a distinct fresh,
@@ -869,6 +873,56 @@ namespace cAlgo.Robots
             }
         }
 
+        private double[] V74SurvivalPathV2(V72HcogOpportunity o,int i,int reactionBar,int pullbackBar,
+            double fibPrice,double impulseExtreme,double pullbackExtreme)
+        {
+            // Path-space sufficient statistics, all measurable at completed bar i.
+            // The window begins at the causal reaction observation, never after entry.
+            int n=Math.Max(1,Math.Min(60,o.BarsActive-reactionBar+1));
+            int start=Math.Max(1,i-n+1);
+            bool buy=o.Direction==TradeDirection.Buy;
+            double atr=Math.Max(_symbol.PipSize,Atr(_m1Bars,14,i));
+            double risk=Math.Max(_symbol.PipSize,o.RiskDistance);
+            double signedNet=0,absVar=0,sqVar=0,pos=0,neg=0,turns=0;
+            double maxFav=double.NegativeInfinity,maxAdv=double.NegativeInfinity;
+            double prevStep=0,curv=0,przOcc=0,reclaimOcc=0,closeLocSum=0,rangeSum=0;
+            for(int j=start;j<=i;j++)
+            {
+                double op=_m1Bars.OpenPrices[j],cl=_m1Bars.ClosePrices[j],hi=_m1Bars.HighPrices[j],lo=_m1Bars.LowPrices[j];
+                double pc=_m1Bars.ClosePrices[j-1];
+                double step=(buy?cl-pc:pc-cl)/risk;
+                signedNet+=step;absVar+=Math.Abs(step);sqVar+=step*step;
+                if(step>0)pos++;else if(step<0)neg++;
+                if(j>start&&step*prevStep<0)turns++;
+                if(j>start)curv+=Math.Abs(step-prevStep);
+                prevStep=step;
+                double fav=(buy?hi-o.Entry:o.Entry-lo)/risk;
+                double adv=(buy?o.Entry-lo:hi-o.Entry)/risk;
+                maxFav=Math.Max(maxFav,fav);maxAdv=Math.Max(maxAdv,adv);
+                double range=Math.Max(_symbol.PipSize,hi-lo);
+                closeLocSum+=buy?(cl-lo)/range:(hi-cl)/range;
+                rangeSum+=range/atr;
+                bool touchesPrz=hi+_symbol.PipSize>=o.Signal.PrzLow&&lo-_symbol.PipSize<=o.Signal.PrzHigh;
+                if(touchesPrz)przOcc++;
+                if(buy?cl>=fibPrice:cl<=fibPrice)reclaimOcc++;
+            }
+            double nn=Math.Max(1,i-start+1);
+            double eff=Math.Abs(signedNet)/Math.Max(1e-9,absVar);
+            double rv=Math.Sqrt(Math.Max(0,sqVar));
+            double imbalance=(pos-neg)/nn;
+            double duration=Math.Max(0,o.BarsActive-reactionBar);
+            double pullAge=pullbackBar>=0?Math.Max(0,o.BarsActive-pullbackBar):duration;
+            double impulse=Math.Max(_symbol.PipSize,Math.Abs(impulseExtreme-o.Entry));
+            double pbDepth=buy?(impulseExtreme-pullbackExtreme)/impulse:(pullbackExtreme-impulseExtreme)/impulse;
+            return new[]{
+                VClamp((signedNet+3.0)/6.0),VClamp(absVar/6.0),VClamp(rv/3.0),VClamp(eff),
+                VClamp((imbalance+1.0)/2.0),VClamp(turns/Math.Max(1.0,nn-1.0)),VClamp(curv/6.0),
+                VClamp((maxFav+1.0)/4.0),VClamp(maxAdv/3.0),VClamp(przOcc/nn),VClamp(reclaimOcc/nn),
+                VClamp(closeLocSum/nn),VClamp(rangeSum/nn/3.0),VClamp(duration/60.0),VClamp(pullAge/30.0),
+                VClamp(pbDepth/1.5)
+            };
+        }
+
         private void V74UpdateSurvivalFresh(V72HcogOpportunity o,int i,bool nativeStop,bool nativeTarget)
         {
             if(o==null||o.RiskDistance<=0||i<1||i>=_m1Bars.Count)return;
@@ -1041,6 +1095,10 @@ namespace cAlgo.Robots
                     .Select(v=>v.ToString("R",System.Globalization.CultureInfo.InvariantCulture)));
                 o.V74SurvivalFreshEntryStateCsv[k]=string.Join(",",V74RouteStateFeatures(
                     o,i,entry,risk,target,0,0,0,reactionR)
+                    .Select(v=>v.ToString("R",System.Globalization.CultureInfo.InvariantCulture)));
+                o.V74SurvivalFreshPathV2Csv[k]=string.Join(",",V74SurvivalPathV2(
+                    o,i,o.V74SurvivalFreshReactionBar[k],o.V74SurvivalFreshPullbackBar[k],
+                    fibPrice,impulseExtreme,pullbackExtreme)
                     .Select(v=>v.ToString("R",System.Globalization.CultureInfo.InvariantCulture)));
 
                 o.V74SurvivalFreshPending[k]=false;o.V74SurvivalFreshActive[k]=true;
@@ -1685,6 +1743,7 @@ namespace cAlgo.Robots
                 sfParts.Add("tb"+k+"="+o.V74SurvivalFreshTriggerBar[k].ToString(System.Globalization.CultureInfo.InvariantCulture));
                 sfParts.Add("e"+k+"="+(string.IsNullOrWhiteSpace(o.V74SurvivalFreshEntryStateCsv[k])?"NONE":o.V74SurvivalFreshEntryStateCsv[k]));
                 sfParts.Add("q"+k+"="+(string.IsNullOrWhiteSpace(o.V74SurvivalFreshMorphologyCsv[k])?"NONE":o.V74SurvivalFreshMorphologyCsv[k]));
+                sfParts.Add("p"+k+"="+(string.IsNullOrWhiteSpace(o.V74SurvivalFreshPathV2Csv[k])?"NONE":o.V74SurvivalFreshPathV2Csv[k]));
                 sfParts.Add("b"+k+"="+(double.IsFinite(o.V74SurvivalFreshOutcomeR[k])?o.V74SurvivalFreshOutcomeR[k].ToString("R",System.Globalization.CultureInfo.InvariantCulture):"NA"));
                 sfParts.Add("rr"+k+"="+o.V74SurvivalFreshNetRr[k].ToString("R",System.Globalization.CultureInfo.InvariantCulture));
                 sfParts.Add("re"+k+"="+o.V74SurvivalFreshReactionBar[k].ToString(System.Globalization.CultureInfo.InvariantCulture));
