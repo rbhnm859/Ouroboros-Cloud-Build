@@ -1668,7 +1668,7 @@ def two_axis_oracle_diagnostic(test_samples,dec,sel):
 
 checks=telemetry_guard()
 summary={"version":"HarmonyBot V74 One-Shot Family-Native Causal Action Selector",
- "architecture":"STRICT_WALK_FORWARD_CAUSAL_ROUTE_PLUS_100X100_REGIME_EXPERT_EVENT_ADMISSION_BREAKTHROUGH_SWEEP",
+ "architecture":"STRICT_NESTED_WALK_FORWARD_OOF_ROUTE_PLUS_NONLINEAR_ADMISSION_ARCHITECTURE_BANK_10X100",
  "gate":{"min_selected_per_year":MIN_N,"min_mean_r":MIN_MEAN,"min_pf_r":MIN_PF,
          "min_win_rate":MIN_WR,"min_average_rr":MIN_AVG_RR,"lcb95_gt":0.0},
  "research_training_windows":RESEARCH,"burned_oof_windows":BURNED,
@@ -1676,7 +1676,7 @@ summary={"version":"HarmonyBot V74 One-Shot Family-Native Causal Action Selector
            "harmonic_completion":"DIRECTION_TIME_D_EVENT_IDENTITY__MULTI_GEOMETRY_IS_CONFLUENCE_NOT_SUPPLY",
            "reaction_state":"CAUSAL_FEATURE_NOT_HARD_FILTER","physical_route_contract":"EVENT_NATIVE_CANONICAL_EVENT_FULL_COMPLETED_BAR_ENTRY_TIMING__EARLY_F00_M05_M10_M15__LATE_PREENTRY_F20_F30__SURVIVAL_FRESH__NETRR_GE230","v75_management_variants_excluded":True,"all_entry_maturity_stages_completed_bar_only":True,
            "route_choice":"STRICT_WALK_FORWARD_NONLINEAR_STABLE_EVENT_REGRET_PLUS_BEST_ACTION_PROBABILITY","optimal_stopping":"FIRST_MATURED_EVENT_BAR_CROSSING_TRAINING_ONLY_CONTRASTIVE_ADMISSION_THRESHOLD",
-           "admission":"EVENT_LEVEL_HYBRID_CAUSAL_RANKING__100_ROUNDS_X_100__YEAR_EXPERT_REGIME_ROBUST__TRAINING_ONLY_NON_REGRESSION",
+           "admission":"NESTED_WALK_FORWARD_OOF_NONLINEAR_ARCHITECTURE_BANK__10_ROUNDS_X_100__FULL_CAUSAL_ADMISSION_X__OUTCOME_FREE_THRESHOLD_TRANSFER",
            "training_coverage_target_per_year":TRAIN_COVERAGE,
            "family_hierarchy":"WITHIN_MECHANISM_GLOBAL_TO_FAMILY_TO_FAMILY_ACTION_TO_FAMILY_BASE_SHRINKAGE",
            "no_trigger_posttrigger_lock_future_state":True,
@@ -1749,7 +1749,7 @@ non_regression=bool(current_rank>=historical_rank)
 summary["historical_best_guard"]={"baseline":HISTORICAL_BEST_GUARD,
  "current_rank":list(current_rank),"historical_rank":list(historical_rank),
  "non_regression_pass":non_regression,
- "accepted_development_source":"CURRENT_SWEEP" if non_regression else "HISTORICAL_RUN_37252848131",
+ "accepted_development_source":"CURRENT_SWEEP" if non_regression else ("HISTORICAL_RUN_"+str(HISTORICAL_BEST_GUARD["run_id"])),
  "rule":"EXPERIMENTS_MAY_FAIL__ACCEPTED_DEVELOPMENT_CHAMPION_MUST_NOT_REGRESS"}
 print("[V74-NONREGRESSION]",json.dumps(summary["historical_best_guard"],sort_keys=True),flush=True)
 summary["evaluator_runtime_seconds"]=round(time.perf_counter()-t0,3)
