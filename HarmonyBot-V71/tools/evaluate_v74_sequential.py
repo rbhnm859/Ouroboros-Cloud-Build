@@ -1723,73 +1723,375 @@ def _score_structural_decisions(route_decisions,model):
       out.append(q)
     return out
 
+
+# ---------------------------------------------------------------------------
+# V74 Harmonic Survival State-Space Alpha V1
+# ---------------------------------------------------------------------------
+# Root-cause rearchitecture.  Harmonic completion remains the setup identity;
+# capital admission is learned only from the empirically feasible SURVIVAL lane.
+# EARLY/LATE/FAILURE remain in telemetry as shadow mechanisms and are never
+# blanket-blacklisted from future research.  All inputs are completed-bar causal.
+
+_SURVIVAL_CORE_FEATURES=(0,1,2,3,4,6,7,8,9,10,11,12,13,14,15,16,19,21,23,24,25,26,27,28,29,30,
+                         32,33,34,35,36,37,38,39,40,41,42,43,44,45,46,47,48,49,50,51,52)
+_SURVIVAL_STATE_FEATURES=(5,6,7,12,13,14,15,16,17,18,19,20,21,24,25,26,27,28,29,30,31,32,33,34,
+                          35,36,37,38,42,43,44,45,46,47,48,49,50,51,52,53,54,55,56,57,58,59,60,61,62,63)
+
+def _sf_key(s):
+    b=str(s.get("base",""))
+    return b[len("SURVIVAL_"):] if b.startswith("SURVIVAL_") else str(s.get("route","")).split("|")[-1]
+
+def _sf_route_coordinates(key):
+    parts=str(key).split("_")
+    try:r=float(parts[0][1:])/100.0
+    except:r=.50
+    try:f=float(parts[1][1:])/1000.0
+    except:f=.50
+    try:rr=float(parts[2][2:])/10.0
+    except:rr=2.30
+    c1=1.0 if str(key).endswith("_C1") else 0.0
+    # Continuous Fibonacci coordinates replace the former 80-way one-hot
+    # representation inside the primary Alpha model.  Smooth polynomial/Fourier
+    # terms preserve neighbourhood structure: F382 is closer to F500 than F786.
+    return [r,f,rr,c1,r*f,r*r,f*f,abs(f-.618),abs(f-.500),
+            math.sin(math.pi*f),math.cos(math.pi*f),rr-2.30,c1*f,c1*r]
+
+_REGIME_PROTOTYPES=(
+    (.15,.20,.05,.35), # calm/range
+    (.30,.50,.10,.45), # active/range
+    (.75,.55,.05,.75), # directional trend
+    (.55,.62,.95,.50), # transition
+    (.65,.90,.70,.35), # shock/high vol
+)
+
+def _norm_prob(v):
+    s=sum(max(0.0,float(x)) for x in v)
+    if s<=1e-18:return [1.0/len(v)]*len(v)
+    return [max(0.0,float(x))/s for x in v]
+
+def _regime_emission(state):
+    z=list(state or [])
+    def g(i,d=.0):
+        try:return float(z[i])
+        except:return d
+    # All four coordinates are completed-bar observables from V74RouteStateFeatures.
+    obs=(g(16,.5),g(19,.5),g(21,0.0),g(35,.5))
+    sig=.30
+    raw=[math.exp(-sum((obs[j]-p[j])**2 for j in range(4))/(2.0*sig*sig))
+         for p in _REGIME_PROTOTYPES]
+    return _norm_prob(raw)
+
+def _regime_forward(maturity,entry):
+    """Two-observation forward-only latent-state filter; never future-smoothed."""
+    p0=_regime_emission(maturity)
+    trans_obs=0.0
+    try:trans_obs=float((maturity or [])[21])
+    except:pass
+    stay=.80-.20*max(0.0,min(1.0,trans_obs))
+    k=len(p0);pred=[]
+    for j in range(k):
+        v=0.0
+        for i in range(k):
+            tij=stay if i==j else (1.0-stay)/(k-1)
+            v+=p0[i]*tij
+        pred.append(v)
+    e1=_regime_emission(entry)
+    p1=_norm_prob([pred[i]*e1[i] for i in range(k)])
+    def ent(p):
+        return -sum(x*math.log(max(x,1e-15)) for x in p)/math.log(len(p))
+    change=sum(abs(p1[i]-p0[i]) for i in range(k))/2.0
+    return p0+p1+[ent(p0),ent(p1),change,max(p1)]
+
+def _mat_inverse(a):
+    n=len(a);m=[list(map(float,a[i]))+[1.0 if i==j else 0.0 for j in range(n)] for i in range(n)]
+    for col in range(n):
+        piv=max(range(col,n),key=lambda r:abs(m[r][col]))
+        if abs(m[piv][col])<1e-12:return None
+        m[col],m[piv]=m[piv],m[col]
+        d=m[col][col];m[col]=[x/d for x in m[col]]
+        for r in range(n):
+            if r==col:continue
+            q=m[r][col]
+            if abs(q)>1e-18:m[r]=[m[r][j]-q*m[col][j] for j in range(2*n)]
+    return [row[n:] for row in m]
+
+def _fit_family_manifold(samples):
+    """Training-only 5D Fibonacci residual covariance with shrinkage/ridge."""
+    by=defaultdict(list);allr=[]
+    for s in samples:
+        r=list(_precision_vector(s["row"])[:5]);by[s["family"]].append(r);allr.append(r)
+    def fit(v):
+        if not v:return [[1.0 if i==j else 0.0 for j in range(5)] for i in range(5)]
+        n=len(v);cov=[[sum(x[i]*x[j] for x in v)/n for j in range(5)] for i in range(5)]
+        lam=.30
+        for i in range(5):
+            for j in range(5):
+                if i!=j:cov[i][j]*=(1.0-lam)
+            cov[i][i]=max(1e-5,cov[i][i]+1e-4)
+        inv=_mat_inverse(cov)
+        return inv or [[1.0 if i==j else 0.0 for j in range(5)] for i in range(5)]
+    glob=fit(allr)
+    return {"global":glob,"family":{fam:fit(v if len(v)>=24 else allr) for fam,v in by.items()}}
+
+def _manifold_features(s,manifold):
+    r=list(_precision_vector(s["row"])[:5])
+    inv=manifold.get("family",{}).get(s["family"],manifold["global"])
+    q=[sum(inv[i][j]*r[j] for j in range(5)) for i in range(5)]
+    d=math.sqrt(max(0.0,sum(r[i]*q[i] for i in range(5))))
+    # bounded normal coordinates + Mahalanobis distance
+    return [math.tanh(d/3.0)]+[math.tanh(v) for v in q]
+
+def _survival_vector(s,manifold):
+    row=s["row"];base=list(row.get("features",[]))
+    core=[float(base[i]) if i<len(base) else 0.0 for i in _SURVIVAL_CORE_FEATURES]
+    hp=list(_precision_vector(row))
+    sf=_sf_key(s);route=_sf_route_coordinates(sf)
+    a=row.get("survival_fresh_maturity_state",{}).get(sf)
+    e=row.get("survival_fresh_entry_state",{}).get(sf)
+    aa=list(a) if a is not None and len(a)==SEQUENTIAL_STATE_FEATURE_COUNT else [0.0]*SEQUENTIAL_STATE_FEATURE_COUNT
+    ee=list(e) if e is not None and len(e)==SEQUENTIAL_STATE_FEATURE_COUNT else [0.0]*SEQUENTIAL_STATE_FEATURE_COUNT
+    entry=[float(ee[i]) for i in _SURVIVAL_STATE_FEATURES]
+    delta=[float(ee[i])-float(aa[i]) for i in _SURVIVAL_STATE_FEATURES]
+    q=row.get("survival_fresh_morphology",{}).get(sf)
+    morph=[float(x) for x in q] if q is not None and len(q)==SURVIVAL_MORPH_FEATURE_COUNT else [0.0]*SURVIVAL_MORPH_FEATURE_COUNT
+    rb=row.get("survival_fresh_reaction_bar",{}).get(sf,-1)
+    pb=row.get("survival_fresh_pullback_bar",{}).get(sf,-1)
+    tb=row.get("survival_fresh_trigger_bar",{}).get(sf,-1)
+    eb=row.get("survival_fresh_entry_bar",{}).get(sf,-1)
+    def ts(v):return max(-1.0,min(6.0,float(v)/10.0)) if v is not None else -1.0
+    timing=[ts(eb),ts(rb),ts(pb),ts(tb)]
+    regime=_regime_forward(aa,ee)
+    manifold_x=_manifold_features(s,manifold)
+    parts={
+      "core":core,"harmonic":hp,"route":route,"morphology":morph,
+      "timing":timing,"entry_state":entry,"state_delta":delta,
+      "regime":regime,"manifold":manifold_x
+    }
+    x=[];layout={};p=0
+    for name in ("core","harmonic","route","morphology","timing","entry_state","state_delta","regime","manifold"):
+        z=parts[name];layout[name]=(p,p+len(z));x.extend(z);p+=len(z)
+    rid=max(range(len(_REGIME_PROTOTYPES)),key=lambda i:regime[len(_REGIME_PROTOTYPES)+i])
+    return x,layout,rid
+
+def _prepare_survival(samples,manifold):
+    out=[];layout=None
+    for s in samples:
+        x,ly,rid=_survival_vector(s,manifold);q=dict(s);q["x"]=x;q["regime_id"]=rid
+        out.append(q);layout=ly
+    return out,layout or {}
+
+def _survival_specs():
+    # Group-preserving architecture alternatives.  No univariate pre-screening:
+    # interaction-only signals survive into the tree learner.
+    group_sets=(
+      ("core","harmonic","route","morphology","timing","entry_state","state_delta","regime","manifold"),
+      ("harmonic","route","morphology","timing","entry_state","state_delta","regime","manifold"),
+      ("core","harmonic","route","morphology","regime","manifold"),
+      ("harmonic","route","morphology","entry_state","state_delta","regime","manifold"),
+    )
+    out=[];sid=0
+    for groups in group_sets:
+      for depth,rounds,minleaf,lr in ((2,10,34,.060),(3,12,28,.055)):
+        out.append({"id":sid,"groups":list(groups),"depth":depth,"rounds":rounds,
+                    "min_leaf":minleaf,"lr":lr});sid+=1
+    return out
+
+def _idx_for_spec(layout,spec):
+    z=[]
+    for name in spec["groups"]:
+        a,b=layout[name];z.extend(range(a,b))
+    return z
+
+def _fit_survival_distribution(samples,spec,manifold):
+    ss,layout=_prepare_survival(samples,manifold)
+    if len(ss)<500:return None
+    idx=_idx_for_spec(layout,spec);X=[s["x"] for s in ss]
+    yp=[1.0 if float(s["y"])>0 else 0.0 for s in ss]
+    win=[i for i,s in enumerate(ss) if float(s["y"])>0];loss=[i for i,s in enumerate(ss) if float(s["y"])<=0]
+    if len(win)<80 or len(loss)<80:return None
+    kw={"rounds":spec["rounds"],"lr":spec["lr"],"max_rows":5200,
+        "max_depth":spec["depth"],"min_leaf":spec["min_leaf"]}
+    Xp,tp=_fit_view(X,[yp],5200);ypf=tp[0];orders=_root_orders(Xp,idx)
+    pm=_boost_train(Xp,ypf,idx,root_orders=orders,**kw)
+    Xw=[X[i] for i in win];yw=[float(ss[i]["y"]) for i in win]
+    Xl=[X[i] for i in loss];yl=[max(0.0,-float(ss[i]["y"])) for i in loss]
+    ow=_root_orders(Xw,idx);ol=_root_orders(Xl,idx)
+    wm=_boost_train(Xw,yw,idx,root_orders=ow,**kw)
+    lm=_boost_train(Xl,yl,idx,root_orders=ol,**kw)
+    return {"type":"SURVIVAL_PWL_DISTRIBUTION","spec":spec,"layout":layout,"idx":idx,
+            "p":pm,"w":wm,"l":lm,"manifold":manifold,
+            "prior":_fit_struct_prior(ss),"n":len(ss),"wins":len(win),"losses":len(loss)}
+
+def _pred_survival_distribution(model,s):
+    x,_,rid=_survival_vector(s,model["manifold"])
+    p,sp=_boost_pred(model["p"],x);w,sw=_boost_pred(model["w"],x);l,sl=_boost_pred(model["l"],x)
+    p=max(.001,min(.999,p));prior=_pred_struct_prior(model["prior"],dict(s,x=x))
+    p=.82*p+.18*prior
+    w=max(.05,float(w));l=max(.05,float(l))
+    support=max(8,min(sp or 8,sw or 8,sl or 8))
+    se=math.sqrt(max(.02,p*(1.0-p))/support)
+    plcb=max(0.0,p-Z*se)
+    er=p*w-(1.0-p)*l
+    pf=(p*w)/max(1e-9,(1.0-p)*l)
+    score=plcb+.035*math.tanh(er/2.0)+.015*math.tanh(math.log(max(1e-6,pf)))
+    return {"win":p,"win_lcb":plcb,"expected_win_r":w,"expected_loss_r":l,
+            "mean":er,"pf":pf,"support":support,"regime_id":rid,"admission_score":score}
+
+def _survival_decisions(samples,model):
+    ss=[s for s in samples if s.get("source")=="SURVIVAL"]
+    by=grouped_events(ss);out=[]
+    for ev in by.values():
+        cand=[]
+        for s in ev:
+            p=_pred_survival_distribution(model,s)
+            cand.append((p["admission_score"],p["win_lcb"],p["win"],p["mean"],s["route"],p,s))
+        cand.sort(reverse=True,key=lambda z:(z[0],z[1],z[2],z[3],z[4]))
+        if not cand:continue
+        _,_,_,_,_,p,s=cand[0];q=dict(s);q["regime_id"]=p["regime_id"]
+        out.append({"score":p["admission_score"],"route_rank":p["win_lcb"],"pred":p,"s":q})
+    return out
+
+def _precision_rank(tm):
+    if not tm:return (-999.0,)*7
+    ms=list(tm.values())
+    return (min(float(m["win_rate"])-MIN_WR for m in ms),
+            min(float(m["lcb_r"]) for m in ms),
+            min(float(m["mean_r"])-MIN_MEAN for m in ms),
+            min(float(m["pf_r"])-MIN_PF for m in ms),
+            min(float(m["average_rr"])-MIN_AVG_RR for m in ms),
+            min(float(m["n"])/MIN_N-1.0 for m in ms),
+            statistics.median(float(m["win_rate"]) for m in ms))
+
+def _precision_threshold(decisions,years,target):
+    by=defaultdict(lambda:defaultdict(lambda:-math.inf))
+    scores=[]
+    for e in decisions:
+        w=e["s"]["window"];eid=event_identity(e["s"]["setup"]);z=float(e["score"])
+        by[w][eid]=max(by[w][eid],z);scores.append(z)
+    limits={}
+    for w in years:
+        vals=sorted(by[w].values(),reverse=True);k=min(int(target),len(vals))
+        if k<MIN_N:return None
+        limits[w]=vals[k-1]
+    upper=min(limits.values())
+    cand=sorted(set([upper]+[qtile([z for z in scores if z<=upper+1e-12],q)
+                               for q in [i/50.0 for i in range(51)]]),reverse=True)
+    best=None
+    for th in cand:
+        tm={w:metric_selected(simulate(decisions,th,w))[0] for w in years}
+        if any(m["n"]<target for m in tm.values()):continue
+        rank=_precision_rank(tm);z=(rank,th,tm)
+        if best is None or z[:2]>best[:2]:best=z
+    if best is None:return None
+    return {"rank":best[0],"threshold":best[1],"metrics":best[2],"limits":limits,
+            "supply":{w:len(by[w]) for w in years}}
+
+def _conditional_mi_bits(decisions):
+    """OOF conditional information in score about win, conditioning on family/regime."""
+    if len(decisions)<100:return 0.0
+    scores=[float(e["score"]) for e in decisions]
+    cuts=sorted(set(qtile(scores,q) for q in (.2,.4,.6,.8)))
+    groups=defaultdict(list)
+    for e in decisions:
+        b=bisect.bisect_right(cuts,float(e["score"]))
+        y=1 if float(e["s"]["y"])>0 else 0
+        groups[(e["s"]["family"],int(e["pred"].get("regime_id",0)))].append((b,y))
+    total=sum(len(v) for v in groups.values());out=0.0
+    for v in groups.values():
+        n=len(v)
+        if n<20:continue
+        cb=Counter(b for b,_ in v);cy=Counter(y for _,y in v);cby=Counter(v)
+        mi=0.0
+        for (b,y),nn in cby.items():
+            p=nn/n;den=(cb[b]/n)*(cy[y]/n)
+            if p>0 and den>0:mi+=p*math.log(p/den,2)
+        out+=(n/total)*mi
+    return out
+
+def _fit_survival_state_space_tournament(samples,years):
+    specs=_survival_specs()
+    eligible=[years[i] for i in range(2,len(years))]
+    val_years=eligible[-min(3,len(eligible)):]
+    if len(val_years)<2:raise SystemExit("V74 survival state-space insufficient inner years")
+    banks=[[] for _ in specs];meta=[]
+    for vw in val_years:
+        vy=int(vw[1:]);tr=[s for s in samples if int(s["window"][1:])<vy];va=[s for s in samples if s["window"]==vw]
+        manifold=_fit_family_manifold(tr)
+        for si,spec in enumerate(specs):
+            md=_fit_survival_distribution(tr,spec,manifold)
+            if md is None:raise SystemExit("V74 survival distribution fit failure "+str(spec["id"]))
+            banks[si].extend(_survival_decisions(va,md))
+        meta.append({"validation_year":vw,"training_years":sorted({s["window"] for s in tr}),
+                     "train_survival_actions":len(tr),"validation_survival_actions":len(va)})
+    candidates=[]
+    for si,spec in enumerate(specs):
+        dec=banks[si];cmi=_conditional_mi_bits(dec)
+        for target in (250,275,300):
+            z=_precision_threshold(dec,val_years,target)
+            if z is None:continue
+            rank=(z["rank"][0],cmi)+z["rank"][1:]
+            candidates.append((rank,si,target,z,cmi))
+    if not candidates:raise SystemExit("V74 survival state-space no coverage-feasible candidate")
+    candidates.sort(key=lambda z:z[0],reverse=True)
+    rank,si,target,z,cmi=candidates[0];chosen=specs[si]
+    info_viable=bool(cmi>1e-4)
+    print("[V74-SURVIVAL-INFO] conditional_mi_bits="+str(cmi)+" viable="+str(info_viable).lower(),flush=True)
+    print("[V74-SURVIVAL-SELECT] "+json.dumps({"spec":chosen,"coverage_target":target,
+          "rank":list(rank),"conditional_mi_bits":cmi},sort_keys=True),flush=True)
+
+    full_manifold=_fit_family_manifold(samples)
+    final=_fit_survival_distribution(samples,chosen,full_manifold)
+    if final is None:raise SystemExit("V74 survival final distribution fit failure")
+    full_dec=_survival_decisions(samples,final)
+    oof_scores=[float(e["score"]) for e in banks[si]]
+    full_scores=[float(e["score"]) for e in full_dec]
+    om=med(oof_scores,0.0);fm=med(full_scores,0.0)
+    oq1,oq3=qtile(oof_scores,.25),qtile(oof_scores,.75);fq1,fq3=qtile(full_scores,.25),qtile(full_scores,.75)
+    scale=max(.25,min(4.0,(fq3-fq1)/max(1e-9,oq3-oq1)))
+    transferred=fm+(float(z["threshold"])-om)*scale
+    return {"model":final,"threshold":transferred,"oof_threshold":z["threshold"],
+            "training_metrics":z["metrics"],"training_rank":list(rank),
+            "training_limits":z["limits"],"training_supply":z["supply"],
+            "coverage_target":target,"inner_oof_years":val_years,"nested_meta":meta,
+            "conditional_mi_bits":cmi,"information_gate":info_viable,
+            "threshold_transfer":{"oof_median":om,"full_fit_median":fm,"oof_iqr":oq3-oq1,
+                                  "full_fit_iqr":fq3-fq1,"scale":scale,
+                                  "rule":"OUTCOME_FREE_SCORE_DISTRIBUTION_AFFINE_TRANSFER"}}
+
 def fit_policy(train_rows,prebuilt_samples=None):
-    """Final V74 policy: route heads + nested OOF-selected nonlinear admission."""
+    """V74 root-cause architecture: harmonic SURVIVAL state-space admission."""
     samples=list(prebuilt_samples) if prebuilt_samples is not None else make_samples(train_rows)
-    if len(samples)<1000:raise SystemExit("V74 insufficient legal action samples")
-    heads,mechanism_training=fit_mechanism_heads_from_samples(samples)
-    route_dec=mechanism_decisions(samples,heads)
+    surv=[s for s in samples if s.get("source")=="SURVIVAL"]
+    if len(surv)<1000:raise SystemExit("V74 insufficient SURVIVAL causal actions")
     yrs=sorted({r["window"] for r in train_rows},key=lambda w:int(w[1:]))
-
-    structural=_fit_structural_tournament(samples,route_dec,yrs)
-    admission_model=structural["model"];th=structural["threshold"]
-    tm=structural["training_metrics"];worst=min(gate_margin(m) for m in tm.values()) if tm else -999.0
+    ss=_fit_survival_state_space_tournament(surv,yrs)
+    tm=ss["training_metrics"];worst=min(gate_margin(m) for m in tm.values()) if tm else -999.0
     training_gate=all(gate(m) for m in tm.values()) if tm else False
-    reps=admission_route_representatives(route_dec)
-    training_oracle_admission={}
-    for w in yrs:
-      training_oracle_admission[w]=_oracle_top250([e["s"] for e in reps if e["s"]["window"]==w])
-
-    return {"mechanism_heads":heads,"mechanism_training":mechanism_training,
-            "admission_model":admission_model,"admission_fit_years":yrs,
-            "admission_calibration_year":structural["inner_oof_years"][-1] if structural["inner_oof_years"] else None,
-            "admission_inner_oof_years":structural["inner_oof_years"],
-            "threshold":th,"oof_threshold":structural["oof_threshold"],
-            "training_coverage_limits":structural["training_limits"],
-            "training_supply":structural["training_supply"],
-            "training_metrics":tm,"training_worst_gate_margin":worst,
-            "training_oracle_admission":training_oracle_admission,
-            "training_gate":training_gate,
-            "coverage_target":admission_model["config"]["coverage_target"],
-            "admission_sweep":{"rounds":structural["rounds"],
-              "evaluated_candidates":structural["evaluated_candidates"],
-              "training_rank":structural["training_rank"],
-              "baseline_rank":None,
+    training_oracle={w:_oracle_top250([s for s in surv if s["window"]==w]) for w in yrs}
+    shadows=Counter(s.get("source","NONE") for s in samples if s.get("source")!="SURVIVAL")
+    return {"mechanism_heads":{},"mechanism_training":{},"admission_model":ss["model"],
+            "admission_fit_years":yrs,"admission_calibration_year":ss["inner_oof_years"][-1],
+            "admission_inner_oof_years":ss["inner_oof_years"],"threshold":ss["threshold"],
+            "oof_threshold":ss["oof_threshold"],"training_coverage_limits":ss["training_limits"],
+            "training_supply":ss["training_supply"],"training_metrics":tm,
+            "training_worst_gate_margin":worst,"training_oracle_admission":training_oracle,
+            "training_gate":training_gate,"coverage_target":ss["coverage_target"],
+            "shadow_source_action_counts":dict(shadows),
+            "admission_sweep":{"rounds":[],"evaluated_candidates":len(_survival_specs())*3,
+              "training_rank":ss["training_rank"],"baseline_rank":None,
               "non_regression_vs_current_training":True,
-              "selected_mode":admission_model["type"],
-              "selected_config":admission_model.get("config"),
-              "inner_oof_years":structural["inner_oof_years"],
-              "nested_meta":structural["nested_meta"],
-              "threshold_transfer":admission_model.get("threshold_transfer")}},samples
+              "selected_mode":"HARMONIC_SURVIVAL_STATE_SPACE_PWL",
+              "selected_config":ss["model"]["spec"],"inner_oof_years":ss["inner_oof_years"],
+              "nested_meta":ss["nested_meta"],"threshold_transfer":ss["threshold_transfer"],
+              "conditional_mi_bits":ss["conditional_mi_bits"],
+              "information_gate":ss["information_gate"]}},surv
 
 def apply_policy(policy,test_rows,prebuilt_samples=None):
     samples=list(prebuilt_samples) if prebuilt_samples is not None else make_samples(test_rows)
-    route_dec=mechanism_decisions(samples,policy["mechanism_heads"])
-    am=policy["admission_model"]
-    if am.get("type")=="NESTED_WALK_FORWARD_NONLINEAR_ADMISSION_BANK":
-        dec=_score_structural_decisions(route_dec,am)
-    elif am.get("type")=="HYBRID_EVENT_ADMISSION_SWEEP":
-        dec=_hybrid_score_decisions(route_dec,am)
-    else:
-        dec=score_contrastive_decisions(route_dec,am.get("contrastive",am))
+    surv=[s for s in samples if s.get("source")=="SURVIVAL"]
+    dec=_survival_decisions(surv,policy["admission_model"])
     sel=simulate(dec,policy["threshold"])
-    return sel,samples,dec
-
-def _diag_metrics(samples):
-    rr=[]
-    for s in samples:
-      q=dict(s["row"]);q["r"]=float(s["y"]);q["bars"]=max(1,int(s.get("bars",1) or 1));rr.append(q)
-    return metrics(rr)
-
-def _oracle_top250(samples):
-    by=defaultdict(list)
-    for s in samples:by[(s["window"],event_identity(s["setup"]))].append(s)
-    best=[]
-    for ev in by.values():
-      if ev:best.append(max(ev,key=lambda s:(float(s["y"]),s["route"],-int(s["bar"]))))
-    best.sort(key=lambda s:(float(s["y"]),s["route"]),reverse=True)
-    top=best[:MIN_N];m=_diag_metrics(top)
-    return {"metrics":m,"pass":gate(m),"available_events":len(best)}
+    return sel,surv,dec
 
 def two_axis_oracle_diagnostic(test_samples,dec,sel):
     """Post-hoc burned diagnostic only; outcomes never feed training/inference.
@@ -1839,17 +2141,17 @@ def two_axis_oracle_diagnostic(test_samples,dec,sel):
 
 checks=telemetry_guard()
 summary={"version":"HarmonyBot V74 One-Shot Family-Native Causal Action Selector",
- "architecture":"STRICT_NESTED_WALK_FORWARD_OOF_ROUTE_PLUS_NONLINEAR_ADMISSION_ARCHITECTURE_BANK_10X100",
+ "architecture":"HARMONIC_SURVIVAL_STATE_SPACE_ALPHA__FAMILY_MANIFOLD__FORWARD_LATENT_REGIME__PWL_DISTRIBUTION__PRECISION_AT_250",
  "gate":{"min_selected_per_year":MIN_N,"min_mean_r":MIN_MEAN,"min_pf_r":MIN_PF,
          "min_win_rate":MIN_WR,"min_average_rr":MIN_AVG_RR,"lcb95_gt":0.0},
  "research_training_windows":RESEARCH,"burned_oof_windows":BURNED,
  "policy":{"actions":"EARLY_OR_LATE_COMPLETED_BAR_ENTRY_ACTION__RAW_F00_EARLY__PREENTRY_CONFIRMATION_F20_F30_LATE",
            "harmonic_completion":"DIRECTION_TIME_D_EVENT_IDENTITY__MULTI_GEOMETRY_IS_CONFLUENCE_NOT_SUPPLY",
            "reaction_state":"CAUSAL_FEATURE_NOT_HARD_FILTER","physical_route_contract":"EVENT_NATIVE_CANONICAL_EVENT_FULL_COMPLETED_BAR_ENTRY_TIMING__EARLY_F00_M05_M10_M15__LATE_PREENTRY_F20_F30__SURVIVAL_FRESH__NETRR_GE230","v75_management_variants_excluded":True,"all_entry_maturity_stages_completed_bar_only":True,
-           "route_choice":"STRICT_WALK_FORWARD_NONLINEAR_STABLE_EVENT_REGRET_PLUS_BEST_ACTION_PROBABILITY","optimal_stopping":"FIRST_MATURED_EVENT_BAR_CROSSING_TRAINING_ONLY_CONTRASTIVE_ADMISSION_THRESHOLD",
-           "admission":"NESTED_WALK_FORWARD_OOF_NONLINEAR_ARCHITECTURE_BANK__10_ROUNDS_X_100__FULL_CAUSAL_ADMISSION_X__OUTCOME_FREE_THRESHOLD_TRANSFER",
+           "route_choice":"SURVIVAL_ONLY_CAUSAL_ROUTE_RANK_BY_WIN_LCB_THEN_EXPECTED_R","optimal_stopping":"FIRST_SURVIVAL_EVENT_BAR_CROSSING_PRECISION_CALIBRATED_THRESHOLD",
+           "admission":"FAMILY_MANIFOLD_PLUS_CONTINUOUS_FIBONACCI_ROUTE_PLUS_FORWARD_LATENT_REGIME_PLUS_P_WIN_WINR_LOSSR_DISTRIBUTION__PRECISION_AT_250",
            "training_coverage_target_per_year":TRAIN_COVERAGE,
-           "family_hierarchy":"WITHIN_MECHANISM_GLOBAL_TO_FAMILY_TO_FAMILY_ACTION_TO_FAMILY_BASE_SHRINKAGE",
+           "family_hierarchy":"12_FAMILY_CANONICAL_MANIFOLD_WITH_TRAINING_ONLY_COVARIANCE_SHRINKAGE__SURVIVAL_PRIMARY__OTHER_LANES_SHADOW",
            "no_trigger_posttrigger_lock_future_state":True,
            "canonical_family_blanket_blacklist":False,"grid":False,
            "v75_profit_capture_used":False},
@@ -1948,6 +2250,9 @@ summary["historical_best_guard"]={"baseline":HISTORICAL_BEST_GUARD,
  "rule":"EXPERIMENTS_MAY_FAIL__ACCEPTED_DEVELOPMENT_CHAMPION_MUST_NOT_REGRESS"}
 print("[V74-NONREGRESSION]",json.dumps(summary["historical_best_guard"],sort_keys=True),flush=True)
 summary["evaluator_runtime_seconds"]=round(time.perf_counter()-t0,3)
+summary["root_cause_rearchitecture"]="HARMONIC_SURVIVAL_STATE_SPACE_ALPHA_V1"
+summary["survival_primary_alpha"]=True
+summary["generic_early_late_failure_shadow_only"]=True
 summary["parallel_fold_execution"]=parallel_used
 summary["parallel_fold_workers"]=min(len(BURNED),max(1,int(os.cpu_count() or 1))) if parallel_used else 1
 summary["alpha_gate"]=alpha;summary["alpha_champion"]=champ
