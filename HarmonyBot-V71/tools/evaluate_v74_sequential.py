@@ -332,20 +332,22 @@ def _tree_pred(t,x):
       support=min(support,int(n.get("n",1)))
     return float(n["leaf"]),support
 
-def _boost_train(X,y,idx,rounds=TREE_ROUNDS,lr=.08,max_rows=6500,root_orders=None):
+def _boost_train(X,y,idx,rounds=TREE_ROUNDS,lr=.08,max_rows=6500,root_orders=None,
+                 max_depth=TREE_DEPTH,min_leaf=28):
     if not y:return {"base":0.0,"trees":[],"lr":lr,"sigma":10.0}
     if len(y)>max_rows:
       step=max(1,math.ceil(len(y)/max_rows));X=X[::step];y=y[::step]
     base=sum(y)/len(y);pred=[base]*len(y);trees=[]
     for _ in range(rounds):
       res=[y[i]-pred[i] for i in range(len(y))]
-      tr=_tree_fit(X,res,idx,root_orders=root_orders)
+      tr=_tree_fit(X,res,idx,max_depth=max_depth,min_leaf=min_leaf,root_orders=root_orders)
       trees.append(tr)
       for i,x in enumerate(X):
         v,_=_tree_pred(tr,x);pred[i]+=lr*v
     resid=[y[i]-pred[i] for i in range(len(y))]
     sig=statistics.stdev(resid) if len(resid)>1 else 10.0
-    return {"base":base,"trees":trees,"lr":lr,"sigma":max(.05,sig)}
+    return {"base":base,"trees":trees,"lr":lr,"sigma":max(.05,sig),
+            "max_depth":int(max_depth),"min_leaf":int(min_leaf)}
 
 def _fit_view(X,ys,max_rows):
     if len(X)<=max_rows:return X,[list(y) for y in ys]
