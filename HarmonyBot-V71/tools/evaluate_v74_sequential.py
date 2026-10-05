@@ -1305,6 +1305,253 @@ def fit_hybrid_admission_sweep(route_decisions,contrastive_model,expert_model,fi
             "rounds":rounds,"evaluated_candidates":SWEEP_ROUNDS*SWEEP_CANDIDATES_PER_ROUND,
             "baseline_rank":list(base_rank),"non_regression_vs_current_training":best["rank"]>=base_rank}
 
+
+STRUCT_ROUNDS=10
+STRUCT_CANDIDATES_PER_ROUND=100
+
+def fit_mechanism_heads_from_samples(samples):
+    """Fit route heads from the supplied historical action sample only."""
+    heads={};training={};by_source=defaultdict(list)
+    for s in samples:by_source[s.get("source")].append(s)
+    for src in SOURCES:
+      ss=by_source.get(src,[])
+      if len(ss)<250:continue
+      ranked=stable_idx(ss,max(TREE_KFEAT,PAIR_KFEAT))
+      vm=fit_value(ss,ranked[:TREE_KFEAT]);pm=fit_pair(ss,ranked[:PAIR_KFEAT])
+      if not pm.get("valid"):continue
+      years=sorted({s["window"] for s in ss})
+      counts=[sum(1 for s in ss if s["window"]==w) for w in years]
+      reliability=min(1.0,min(counts)/750.0) if counts else 0.0
+      heads[src]={"value_model":vm,"pairwise_ranker":pm,"reliability":reliability,
+                  "n":len(ss),"year_counts":{w:sum(1 for s in ss if s["window"]==w) for w in years}}
+      training[src]={"n":len(ss),"reliability":reliability,
+                     "selected_features":len(vm.get("idx",[])),
+                     "pairwise_n":pm.get("n",0)}
+    if not heads:raise SystemExit("V74 no valid mechanism-native heads")
+    return heads,training
+
+def _struct_samples_from_reps(reps):
+    out=[]
+    for e in reps:
+      s=e["s"]
+      out.append({"window":s["window"],"setup":s["setup"],"family":s["family"],
+                  "action":s["action"],"source":s["source"],"base":s["base"],
+                  "route":s["route"],"bar":s["bar"],"bars":s["bars"],
+                  "x":list(s.get("admission_x",s["x"])),"y":float(s["y"]),"row":s["row"]})
+    return out
+
+def _fit_struct_prior(samples,shrink=36.0):
+    """Year-robust causal category prior; outcomes are training labels only."""
+    yrs=sorted({s["window"] for s in samples});by=defaultdict(list)
+    for s in samples:by[s["window"]].append(s)
+    banks={"source":defaultdict(list),"family":defaultdict(list),
+           "source_family":defaultdict(list),"source_action":defaultdict(list)}
+    globals_=[]
+    for w in yrs:
+      ww=by[w]
+      gp=(sum(float(s["y"])>0.0 for s in ww)+1.0)/(len(ww)+2.0);globals_.append(gp)
+      loc={k:defaultdict(list) for k in banks}
+      for s in ww:
+        z=1.0 if float(s["y"])>0.0 else 0.0;src=s["source"];fam=s["family"];act=s["action"]
+        loc["source"][src].append(z);loc["family"][fam].append(z)
+        loc["source_family"][str((src,fam))].append(z)
+        loc["source_action"][str((src,act))].append(z)
+      for name,d in loc.items():
+        for k,v in d.items():
+          banks[name][k].append((sum(v)+shrink*gp)/(len(v)+shrink))
+    fb=_q25_safe(globals_,.5)
+    return {"fallback":fb,**{name:{k:_q25_safe(v,fb) for k,v in d.items()} for name,d in banks.items()}}
+
+def _pred_struct_prior(pr,s):
+    fb=float(pr.get("fallback",.5));src=s.get("source","NONE");fam=s.get("family","NONE");act=s.get("action","NONE")
+    sf=pr.get("source_family",{}).get(str((src,fam)))
+    sa=pr.get("source_action",{}).get(str((src,act)))
+    vals=[pr.get("source",{}).get(src),pr.get("family",{}).get(fam),sf,sa]
+    z=[float(x) for x in vals if x is not None]
+    return sum(z)/len(z) if z else fb
+
+def _structural_specs():
+    specs=[];sid=0
+    for kfeat in (16,24,32):
+      for depth in (1,2):
+        for aux in ("VALUE","STRONG"):
+          variant=sid%2
+          specs.append({"id":sid,"kfeat":kfeat,"depth":depth,"aux":aux,
+                        "rounds":8+3*depth+2*variant,
+                        "lr":.055 if variant==0 else .085,
+                        "min_leaf":24 if variant==0 else 40})
+          sid+=1
+    return specs
+
+def _fit_structural_head(samples,spec):
+    if len(samples)<450:return None
+    yw=[1.0 if float(s["y"])>0.0 else 0.0 for s in samples]
+    if spec["aux"]=="STRONG":
+      ya=[1.0 if float(s["y"])>=1.0 else 0.0 for s in samples]
+    else:
+      ya=[(max(-1.0,min(2.5,float(s["y"])))+1.0)/3.5 for s in samples]
+    iw=stable_idx_target(samples,yw,spec["kfeat"])
+    ia=stable_idx_target(samples,ya,spec["kfeat"])
+    if not iw:iw=stable_idx(samples,spec["kfeat"])
+    if not ia:ia=list(iw)
+    X=[s["x"] for s in samples]
+    Xf,targets=_fit_view(X,[yw,ya],5200);ywf,yaf=targets
+    use=sorted(set(iw+ia));orders=_root_orders(Xf,use)
+    kw={"rounds":spec["rounds"],"lr":spec["lr"],"max_rows":10**9,
+        "root_orders":orders,"max_depth":spec["depth"],"min_leaf":spec["min_leaf"]}
+    mw=_boost_train(Xf,ywf,iw,**kw);ma=_boost_train(Xf,yaf,ia,**kw)
+    return {"type":"NONLINEAR_CAUSAL_ADMISSION_HEAD","spec":spec,
+            "win":mw,"aux":ma,"idx_win":iw,"idx_aux":ia,
+            "prior":_fit_struct_prior(samples)}
+
+def _pred_structural_head(model,e):
+    if model is None:return (.5,.5,.5)
+    s=e["s"];x=s.get("admission_x",s["x"])
+    pw,_=_boost_pred(model["win"],x);pa,_=_boost_pred(model["aux"],x)
+    pw=max(0.0,min(1.0,pw));pa=max(0.0,min(1.0,pa))
+    return (pw,pa,_pred_struct_prior(model["prior"],s))
+
+def _build_nested_structural_bank(all_action_samples,years):
+    """True nested expanding-year OOF bank, including OOF route arbitration."""
+    specs=_structural_specs()
+    eligible=[years[i] for i in range(2,len(years))]
+    val_years=eligible[-min(3,len(eligible)):]
+    if len(val_years)<2:raise SystemExit("V74 insufficient inner walk-forward years")
+    oof_reps=[];fold_slices=[];bank_chunks=[[] for _ in specs]
+    nested_meta=[]
+    for vw in val_years:
+      vy=int(vw[1:]);tr=[s for s in all_action_samples if int(s["window"][1:])<vy]
+      va=[s for s in all_action_samples if s["window"]==vw]
+      nh,_=fit_mechanism_heads_from_samples(tr)
+      tr_route=mechanism_decisions(tr,nh);va_route=mechanism_decisions(va,nh)
+      tr_reps=admission_route_representatives(tr_route)
+      va_reps=admission_route_representatives(va_route)
+      tr_adm=_struct_samples_from_reps(tr_reps)
+      start=len(oof_reps);oof_reps.extend(va_reps);end=len(oof_reps)
+      fold_slices.append((vw,start,end))
+      for si,spec in enumerate(specs):
+        md=_fit_structural_head(tr_adm,spec)
+        if md is None:raise SystemExit("V74 structural head fit failure "+str(spec["id"]))
+        bank_chunks[si].extend([_pred_structural_head(md,e) for e in va_reps])
+      nested_meta.append({"validation_year":vw,"training_years":sorted({s["window"] for s in tr}),
+                          "validation_events":len({event_identity(e["s"]["setup"]) for e in va_reps})})
+    return {"specs":specs,"val_years":val_years,"reps":oof_reps,
+            "bank":bank_chunks,"fold_slices":fold_slices,"nested_meta":nested_meta}
+
+def _struct_candidate(ri,ci,center,nmodels):
+    seed=7419001+(ri+1)*131071+(ci+1)*8191
+    u=_lcg_values(seed,16)
+    if center is None or ri==0:
+      ids=[]
+      for z in u[:3]:
+        k=int(z*nmodels)%nmodels
+        while k in ids:k=(k+1)%nmodels
+        ids.append(k)
+      ww=_norm_weights([.2+.8*u[3],.2+.8*u[4],.2+.8*u[5]])
+      cfg={"models":ids,"weights":ww,"alpha":.55+.40*u[6],
+           "min_mix":.05+.40*u[7],"dispersion":.05+.75*u[8],
+           "prior_mix":.02+.30*u[9]}
+    else:
+      cfg={k:(list(v) if isinstance(v,list) else v) for k,v in center.items() if k not in ("round","candidate","coverage_target")}
+      ids=list(cfg["models"])
+      if u[0]<.58:
+        pos=int(u[1]*3)%3;k=int(u[2]*nmodels)%nmodels
+        while k in ids:k=(k+1)%nmodels
+        ids[pos]=k
+      cfg["models"]=ids
+      amp=max(.025,.20*(.78**ri))
+      raw=[max(.03,float(cfg["weights"][j])*(1.0+amp*(2*u[3+j]-1))) for j in range(3)]
+      cfg["weights"]=_norm_weights(raw)
+      for key,lo,hi,ui in (("alpha",.45,.98,7),("min_mix",0.0,.55,8),
+                            ("dispersion",0.0,1.0,9),("prior_mix",0.0,.40,10)):
+        cfg[key]=max(lo,min(hi,float(cfg[key])+amp*(2*u[ui]-1)))
+      if ci==0:cfg={k:(list(v) if isinstance(v,list) else v) for k,v in center.items() if k not in ("round","candidate","coverage_target")}
+    cfg["coverage_target"]=(250,275,300)[int(u[11]*3)%3]
+    cfg["round"]=ri+1;cfg["candidate"]=ci+1
+    return cfg
+
+def _struct_scores(bank,cfg):
+    ids=cfg["models"];ww=cfg["weights"];n=len(bank[ids[0]]);out=[]
+    for i in range(n):
+      qs=[];prs=[]
+      for mid in ids:
+        pw,pa,pr=bank[mid][i]
+        qs.append(float(cfg["alpha"])*pw+(1.0-float(cfg["alpha"]))*pa);prs.append(pr)
+      base=sum(float(ww[j])*qs[j] for j in range(3))
+      mn=min(qs);sd=statistics.pstdev(qs) if len(qs)>1 else 0.0
+      prior=sum(float(ww[j])*prs[j] for j in range(3))
+      out.append(base+float(cfg["min_mix"])*(mn-.5)-float(cfg["dispersion"])*sd+
+                 float(cfg["prior_mix"])*(prior-.5))
+    return out
+
+def _fit_structural_tournament(all_action_samples,route_decisions,years):
+    nested=_build_nested_structural_bank(all_action_samples,years)
+    rt=_build_sweep_runtime(nested["reps"],nested["val_years"])
+    bank=nested["bank"];best=None;center=None;rounds=[]
+    for ri in range(STRUCT_ROUNDS):
+      quick=[]
+      for ci in range(STRUCT_CANDIDATES_PER_ROUND):
+        cfg=_struct_candidate(ri,ci,center,len(bank));scores=_struct_scores(bank,cfg)
+        qr,_,_=_quick_candidate_eval_cached(rt,scores,nested["val_years"],cfg["coverage_target"])
+        quick.append((qr,cfg,scores))
+      quick.sort(key=lambda z:z[0],reverse=True)
+      finalists=[]
+      for _,cfg,scores in quick[:8]:
+        th,limits,supply,tm,worst=_gate_calibrated_threshold_cached(
+            rt,scores,nested["val_years"],cfg["coverage_target"])
+        rank=_guard_rank(tm);finalists.append((rank,th,limits,supply,tm,cfg,scores))
+      finalists.sort(key=lambda z:(z[0],z[1]),reverse=True)
+      rr,th,limits,supply,tm,cfg,scores=finalists[0]
+      center=dict(cfg)
+      if best is None or rr>best[0]:best=(rr,th,limits,supply,tm,dict(cfg),list(scores))
+      row={"round":ri+1,"candidates":STRUCT_CANDIDATES_PER_ROUND,"best_rank":list(rr),
+           "config":cfg}
+      rounds.append(row);print("[V74-STRUCT-SWEEP]",json.dumps(row,sort_keys=True),flush=True)
+    brank,bth,blimits,bsupply,btm,bcfg,boof_scores=best
+
+    # Final fit uses all prior years only after architecture selection is frozen.
+    full_reps=admission_route_representatives(route_decisions)
+    full_adm=_struct_samples_from_reps(full_reps)
+    specs=nested["specs"];heads={}
+    for mid in sorted(set(bcfg["models"])):
+      md=_fit_structural_head(full_adm,specs[mid])
+      if md is None:raise SystemExit("V74 final structural head fit failure")
+      heads[str(mid)]=md
+    final_model={"type":"NESTED_WALK_FORWARD_NONLINEAR_ADMISSION_BANK",
+                 "config":bcfg,"specs":specs,"heads":heads,
+                 "inner_oof_years":nested["val_years"],"nested_meta":nested["nested_meta"],
+                 "oof_threshold":bth}
+    full_bank=[]
+    for mid in range(len(specs)):
+      if str(mid) in heads:full_bank.append([_pred_structural_head(heads[str(mid)],e) for e in full_reps])
+      else:full_bank.append([(.5,.5,.5)]*len(full_reps))
+    full_scores=_struct_scores(full_bank,bcfg)
+    om=med(boof_scores,0.0);fm=med(full_scores,0.0)
+    oq1,oq3=qtile(boof_scores,.25),qtile(boof_scores,.75)
+    fq1,fq3=qtile(full_scores,.25),qtile(full_scores,.75)
+    scale=(fq3-fq1)/max(1e-9,oq3-oq1);scale=max(.25,min(4.0,scale))
+    transferred=fm+(bth-om)*scale
+    final_model["threshold_transfer"]={"oof_median":om,"full_fit_median":fm,
+       "oof_iqr":oq3-oq1,"full_fit_iqr":fq3-fq1,"scale":scale,
+       "rule":"OUTCOME_FREE_SCORE_DISTRIBUTION_AFFINE_TRANSFER"}
+    return {"model":final_model,"threshold":transferred,"oof_threshold":bth,
+            "training_metrics":btm,"training_rank":list(brank),"training_limits":blimits,
+            "training_supply":bsupply,"rounds":rounds,
+            "evaluated_candidates":STRUCT_ROUNDS*STRUCT_CANDIDATES_PER_ROUND,
+            "inner_oof_years":nested["val_years"],"nested_meta":nested["nested_meta"]}
+
+def _score_structural_decisions(route_decisions,model):
+    reps=admission_route_representatives(route_decisions);specs=model["specs"];heads=model["heads"]
+    bank=[]
+    for mid in range(len(specs)):
+      md=heads.get(str(mid))
+      bank.append([_pred_structural_head(md,e) for e in reps] if md is not None else [(.5,.5,.5)]*len(reps))
+    scores=_struct_scores(bank,model["config"]);out=[]
+    for i,e in enumerate(reps):
+      q=dict(e);q["score"]=scores[i];q["pred"]=dict(e["pred"],structural_admission_score=scores[i])
+      out.append(q)
+    return out
+
 def fit_policy(train_rows):
     samples=make_samples(train_rows)
     if len(samples)<1000:raise SystemExit("V74 insufficient legal action samples")
