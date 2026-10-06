@@ -2953,6 +2953,16 @@ def _fit_r4_meta_policy(stage_samples,years):
             "lane_preserving_until_post_admission":True}
 
 
+R5_SEMANTIC_SCORE_MODES=(
+  "HARD_LISTWISE",
+  "HARD_PLUS_ENTER",
+  "HARD_PLUS_ADVANTAGE",
+  "ENTER_ADVANTAGE_LCB",
+  "ENTER_RAW",
+  "CURRENT_ROBUST_META"
+)
+
+
 def _apply_r4_meta_policy(model,stage_samples):
     route=meta_lane_decisions(stage_samples,model["value"])
     scored=[]
@@ -3069,7 +3079,7 @@ def _fit_r4_tournament(samples,years):
         raise SystemExit("V74-R4 empty causal forward meta OOF")
 
     candidates=[]
-    for mode in R4_SEMANTIC_SCORE_MODES:
+    for mode in R5_SEMANTIC_SCORE_MODES:
         scored=[]
         for e in cross:
             bank=e.get("pred",{}).get("semantic_scores",{})
@@ -3310,13 +3320,19 @@ def two_axis_oracle_diagnostic(test_samples,dec,sel):
 # Fail before any expensive tournament work if a diagnostic dependency was
 # accidentally removed by a future refactor.
 for _required_fn in ("_diag_metrics","_oracle_top250","fit_mechanism_heads_from_samples",
-                     "fit_admission_bundle","fit_contrastive_winner_ranker","fit_year_expert_rankers"):
+                     "fit_admission_bundle","fit_contrastive_winner_ranker",
+                     "meta_lane_decisions","admission_lane_context",
+                     "_fit_r4_meta_policy","_apply_r4_meta_policy"):
     if not callable(globals().get(_required_fn)):
         raise SystemExit("V74 evaluator preflight missing callable "+_required_fn)
+_required_modes=("HARD_LISTWISE","HARD_PLUS_ENTER","HARD_PLUS_ADVANTAGE",
+                 "ENTER_ADVANTAGE_LCB","ENTER_RAW","CURRENT_ROBUST_META")
+if tuple(globals().get("R5_SEMANTIC_SCORE_MODES",()))!=_required_modes:
+    raise SystemExit("V74 evaluator preflight invalid R5 semantic score mode contract")
 
 checks=telemetry_guard()
 summary={"version":"HarmonyBot V74 One-Shot Family-Native Causal Action Selector",
- "architecture":"V74_R4_OOF_STACKED_UNIFIED_LANE_ACTION_RANKING__CALIBRATED_ENTER_DEFER_REJECT__GROUP_DRO",
+ "architecture":"V74_R5_LANE_PRESERVING_SOURCE_NATIVE_ADMISSION__POST_ADMISSION_CAPITAL_ARBITRATION",
  "gate":{"min_selected_per_year":MIN_N,"min_mean_r":MIN_MEAN,"min_pf_r":MIN_PF,
          "min_win_rate":MIN_WR,"min_average_rr":MIN_AVG_RR,"lcb95_gt":0.0},
  "research_training_windows":RESEARCH,"burned_oof_windows":BURNED,
