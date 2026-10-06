@@ -1404,7 +1404,10 @@ def fit_mechanism_heads_from_samples(samples):
       if len(ss)<250:continue
       ranked=stable_idx(ss,max(TREE_KFEAT,PAIR_KFEAT))
       vm=fit_value(ss,ranked[:TREE_KFEAT]);pm=fit_pair(ss,ranked[:PAIR_KFEAT])
-      if not pm.get("valid"):continue
+      # A lane with one canonical legal route (currently FAILURE|FC230) has no
+      # meaningful within-lane pairwise comparisons.  That is not evidence that
+      # the lane is invalid. event_decisions()/pair_pref() already treat an
+      # invalid pair ranker as zero pair advantage, so retain the value expert.
       years=sorted({s["window"] for s in ss})
       counts=[sum(1 for s in ss if s["window"]==w) for w in years]
       reliability=min(1.0,min(counts)/750.0) if counts else 0.0
@@ -1414,6 +1417,10 @@ def fit_mechanism_heads_from_samples(samples):
                      "selected_features":len(vm.get("idx",[])),
                      "pairwise_n":pm.get("n",0)}
     if not heads:raise SystemExit("V74 no valid mechanism-native heads")
+    required=[src for src in SOURCES if len(by_source.get(src,[]))>=250]
+    missing=[src for src in required if src not in heads]
+    if missing:
+      raise SystemExit("V74 unified-lane expert completeness failure "+",".join(missing))
     return heads,training
 
 def _struct_samples_from_reps(reps):
