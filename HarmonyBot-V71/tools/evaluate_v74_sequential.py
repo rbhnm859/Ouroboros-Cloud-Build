@@ -2665,8 +2665,17 @@ def _fit_r4_meta_policy(stage_samples,years):
     tr_route=event_decisions(stage_samples,vm,pm)
     bundle=fit_admission_bundle(tr_route,years)
     cal=_fit_r4_calibrator(tr_route,bundle)
+    # R4.2: admission is a retrieval/ranking problem, not only an absolute
+    # probability regression.  Reuse the existing year-balanced winner-vs-loser
+    # contrastive ranker and independent year experts on the direct causal meta
+    # state.  These models use outcomes only as prior-year training labels.
+    contrast=fit_contrastive_winner_ranker(tr_route,years)
+    yexp=fit_year_expert_rankers(tr_route,years)
+    if yexp is None:raise SystemExit("V74-R4 missing meta year experts")
     return {"type":"R4_OOF_STACKED_LANE_ACTION_META_POLICY","value":vm,"pair":pm,
-            "admission_bundle":bundle,"calibrator":cal,"fit_years":list(years),
+            "admission_bundle":bundle,"calibrator":cal,
+            "contrastive":contrast,"year_experts":yexp,
+            "score_orientation":1.0,"fit_years":list(years),
             "selected_features":list(idx)}
 
 def _apply_r4_meta_policy(model,stage_samples):
@@ -2678,15 +2687,37 @@ def _apply_r4_meta_policy(model,stage_samples):
         comp=max(float(z["defer"]),float(z["reject"]))
         p=e["pred"]
         uncertainty=max(0.0,float(z["enter"])-float(z["enter_lcb"]))
-        score=(float(cz["lcb"])
-               +.20*(float(z["enter_lcb"])-comp)
-               +.08*math.tanh(float(p.get("mean",0.0))/2.0)
-               +.05*float(p.get("best_probability",.5))
-               -.05*math.tanh(uncertainty/.10))
+        ct=pred_contrastive_winner(model["contrastive"],e)
+        ye=pred_year_experts(model["year_experts"],e)
+        # Robust retrieval score.  High rank requires agreement across absolute
+        # calibration, pairwise winner retrieval and independent year experts.
+        # The lower-tail/minimum terms implement Group-DRO-like conservatism:
+        # one favourable research year cannot dominate capital admission.
+        probs=[
+          max(.001,min(.999,float(cz["p"]))),
+          max(.001,min(.999,float(ct.get("score",.5)))),
+          max(.001,min(.999,float(ye.get("q25",.5)))),
+          max(.001,min(.999,float(ye.get("minimum",.5))))
+        ]
+        hmean=len(probs)/sum(1.0/q for q in probs)
+        raw_score=(.55*hmean
+                   +.20*float(cz["lcb"])
+                   +.15*(float(z["enter_lcb"])-comp)
+                   +.08*math.tanh(float(p.get("mean",0.0))/2.0)
+                   +.06*float(p.get("best_probability",.5))
+                   -.10*float(ye.get("dispersion",0.0))
+                   -.04*math.tanh(uncertainty/.10))
+        orient=float(model.get("score_orientation",1.0))
+        score=orient*raw_score
         q=dict(e);q["score"]=score
         q["stop_advantage"]=float(p.get("stop_advantage",-999.0))
         q["pred"]=dict(p,admission=z,r4_calibrated_enter=cz["p"],
                        r4_calibrated_lcb=cz["lcb"],
+                       contrastive_winner=ct,
+                       year_expert_q25=ye.get("q25",.5),
+                       year_expert_min=ye.get("minimum",.5),
+                       year_expert_dispersion=ye.get("dispersion",0.0),
+                       raw_meta_score=raw_score,score_orientation=orient,
                        regime_id=int(e["s"].get("regime_id",0)))
         out.append(q)
     return out
@@ -2744,18 +2775,28 @@ def _fit_r4_tournament(samples,years):
     if not cross or not cross_years:
         raise SystemExit("V74-R4 empty causal forward meta OOF")
 
-    candidates=[];cmi=_conditional_mi_bits(cross)
-    for target in (250,275,300):
-        z=_precision_threshold(cross,cross_years,target)
-        if z is None:continue
-        rank=(z["rank"][0],cmi)+z["rank"][1:]
-        candidates.append((rank,target,z))
+    candidates=[]
+    for orient in (1.0,-1.0):
+        oriented=[]
+        for e in cross:
+            q=dict(e);q["score"]=orient*float(e["score"])
+            q["pred"]=dict(e["pred"],score_orientation=orient)
+            oriented.append(q)
+        cmi=_conditional_mi_bits(oriented)
+        for target in (250,275,300):
+            z=_precision_threshold(oriented,cross_years,target)
+            if z is None:continue
+            rank=(z["rank"][0],cmi)+z["rank"][1:]
+            candidates.append((rank,target,z,orient,cmi,oriented))
     if not candidates:raise SystemExit("V74-R4 no coverage-feasible OOF candidate")
     candidates.sort(key=lambda x:x[0],reverse=True)
-    rank,target,z=candidates[0]
+    rank,target,z,orientation,cmi,cross_oriented=candidates[0]
+    cross=cross_oriented
 
-    # Freeze the second layer on all honest first-layer OOF samples.
+    # Freeze the second layer on all honest first-layer OOF samples and apply
+    # the training-only chosen score orientation before threshold transfer.
     final_meta=_fit_r4_meta_policy(stage,val_years)
+    final_meta["score_orientation"]=orientation
     fitted_dec=_apply_r4_meta_policy(final_meta,stage)
 
     # The final meta model has seen all OOF rows, so only its score scale changes.
@@ -2798,7 +2839,7 @@ def _fit_r4_tournament(samples,years):
             "coverage_target":target,"inner_oof_years":val_years,
             "meta_oof_years":cross_years,
             "nested_meta":meta,"meta_crossfit":meta_cv,
-            "conditional_mi_bits":cmi,
+            "conditional_mi_bits":cmi,"score_orientation":orientation,
             "training_oracle_admission":training_oracle,
             "threshold_transfer":{"oof_median":om,"full_fit_median":fm,
               "oof_iqr":oq3-oq1,"full_fit_iqr":fq3-fq1,"scale":scale,
@@ -2833,7 +2874,8 @@ def fit_policy(train_rows,prebuilt_samples=None):
               "inner_oof_years":r4["inner_oof_years"],"meta_oof_years":r4["meta_oof_years"],
               "nested_meta":r4["nested_meta"],
               "meta_crossfit":r4["meta_crossfit"],"threshold_transfer":r4["threshold_transfer"],
-              "conditional_mi_bits":r4["conditional_mi_bits"]}},samples
+              "conditional_mi_bits":r4["conditional_mi_bits"],
+              "score_orientation":r4["score_orientation"]}},samples
 
 def apply_policy(policy,test_rows,prebuilt_samples=None):
     samples=list(prebuilt_samples) if prebuilt_samples is not None else make_samples(test_rows)
@@ -2923,7 +2965,7 @@ summary={"version":"HarmonyBot V74 One-Shot Family-Native Causal Action Selector
            "reaction_state":"CAUSAL_FEATURE_NOT_HARD_FILTER","physical_route_contract":"EVENT_NATIVE_CANONICAL_EVENT_FULL_COMPLETED_BAR_ENTRY_TIMING__EARLY_F00_M05_M10_M15__LATE_PREENTRY_F20_F30__SURVIVAL_FRESH__NETRR_GE230","v75_management_variants_excluded":True,"all_entry_maturity_stages_completed_bar_only":True,
            "route_choice":"LANE_NATIVE_VALUE_PLUS_PAIRWISE_EVENT_RANKING__EARLY_LATE_SURVIVAL_FAILURE",
            "optimal_stopping":"SOURCE_SPECIFIC_ENTER_DEFER_REJECT__TRAINING_ONLY_FUTURE_LABELS__CAUSAL_RUNTIME_STATE",
-           "admission":"EVENT_LEVEL_DIRECT_CAUSAL_STATE_PLUS_LANE_MOE__CALIBRATED_ENTER_DEFER_REJECT__FORWARD_OOF__PRECISION_AT_250",
+           "admission":"EVENT_LEVEL_DIRECT_CAUSAL_STATE__CONTRASTIVE_WINNER_RETRIEVAL__YEAR_EXPERT_GROUP_DRO__CALIBRATED_ENTER_DEFER_REJECT__FORWARD_OOF__PRECISION_AT_250",
            "training_coverage_target_per_year":TRAIN_COVERAGE,
            "family_hierarchy":"12_FAMILY_CANONICAL_IDENTITY__ALL_CAUSAL_LANES_ACTIVE__SOURCE_NATIVE_EXPERTS__FAILURE_IS_DISTINCT_CONTINUATION",
            "no_trigger_posttrigger_lock_future_state":True,
@@ -3039,7 +3081,7 @@ for test,fold,policy in fold_results:
           for k in ("n","mean_r","pf_r","win_rate","average_rr","lcb_r","pass")}),flush=True)
 
 alpha=bool(allpass)
-champ="V74_R4_UNIFIED_CAUSAL_MOE_OPTIMAL_STOPPING" if alpha else None
+champ="V74_R4_CONTRASTIVE_RETRIEVAL_OPTIMAL_STOPPING" if alpha else None
 fold_metrics={w:{k:summary["folds"][w][k] for k in ("n","mean_r","pf_r","win_rate","average_rr","lcb_r")}
               for w in BURNED}
 current_rank=_guard_rank(fold_metrics)
