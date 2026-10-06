@@ -172,9 +172,15 @@ def survival_xvec(r,sf,eb):
             max(-1.0,min(6.0,float(tb)/10.0)) if tb is not None else -1.0]
     q=r.get("survival_fresh_morphology",{}).get(sf)
     morph=[float(x) for x in q] if q is not None and len(q)==SURVIVAL_MORPH_FEATURE_COUNT else [0.0]*SURVIVAL_MORPH_FEATURE_COUNT
+    # Legacy field name path_v2 now carries the authoritative 32-dimensional
+    # Path V3 multiscale completed-M1 telemetry.  Completeness is fail-closed in
+    # telemetry_guard(); append it here so the unified SURVIVAL expert actually
+    # consumes the already-approved causal telemetry instead of merely auditing it.
+    pv=r.get("survival_fresh_path_v2",{}).get(sf)
+    path_v3=[float(x) for x in pv] if pv is not None and len(pv)==SURVIVAL_PATH_V2_FEATURE_COUNT else [0.0]*SURVIVAL_PATH_V2_FEATURE_COUNT
     hp=_precision_vector(r)
     return (list(r.get("features",[]))+hp+route_cats(r,"SURVIVAL","SURVIVAL","FIB","00",sf)+
-            aa+ee+delta+[ap,ep,1.0 if ap and ep else 0.0]+timing+morph)
+            aa+ee+delta+[ap,ep,1.0 if ap and ep else 0.0]+timing+morph+path_v3)
 
 
 def failure_xvec(r,eb):
