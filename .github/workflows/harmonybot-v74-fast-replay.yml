@@ -2,6 +2,19 @@ name: HarmonyBot V74 Fast Replay
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - harmonybot/v73-opportunity-universe
+    paths:
+      - 'HarmonyBot-V71/tools/evaluate_v74_sequential.py'
+      - 'HarmonyBot-V71/tools/diagnose_v74_joint_oracle.py'
+      - 'HarmonyBot-V71/tools/v74_model_lib.py'
+      - 'HarmonyBot-V71/tools/harmonic_precision_contract.py'
+      - 'HarmonyBot-V71/tools/validate_harmonic_precision.py'
+      - 'HarmonyBot-V71/tools/apply_v74_champion.py'
+      - 'HarmonyBot-V71/tools/generate_v74_embedded_cs.py'
+      - 'HarmonyBot-V71/evidence/V74_FAST_REPLAY_SOURCE.json'
+      - '.github/workflows/harmonybot-v74-fast-replay.yml'
   pull_request:
     branches: [main]
     paths:
@@ -44,7 +57,7 @@ jobs:
             exit 0
           fi
           BEFORE="${{ github.event.before }}"
-          AFTER="${{ github.event.pull_request.head.sha }}"
+          AFTER="${{ github.event.pull_request.head.sha || github.sha }}"
           if [[ -z "$BEFORE" || "$BEFORE" =~ ^0+$ ]]; then
             echo "fast=false" >> "$GITHUB_OUTPUT"
             exit 0
