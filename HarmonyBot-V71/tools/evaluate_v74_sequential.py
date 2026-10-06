@@ -2365,6 +2365,10 @@ def _fit_survival_state_space_tournament(samples,years):
 
 # ---------------------------------------------------------------------------
 # V74-R4 Unified Causal Mixture-of-Experts Optimal-Stopping Reconstruction
+# R4.1: honest OOF stacked lane-action meta policy.  Route choice happens inside
+# each lane first; EARLY/LATE/SURVIVAL/FAILURE remain separate candidates until
+# the event-level meta policy chooses an action.  No burned/test outcome enters
+# a runtime feature.
 # ---------------------------------------------------------------------------
 
 def _r4_regime_id(s):
@@ -2379,199 +2383,356 @@ def _r4_wilson_lcb(p,n):
     return max(0.0,(center-rad)/den)
 
 def _fit_r4_calibrator(route_decisions,bundle):
-    """Training-only Jeffreys/shrinkage calibration by source and raw ENTER bin."""
+    """Training-only hierarchical calibration of the ENTER head.
+
+    Calibration is learned only from prior-year route decisions.  Runtime sees
+    the raw causal ENTER probability plus source/family/regime identity.  The
+    hierarchy shrinks small cells toward the raw-probability-bin base rate.
+    """
     reps=admission_route_representatives(route_decisions)
-    glob=[0,0];cells=defaultdict(lambda:[0,0])
+    rows=[];glob=[0,0];bins=defaultdict(lambda:[0,0])
     for e in reps:
         z=pred_admission(bundle,e);p=max(0.0,min(.999999,float(z["enter"])))
         b=min(9,int(p*10.0));win=1 if float(e["s"]["y"])>0 else 0
-        glob[0]+=win;glob[1]+=1
-        cells[(e["s"].get("source","NONE"),b)][0]+=win
-        cells[(e["s"].get("source","NONE"),b)][1]+=1
+        rid=int(e["s"].get("regime_id",_r4_regime_id(e["s"])))
+        rows.append((e,p,b,win,rid));glob[0]+=win;glob[1]+=1
+        bins[b][0]+=win;bins[b][1]+=1
     gp=(glob[0]+.5)/(glob[1]+1.0) if glob[1] else .5
-    out={}
-    shrink=24.0
-    for k,(w,n) in cells.items():
-        pp=(w+shrink*gp+.5)/(n+shrink+1.0)
-        out[str(k)]={"p":pp,"n":n+shrink,"lcb":_r4_wilson_lcb(pp,n+shrink)}
-    return {"global_p":gp,"global_lcb":_r4_wilson_lcb(gp,max(1,glob[1])),
-            "cells":out,"shrink":shrink,"n":glob[1]}
+    base={}
+    for b,(w,n) in bins.items():
+        pp=(w+18.0*gp+.5)/(n+19.0)
+        base[b]={"p":pp,"n":n+18.0}
+    banks={
+      "source":defaultdict(lambda:[0,0]),
+      "family":defaultdict(lambda:[0,0]),
+      "source_family":defaultdict(lambda:[0,0]),
+      "regime":defaultdict(lambda:[0,0])
+    }
+    for e,p,b,win,rid in rows:
+        s=e["s"];src=s.get("source","NONE");fam=s.get("family","NONE")
+        keys={"source":str((src,b)),"family":str((fam,b)),
+              "source_family":str((src,fam,b)),"regime":str((rid,b))}
+        for name,k in keys.items():
+            banks[name][k][0]+=win;banks[name][k][1]+=1
+    shrink=42.0;cells={name:{} for name in banks}
+    for name,bank in banks.items():
+        for k,(w,n) in bank.items():
+            try:b=int(k.rsplit(",",1)[-1].replace(")","").strip())
+            except Exception:b=0
+            bp=float(base.get(b,{"p":gp})["p"])
+            pp=(w+shrink*bp+.5)/(n+shrink+1.0)
+            cells[name][k]={"p":pp,"n":n+shrink}
+    return {"global_p":gp,"global_n":glob[1],"base":base,"cells":cells,
+            "shrink":shrink,"n":glob[1]}
 
 def _pred_r4_calibrator(cal,bundle,e):
     z=pred_admission(bundle,e);p=max(0.0,min(.999999,float(z["enter"])))
-    b=min(9,int(p*10.0));k=str((e["s"].get("source","NONE"),b))
-    q=cal.get("cells",{}).get(k)
-    return {"raw":z,"p":float(q["p"]) if q else float(cal["global_p"]),
-            "lcb":float(q["lcb"]) if q else float(cal["global_lcb"])}
+    b=min(9,int(p*10.0));s=e["s"];src=s.get("source","NONE");fam=s.get("family","NONE")
+    rid=int(s.get("regime_id",_r4_regime_id(s)))
+    bb=cal.get("base",{}).get(b,{"p":cal.get("global_p",.5),"n":max(1,cal.get("global_n",1))})
+    vals=[float(bb["p"])];ns=[float(bb.get("n",1))]
+    keys={"source":str((src,b)),"family":str((fam,b)),
+          "source_family":str((src,fam,b)),"regime":str((rid,b))}
+    for name,k in keys.items():
+        q=cal.get("cells",{}).get(name,{}).get(k)
+        if q is not None:vals.append(float(q["p"]));ns.append(float(q.get("n",1)))
+    eps=1e-6
+    hm=len(vals)/sum(1.0/max(eps,min(1.0,v)) for v in vals)
+    pp=.60*hm+.40*(sum(vals)/len(vals))
+    en=max(1.0,min(ns))
+    return {"raw":z,"p":pp,"lcb":_r4_wilson_lcb(pp,en),"effective_n":en}
 
-def _r4_lane_competition(route_decisions):
-    """Contemporaneous lane entropy/margin; all inputs exist at the same bar."""
+def _r4_event_year_weights(samples):
+    """Every harmonic event has unit mass inside its year; every year equal mass."""
+    by=defaultdict(list)
+    for i,s in enumerate(samples):
+        by[(s["window"],event_identity(s["setup"]))].append(i)
+    year_events=defaultdict(list)
+    for (w,eid),ids in by.items():year_events[w].append(ids)
+    wgt=[0.0]*len(samples)
+    for w,events in year_events.items():
+        if not events:continue
+        ew=1.0/len(events)
+        for ids in events:
+            q=ew/max(1,len(ids))
+            for i in ids:wgt[i]=q
+    sw=sum(wgt)
+    if sw<=1e-18:return [1.0]*len(samples)
+    scale=len(samples)/sw
+    return [x*scale for x in wgt]
+
+def _r4_stage_samples(route_decisions,prior):
+    """Keep one route per lane, but do not collapse lanes before action selection."""
     by=defaultdict(list)
     for e in route_decisions:
         s=e["s"];by[(s["window"],event_identity(s["setup"]),int(s["bar"]))].append(e)
-    out={}
-    for k,vv in by.items():
-        best={}
+    out=[]
+    for vv in by.values():
+        lane={}
         for e in vv:
-            src=e["s"].get("source","NONE");sc=float(e.get("score",-999.0))
-            if src not in best or sc>best[src]:best[src]=sc
-        vals=sorted(best.values(),reverse=True)
-        if not vals:out[k]={"entropy":1.0,"margin":0.0,"lanes":0};continue
-        mx=max(vals);ex=[math.exp(max(-40.0,min(40.0,(x-mx)/.35))) for x in vals]
-        sm=sum(ex);pp=[x/sm for x in ex]
-        ent=-sum(p*math.log(max(p,1e-15)) for p in pp)
-        ent=ent/math.log(len(pp)) if len(pp)>1 else 0.0
-        margin=(vals[0]-vals[1]) if len(vals)>1 else 1.0
-        out[k]={"entropy":ent,"margin":math.tanh(margin),"lanes":len(vals)}
+            src=e["s"].get("source","NONE")
+            if src not in lane or float(e.get("score",-999.0))>float(lane[src].get("score",-999.0)):
+                lane[src]=e
+        vals=sorted([float(e.get("score",-999.0)) for e in lane.values()],reverse=True)
+        if vals:
+            mx=max(vals);ex=[math.exp(max(-40.0,min(40.0,(z-mx)/.35))) for z in vals]
+            sm=sum(ex);pp=[z/sm for z in ex]
+            ent=-sum(q*math.log(max(q,1e-15)) for q in pp)
+            ent=ent/math.log(len(pp)) if len(pp)>1 else 0.0
+            margin=math.tanh((vals[0]-vals[1]) if len(vals)>1 else 1.0)
+        else:
+            ent=1.0;margin=0.0
+        for e in lane.values():
+            s=e["s"];p=e["pred"];src=s.get("source","NONE")
+            x=[
+              float(p.get("win",.5)),
+              math.tanh(float(p.get("mean",0.0))/2.0),
+              math.tanh(float(p.get("lcb",0.0))/2.0),
+              math.tanh(float(p.get("continuation",0.0))/2.0),
+              -math.tanh(float(p.get("regret",0.0))/2.0),
+              float(p.get("best_probability",.5)),
+              math.tanh(float(p.get("stop_advantage",0.0))/2.0),
+              math.tanh(float(s.get("pair_advantage",0.0))),
+              math.tanh(2.0*float(s.get("decision_margin",0.0))),
+              math.tanh(float(e.get("score",0.0))/2.0),
+              math.tanh(float(e.get("route_rank",0.0))/2.0),
+              min(1.0,max(0.0,float(p.get("expected_hold_bars",60.0))/180.0)),
+              float(_pred_struct_prior(prior,s)),
+              float(ent),float(margin),
+              min(1.0,len(lane)/max(1.0,float(len(SOURCES)))),
+              min(1.0,max(0.0,float(s.get("bar",0)))/180.0),
+              1.0 if s.get("action")=="CONTINUATION" else 0.0
+            ]
+            x.extend([1.0 if src==q else 0.0 for q in SOURCES])
+            for q in SOURCES:
+                z=lane.get(q)
+                if z is None:
+                    x.extend([0.0]*8);continue
+                zp=z["pred"]
+                x.extend([
+                  1.0,float(zp.get("win",.5)),
+                  math.tanh(float(zp.get("mean",0.0))/2.0),
+                  math.tanh(float(zp.get("lcb",0.0))/2.0),
+                  float(zp.get("best_probability",.5)),
+                  -math.tanh(float(zp.get("regret",0.0))/2.0),
+                  math.tanh(float(zp.get("stop_advantage",0.0))/2.0),
+                  math.tanh(float(z.get("score",0.0))/2.0)
+                ])
+            out.append({"window":s["window"],"setup":s["setup"],"family":s["family"],
+                        "action":s["action"],"source":src,"base":s["base"],"route":s["route"],
+                        "bar":s["bar"],"bars":s["bars"],"x":x,"y":float(s["y"]),"row":s["row"],
+                        "regime_id":_r4_regime_id(s)})
     return out
 
-def _r4_score_decisions(route_decisions,bundle,contrastive,year_experts,calibrator):
-    """Unified event-level admission score.
+def _r4_fit_value_balanced(samples,idx):
+    X=[s["x"] for s in samples]
+    ym=[float(s["y"]) for s in samples];yw=[1.0 if s["y"]>0 else 0.0 for s in samples]
+    yc=training_continuation_targets(samples);yr,yb=event_regret_targets(samples)
+    yh=[max(1.0,min(180.0,float(s.get("bars",1) or 1)))/180.0 for s in samples]
+    w=_r4_event_year_weights(samples)
+    if len(X)>9000:
+        step=max(1,math.ceil(len(X)/9000));ids=list(range(0,len(X),step))
+        Xf=[X[i] for i in ids];targets=[[z[i] for i in ids] for z in (ym,yw,yc,yr,yb,yh)];wf=[w[i] for i in ids]
+    else:
+        Xf=X;targets=[ym,yw,yc,yr,yb,yh];wf=w
+    ymf,ywf,ycf,yrf,ybf,yhf=targets;orders=_root_orders(Xf,idx)
+    kw={"rounds":max(8,TREE_ROUNDS),"lr":.070,"max_rows":10**9,"root_orders":orders,
+        "max_depth":2,"min_leaf":34,"weights":wf}
+    mm=_boost_train(Xf,ymf,idx,**kw);wm=_boost_train(Xf,ywf,idx,**kw)
+    cm=_boost_train(Xf,ycf,idx,**kw);rm=_boost_train(Xf,yrf,idx,**kw)
+    bm=_boost_train(Xf,ybf,idx,**kw)
+    hm=_boost_train(Xf,yhf,idx,rounds=max(6,TREE_ROUNDS-2),lr=.070,max_rows=10**9,
+                    root_orders=orders,max_depth=2,min_leaf=34,weights=wf)
+    pm=[_boost_pred(mm,x)[0] for x in X];pw=[max(0.0,min(1.0,_boost_pred(wm,x)[0])) for x in X]
+    return {"idx":idx,"mean":mm,"win":wm,"continuation":cm,"regret":rm,"best":bm,"hold":hm,
+            "residuals":_residual_cells(samples,pm,pw)}
 
-    The formula is frozen ex ante.  Inner walk-forward data only choose a final
-    threshold/coverage target, never these coefficients.  It rewards calibrated
-    precision and robust cross-year agreement, penalizes lane ambiguity and
-    predicted slot occupancy, and preserves source-native route experts.
-    """
-    reps=admission_route_representatives(route_decisions)
-    lane=_r4_lane_competition(route_decisions);out=[]
-    for e in reps:
-        s=e["s"];p=e["pred"];cz=_pred_r4_calibrator(calibrator,bundle,e)
-        az=cz["raw"];ct=pred_contrastive_winner(contrastive,e)
-        ye=pred_year_experts(year_experts,e)
-        lk=(s["window"],event_identity(s["setup"]),int(s["bar"]))
-        ls=lane.get(lk,{"entropy":1.0,"margin":0.0,"lanes":0})
-        comp=max(float(az["defer"]),float(az["reject"]))
-        enter_margin=float(az["enter_lcb"])-comp
-        hold=float(p.get("expected_hold_bars",60.0))
-        score=(2.10*(float(cz["lcb"])-.5)
-               +1.35*enter_margin
-               +.95*(float(ct.get("score",.5))-.5)
-               +.75*(float(ye.get("q25",.5))-.5)
-               +.45*(float(ye.get("minimum",.5))-.5)
-               -.60*float(ye.get("dispersion",0.0))
-               +.50*math.tanh(float(p.get("mean",0.0))/2.0)
-               +.35*math.tanh(float(p.get("lcb",0.0))/2.0)
-               +.25*(float(p.get("win",.5))-.5)
-               +.30*float(ls["margin"])
-               -.28*float(ls["entropy"])
-               +.22*math.tanh(float(p.get("stop_advantage",0.0))/2.0)
-               -.12*math.tanh(hold/60.0))
+def _r4_fit_pair_balanced(samples,idx):
+    X=[];yw=[];yd=[];event_keys=[]
+    for key,ev in grouped_events(samples).items():
+        if len(ev)<2:continue
+        a=sorted(ev,key=lambda z:(z["source"],z["base"],z["route"]));n=len(a)
+        for i in range(n):
+            for j in range(i+1,n):
+                delta=float(a[i]["y"])-float(a[j]["y"])
+                if abs(delta)<1e-12:continue
+                d=[a[i]["x"][q]-a[j]["x"][q] for q in idx]
+                X.append(d);yw.append(1.0 if delta>0 else 0.0);yd.append(max(-4.0,min(4.0,delta)));event_keys.append((key[0],key[1]))
+                X.append([-z for z in d]);yw.append(0.0 if delta>0 else 1.0);yd.append(max(-4.0,min(4.0,-delta)));event_keys.append((key[0],key[1]))
+    if len(X)<200:return {"valid":False,"idx":idx,"n":len(X)}
+    by=defaultdict(list)
+    for i,k in enumerate(event_keys):by[k].append(i)
+    year_events=defaultdict(list)
+    for (w,eid),ids in by.items():year_events[w].append(ids)
+    weights=[0.0]*len(X)
+    for w,events in year_events.items():
+        ew=1.0/max(1,len(events))
+        for ids in events:
+            q=ew/max(1,len(ids))
+            for i in ids:weights[i]=q
+    sw=sum(weights);scale=(len(weights)/sw) if sw>1e-18 else 1.0
+    weights=[z*scale for z in weights]
+    use=list(range(len(idx)));orders=_root_orders(X,use)
+    return {"valid":True,"idx":idx,"n":len(X),
+            "win":_boost_train(X,yw,use,rounds=max(8,PAIR_ROUNDS),lr=.075,max_rows=10**9,
+                               root_orders=orders,max_depth=2,min_leaf=28,weights=weights),
+            "delta":_boost_train(X,yd,use,rounds=max(8,PAIR_ROUNDS),lr=.075,max_rows=10**9,
+                                 root_orders=orders,max_depth=2,min_leaf=28,weights=weights)}
+
+def _fit_r4_meta_policy(stage_samples,years):
+    if len(stage_samples)<700:raise SystemExit("V74-R4 insufficient OOF stage samples")
+    p=len(stage_samples[0]["x"]);idx=stable_idx(stage_samples,min(32,p))
+    if len(idx)<6:idx=list(range(min(24,p)))
+    vm=_r4_fit_value_balanced(stage_samples,idx)
+    pm=_r4_fit_pair_balanced(stage_samples,idx[:min(len(idx),max(12,PAIR_KFEAT))])
+    if not pm.get("valid"):raise SystemExit("V74-R4 invalid event-level lane ranker")
+    tr_route=event_decisions(stage_samples,vm,pm)
+    bundle=fit_admission_bundle(tr_route,years)
+    cal=_fit_r4_calibrator(tr_route,bundle)
+    return {"type":"R4_OOF_STACKED_LANE_ACTION_META_POLICY","value":vm,"pair":pm,
+            "admission_bundle":bundle,"calibrator":cal,"fit_years":list(years),
+            "selected_features":list(idx)}
+
+def _apply_r4_meta_policy(model,stage_samples):
+    route=event_decisions(stage_samples,model["value"],model["pair"])
+    out=[]
+    for e in admission_route_representatives(route):
+        z=pred_admission(model["admission_bundle"],e)
+        cz=_pred_r4_calibrator(model["calibrator"],model["admission_bundle"],e)
+        comp=max(float(z["defer"]),float(z["reject"]))
+        p=e["pred"]
+        uncertainty=max(0.0,float(z["enter"])-float(z["enter_lcb"]))
+        score=(float(cz["lcb"])
+               +.20*(float(z["enter_lcb"])-comp)
+               +.08*math.tanh(float(p.get("mean",0.0))/2.0)
+               +.05*float(p.get("best_probability",.5))
+               -.05*math.tanh(uncertainty/.10))
         q=dict(e);q["score"]=score
-        q["pred"]=dict(p,r4={
-            "calibrated_enter":cz["p"],"calibrated_lcb":cz["lcb"],
-            "enter_margin":enter_margin,"contrastive_q25":ct.get("score",.5),
-            "year_q25":ye.get("q25",.5),"year_min":ye.get("minimum",.5),
-            "year_dispersion":ye.get("dispersion",0.0),
-            "lane_entropy":ls["entropy"],"lane_margin":ls["margin"],
-            "lane_count":ls["lanes"],"expected_hold_bars":hold})
-        q["s"]=dict(s,regime_id=_r4_regime_id(s))
+        q["stop_advantage"]=float(p.get("stop_advantage",-999.0))
+        q["pred"]=dict(p,admission=z,r4_calibrated_enter=cz["p"],
+                       r4_calibrated_lcb=cz["lcb"],
+                       regime_id=int(e["s"].get("regime_id",0)))
         out.append(q)
     return out
 
-def _compact_r4_decision(e):
-    s=e["s"]
-    cs={k:s[k] for k in ("window","setup","family","action","source","base","route","bar","bars","y")}
-    cs["row"]={};cs["regime_id"]=int(s.get("regime_id",_r4_regime_id(s)))
-    return {"score":float(e["score"]),"route_rank":float(e.get("route_rank",-999.0)),
-            "pred":{"regime_id":cs["regime_id"]},"s":cs}
+def _compact_r4_stage(s):
+    return {"window":s["window"],"setup":s["setup"],"family":s["family"],
+            "action":s["action"],"source":s["source"],"base":s["base"],
+            "route":s["route"],"bar":s["bar"],"bars":s["bars"],
+            "x":[float(z) for z in s["x"]],"y":float(s["y"]),"row":{},
+            "regime_id":int(s.get("regime_id",0))}
 
 def _compute_shared_inner_r4_year(vw):
+    """One honest first-layer OOF year, retaining all four lane candidates."""
     vy=int(vw[1:])
     tr=[s for s in _ALL_SAMPLES if int(s["window"][1:])<vy]
     va=[s for s in _ALL_SAMPLES if s["window"]==vw]
     yrs=sorted({s["window"] for s in tr},key=lambda w:int(w[1:]))
     heads,_=fit_mechanism_heads_from_samples(tr)
     tr_route=mechanism_decisions(tr,heads);va_route=mechanism_decisions(va,heads)
-    bundle=fit_admission_bundle(tr_route,yrs)
-    contrast=fit_contrastive_winner_ranker(tr_route,yrs)
-    yexp=fit_year_expert_rankers(tr_route,yrs)
-    if yexp is None:raise SystemExit("V74-R4 missing year experts "+vw)
-    cal=_fit_r4_calibrator(tr_route,bundle)
-    dec=[_compact_r4_decision(e) for e in _r4_score_decisions(va_route,bundle,contrast,yexp,cal)]
+    prior=_fit_struct_prior([e["s"] for e in tr_route])
+    stage=[_compact_r4_stage(s) for s in _r4_stage_samples(va_route,prior)]
     meta={"validation_year":vw,"training_years":yrs,
           "train_actions":len(tr),"validation_actions":len(va),
-          "validation_events":len({event_identity(e["s"]["setup"]) for e in dec})}
-    return vw,{"decisions":dec,"meta":meta}
+          "stage_candidates":len(stage),
+          "validation_events":len({event_identity(s["setup"]) for s in stage})}
+    return vw,{"stage":stage,"meta":meta}
 
 def _fit_r4_tournament(samples,years):
     eligible=[years[i] for i in range(2,len(years))]
-    val_years=eligible[-min(3,len(eligible)):]
-    if len(val_years)<2:raise SystemExit("V74-R4 insufficient inner years")
-    shared=globals().get("_INNER_R4_OOF_CACHE",{});oof=[];meta=[]
+    val_years=list(eligible)
+    if len(val_years)<3:raise SystemExit("V74-R4 insufficient inner OOF years")
+    shared=globals().get("_INNER_R4_OOF_CACHE",{});stage=[];meta=[]
     for vw in val_years:
         z=shared.get(vw)
         if z is None:
             _,z=_compute_shared_inner_r4_year(vw)
-        oof.extend(z["decisions"]);meta.append(z["meta"])
-    candidates=[]
+        if not z.get("stage"):raise SystemExit("V74-R4 empty OOF stage "+vw)
+        stage.extend(z["stage"]);meta.append(z["meta"])
+
+    # Second layer is itself cross-fitted by year.  Therefore the threshold and
+    # architecture ranking never evaluate a meta model on labels it was fit on.
+    cross=[];meta_cv=[]
+    for hw in val_years:
+        tr=[s for s in stage if s["window"]!=hw];va=[s for s in stage if s["window"]==hw]
+        ty=sorted({s["window"] for s in tr},key=lambda w:int(w[1:]))
+        md=_fit_r4_meta_policy(tr,ty)
+        dd=_apply_r4_meta_policy(md,va);cross.extend(dd)
+        meta_cv.append({"held_year":hw,"fit_years":ty,"train_stage":len(tr),
+                        "test_stage":len(va),"decisions":len(dd)})
+    if not cross:raise SystemExit("V74-R4 empty cross-fitted meta decisions")
+
+    candidates=[];cmi=_conditional_mi_bits(cross)
     for target in (250,275,300):
-        z=_precision_threshold(oof,val_years,target)
+        z=_precision_threshold(cross,val_years,target)
         if z is None:continue
-        cmi=_conditional_mi_bits(oof)
-        candidates.append(((z["rank"][0],cmi)+z["rank"][1:],target,z,cmi))
+        rank=(z["rank"][0],cmi)+z["rank"][1:]
+        candidates.append((rank,target,z))
     if not candidates:raise SystemExit("V74-R4 no coverage-feasible OOF candidate")
     candidates.sort(key=lambda x:x[0],reverse=True)
-    rank,target,z,cmi=candidates[0]
+    rank,target,z=candidates[0]
 
-    yrs=sorted(years,key=lambda w:int(w[1:]))
+    # Freeze the second layer on all honest first-layer OOF samples.
+    final_meta=_fit_r4_meta_policy(stage,val_years)
+    fitted_dec=_apply_r4_meta_policy(final_meta,stage)
+
+    # The final meta model has seen all OOF rows, so only its score scale changes.
+    # Transfer the cross-fitted threshold through an outcome-free robust affine
+    # map; no burned/test distribution is consulted.
+    os=[float(e["score"]) for e in cross];fs=[float(e["score"]) for e in fitted_dec]
+    om=med(os,0.0);fm=med(fs,0.0)
+    oq1,oq3=qtile(os,.25),qtile(os,.75);fq1,fq3=qtile(fs,.25),qtile(fs,.75)
+    scale=max(.35,min(2.5,(fq3-fq1)/max(1e-9,oq3-oq1)))
+    transferred=fm+(float(z["threshold"])-om)*scale
+
+    # First layer for the actual burned fold is fit only on its prior years.
     heads,training=fit_mechanism_heads_from_samples(samples)
     route=mechanism_decisions(samples,heads)
-    bundle=fit_admission_bundle(route,yrs)
-    contrast=fit_contrastive_winner_ranker(route,yrs)
-    yexp=fit_year_expert_rankers(route,yrs)
-    if yexp is None:raise SystemExit("V74-R4 final year experts unavailable")
-    cal=_fit_r4_calibrator(route,bundle)
-    full_dec=_r4_score_decisions(route,bundle,contrast,yexp,cal)
-
-    oof_scores=[float(e["score"]) for e in oof];full_scores=[float(e["score"]) for e in full_dec]
-    om=med(oof_scores,0.0);fm=med(full_scores,0.0)
-    oq1,oq3=qtile(oof_scores,.25),qtile(oof_scores,.75);fq1,fq3=qtile(full_scores,.25),qtile(full_scores,.75)
-    scale=max(.25,min(4.0,(fq3-fq1)/max(1e-9,oq3-oq1)))
-    transferred=fm+(float(z["threshold"])-om)*scale
+    prior=_fit_struct_prior([e["s"] for e in route])
+    training_oracle={w:_oracle_top250([s for s in samples if s["window"]==w]) for w in years}
     return {"mechanism_heads":heads,"mechanism_training":training,
-            "admission_bundle":bundle,"contrastive":contrast,"year_experts":yexp,
-            "calibrator":cal,"threshold":transferred,"oof_threshold":z["threshold"],
+            "stage_prior":prior,"meta_policy":final_meta,
+            "threshold":transferred,"oof_threshold":z["threshold"],
             "training_metrics":z["metrics"],"training_rank":list(rank),
             "training_limits":z["limits"],"training_supply":z["supply"],
-            "coverage_target":target,"inner_oof_years":val_years,"nested_meta":meta,
+            "coverage_target":target,"inner_oof_years":val_years,
+            "nested_meta":meta,"meta_crossfit":meta_cv,
             "conditional_mi_bits":cmi,
+            "training_oracle_admission":training_oracle,
             "threshold_transfer":{"oof_median":om,"full_fit_median":fm,
               "oof_iqr":oq3-oq1,"full_fit_iqr":fq3-fq1,"scale":scale,
-              "rule":"OUTCOME_FREE_SCORE_DISTRIBUTION_AFFINE_TRANSFER"}}
+              "rule":"OUTCOME_FREE_META_SCORE_AFFINE_TRANSFER"}}
 
 def fit_policy(train_rows,prebuilt_samples=None):
-    """V74-R4 unified causal mixture-of-experts admission policy."""
+    """V74-R4 honest OOF stacked unified-lane action/admission policy."""
     samples=list(prebuilt_samples) if prebuilt_samples is not None else make_samples(train_rows)
     if len(samples)<3000:raise SystemExit("V74-R4 insufficient unified causal actions")
     yrs=sorted({r["window"] for r in train_rows},key=lambda w:int(w[1:]))
     r4=_fit_r4_tournament(samples,yrs)
     tm=r4["training_metrics"];worst=min(gate_margin(m) for m in tm.values()) if tm else -999.0
     training_gate=all(gate(m) for m in tm.values()) if tm else False
-    training_oracle={w:_oracle_top250([s for s in samples if s["window"]==w]) for w in yrs}
-    return {"architecture":"V74_R4_UNIFIED_CAUSAL_MOE_OPTIMAL_STOPPING",
+    return {"architecture":"V74_R4_OOF_STACKED_UNIFIED_LANE_ACTION_META_POLICY",
             "mechanism_heads":r4["mechanism_heads"],"mechanism_training":r4["mechanism_training"],
-            "admission_bundle":r4["admission_bundle"],"contrastive":r4["contrastive"],
-            "year_experts":r4["year_experts"],"calibrator":r4["calibrator"],
+            "stage_prior":r4["stage_prior"],"meta_policy":r4["meta_policy"],
             "admission_fit_years":yrs,"admission_inner_oof_years":r4["inner_oof_years"],
             "threshold":r4["threshold"],"oof_threshold":r4["oof_threshold"],
             "training_coverage_limits":r4["training_limits"],"training_supply":r4["training_supply"],
             "training_metrics":tm,"training_worst_gate_margin":worst,
-            "training_oracle_admission":training_oracle,"training_gate":training_gate,
-            "coverage_target":r4["coverage_target"],
+            "training_oracle_admission":r4["training_oracle_admission"],
+            "training_gate":training_gate,"coverage_target":r4["coverage_target"],
             "admission_sweep":{"rounds":[],"evaluated_candidates":3,
               "training_rank":r4["training_rank"],"baseline_rank":None,
               "non_regression_vs_current_training":True,
-              "selected_mode":"UNIFIED_LANE_MOE__CALIBRATED_ENTER_DEFER_REJECT__GROUP_DRO",
+              "selected_mode":"OOF_STACKED_4_LANE_ACTION_RANKING__ENTER_DEFER_REJECT__GROUP_DRO",
               "inner_oof_years":r4["inner_oof_years"],"nested_meta":r4["nested_meta"],
-              "threshold_transfer":r4["threshold_transfer"],
+              "meta_crossfit":r4["meta_crossfit"],"threshold_transfer":r4["threshold_transfer"],
               "conditional_mi_bits":r4["conditional_mi_bits"]}},samples
 
 def apply_policy(policy,test_rows,prebuilt_samples=None):
     samples=list(prebuilt_samples) if prebuilt_samples is not None else make_samples(test_rows)
     route=mechanism_decisions(samples,policy["mechanism_heads"])
-    dec=_r4_score_decisions(route,policy["admission_bundle"],policy["contrastive"],
-                            policy["year_experts"],policy["calibrator"])
+    stage=_r4_stage_samples(route,policy["stage_prior"])
+    dec=_apply_r4_meta_policy(policy["meta_policy"],stage)
     sel=simulate(dec,policy["threshold"])
     return sel,samples,dec
 
@@ -2646,7 +2807,7 @@ for _required_fn in ("_diag_metrics","_oracle_top250","fit_mechanism_heads_from_
 
 checks=telemetry_guard()
 summary={"version":"HarmonyBot V74 One-Shot Family-Native Causal Action Selector",
- "architecture":"V74_R4_UNIFIED_CAUSAL_MIXTURE_OF_EXPERTS__EVENT_PAIRWISE_RANKING__CALIBRATED_ENTER_DEFER_REJECT__GROUP_DRO",
+ "architecture":"V74_R4_OOF_STACKED_UNIFIED_LANE_ACTION_RANKING__CALIBRATED_ENTER_DEFER_REJECT__GROUP_DRO",
  "gate":{"min_selected_per_year":MIN_N,"min_mean_r":MIN_MEAN,"min_pf_r":MIN_PF,
          "min_win_rate":MIN_WR,"min_average_rr":MIN_AVG_RR,"lcb95_gt":0.0},
  "research_training_windows":RESEARCH,"burned_oof_windows":BURNED,
@@ -2790,7 +2951,7 @@ summary["performance_engine"]={"immutable_sample_prebuild":True,
  "unified_r4_inner_oof_reuse":True,"prepared_inference_reuse":True,
  "inner_cache_build_seconds":round(time.perf_counter()-_t_inner,3) if "_t_inner" in globals() else None,
  "parity_fail_closed":True}
-summary["root_cause_rearchitecture"]="V74_R4_UNIFIED_CAUSAL_MOE_OPTIMAL_STOPPING"
+summary["root_cause_rearchitecture"]="V74_R4_OOF_STACKED_UNIFIED_LANE_ACTION_META_POLICY"
 summary["survival_primary_alpha"]=False
 summary["generic_early_late_failure_shadow_only"]=False
 summary["all_causal_lanes_active"]=True
