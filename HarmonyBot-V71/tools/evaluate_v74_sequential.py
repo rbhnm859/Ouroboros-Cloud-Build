@@ -3371,27 +3371,43 @@ if os.environ.get("V74_DISABLE_SHARED_INNER_CACHE","0")!="1" and _inner_needed:
     except OSError as ex:
         print("[V74-R4-INNER-CACHE-FALLBACK] infrastructure="+repr(ex),flush=True)
         _INNER_R4_OOF_CACHE={}
+_inner_cache_seconds=round(time.perf_counter()-_t_inner,3)
 print("[V74-R4-INNER-CACHE] years="+str(_inner_needed)+" built="+
-      str(sorted(_INNER_R4_OOF_CACHE))+" seconds="+
-      str(round(time.perf_counter()-_t_inner,3)),flush=True)
+      str(sorted(_INNER_R4_OOF_CACHE))+" seconds="+str(_inner_cache_seconds),flush=True)
 
-# Prefix meta models are identical across burned outer folds.  Fit reusable
-# prefixes once in the parent so forked folds share the model pages read-only.
-_t_meta_cache=time.perf_counter();_R4_META_MODEL_CACHE={}
+# Prefix meta models are identical across burned outer folds. Build independent
+# prefix fits concurrently, then fork burned folds so all workers share the
+# completed immutable cache copy-on-write. This changes no model semantics.
+_t_meta_cache=time.perf_counter();_R4_META_MODEL_CACHE={};_R4_META_STAGE_SOURCE=[]
+def _fit_r4_meta_prefix_parallel(ty):
+    ys=set(ty)
+    tr=[s for s in _R4_META_STAGE_SOURCE if s["window"] in ys]
+    if len(tr)<700:return _r4_meta_cache_key(ty),None
+    return _r4_meta_cache_key(ty),_fit_r4_meta_policy(tr,list(ty))
+
 if _INNER_R4_OOF_CACHE:
-    _all_stage=[]
     for _w in _inner_needed:
         _z=_INNER_R4_OOF_CACHE.get(_w)
-        if _z:_all_stage.extend(_z.get("stage",[]))
-    # Prefix-2/3/4 are reused by multiple outer folds. Prefix-5 is needed only
-    # once as the Y2023 final fit and is left to that worker.
-    for _k in range(2,min(4,len(_inner_needed))+1):
-        _ty=_inner_needed[:_k]
-        _tr=[s for s in _all_stage if s["window"] in set(_ty)]
-        if len(_tr)>=700:
-            _R4_META_MODEL_CACHE[_r4_meta_cache_key(_ty)]=_fit_r4_meta_policy(_tr,_ty)
+        if _z:_R4_META_STAGE_SOURCE.extend(_z.get("stage",[]))
+    _prefixes=[tuple(_inner_needed[:_k]) for _k in range(2,min(4,len(_inner_needed))+1)]
+    try:
+        _ctx_meta=mp.get_context("fork")
+        _meta_workers=min(len(_prefixes),max(1,int(os.cpu_count() or 1)))
+        if _meta_workers>1 and len(_prefixes)>1:
+            with _ctx_meta.Pool(processes=_meta_workers) as _pool:
+                _meta_results=_pool.map(_fit_r4_meta_prefix_parallel,_prefixes)
+        else:
+            _meta_results=[_fit_r4_meta_prefix_parallel(x) for x in _prefixes]
+        _R4_META_MODEL_CACHE={k:v for k,v in _meta_results if v is not None}
+    except OSError as ex:
+        print("[V74-R4-META-CACHE-FALLBACK] infrastructure="+repr(ex),flush=True)
+        _R4_META_MODEL_CACHE={}
+        for _ty in _prefixes:
+            k,v=_fit_r4_meta_prefix_parallel(_ty)
+            if v is not None:_R4_META_MODEL_CACHE[k]=v
+_meta_cache_seconds=round(time.perf_counter()-_t_meta_cache,3)
 print("[V74-R4-META-CACHE] prefixes="+str([list(k) for k in sorted(_R4_META_MODEL_CACHE)])+
-      " seconds="+str(round(time.perf_counter()-_t_meta_cache,3)),flush=True)
+      " seconds="+str(_meta_cache_seconds),flush=True)
 parallel_used=False
 fold_results=None
 # Each burned fold is causally independent and reads immutable rows only. Fork
@@ -3439,10 +3455,11 @@ summary["evaluator_runtime_seconds"]=round(time.perf_counter()-t0,3)
 summary["performance_engine"]={"immutable_sample_prebuild":True,
  "shared_unique_inner_oof_years":sorted(globals().get("_INNER_R4_OOF_CACHE",{})),
  "unified_r4_inner_oof_reuse":True,"prepared_inference_reuse":True,
- "inner_cache_build_seconds":round(time.perf_counter()-_t_inner,3) if "_t_inner" in globals() else None,
+ "inner_cache_build_seconds":globals().get("_inner_cache_seconds"),
  "meta_prefix_cache":True,
+ "meta_prefix_parallel":True,
  "meta_prefixes_cached":[list(k) for k in sorted(globals().get("_R4_META_MODEL_CACHE",{}))],
- "meta_cache_build_seconds":round(time.perf_counter()-_t_meta_cache,3) if "_t_meta_cache" in globals() else None,
+ "meta_cache_build_seconds":globals().get("_meta_cache_seconds"),
  "parity_fail_closed":True}
 summary["root_cause_rearchitecture"]="V74_R4_EVENT_IDENTITY_BALANCED_LISTWISE_PRECISION_RETRIEVAL"
 summary["component_rank_diagnostic_version"]="EVENT_TOP250_COMPONENT_RANK_V1"
