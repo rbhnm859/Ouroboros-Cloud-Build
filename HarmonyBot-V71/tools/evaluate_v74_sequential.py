@@ -670,6 +670,25 @@ def event_decisions(samples,vm,pm):
                   "pred":dict(p,pair_advantage=adv),"s":q})
     return out
 
+
+def meta_lane_decisions(samples,vm):
+    """Preserve every source lane through admission.
+
+    Source-native route arbitration already happened in mechanism_decisions().
+    The meta layer must therefore score each lane independently and defer the
+    MaxActiveBasket=1 cross-source choice until after calibrated admission.
+    """
+    out=[]
+    for s in samples:
+      p=pred_value(vm,s)
+      q=dict(s);q["pair_advantage"]=0.0
+      q["decision_score"]=float(p["admission_score"])
+      q["decision_margin"]=0.0
+      out.append({"score":float(p["admission_score"]),
+                  "route_rank":float(p["value_score"]),
+                  "pred":dict(p,pair_advantage=0.0),"s":q})
+    return out
+
 def simulate(decisions,th,window=None,stop_margin=-math.inf):
     d=defaultdict(list)
     for e in decisions:
@@ -790,26 +809,17 @@ def _consensus_stats(vals):
     sd=statistics.pstdev(z) if len(z)>1 else 0.0
     return [mu,max(z),min(z),sd]
 
-def admission_route_representatives(decisions):
-    """One causally preferred route per event/bar plus contemporaneous consensus.
 
-    Route arbitration is preserved exactly. Admission receives a separate vector
-    that appends only information available at the same completed decision bar:
-    which mechanisms have a legal action, their causal route predictions, cross-
-    mechanism agreement/disagreement, and the winning-route margin. No outcome,
-    future bar, Validation or Fresh value is used.
-    """
+def admission_lane_context(decisions):
+    """Attach same-bar cross-source context without discarding any lane."""
     by=defaultdict(list)
     for e in decisions:
       s=e["s"];by[(s["window"],event_identity(s["setup"]),int(s["bar"]))].append(e)
     out=[]
     for vv in by.values():
-      winner=max(vv,key=lambda z:(float(z.get("score",-999.0)),
-                                  float(z.get("route_rank",-999.0)),
-                                  float(z["pred"].get("lcb",-999.0)),
-                                  float(z["pred"].get("win",0.0)),z["s"]["route"]))
       srcs={e["s"].get("source") for e in vv}
-      route_scores=sorted([float(e.get("score",-999.0)) for e in vv],reverse=True)
+      scores=[float(e.get("score",-999.0)) for e in vv]
+      route_scores=sorted(scores,reverse=True)
       margin=(route_scores[0]-route_scores[1]) if len(route_scores)>1 else 0.0
       consensus=[
         min(1.0,len(srcs)/max(1.0,float(len(SOURCES)))),
@@ -821,16 +831,42 @@ def admission_route_representatives(decisions):
       ]
       for key in ("win","mean","lcb","best_probability","regret","stop_advantage"):
         consensus.extend(_consensus_stats([e["pred"].get(key,0.0) for e in vv]))
-      q=dict(winner);s=dict(winner["s"])
-      s["admission_consensus"]=consensus
-      s["admission_x"]=list(s["x"])+consensus
-      q["s"]=s
-      out.append(q)
+      ordered=sorted(vv,key=lambda e:(float(e.get("score",-999.0)),
+                                      float(e.get("route_rank",-999.0)),
+                                      e["s"]["route"]),reverse=True)
+      rank={id(e):i for i,e in enumerate(ordered)}
+      mx=max(scores) if scores else 0.0
+      med0=statistics.median(scores) if scores else 0.0
+      for e in vv:
+        s=dict(e["s"]);p=e["pred"];sc=float(e.get("score",-999.0))
+        rr=float(rank[id(e)])/max(1.0,float(len(vv)-1)) if len(vv)>1 else 0.0
+        relative=[
+          1.0-rr,
+          math.tanh((sc-med0)/1.5),
+          math.tanh((sc-mx)/1.5),
+          float(p.get("win",0.0)),
+          math.tanh(float(p.get("mean",0.0))/2.0),
+          math.tanh(float(p.get("lcb",0.0))/2.0)
+        ]
+        s["admission_consensus"]=consensus
+        s["admission_x"]=list(s["x"])+consensus+relative
+        q=dict(e);q["s"]=s;q["pre_admission_lane_rank"]=int(rank[id(e)])
+        out.append(q)
     return out
+
+def admission_route_representatives(decisions):
+    """Compatibility helper for diagnostics that explicitly need one lane/bar."""
+    by=defaultdict(list)
+    for e in admission_lane_context(decisions):
+      s=e["s"];by[(s["window"],event_identity(s["setup"]),int(s["bar"]))].append(e)
+    return [max(vv,key=lambda z:(float(z.get("score",-999.0)),
+                                 float(z.get("route_rank",-999.0)),
+                                 z["s"]["route"])) for vv in by.values()]
+
 
 def _admission_training_samples(route_decisions,years):
     yy=set(years);out=[]
-    for e in admission_route_representatives(route_decisions):
+    for e in admission_lane_context(route_decisions):
       s=e["s"]
       if s["window"] not in yy:continue
       out.append({"window":s["window"],"setup":s["setup"],"family":s["family"],
@@ -2578,7 +2614,7 @@ def _fit_r4_calibrator(route_decisions,bundle):
     the raw causal ENTER probability plus source/family/regime identity.  The
     hierarchy shrinks small cells toward the raw-probability-bin base rate.
     """
-    reps=admission_route_representatives(route_decisions)
+    reps=admission_lane_context(route_decisions)
     rows=[];glob=[0,0];bins=defaultdict(lambda:[0,0])
     for e in reps:
         z=pred_admission(bundle,e);p=max(0.0,min(.999999,float(z["enter"])))
@@ -2896,39 +2932,31 @@ def _r4_meta_feature_idx(stage_samples):
             if len(out)>=56:return out
     return out or list(range(min(32,p)))
 
+
 def _fit_r4_meta_policy(stage_samples,years):
-    if len(stage_samples)<700:raise SystemExit("V74-R4 insufficient OOF stage samples")
+    if len(stage_samples)<700:raise SystemExit("V74-R5 insufficient OOF stage samples")
     p=len(stage_samples[0]["x"]);idx=_r4_meta_feature_idx(stage_samples)
     if len(idx)<6:idx=list(range(min(24,p)))
     vm=_r4_fit_value_balanced(stage_samples,idx)
-    pm=_r4_fit_pair_balanced(stage_samples,idx[:min(len(idx),max(12,PAIR_KFEAT))])
-    if not pm.get("valid"):raise SystemExit("V74-R4 invalid event-level lane ranker")
-    tr_route=event_decisions(stage_samples,vm,pm)
+    # Source-native route choice is already frozen below this layer. A second
+    # cross-source pair ranker caused the high-purity SURVIVAL lane to disappear
+    # before its own admission head could score it, so it is intentionally removed.
+    tr_route=meta_lane_decisions(stage_samples,vm)
     bundle=fit_admission_bundle(tr_route,years)
     cal=_fit_r4_calibrator(tr_route,bundle)
-    # R4.2: admission is a retrieval/ranking problem, not only an absolute
-    # probability regression.  Reuse the existing year-balanced winner-vs-loser
-    # contrastive ranker and independent year experts on the direct causal meta
-    # state.  These models use outcomes only as prior-year training labels.
     contrast=fit_contrastive_winner_ranker(tr_route,years)
-    return {"type":"R4_EVENT_LISTWISE_PRECISION_META_POLICY","value":vm,"pair":pm,
+    return {"type":"R5_LANE_PRESERVING_EVENT_LISTWISE_PRECISION_META_POLICY",
+            "value":vm,"pair":None,
             "admission_bundle":bundle,"calibrator":cal,
             "contrastive":contrast,"score_mode":"HARD_LISTWISE",
-            "fit_years":list(years),"selected_features":list(idx)}
+            "fit_years":list(years),"selected_features":list(idx),
+            "lane_preserving_until_post_admission":True}
 
-R4_SEMANTIC_SCORE_MODES=(
-  "HARD_LISTWISE",
-  "HARD_PLUS_ENTER",
-  "HARD_PLUS_ADVANTAGE",
-  "ENTER_ADVANTAGE_LCB",
-  "ENTER_RAW",
-  "CURRENT_ROBUST_META"
-)
 
 def _apply_r4_meta_policy(model,stage_samples):
-    route=event_decisions(stage_samples,model["value"],model["pair"])
-    out=[]
-    for e in admission_route_representatives(route):
+    route=meta_lane_decisions(stage_samples,model["value"])
+    scored=[]
+    for e in admission_lane_context(route):
         z=pred_admission(model["admission_bundle"],e)
         cz=_pred_r4_calibrator(model["calibrator"],model["admission_bundle"],e)
         comp=max(float(z["defer"]),float(z["reject"]))
@@ -2951,20 +2979,31 @@ def _apply_r4_meta_policy(model,stage_samples):
           "CURRENT_ROBUST_META":current
         }
         mode=str(model.get("score_mode","HARD_LISTWISE"))
-        if mode not in bank:raise SystemExit("V74 unknown R4 semantic score mode "+mode)
-        score=float(bank[mode])
-        q=dict(e);q["score"]=score
+        if mode not in bank:raise SystemExit("V74 unknown R5 semantic score mode "+mode)
+        q=dict(e);q["score"]=float(bank[mode])
         q["stop_advantage"]=float(p.get("stop_advantage",-999.0))
         q["pred"]=dict(p,admission=z,r4_calibrated_enter=cz["p"],
-                       r4_calibrated_lcb=cz["lcb"],
-                       contrastive_winner=ct,
+                       r4_calibrated_lcb=cz["lcb"],contrastive_winner=ct,
                        year_expert_q25=ct.get("q25",hard),
                        year_expert_min=ct.get("minimum",hard),
                        year_expert_dispersion=ct.get("dispersion",0.0),
                        raw_meta_score=current,semantic_scores=bank,
                        score_mode=mode,score_orientation=1.0,
                        regime_id=int(e["s"].get("regime_id",0)))
-        out.append(q)
+        scored.append(q)
+
+    # MaxActiveBasket=1 arbitration occurs only after each source has received
+    # its own causal admission score. Preserve one capital candidate/event/bar.
+    by=defaultdict(list)
+    for e in scored:
+      s=e["s"];by[(s["window"],event_identity(s["setup"]),int(s["bar"]))].append(e)
+    out=[]
+    for vv in by.values():
+      out.append(max(vv,key=lambda e:(float(e["score"]),
+                                      float(e["pred"].get("r4_calibrated_lcb",-999.0)),
+                                      float(e["pred"].get("contrastive_winner",{}).get("score",0.0)),
+                                      float(e["pred"].get("lcb",-999.0)),
+                                      e["s"]["route"])))
     return out
 
 def _compact_r4_stage(s):
@@ -3116,7 +3155,7 @@ def fit_policy(train_rows,prebuilt_samples=None):
     r4=_fit_r4_tournament(samples,yrs)
     tm=r4["training_metrics"];worst=min(gate_margin(m) for m in tm.values()) if tm else -999.0
     training_gate=all(gate(m) for m in tm.values()) if tm else False
-    return {"architecture":"V74_R4_OOF_STACKED_UNIFIED_LANE_ACTION_META_POLICY",
+    return {"architecture":"V74_R5_LANE_PRESERVING_SOURCE_NATIVE_ADMISSION_POLICY",
             "mechanism_heads":r4["mechanism_heads"],"mechanism_training":r4["mechanism_training"],
             "stage_prior":r4["stage_prior"],"meta_policy":r4["meta_policy"],
             "admission_fit_years":yrs,"admission_inner_oof_years":r4["inner_oof_years"],
@@ -3129,7 +3168,7 @@ def fit_policy(train_rows,prebuilt_samples=None):
             "admission_sweep":{"rounds":[],"evaluated_candidates":3,
               "training_rank":r4["training_rank"],"baseline_rank":None,
               "non_regression_vs_current_training":True,
-              "selected_mode":"OOF_STACKED_4_LANE_ACTION_RANKING__ENTER_DEFER_REJECT__GROUP_DRO",
+              "selected_mode":"LANE_PRESERVING_SOURCE_NATIVE_ADMISSION__POST_ADMISSION_CAPITAL_ARBITRATION",
               "inner_oof_years":r4["inner_oof_years"],"meta_oof_years":r4["meta_oof_years"],
               "nested_meta":r4["nested_meta"],
               "meta_crossfit":r4["meta_crossfit"],"threshold_transfer":r4["threshold_transfer"],
@@ -3284,9 +3323,9 @@ summary={"version":"HarmonyBot V74 One-Shot Family-Native Causal Action Selector
  "policy":{"actions":"EARLY_OR_LATE_COMPLETED_BAR_ENTRY_ACTION__RAW_F00_EARLY__PREENTRY_CONFIRMATION_F20_F30_LATE",
            "harmonic_completion":"DIRECTION_TIME_D_EVENT_IDENTITY__MULTI_GEOMETRY_IS_CONFLUENCE_NOT_SUPPLY",
            "reaction_state":"CAUSAL_FEATURE_NOT_HARD_FILTER","physical_route_contract":"EVENT_NATIVE_CANONICAL_EVENT_FULL_COMPLETED_BAR_ENTRY_TIMING__EARLY_F00_M05_M10_M15__LATE_PREENTRY_F20_F30__SURVIVAL_FRESH__NETRR_GE230","v75_management_variants_excluded":True,"all_entry_maturity_stages_completed_bar_only":True,
-           "route_choice":"LANE_NATIVE_VALUE_PLUS_PAIRWISE_EVENT_RANKING__EARLY_LATE_SURVIVAL_FAILURE",
+           "route_choice":"SOURCE_NATIVE_ROUTE_FROZEN__CROSS_SOURCE_CAPITAL_ARBITRATION_POST_ADMISSION",
            "optimal_stopping":"SOURCE_SPECIFIC_ENTER_DEFER_REJECT__TRAINING_ONLY_FUTURE_LABELS__CAUSAL_RUNTIME_STATE",
-           "admission":"EVENT_LEVEL_CAUSAL_TRAJECTORY_STATE__MATCHED_HARD_NEGATIVE_LISTWISE_PRECISION_RETRIEVAL__EVENT_YEAR_BALANCED__CALIBRATED_ENTER_DEFER_REJECT__FORWARD_OOF__PRECISION_AT_250",
+           "admission":"LANE_PRESERVING_CAUSAL_TRAJECTORY__SOURCE_NATIVE_ENTER_DEFER_REJECT__MATCHED_HARD_NEGATIVE_LISTWISE_PRECISION__POST_ADMISSION_CAPITAL_ARBITRATION",
            "training_coverage_target_per_year":TRAIN_COVERAGE,
            "family_hierarchy":"12_FAMILY_CANONICAL_IDENTITY__ALL_CAUSAL_LANES_ACTIVE__SOURCE_NATIVE_EXPERTS__FAILURE_IS_DISTINCT_CONTINUATION",
            "no_trigger_posttrigger_lock_future_state":True,
@@ -3437,7 +3476,7 @@ for test,fold,policy in fold_results:
           for k in ("n","mean_r","pf_r","win_rate","average_rr","lcb_r","pass")}),flush=True)
 
 alpha=bool(allpass)
-champ="V74_R4_EVENT_LISTWISE_PRECISION_RETRIEVAL" if alpha else None
+champ="V74_R5_LANE_PRESERVING_SOURCE_NATIVE_ADMISSION" if alpha else None
 fold_metrics={w:{k:summary["folds"][w][k] for k in ("n","mean_r","pf_r","win_rate","average_rr","lcb_r")}
               for w in BURNED}
 current_rank=_guard_rank(fold_metrics)
@@ -3461,12 +3500,14 @@ summary["performance_engine"]={"immutable_sample_prebuild":True,
  "meta_prefixes_cached":[list(k) for k in sorted(globals().get("_R4_META_MODEL_CACHE",{}))],
  "meta_cache_build_seconds":globals().get("_meta_cache_seconds"),
  "parity_fail_closed":True}
-summary["root_cause_rearchitecture"]="V74_R4_EVENT_IDENTITY_BALANCED_LISTWISE_PRECISION_RETRIEVAL"
+summary["root_cause_rearchitecture"]="V74_R5_LANE_PRESERVING_SOURCE_NATIVE_ADMISSION"
 summary["component_rank_diagnostic_version"]="EVENT_TOP250_COMPONENT_RANK_V1"
 summary["event_identity_weighting_contract"]="YEAR_EQUAL__INDEPENDENT_EVENT_EQUAL__ROUTE_MULTIPLICITY_NEUTRAL__EARLY_ALIAS_DEDUP"
 summary["survival_primary_alpha"]=False
 summary["generic_early_late_failure_shadow_only"]=False
 summary["all_causal_lanes_active"]=True
+summary["lane_preserving_until_post_admission"]=True
+summary["cross_source_pair_ranker_removed_at_meta"]=True
 summary["parallel_fold_execution"]=parallel_used
 summary["parallel_fold_workers"]=min(len(BURNED),max(1,int(os.cpu_count() or 1))) if parallel_used else 1
 summary["alpha_gate"]=alpha;summary["alpha_champion"]=champ
