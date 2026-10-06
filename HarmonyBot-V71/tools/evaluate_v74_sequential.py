@@ -2971,6 +2971,67 @@ def _diag_metrics(samples):
       q=dict(s.get("row",{}));q["r"]=float(s["y"]);q["bars"]=max(1,int(s.get("bars",1) or 1));rr.append(q)
     return metrics(rr)
 
+def _component_rank_diagnostic(decisions):
+    """Burned/post-hoc diagnostic only: isolate causal score components.
+
+    Each component is frozen by prior-year training.  For a component we first
+    retain that component's highest-scored completed-bar decision per event,
+    then evaluate its Top250 event ranking.  Outcomes are read only after ranking
+    and are never fed back into training, thresholding or deployment.
+    """
+    def g(e,name):
+        p=e.get("pred",{});a=p.get("admission",{});ct=p.get("contrastive_winner",{})
+        table={
+          "DEPLOYED_SCORE":float(e.get("score",-999.0)),
+          "RAW_META_SCORE":float(p.get("raw_meta_score",-999.0)),
+          "LANE_WIN":float(p.get("win",0.0)),
+          "LANE_MEAN":float(p.get("mean",-999.0)),
+          "LANE_LCB":float(p.get("lcb",-999.0)),
+          "BEST_PROBABILITY":float(p.get("best_probability",0.0)),
+          "STOP_ADVANTAGE":float(e.get("stop_advantage",p.get("stop_advantage",-999.0))),
+          "ENTER_RAW":float(a.get("enter",0.0)),
+          "ENTER_LCB":float(a.get("enter_lcb",-999.0)),
+          "ENTER_ADVANTAGE_LCB":float(a.get("advantage_lcb",-999.0)),
+          "CALIBRATED_ENTER":float(p.get("r4_calibrated_enter",0.0)),
+          "CALIBRATED_LCB":float(p.get("r4_calibrated_lcb",-999.0)),
+          "CONTRASTIVE":float(ct.get("score",0.0)),
+          "CONTRASTIVE_MEDIAN":float(ct.get("median",0.0)),
+          "YEAR_Q25":float(p.get("year_expert_q25",0.0)),
+          "YEAR_MIN":float(p.get("year_expert_min",0.0)),
+          "NEG_YEAR_DISPERSION":-float(p.get("year_expert_dispersion",999.0))
+        }
+        return table[name]
+    names=("DEPLOYED_SCORE","RAW_META_SCORE","LANE_WIN","LANE_MEAN","LANE_LCB",
+           "BEST_PROBABILITY","STOP_ADVANTAGE","ENTER_RAW","ENTER_LCB",
+           "ENTER_ADVANTAGE_LCB","CALIBRATED_ENTER","CALIBRATED_LCB",
+           "CONTRASTIVE","CONTRASTIVE_MEDIAN","YEAR_Q25","YEAR_MIN","NEG_YEAR_DISPERSION")
+    out={}
+    for name in names:
+        by=defaultdict(list)
+        for e in decisions:
+            s=e["s"];by[(s["window"],event_identity(s["setup"]))].append(e)
+        reps=[]
+        for vv in by.values():
+            e=max(vv,key=lambda z:(g(z,name),float(z.get("score",-999.0)),z["s"]["route"]))
+            reps.append((g(e,name),e["s"]))
+        reps.sort(key=lambda z:(z[0],z[1]["route"]),reverse=True)
+        top=[s for _,s in reps[:MIN_N]]
+        m=_diag_metrics(top)
+        vals=[z for z,_ in reps]
+        wins=[1.0 if float(s["y"])>0.0 else 0.0 for _,s in reps]
+        # A simple rank-biserial-style separation diagnostic; positive means
+        # winners receive higher causal component scores on average.
+        wp=[vals[i] for i in range(len(vals)) if wins[i]>0]
+        lp=[vals[i] for i in range(len(vals)) if wins[i]<=0]
+        sep=(statistics.mean(wp)-statistics.mean(lp)) if wp and lp else 0.0
+        out[name]={"top250":m,"pass":gate(m),"available_events":len(reps),
+                   "winner_score_minus_loser_score":sep}
+    best=max(out.items(),key=lambda kv:(kv[1]["top250"]["win_rate"],
+                                       kv[1]["top250"]["mean_r"],
+                                       kv[1]["top250"]["pf_r"])) if out else (None,None)
+    return {"type":"DIAGNOSTIC_BURNED_COMPONENT_RANKING_ONLY__NEVER_TRAINED",
+            "components":out,"best_component":best[0]}
+
 def _oracle_top250(samples):
     by=defaultdict(list)
     for s in samples:by[(s["window"],event_identity(s["setup"]))].append(s)
@@ -3080,6 +3141,7 @@ def evaluate_burned_fold(test):
       "test_legal_actions":len(test_samples),"test_decision_events":len(dec),
       "two_axis_oracle":two_axis,
       "score_threshold_oracle":score_threshold_oracle,
+      "component_rank_diagnostic":_component_rank_diagnostic(dec),
       "selected_route_counts":dict(routes),"selected_family_counts":dict(fams),
       "selected_action_counts":dict(acts),"selected_source_counts":dict(srcs),
       "runtime_seconds":round(time.perf_counter()-ft,3)}
