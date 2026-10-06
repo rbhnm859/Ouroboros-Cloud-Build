@@ -3508,6 +3508,7 @@ summary["generic_early_late_failure_shadow_only"]=False
 summary["all_causal_lanes_active"]=True
 summary["lane_preserving_until_post_admission"]=True
 summary["cross_source_pair_ranker_removed_at_meta"]=True
+summary["fast_replay_supersession_contract"]="R5_GENERATION__STALE_HEAD_AUTO_TERMINATE__35M_HARD_TIMEOUT"
 summary["parallel_fold_execution"]=parallel_used
 summary["parallel_fold_workers"]=min(len(BURNED),max(1,int(os.cpu_count() or 1))) if parallel_used else 1
 summary["alpha_gate"]=alpha;summary["alpha_champion"]=champ
