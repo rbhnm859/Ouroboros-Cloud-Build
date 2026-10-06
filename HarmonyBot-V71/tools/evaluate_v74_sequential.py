@@ -254,7 +254,7 @@ _OPTION_CACHE={}
 def all_options(r,b):
     ck=(r["window"],r["setup"],b)
     if ck in _OPTION_CACHE:return _OPTION_CACHE[ck]
-    z=[]
+    z=[];seen_early=set()
     for src in REGULAR_SOURCES:
       for m in (EARLY_MSTAGES if src=="EARLY" else LATE_MSTAGES):
         for f in (EARLY_FRACTIONS if src=="EARLY" else LATE_FRACTIONS):
@@ -262,9 +262,20 @@ def all_options(r,b):
           if eb<0:continue
           y=outcome(r,src,m,b,f)
           if y is None:continue
+          bars=hold_bars(r,src,m,b,f)
+          # Formal EARLY qualification is F00. In the current source semantics
+          # M05/M10/M15 affect only downstream F10/F20/F30 management; for F00
+          # they can therefore emit exact duplicate entry/outcome rows.  Treating
+          # those aliases as independent observations violates Event Identity.
+          # De-duplicate only when the observable action semantics are identical;
+          # future genuinely distinct M-stage entry bars/outcomes remain separate.
+          if src=="EARLY":
+            sig=(b,f,int(eb),int(bars),round(float(y),12))
+            if sig in seen_early:continue
+            seen_early.add(sig)
           rid=("EARLY|"+b if src=="EARLY" else "LATE|M"+m+"_"+b)
           z.append({"rid":rid,"src":src,"m":m,"b":b,"f":f,"y":float(y),"bar":eb,
-                    "bars":hold_bars(r,src,m,b,f),"x":xvec(r,src,m,b,f,eb)})
+                    "bars":bars,"x":xvec(r,src,m,b,f,eb)})
     _OPTION_CACHE[ck]=z
     return z
 
@@ -330,6 +341,30 @@ def grouped_events(samples):
     d=defaultdict(list)
     for s in samples:d[(s["window"],event_identity(s["setup"]),s["bar"])].append(s)
     return d
+
+def _balanced_weights_from_keys(keys):
+    """Equal year mass; equal independent-event mass inside each year."""
+    by=defaultdict(list)
+    for i,k in enumerate(keys):by[(str(k[0]),str(k[1]))].append(i)
+    years=defaultdict(list)
+    for (w,eid),ids in by.items():years[w].append(ids)
+    out=[0.0]*len(keys)
+    for w,events in years.items():
+      if not events:continue
+      ew=1.0/len(events)
+      for ids in events:
+        q=ew/max(1,len(ids))
+        for i in ids:out[i]=q
+    sw=sum(out)
+    if sw<=1e-18:return [1.0]*len(keys)
+    scale=len(out)/sw
+    return [z*scale for z in out]
+
+def _event_year_balanced_weights(samples):
+    return _balanced_weights_from_keys([
+      (s["window"],event_identity(s["setup"])) for s in samples
+    ])
+
 
 def _tree_fit(X,y,idx,max_depth=TREE_DEPTH,min_leaf=28,root_orders=None,weights=None):
     # Event-balanced weighted SSE.  With weights=None this is exactly the former
@@ -496,15 +531,19 @@ def fit_value(samples,idx=None):
     # causal pre-entry x-vector and therefore gets an expected hold, never the
     # realized future hold of the candidate being scored.
     yh=[max(1.0,min(180.0,float(s.get("bars",1) or 1)))/180.0 for s in samples]
-    X,targets=_fit_view(Xall,[ym,yw,yc,yr,yb,yh],6500)
-    ymf,ywf,ycf,yrf,ybf,yhf=targets
+    w0=_event_year_balanced_weights(samples)
+    X,targets=_fit_view(Xall,[ym,yw,yc,yr,yb,yh,w0],6500)
+    ymf,ywf,ycf,yrf,ybf,yhf,wf=targets
     orders=_root_orders(X,idx)
-    mm=_boost_train(X,ymf,idx,rounds=TREE_ROUNDS,lr=.075,max_rows=10**9,root_orders=orders)
-    wm=_boost_train(X,ywf,idx,rounds=TREE_ROUNDS,lr=.075,max_rows=10**9,root_orders=orders)
-    cm=_boost_train(X,ycf,idx,rounds=TREE_ROUNDS,lr=.075,max_rows=10**9,root_orders=orders)
-    rm=_boost_train(X,yrf,idx,rounds=TREE_ROUNDS,lr=.075,max_rows=10**9,root_orders=orders)
-    bm=_boost_train(X,ybf,idx,rounds=TREE_ROUNDS,lr=.075,max_rows=10**9,root_orders=orders)
-    hm=_boost_train(X,yhf,idx,rounds=max(6,TREE_ROUNDS-2),lr=.075,max_rows=10**9,root_orders=orders)
+    kw={"rounds":TREE_ROUNDS,"lr":.075,"max_rows":10**9,
+        "root_orders":orders,"weights":wf}
+    mm=_boost_train(X,ymf,idx,**kw)
+    wm=_boost_train(X,ywf,idx,**kw)
+    cm=_boost_train(X,ycf,idx,**kw)
+    rm=_boost_train(X,yrf,idx,**kw)
+    bm=_boost_train(X,ybf,idx,**kw)
+    hm=_boost_train(X,yhf,idx,rounds=max(6,TREE_ROUNDS-2),lr=.075,max_rows=10**9,
+                    root_orders=orders,weights=wf)
     pm=[_boost_pred(mm,x)[0] for x in Xall];pw=[max(0.0,min(1.0,_boost_pred(wm,x)[0])) for x in Xall]
     return {"idx":idx,"mean":mm,"win":wm,"continuation":cm,"regret":rm,"best":bm,"hold":hm,
             "residuals":_residual_cells(samples,pm,pw)}
@@ -539,29 +578,62 @@ def pred_value(md,s):
             "admission_score":admission_score}
 
 def fit_pair(samples,idx=None):
-    idx=list(idx) if idx is not None else stable_idx(samples,PAIR_KFEAT);X=[];yw=[];yd=[]
-    for ev in grouped_events(samples).values():
+    """Event/year-balanced route ranking with exact streaming subsampling.
+
+    The former implementation materialized every route-difference vector and
+    only afterwards kept X[::step] up to 10k rows.  SURVIVAL can create a very
+    large pair surface, so most vectors were built just to be discarded.  This
+    two-pass implementation first counts legal pair rows, derives the identical
+    deterministic step, then constructs only rows that the original slice would
+    retain.  Pair order/labels/subsampling are unchanged; statistical weighting
+    is corrected so each independent event and each year have equal mass.
+    """
+    idx=list(idx) if idx is not None else stable_idx(samples,PAIR_KFEAT)
+    groups=[];total_rows=0
+    for key,ev in grouped_events(samples).items():
       if len(ev)<2:continue
       a=sorted(ev,key=lambda z:(z["base"],z["route"]));n=len(a)
       offs=sorted(set([1,max(1,n//4),max(1,n//2),max(1,(3*n)//4)]))
+      groups.append((key,a,offs))
+      for i in range(n):
+        for off in offs:
+          j=(i+off)%n
+          if i>=j:continue
+          if abs(float(a[i]["y"])-float(a[j]["y"]))<1e-12:continue
+          total_rows+=2
+    if total_rows<200:return {"valid":False,"idx":idx,"n":total_rows}
+
+    step=max(1,math.ceil(total_rows/10000))
+    X=[];yw=[];yd=[];pair_keys=[];row_i=0
+    for key,a,offs in groups:
+      n=len(a);event_key=(key[0],key[1])
       for i in range(n):
         for off in offs:
           j=(i+off)%n
           if i>=j:continue
           aa,bb=a[i],a[j];delta=float(aa["y"])-float(bb["y"])
           if abs(delta)<1e-12:continue
-          d=[aa["x"][q]-bb["x"][q] for q in idx]
-          X.append(d);yw.append(1.0 if delta>0 else 0.0);yd.append(max(-4.0,min(4.0,delta)))
-          X.append([-z for z in d]);yw.append(0.0 if delta>0 else 1.0);yd.append(max(-4.0,min(4.0,-delta)))
-    if len(X)<200:return {"valid":False,"idx":idx,"n":len(X)}
-    if len(X)>10000:
-      step=max(1,math.ceil(len(X)/10000));X=X[::step];yw=yw[::step];yd=yd[::step]
+          take0=(row_i%step)==0;take1=((row_i+1)%step)==0
+          if take0 or take1:
+            d=[aa["x"][q]-bb["x"][q] for q in idx]
+            if take0:
+              X.append(d);yw.append(1.0 if delta>0 else 0.0)
+              yd.append(max(-4.0,min(4.0,delta)));pair_keys.append(event_key)
+            if take1:
+              X.append([-z for z in d]);yw.append(0.0 if delta>0 else 1.0)
+              yd.append(max(-4.0,min(4.0,-delta)));pair_keys.append(event_key)
+          row_i+=2
+
+    pw0=_balanced_weights_from_keys(pair_keys)
     use=list(range(len(idx)))
-    Xfit,targets=_fit_view(X,[yw,yd],7000);ywf,ydf=targets
+    Xfit,targets=_fit_view(X,[yw,yd,pw0],7000);ywf,ydf,pwf=targets
     orders=_root_orders(Xfit,use)
     return {"valid":True,"idx":idx,"n":len(X),
-            "win":_boost_train(Xfit,ywf,use,rounds=PAIR_ROUNDS,lr=.08,max_rows=10**9,root_orders=orders),
-            "delta":_boost_train(Xfit,ydf,use,rounds=PAIR_ROUNDS,lr=.08,max_rows=10**9,root_orders=orders)}
+            "prestream_pair_rows":total_rows,"stream_step":step,
+            "win":_boost_train(Xfit,ywf,use,rounds=PAIR_ROUNDS,lr=.08,max_rows=10**9,
+                               root_orders=orders,weights=pwf),
+            "delta":_boost_train(Xfit,ydf,use,rounds=PAIR_ROUNDS,lr=.08,max_rows=10**9,
+                                 root_orders=orders,weights=pwf)}
 
 def pair_pref(pm,a,b):
     if not pm.get("valid"):return 0.0
@@ -1504,15 +1576,24 @@ def fit_mechanism_heads_from_samples(samples):
       # the lane is invalid. event_decisions()/pair_pref() already treat an
       # invalid pair ranker as zero pair advantage, so retain the value expert.
       years=sorted({s["window"] for s in ss})
-      counts=[sum(1 for s in ss if s["window"]==w) for w in years]
-      reliability=min(1.0,min(counts)/750.0) if counts else 0.0
+      raw_counts={w:sum(1 for s in ss if s["window"]==w) for w in years}
+      event_counts={w:len({event_identity(s["setup"]) for s in ss if s["window"]==w}) for w in years}
+      # Reliability measures independent causal support, not how many route
+      # hypotheses an event happens to expand into.  This removes the former
+      # structural penalty on single-route FAILURE and the artificial advantage
+      # of dense EARLY/SURVIVAL lattices.
+      reliability=min(1.0,min(event_counts.values())/float(MIN_N)) if event_counts else 0.0
       heads[src]={"value_model":vm,"pairwise_ranker":pm,"reliability":reliability,
-                  "n":len(ss),"year_counts":{w:sum(1 for s in ss if s["window"]==w) for w in years}}
+                  "n":len(ss),"year_counts":raw_counts,"year_event_counts":event_counts}
       training[src]={"n":len(ss),"reliability":reliability,
+                     "year_event_counts":event_counts,
                      "selected_features":len(vm.get("idx",[])),
-                     "pairwise_n":pm.get("n",0)}
+                     "pairwise_n":pm.get("n",0),
+                     "pairwise_prestream_n":pm.get("prestream_pair_rows",pm.get("n",0)),
+                     "pairwise_stream_step":pm.get("stream_step",1)}
     if not heads:raise SystemExit("V74 no valid mechanism-native heads")
-    required=[src for src in SOURCES if len(by_source.get(src,[]))>=250]
+    required=[src for src in SOURCES
+              if len({(s["window"],event_identity(s["setup"])) for s in by_source.get(src,[])})>=MIN_N]
     missing=[src for src in required if src not in heads]
     if missing:
       raise SystemExit("V74 unified-lane expert completeness failure "+",".join(missing))
@@ -2552,22 +2633,7 @@ def _pred_r4_calibrator(cal,bundle,e):
 
 def _r4_event_year_weights(samples):
     """Every harmonic event has unit mass inside its year; every year equal mass."""
-    by=defaultdict(list)
-    for i,s in enumerate(samples):
-        by[(s["window"],event_identity(s["setup"]))].append(i)
-    year_events=defaultdict(list)
-    for (w,eid),ids in by.items():year_events[w].append(ids)
-    wgt=[0.0]*len(samples)
-    for w,events in year_events.items():
-        if not events:continue
-        ew=1.0/len(events)
-        for ids in events:
-            q=ew/max(1,len(ids))
-            for i in ids:wgt[i]=q
-    sw=sum(wgt)
-    if sw<=1e-18:return [1.0]*len(samples)
-    scale=len(samples)/sw
-    return [x*scale for x in wgt]
+    return _event_year_balanced_weights(samples)
 
 def _r4_direct_causal_state(s):
     """Existing approved causal state for the R4 meta selector.
@@ -3378,8 +3444,9 @@ summary["performance_engine"]={"immutable_sample_prebuild":True,
  "meta_prefixes_cached":[list(k) for k in sorted(globals().get("_R4_META_MODEL_CACHE",{}))],
  "meta_cache_build_seconds":round(time.perf_counter()-_t_meta_cache,3) if "_t_meta_cache" in globals() else None,
  "parity_fail_closed":True}
-summary["root_cause_rearchitecture"]="V74_R4_EVENT_LISTWISE_PRECISION_RETRIEVAL_OPTIMAL_STOPPING"
+summary["root_cause_rearchitecture"]="V74_R4_EVENT_IDENTITY_BALANCED_LISTWISE_PRECISION_RETRIEVAL"
 summary["component_rank_diagnostic_version"]="EVENT_TOP250_COMPONENT_RANK_V1"
+summary["event_identity_weighting_contract"]="YEAR_EQUAL__INDEPENDENT_EVENT_EQUAL__ROUTE_MULTIPLICITY_NEUTRAL__EARLY_ALIAS_DEDUP"
 summary["survival_primary_alpha"]=False
 summary["generic_early_late_failure_shadow_only"]=False
 summary["all_causal_lanes_active"]=True
