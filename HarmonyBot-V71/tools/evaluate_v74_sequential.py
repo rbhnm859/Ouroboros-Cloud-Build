@@ -3322,7 +3322,7 @@ def two_axis_oracle_diagnostic(test_samples,dec,sel):
 for _required_fn in ("_diag_metrics","_oracle_top250","fit_mechanism_heads_from_samples",
                      "fit_admission_bundle","fit_contrastive_winner_ranker",
                      "meta_lane_decisions","admission_lane_context",
-                     "_fit_r4_meta_policy","_apply_r4_meta_policy"):
+                     "_fit_r4_meta_policy","_apply_r4_meta_policy","_fit_r4_tournament"):
     if not callable(globals().get(_required_fn)):
         raise SystemExit("V74 evaluator preflight missing callable "+_required_fn)
 _required_modes=("HARD_LISTWISE","HARD_PLUS_ENTER","HARD_PLUS_ADVANTAGE",
