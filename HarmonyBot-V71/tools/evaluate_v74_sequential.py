@@ -2510,12 +2510,20 @@ def _r4_direct_causal_state(s):
     return base+hp+pv+fam
 
 def _r4_stage_samples(route_decisions,prior):
-    """Keep one route per lane, but do not collapse lanes before action selection."""
-    by=defaultdict(list)
+    """R4.3 causal trajectory state for unified-lane optimal stopping.
+
+    One route per lane is retained at each completed decision bar.  The static
+    R4.2 state is augmented only with summaries of *earlier* decision bars from
+    the same harmonic event.  Same-bar candidates are frozen together before
+    history is advanced, so source iteration order cannot leak contemporaneous
+    alternatives into a fake temporal sequence.
+    """
+    by_bar=defaultdict(list)
     for e in route_decisions:
-        s=e["s"];by[(s["window"],event_identity(s["setup"]),int(s["bar"]))].append(e)
-    out=[]
-    for vv in by.values():
+        s=e["s"];by_bar[(s["window"],event_identity(s["setup"]),int(s["bar"]))].append(e)
+
+    raw=[]
+    for vv in by_bar.values():
         lane={}
         for e in vv:
             src=e["s"].get("source","NONE")
@@ -2530,6 +2538,7 @@ def _r4_stage_samples(route_decisions,prior):
             margin=math.tanh((vals[0]-vals[1]) if len(vals)>1 else 1.0)
         else:
             ent=1.0;margin=0.0
+
         for e in lane.values():
             s=e["s"];p=e["pred"];src=s.get("source","NONE")
             x=[
@@ -2552,12 +2561,9 @@ def _r4_stage_samples(route_decisions,prior):
               1.0 if s.get("action")=="CONTINUATION" else 0.0
             ]
             x.extend([1.0 if src==q else 0.0 for q in SOURCES])
-            # Preserve the approved pre-entry information surface at the meta
-            # layer instead of forcing every admission decision through a lossy
-            # first-layer prediction bottleneck.
             x.extend(_r4_direct_causal_state(s))
-            for q in SOURCES:
-                z=lane.get(q)
+            for qsrc in SOURCES:
+                z=lane.get(qsrc)
                 if z is None:
                     x.extend([0.0]*8);continue
                 zp=z["pred"]
@@ -2570,10 +2576,84 @@ def _r4_stage_samples(route_decisions,prior):
                   math.tanh(float(zp.get("stop_advantage",0.0))/2.0),
                   math.tanh(float(z.get("score",0.0))/2.0)
                 ])
-            out.append({"window":s["window"],"setup":s["setup"],"family":s["family"],
+            raw.append({"window":s["window"],"setup":s["setup"],"family":s["family"],
                         "action":s["action"],"source":src,"base":s["base"],"route":s["route"],
                         "bar":s["bar"],"bars":s["bars"],"x":x,"y":float(s["y"]),"row":s["row"],
-                        "regime_id":_r4_regime_id(s)})
+                        "regime_id":_r4_regime_id(s),
+                        "_lane_score":float(e.get("score",0.0)),
+                        "_lane_win":float(p.get("win",.5)),
+                        "_lane_mean":float(p.get("mean",0.0)),
+                        "_lane_lcb":float(p.get("lcb",0.0)),
+                        "_lane_stop":float(p.get("stop_advantage",0.0))})
+
+    events=defaultdict(list)
+    for s in raw:
+        events[(s["window"],event_identity(s["setup"]))].append(s)
+    out=[]
+    for vv in events.values():
+        bars=defaultdict(list)
+        for s in vv:bars[int(s["bar"])].append(s)
+        hist_best=[];last_bar=None
+        last_by_src={};count_by_src=Counter()
+        running_best_max=-math.inf;running_best_min=math.inf
+        for bar in sorted(bars):
+            cur=bars[bar]
+            prev_best=hist_best[-1] if hist_best else 0.0
+            prev_prev=hist_best[-2] if len(hist_best)>=2 else prev_best
+            slope=prev_best-prev_prev if hist_best else 0.0
+            gap=0.0 if last_bar is None else min(1.0,max(0.0,bar-last_bar)/20.0)
+            hcount=min(1.0,len(hist_best)/8.0)
+            rbmax=prev_best if running_best_max==-math.inf else running_best_max
+            rbmin=prev_best if running_best_min==math.inf else running_best_min
+            for s in cur:
+                src=s["source"];prev=last_by_src.get(src)
+                hist=[
+                  hcount,gap,
+                  math.tanh(prev_best/2.0),
+                  math.tanh(slope/1.0),
+                  math.tanh(rbmax/2.0),
+                  math.tanh(rbmin/2.0),
+                  min(1.0,count_by_src[src]/6.0)
+                ]
+                # Last observed state of every lane.  These values are from a
+                # strictly earlier completed bar, never the current same-bar set.
+                for qsrc in SOURCES:
+                    z=last_by_src.get(qsrc)
+                    if z is None:
+                        hist.extend([0.0]*6)
+                    else:
+                        hist.extend([
+                          1.0,
+                          math.tanh(float(z["_lane_score"])/2.0),
+                          float(z["_lane_win"]),
+                          math.tanh(float(z["_lane_mean"])/2.0),
+                          math.tanh(float(z["_lane_lcb"])/2.0),
+                          math.tanh(float(z["_lane_stop"])/2.0)
+                        ])
+                if prev is None:
+                    hist.extend([0.0]*6)
+                else:
+                    hist.extend([
+                      1.0,
+                      math.tanh((float(s["_lane_score"])-float(prev["_lane_score"]))/1.0),
+                      float(s["_lane_win"])-float(prev["_lane_win"]),
+                      math.tanh((float(s["_lane_mean"])-float(prev["_lane_mean"]))/1.0),
+                      math.tanh((float(s["_lane_lcb"])-float(prev["_lane_lcb"]))/1.0),
+                      math.tanh((float(s["_lane_stop"])-float(prev["_lane_stop"]))/1.0)
+                    ])
+                q=dict(s);q["x"]=list(s["x"])+hist
+                for k in ("_lane_score","_lane_win","_lane_mean","_lane_lcb","_lane_stop"):q.pop(k,None)
+                out.append(q)
+
+            # Advance history only after every candidate at this bar was encoded.
+            best=max(float(s["_lane_score"]) for s in cur)
+            hist_best.append(best)
+            running_best_max=max(running_best_max,best)
+            running_best_min=min(running_best_min,best)
+            for s in cur:
+                last_by_src[s["source"]]=s
+                count_by_src[s["source"]]+=1
+            last_bar=bar
     return out
 
 def _r4_fit_value_balanced(samples,idx):
@@ -2965,7 +3045,7 @@ summary={"version":"HarmonyBot V74 One-Shot Family-Native Causal Action Selector
            "reaction_state":"CAUSAL_FEATURE_NOT_HARD_FILTER","physical_route_contract":"EVENT_NATIVE_CANONICAL_EVENT_FULL_COMPLETED_BAR_ENTRY_TIMING__EARLY_F00_M05_M10_M15__LATE_PREENTRY_F20_F30__SURVIVAL_FRESH__NETRR_GE230","v75_management_variants_excluded":True,"all_entry_maturity_stages_completed_bar_only":True,
            "route_choice":"LANE_NATIVE_VALUE_PLUS_PAIRWISE_EVENT_RANKING__EARLY_LATE_SURVIVAL_FAILURE",
            "optimal_stopping":"SOURCE_SPECIFIC_ENTER_DEFER_REJECT__TRAINING_ONLY_FUTURE_LABELS__CAUSAL_RUNTIME_STATE",
-           "admission":"EVENT_LEVEL_DIRECT_CAUSAL_STATE__CONTRASTIVE_WINNER_RETRIEVAL__YEAR_EXPERT_GROUP_DRO__CALIBRATED_ENTER_DEFER_REJECT__FORWARD_OOF__PRECISION_AT_250",
+           "admission":"EVENT_LEVEL_CAUSAL_TRAJECTORY_STATE__CONTRASTIVE_WINNER_RETRIEVAL__YEAR_EXPERT_GROUP_DRO__CALIBRATED_ENTER_DEFER_REJECT__FORWARD_OOF__PRECISION_AT_250",
            "training_coverage_target_per_year":TRAIN_COVERAGE,
            "family_hierarchy":"12_FAMILY_CANONICAL_IDENTITY__ALL_CAUSAL_LANES_ACTIVE__SOURCE_NATIVE_EXPERTS__FAILURE_IS_DISTINCT_CONTINUATION",
            "no_trigger_posttrigger_lock_future_state":True,
@@ -3101,7 +3181,7 @@ summary["performance_engine"]={"immutable_sample_prebuild":True,
  "unified_r4_inner_oof_reuse":True,"prepared_inference_reuse":True,
  "inner_cache_build_seconds":round(time.perf_counter()-_t_inner,3) if "_t_inner" in globals() else None,
  "parity_fail_closed":True}
-summary["root_cause_rearchitecture"]="V74_R4_OOF_STACKED_UNIFIED_LANE_ACTION_META_POLICY"
+summary["root_cause_rearchitecture"]="V74_R4_CAUSAL_TRAJECTORY_OPTIMAL_STOPPING"
 summary["survival_primary_alpha"]=False
 summary["generic_early_late_failure_shadow_only"]=False
 summary["all_causal_lanes_active"]=True
