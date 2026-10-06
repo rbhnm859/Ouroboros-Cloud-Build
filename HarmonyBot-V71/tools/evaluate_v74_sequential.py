@@ -2685,6 +2685,23 @@ def _fit_r4_tournament(samples,years):
     scale=max(.35,min(2.5,(fq3-fq1)/max(1e-9,oq3-oq1)))
     transferred=fm+(float(z["threshold"])-om)*scale
 
+    # Optimal-stopping is a two-dimensional frozen decision: score threshold
+    # AND ENTER-vs-WAIT margin.  Transfer the learned OOF stop margin onto the
+    # final-fit meta model without consulting the burned/test distribution.
+    oof_stop=float(z.get("stop_margin",-math.inf))
+    if math.isfinite(oof_stop):
+        oa=[float(e.get("stop_advantage",-999.0)) for e in cross
+            if math.isfinite(float(e.get("stop_advantage",-999.0))) and float(e.get("stop_advantage",-999.0))>-900.0]
+        fa=[float(e.get("stop_advantage",-999.0)) for e in fitted_dec
+            if math.isfinite(float(e.get("stop_advantage",-999.0))) and float(e.get("stop_advantage",-999.0))>-900.0]
+        oam=med(oa,0.0);fam=med(fa,0.0)
+        oaq1,oaq3=qtile(oa,.25),qtile(oa,.75);faq1,faq3=qtile(fa,.25),qtile(fa,.75)
+        stop_scale=max(.35,min(2.5,(faq3-faq1)/max(1e-9,oaq3-oaq1)))
+        stop_transferred=fam+(oof_stop-oam)*stop_scale
+    else:
+        oam=fam=0.0;oaq1=oaq3=faq1=faq3=0.0;stop_scale=1.0
+        stop_transferred=-math.inf
+
     # First layer for the actual burned fold is fit only on its prior years.
     heads,training=fit_mechanism_heads_from_samples(samples)
     route=mechanism_decisions(samples,heads)
@@ -2693,6 +2710,7 @@ def _fit_r4_tournament(samples,years):
     return {"mechanism_heads":heads,"mechanism_training":training,
             "stage_prior":prior,"meta_policy":final_meta,
             "threshold":transferred,"oof_threshold":z["threshold"],
+            "stop_margin":stop_transferred,"oof_stop_margin":oof_stop,
             "training_metrics":z["metrics"],"training_rank":list(rank),
             "training_limits":z["limits"],"training_supply":z["supply"],
             "coverage_target":target,"inner_oof_years":val_years,
@@ -2701,7 +2719,11 @@ def _fit_r4_tournament(samples,years):
             "training_oracle_admission":training_oracle,
             "threshold_transfer":{"oof_median":om,"full_fit_median":fm,
               "oof_iqr":oq3-oq1,"full_fit_iqr":fq3-fq1,"scale":scale,
-              "rule":"OUTCOME_FREE_META_SCORE_AFFINE_TRANSFER"}}
+              "oof_stop_margin":oof_stop,"transferred_stop_margin":stop_transferred,
+              "stop_oof_median":oam,"stop_full_fit_median":fam,
+              "stop_oof_iqr":oaq3-oaq1,"stop_full_fit_iqr":faq3-faq1,
+              "stop_scale":stop_scale,
+              "rule":"OUTCOME_FREE_META_SCORE_AND_STOP_MARGIN_AFFINE_TRANSFER"}}
 
 def fit_policy(train_rows,prebuilt_samples=None):
     """V74-R4 honest OOF stacked unified-lane action/admission policy."""
@@ -2716,6 +2738,7 @@ def fit_policy(train_rows,prebuilt_samples=None):
             "stage_prior":r4["stage_prior"],"meta_policy":r4["meta_policy"],
             "admission_fit_years":yrs,"admission_inner_oof_years":r4["inner_oof_years"],
             "threshold":r4["threshold"],"oof_threshold":r4["oof_threshold"],
+            "stop_margin":r4["stop_margin"],"oof_stop_margin":r4["oof_stop_margin"],
             "training_coverage_limits":r4["training_limits"],"training_supply":r4["training_supply"],
             "training_metrics":tm,"training_worst_gate_margin":worst,
             "training_oracle_admission":r4["training_oracle_admission"],
@@ -2733,7 +2756,7 @@ def apply_policy(policy,test_rows,prebuilt_samples=None):
     route=mechanism_decisions(samples,policy["mechanism_heads"])
     stage=_r4_stage_samples(route,policy["stage_prior"])
     dec=_apply_r4_meta_policy(policy["meta_policy"],stage)
-    sel=simulate(dec,policy["threshold"])
+    sel=simulate(dec,policy["threshold"],stop_margin=policy.get("stop_margin",-math.inf))
     return sel,samples,dec
 
 def _diag_metrics(samples):
@@ -2842,7 +2865,8 @@ def evaluate_burned_fold(test):
     srcs=Counter(x.split("|",1)[0] for x in routes.elements())
     ps=gate(m)
     fold={**m,"pass":ps,"training_windows":tw,
-      "entry_threshold":policy["threshold"],"training_coverage_target":TRAIN_COVERAGE,
+      "entry_threshold":policy["threshold"],"stopping_margin":policy.get("stop_margin",-math.inf),
+      "training_coverage_target":TRAIN_COVERAGE,
       "training_gate":policy.get("training_gate"),"training_worst_gate_margin":policy.get("training_worst_gate_margin"),
       "training_supply":policy["training_supply"],"training_year_metrics":policy["training_metrics"],
       "training_oracle_admission":policy.get("training_oracle_admission",{}),
