@@ -17,7 +17,9 @@ on:
       - '.github/workflows/harmonybot-v74-fast-replay.yml'
 
 concurrency:
-  group: harmonybot-v74-fast-replay-${{ github.ref_name || github.ref }}
+  # R5 generation intentionally differs from legacy runs so a stale pre-R5
+  # tournament cannot block the newest lane-preserving evaluator.
+  group: harmonybot-v74-fast-replay-r5-${{ github.ref_name || github.ref }}
   cancel-in-progress: true
 
 permissions:
@@ -94,7 +96,7 @@ jobs:
     needs: fast_change_gate
     if: ${{ needs.fast_change_gate.outputs.fast == 'true' && (github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref_name == 'harmonybot/v73-opportunity-universe' && needs.fast_change_gate.outputs.model == 'true')) }}
     runs-on: ubuntu-24.04
-    timeout-minutes: 180
+    timeout-minutes: 35
     steps:
       - uses: actions/checkout@v4
         with:
@@ -242,7 +244,40 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p tournament
-          python3 control/HarmonyBot-V71/tools/evaluate_v74_sequential.py merged tournament
+          rm -f tournament/superseded.txt
+
+          python3 control/HarmonyBot-V71/tools/evaluate_v74_sequential.py merged tournament &
+          EVAL_PID=$!
+
+          (
+            while kill -0 "$EVAL_PID" 2>/dev/null; do
+              sleep 20
+              LATEST=$(git -C control ls-remote origin "refs/heads/${GITHUB_REF_NAME}" 2>/dev/null | awk '{print $1}' || true)
+              if [[ -n "$LATEST" && "$LATEST" != "$GITHUB_SHA" ]]; then
+                echo "[V74-SUPERSEDED] current=$GITHUB_SHA latest=$LATEST; terminating stale tournament"
+                printf '%s\n' "$LATEST" > tournament/superseded.txt
+                kill -TERM "$EVAL_PID" 2>/dev/null || true
+                exit 0
+              fi
+            done
+          ) &
+          WATCH_PID=$!
+
+          set +e
+          wait "$EVAL_PID"
+          RC=$?
+          set -e
+          kill "$WATCH_PID" 2>/dev/null || true
+          wait "$WATCH_PID" 2>/dev/null || true
+
+          if [[ -s tournament/superseded.txt ]]; then
+            echo "[V74-SUPERSEDED] stale evaluator stopped cleanly"
+            exit 0
+          fi
+          if [[ "$RC" -ne 0 ]]; then
+            exit "$RC"
+          fi
+
           python3 - <<'PY'
           import json
           m=json.load(open("tournament/V74_TOURNAMENT_MANIFEST.json"))
@@ -262,7 +297,10 @@ jobs:
           set -euo pipefail
           PHYSICAL="${{ steps.oracle.outputs.physical_pass }}"
           echo "[V74-FAST-VERDICT] physical_pass=$PHYSICAL"
-          if [[ -s tournament/alpha_pass.txt ]]; then
+          if [[ -s tournament/superseded.txt ]]; then
+            echo "[V74-FAST-VERDICT] alpha_pass=not_run"
+            echo "[V74-FAST-VERDICT] state=SUPERSEDED"
+          elif [[ -s tournament/alpha_pass.txt ]]; then
             ALPHA=$(cat tournament/alpha_pass.txt)
             echo "[V74-FAST-VERDICT] alpha_pass=$ALPHA"
             if [[ "$ALPHA" == "true" ]]; then
