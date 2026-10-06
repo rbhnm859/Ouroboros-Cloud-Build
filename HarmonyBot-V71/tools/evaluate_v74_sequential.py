@@ -3244,6 +3244,7 @@ summary["performance_engine"]={"immutable_sample_prebuild":True,
  "inner_cache_build_seconds":round(time.perf_counter()-_t_inner,3) if "_t_inner" in globals() else None,
  "parity_fail_closed":True}
 summary["root_cause_rearchitecture"]="V74_R4_CAUSAL_TRAJECTORY_OPTIMAL_STOPPING"
+summary["component_rank_diagnostic_version"]="EVENT_TOP250_COMPONENT_RANK_V1"
 summary["survival_primary_alpha"]=False
 summary["generic_early_late_failure_shadow_only"]=False
 summary["all_causal_lanes_active"]=True
