@@ -17,7 +17,7 @@ profit-capture and Grid/capital-capacity mechanics are intentionally excluded.
 import bisect,json,math,os,pathlib,statistics,sys,time,multiprocessing as mp
 # V74 performance-engine generation: immutable-prebuild/shared-inner-context-v1
 from collections import defaultdict,Counter
-from v74_model_lib import load_rows,metrics,SEQUENTIAL_STATE_FEATURE_COUNT,SURVIVAL_MORPH_FEATURE_COUNT,SURVIVAL_PATH_V2_FEATURE_COUNT,FAMILIES,SURVIVAL_FRESH_KEYS
+from v74_model_lib import load_rows,metrics,SEQUENTIAL_STATE_FEATURE_COUNT,SURVIVAL_MORPH_FEATURE_COUNT,SURVIVAL_PATH_V2_FEATURE_COUNT,FAMILIES,SURVIVAL_FRESH_KEYS,FEATURE_NAMES
 from v74_model_lib import event_identity
 from harmonic_precision_contract import harmonic_precision_vector
 
@@ -2474,6 +2474,41 @@ def _r4_event_year_weights(samples):
     scale=len(samples)/sw
     return [x*scale for x in wgt]
 
+def _r4_direct_causal_state(s):
+    """Existing approved causal state for the R4 meta selector.
+
+    R4.1 accidentally compressed the second layer almost entirely to first-layer
+    predictions.  That destroys information even when the underlying HCOG and
+    Path-V3 telemetry are causal.  Re-admit the existing event features,
+    canonical harmonic-precision vector and SURVIVAL Path V3 here.  This is not
+    Path V4 and creates no new telemetry.  Non-SURVIVAL lanes receive an explicit
+    zero Path-V3 vector so the meta feature dimension is identical across lanes.
+    """
+    r=s.get("row") or {}
+    base=[]
+    raw=list(r.get("features",[]))
+    for i in range(len(FEATURE_NAMES)):
+        try:
+            v=float(raw[i]);base.append(v if math.isfinite(v) else 0.0)
+        except Exception:
+            base.append(0.0)
+    try:
+        hp=[float(z) for z in _precision_vector(r)]
+    except Exception:
+        hp=[0.0]*len(_precision_vector({}))
+    pv=[0.0]*SURVIVAL_PATH_V2_FEATURE_COUNT
+    if s.get("source")=="SURVIVAL":
+        sf=str(s.get("route","")).split("|",1)[1] if "|" in str(s.get("route","")) else ""
+        q=r.get("survival_fresh_path_v2",{}).get(sf)
+        if q is not None and len(q)==SURVIVAL_PATH_V2_FEATURE_COUNT:
+            try:
+                z=[float(v) for v in q]
+                if all(math.isfinite(v) for v in z):pv=z
+            except Exception:
+                pass
+    fam=[1.0 if s.get("family")==ff else 0.0 for ff in FAMILIES]
+    return base+hp+pv+fam
+
 def _r4_stage_samples(route_decisions,prior):
     """Keep one route per lane, but do not collapse lanes before action selection."""
     by=defaultdict(list)
@@ -2517,6 +2552,10 @@ def _r4_stage_samples(route_decisions,prior):
               1.0 if s.get("action")=="CONTINUATION" else 0.0
             ]
             x.extend([1.0 if src==q else 0.0 for q in SOURCES])
+            # Preserve the approved pre-entry information surface at the meta
+            # layer instead of forcing every admission decision through a lossy
+            # first-layer prediction bottleneck.
+            x.extend(_r4_direct_causal_state(s))
             for q in SOURCES:
                 z=lane.get(q)
                 if z is None:
@@ -2592,9 +2631,33 @@ def _r4_fit_pair_balanced(samples,idx):
             "delta":_boost_train(X,yd,use,rounds=max(8,PAIR_ROUNDS),lr=.075,max_rows=10**9,
                                  root_orders=orders,max_depth=2,min_leaf=28,weights=weights)}
 
+def _r4_meta_feature_idx(stage_samples):
+    """Training-only union of temporally stable admission objectives.
+
+    Winner probability alone is too lossy for the V74 hard gate.  Select a
+    bounded union of features that transfer in sign for win, strong-win and
+    clipped Expected-R, then fill from the generic nonlinear stability ranking.
+    """
+    p=len(stage_samples[0]["x"]) if stage_samples else 0
+    yw=[1.0 if float(s["y"])>0.0 else 0.0 for s in stage_samples]
+    ys=[1.0 if float(s["y"])>=1.0 else 0.0 for s in stage_samples]
+    yr=[(max(-1.0,min(2.5,float(s["y"])))+1.0)/3.5 for s in stage_samples]
+    banks=[
+      stable_idx_target(stage_samples,yw,min(24,p)),
+      stable_idx_target(stage_samples,ys,min(24,p)),
+      stable_idx_target(stage_samples,yr,min(24,p)),
+      stable_idx(stage_samples,min(36,p))
+    ]
+    out=[]
+    for bank in banks:
+        for j in bank:
+            if j not in out:out.append(j)
+            if len(out)>=56:return out
+    return out or list(range(min(32,p)))
+
 def _fit_r4_meta_policy(stage_samples,years):
     if len(stage_samples)<700:raise SystemExit("V74-R4 insufficient OOF stage samples")
-    p=len(stage_samples[0]["x"]);idx=stable_idx(stage_samples,min(32,p))
+    p=len(stage_samples[0]["x"]);idx=_r4_meta_feature_idx(stage_samples)
     if len(idx)<6:idx=list(range(min(24,p)))
     vm=_r4_fit_value_balanced(stage_samples,idx)
     pm=_r4_fit_pair_balanced(stage_samples,idx[:min(len(idx),max(12,PAIR_KFEAT))])
@@ -2663,21 +2726,27 @@ def _fit_r4_tournament(samples,years):
         if not z.get("stage"):raise SystemExit("V74-R4 empty OOF stage "+vw)
         stage.extend(z["stage"]);meta.append(z["meta"])
 
-    # Second layer is itself cross-fitted by year.  Therefore the threshold and
-    # architecture ranking never evaluate a meta model on labels it was fit on.
-    cross=[];meta_cv=[]
-    for hw in val_years:
-        tr=[s for s in stage if s["window"]!=hw];va=[s for s in stage if s["window"]==hw]
-        ty=sorted({s["window"] for s in tr},key=lambda w:int(w[1:]))
+    # Second layer must also be temporally causal.  The previous leave-one-year-
+    # out loop trained an earlier held year on later research years.  Use an
+    # expanding forward chain and require two complete prior OOF years before a
+    # meta year is scored.
+    cross=[];meta_cv=[];cross_years=[]
+    for hi in range(2,len(val_years)):
+        hw=val_years[hi];ty=val_years[:hi]
+        tr=[s for s in stage if s["window"] in ty]
+        va=[s for s in stage if s["window"]==hw]
+        if len(tr)<700 or not va:continue
         md=_fit_r4_meta_policy(tr,ty)
-        dd=_apply_r4_meta_policy(md,va);cross.extend(dd)
-        meta_cv.append({"held_year":hw,"fit_years":ty,"train_stage":len(tr),
-                        "test_stage":len(va),"decisions":len(dd)})
-    if not cross:raise SystemExit("V74-R4 empty cross-fitted meta decisions")
+        dd=_apply_r4_meta_policy(md,va);cross.extend(dd);cross_years.append(hw)
+        meta_cv.append({"held_year":hw,"fit_years":list(ty),"train_stage":len(tr),
+                        "test_stage":len(va),"decisions":len(dd),
+                        "causal_forward_chain":True})
+    if not cross or not cross_years:
+        raise SystemExit("V74-R4 empty causal forward meta OOF")
 
     candidates=[];cmi=_conditional_mi_bits(cross)
     for target in (250,275,300):
-        z=_precision_threshold(cross,val_years,target)
+        z=_precision_threshold(cross,cross_years,target)
         if z is None:continue
         rank=(z["rank"][0],cmi)+z["rank"][1:]
         candidates.append((rank,target,z))
@@ -2727,6 +2796,7 @@ def _fit_r4_tournament(samples,years):
             "training_metrics":z["metrics"],"training_rank":list(rank),
             "training_limits":z["limits"],"training_supply":z["supply"],
             "coverage_target":target,"inner_oof_years":val_years,
+            "meta_oof_years":cross_years,
             "nested_meta":meta,"meta_crossfit":meta_cv,
             "conditional_mi_bits":cmi,
             "training_oracle_admission":training_oracle,
@@ -2760,7 +2830,8 @@ def fit_policy(train_rows,prebuilt_samples=None):
               "training_rank":r4["training_rank"],"baseline_rank":None,
               "non_regression_vs_current_training":True,
               "selected_mode":"OOF_STACKED_4_LANE_ACTION_RANKING__ENTER_DEFER_REJECT__GROUP_DRO",
-              "inner_oof_years":r4["inner_oof_years"],"nested_meta":r4["nested_meta"],
+              "inner_oof_years":r4["inner_oof_years"],"meta_oof_years":r4["meta_oof_years"],
+              "nested_meta":r4["nested_meta"],
               "meta_crossfit":r4["meta_crossfit"],"threshold_transfer":r4["threshold_transfer"],
               "conditional_mi_bits":r4["conditional_mi_bits"]}},samples
 
@@ -2852,7 +2923,7 @@ summary={"version":"HarmonyBot V74 One-Shot Family-Native Causal Action Selector
            "reaction_state":"CAUSAL_FEATURE_NOT_HARD_FILTER","physical_route_contract":"EVENT_NATIVE_CANONICAL_EVENT_FULL_COMPLETED_BAR_ENTRY_TIMING__EARLY_F00_M05_M10_M15__LATE_PREENTRY_F20_F30__SURVIVAL_FRESH__NETRR_GE230","v75_management_variants_excluded":True,"all_entry_maturity_stages_completed_bar_only":True,
            "route_choice":"LANE_NATIVE_VALUE_PLUS_PAIRWISE_EVENT_RANKING__EARLY_LATE_SURVIVAL_FAILURE",
            "optimal_stopping":"SOURCE_SPECIFIC_ENTER_DEFER_REJECT__TRAINING_ONLY_FUTURE_LABELS__CAUSAL_RUNTIME_STATE",
-           "admission":"EVENT_LEVEL_CALIBRATED_PRECISION__CROSS_LANE_ENTROPY_MARGIN__YEAR_EXPERT_GROUP_DRO__PRECISION_AT_250",
+           "admission":"EVENT_LEVEL_DIRECT_CAUSAL_STATE_PLUS_LANE_MOE__CALIBRATED_ENTER_DEFER_REJECT__FORWARD_OOF__PRECISION_AT_250",
            "training_coverage_target_per_year":TRAIN_COVERAGE,
            "family_hierarchy":"12_FAMILY_CANONICAL_IDENTITY__ALL_CAUSAL_LANES_ACTIVE__SOURCE_NATIVE_EXPERTS__FAILURE_IS_DISTINCT_CONTINUATION",
            "no_trigger_posttrigger_lock_future_state":True,
