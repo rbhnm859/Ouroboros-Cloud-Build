@@ -963,74 +963,123 @@ def stable_idx_target(samples,target,k):
     # admission head may then fall back to the global bundle or be omitted.
     return chosen
 
+
 def fit_admission_model(route_decisions,fit_years,source=None):
-    """Mechanism-native causal optimal-stopping admission head.
-    Route arbitration is frozen first. Each source learns ENTER-vs-DEFER on its
-    own causal state manifold so SURVIVAL-only Fibonacci rejection morphology is
-    not diluted by zero-padded EARLY/LATE rows. Training labels may use later
-    outcomes only inside training years; runtime inference uses current x only.
+    """Strict source-native admission; missing source features use source priors.
+
+    No source may silently inherit the GLOBAL runtime head. Stable targets use
+    source-specific trees. A target without temporally stable features uses only
+    that source's own event/year-balanced empirical prior.
     """
     ss=_admission_training_samples(route_decisions,fit_years)
     if source is not None:ss=[s for s in ss if s.get("source")==source]
-    if len(ss)<350:return None
+    min_rows=180 if source is not None else 500
+    if len(ss)<min_rows:return None
+
     X=[s["x"] for s in ss]
     ye,yd,yr,ya=_optimal_admission_targets(ss)
-
-    # Each action head has a different causal question. Reusing ENTER-selected
-    # features for DEFER/REJECT can make the competing-action estimates unstable
-    # and destroy the final ENTER-vs-competitor ranking. Screen each target
-    # independently using training years only; no burned/test outcome is used.
     idx_enter=stable_idx_target(ss,ye,TREE_KFEAT)
     idx_defer=stable_idx_target(ss,yd,TREE_KFEAT)
     idx_reject=stable_idx_target(ss,yr,TREE_KFEAT)
     idx_adv=stable_idx_target(ss,ya,TREE_KFEAT)
 
-    core_ok=bool(idx_enter and idx_defer and idx_reject)
-    if not core_ok:
-      if source is not None:return None
+    if source is None:
       missing=[name for name,idx0 in (("ENTER",idx_enter),("DEFER",idx_defer),("REJECT",idx_reject)) if not idx0]
-      raise SystemExit("V74 no temporally stable global admission features for "+",".join(missing))
-    if not idx_adv:idx_adv=list(idx_enter)
+      if missing:raise SystemExit("V74 no temporally stable global admission features for "+",".join(missing))
+      if not idx_adv:idx_adv=list(idx_enter)
 
-    Xf,targets=_fit_view(X,[ye,yd,yr,ya],6500);yef,ydf,yrf,yaf=targets
-    all_idx=sorted(set(idx_enter+idx_defer+idx_reject+idx_adv))
-    orders=_root_orders(Xf,all_idx)
-    em=_boost_train(Xf,yef,idx_enter,rounds=TREE_ROUNDS,lr=.075,max_rows=10**9,root_orders=orders)
-    dm=_boost_train(Xf,ydf,idx_defer,rounds=TREE_ROUNDS,lr=.075,max_rows=10**9,root_orders=orders)
-    rm=_boost_train(Xf,yrf,idx_reject,rounds=TREE_ROUNDS,lr=.075,max_rows=10**9,root_orders=orders)
-    am=_boost_train(Xf,yaf,idx_adv,rounds=TREE_ROUNDS,lr=.075,max_rows=10**9,root_orders=orders)
-    return {"type":"MECHANISM_NATIVE_CAUSAL_ENTER_DEFER_REJECT","source":source or "GLOBAL",
-            "fit_years":list(fit_years),"idx":all_idx,
-            "idx_enter":idx_enter,"idx_defer":idx_defer,"idx_reject":idx_reject,"idx_advantage":idx_adv,
-            "enter":em,"defer":dm,"reject":rm,"advantage":am,"n":len(ss)}
+    w0=_event_year_balanced_weights(ss)
+    Xf,targets=_fit_view(X,[ye,yd,yr,ya,w0],6500)
+    yef,ydf,yrf,yaf,wf=targets
+    valid=[z for z in (idx_enter,idx_defer,idx_reject,idx_adv) if z]
+    all_idx=sorted(set(q for z in valid for q in z))
+    if not all_idx and source is None:
+      raise SystemExit("V74 global admission has no stable features")
+    orders=_root_orders(Xf,all_idx) if all_idx else {}
+
+    sw=max(1e-18,sum(w0))
+    def wmean(vals):
+      return sum(float(v)*float(w) for v,w in zip(vals,w0))/sw
+    def prior_binary(vals):
+      p=max(0.0,min(1.0,wmean(vals)))
+      return {"mean":p,"sigma":math.sqrt(max(1e-9,p*(1.0-p)))}
+    def prior_cont(vals):
+      mu=wmean(vals)
+      var=sum(float(w)*(float(v)-mu)**2 for v,w in zip(vals,w0))/sw
+      return {"mean":mu,"sigma":max(.05,math.sqrt(max(0.0,var)))}
+
+    evn=max(1,len({(s["window"],event_identity(s["setup"])) for s in ss}))
+    priors={"enter":prior_binary(ye),"defer":prior_binary(yd),
+            "reject":prior_binary(yr),"advantage":prior_cont(ya)}
+    for q in priors.values():q["support"]=evn
+
+    def fit_head(target,idx0):
+      if not idx0:return None
+      return _boost_train(Xf,target,idx0,rounds=TREE_ROUNDS,lr=.075,
+                          max_rows=10**9,root_orders=orders,weights=wf)
+
+    em=fit_head(yef,idx_enter)
+    dm=fit_head(ydf,idx_defer)
+    rm=fit_head(yrf,idx_reject)
+    am=fit_head(yaf,idx_adv)
+    return {"type":"SOURCE_NATIVE_CAUSAL_ADMISSION_WITH_EMPIRICAL_PRIOR_FALLBACK",
+            "source":source or "GLOBAL","fit_years":list(fit_years),"idx":all_idx,
+            "idx_enter":idx_enter or [],"idx_defer":idx_defer or [],
+            "idx_reject":idx_reject or [],"idx_advantage":idx_adv or [],
+            "enter":em,"defer":dm,"reject":rm,"advantage":am,
+            "priors":priors,"n":len(ss),"event_support":evn,
+            "head_origin":{"enter":"TREE" if em is not None else "SOURCE_PRIOR",
+                           "defer":"TREE" if dm is not None else "SOURCE_PRIOR",
+                           "reject":"TREE" if rm is not None else "SOURCE_PRIOR",
+                           "advantage":"TREE" if am is not None else "SOURCE_PRIOR"}}
+
 
 def fit_admission_bundle(route_decisions,fit_years):
     glob=fit_admission_model(route_decisions,fit_years,None)
     if glob is None:raise SystemExit("V74 insufficient global admission samples")
+    active=sorted({e["s"].get("source") for e in admission_lane_context(route_decisions)})
     by={}
-    for src in SOURCES:
+    for src in active:
       md=fit_admission_model(route_decisions,fit_years,src)
-      if md is not None:by[src]=md
-    return {"type":"MECHANISM_NATIVE_CAUSAL_ENTER_DEFER_REJECT_BUNDLE",
-            "fit_years":list(fit_years),"global":glob,"by_source":by}
+      if md is None:
+        raise SystemExit("V74 source-native admission insufficient support "+str(src))
+      by[src]=md
+    missing=[src for src in active if src not in by]
+    if missing:
+      raise SystemExit("V74 source-native admission completeness failure "+",".join(missing))
+    return {"type":"STRICT_SOURCE_NATIVE_CAUSAL_ENTER_DEFER_REJECT_BUNDLE",
+            "fit_years":list(fit_years),"global_diagnostic_only":glob,
+            "by_source":by,"active_sources":active,
+            "source_native_complete":True}
+
+
+def _admission_head_pred(model,name,x):
+    md=model.get(name)
+    if md is not None:
+      p,s=_boost_pred(md,x)
+      return float(p),max(1,s or 1),float(md.get("sigma",.10)),"TREE"
+    pr=model.get("priors",{}).get(name)
+    if pr is None:raise SystemExit("V74 missing source admission prior "+name)
+    return float(pr["mean"]),max(1,int(pr.get("support",1))),float(pr.get("sigma",.10)),"SOURCE_PRIOR"
 
 def pred_admission(bundle,e):
-    s=e["s"];model=bundle.get("by_source",{}).get(s.get("source"),bundle["global"])
+    s=e["s"];src=s.get("source")
+    model=bundle.get("by_source",{}).get(src)
+    if model is None:
+      raise SystemExit("V74 runtime missing source-native admission head "+str(src))
     x=s.get("admission_x",s["x"])
-    en,s1=_boost_pred(model["enter"],x);de,s2=_boost_pred(model["defer"],x)
-    re,s3=_boost_pred(model["reject"],x);ad,s4=_boost_pred(model["advantage"],x)
+    en,s1,se,o1=_admission_head_pred(model,"enter",x)
+    de,s2,sd,o2=_admission_head_pred(model,"defer",x)
+    re,s3,sr,o3=_admission_head_pred(model,"reject",x)
+    ad,s4,sa,o4=_admission_head_pred(model,"advantage",x)
     en=max(0.0,min(1.0,en));de=max(0.0,min(1.0,de));re=max(0.0,min(1.0,re))
-
-    # ENTER is the only lower-confidence-bound term in the deployed admission
-    # score. Its uncertainty must therefore use ENTER support, not the minimum
-    # leaf support of unrelated DEFER/REJECT/advantage heads.
-    enter_sup=max(1,s1 or 1);adv_sup=max(1,s4 or 1)
-    enter_lcb=en-Z*max(.05,float(model["enter"]["sigma"]))/math.sqrt(enter_sup)
-    adv_lcb=ad-Z*max(.05,float(model["advantage"]["sigma"]))/math.sqrt(adv_sup)
+    enter_lcb=en-Z*max(.05,se)/math.sqrt(max(1,s1))
+    adv_lcb=ad-Z*max(.05,sa)/math.sqrt(max(1,s4))
     return {"enter":en,"enter_lcb":enter_lcb,"defer":de,"reject":re,
-            "advantage":ad,"advantage_lcb":adv_lcb,"support":enter_sup,
-            "defer_support":max(1,s2 or 1),"reject_support":max(1,s3 or 1),
-            "advantage_support":adv_sup,"head_source":model.get("source","GLOBAL")}
+            "advantage":ad,"advantage_lcb":adv_lcb,"support":max(1,s1),
+            "defer_support":max(1,s2),"reject_support":max(1,s3),
+            "advantage_support":max(1,s4),"head_source":model.get("source"),
+            "head_origin":{"enter":o1,"defer":o2,"reject":o3,"advantage":o4}}
 
 def score_admission_decisions(route_decisions,bundle):
     out=[]
@@ -3340,7 +3389,7 @@ summary={"version":"HarmonyBot V74 One-Shot Family-Native Causal Action Selector
            "harmonic_completion":"DIRECTION_TIME_D_EVENT_IDENTITY__MULTI_GEOMETRY_IS_CONFLUENCE_NOT_SUPPLY",
            "reaction_state":"CAUSAL_FEATURE_NOT_HARD_FILTER","physical_route_contract":"EVENT_NATIVE_CANONICAL_EVENT_FULL_COMPLETED_BAR_ENTRY_TIMING__EARLY_F00_M05_M10_M15__LATE_PREENTRY_F20_F30__SURVIVAL_FRESH__NETRR_GE230","v75_management_variants_excluded":True,"all_entry_maturity_stages_completed_bar_only":True,
            "route_choice":"SOURCE_NATIVE_ROUTE_FROZEN__CROSS_SOURCE_CAPITAL_ARBITRATION_POST_ADMISSION",
-           "optimal_stopping":"SOURCE_SPECIFIC_ENTER_DEFER_REJECT__TRAINING_ONLY_FUTURE_LABELS__CAUSAL_RUNTIME_STATE",
+           "optimal_stopping":"STRICT_SOURCE_NATIVE_ENTER_DEFER_REJECT__SOURCE_PRIOR_PER_MISSING_HEAD__NO_GLOBAL_RUNTIME_FALLBACK__CAUSAL_RUNTIME_STATE",
            "admission":"LANE_PRESERVING_CAUSAL_TRAJECTORY__SOURCE_NATIVE_ENTER_DEFER_REJECT__MATCHED_HARD_NEGATIVE_LISTWISE_PRECISION__POST_ADMISSION_CAPITAL_ARBITRATION",
            "training_coverage_target_per_year":TRAIN_COVERAGE,
            "family_hierarchy":"12_FAMILY_CANONICAL_IDENTITY__ALL_CAUSAL_LANES_ACTIVE__SOURCE_NATIVE_EXPERTS__FAILURE_IS_DISTINCT_CONTINUATION",
@@ -3524,6 +3573,9 @@ summary["generic_early_late_failure_shadow_only"]=False
 summary["all_causal_lanes_active"]=True
 summary["lane_preserving_until_post_admission"]=True
 summary["cross_source_pair_ranker_removed_at_meta"]=True
+summary["strict_source_native_admission"]=True
+summary["global_runtime_admission_fallback"]=False
+summary["source_head_missing_feature_policy"]="EVENT_YEAR_BALANCED_SOURCE_PRIOR__NEVER_GLOBAL_RUNTIME_HEAD"
 summary["fast_replay_supersession_contract"]="R5_GENERATION__STALE_HEAD_AUTO_TERMINATE__35M_HARD_TIMEOUT"
 summary["parallel_fold_execution"]=parallel_used
 summary["parallel_fold_workers"]=min(len(BURNED),max(1,int(os.cpu_count() or 1))) if parallel_used else 1
