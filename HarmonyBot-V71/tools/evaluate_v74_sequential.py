@@ -947,80 +947,175 @@ def _contrast_anchor_rows(xs,count=5):
       i=int(round((len(a)-1)*q));out.append(a[max(0,min(len(a)-1,i))])
     return out
 
+def _precision_rank_cell_keys(s):
+    """Most-specific -> global structural cells for hard-negative retrieval."""
+    src=str(s.get("source","NONE"));fam=str(s.get("family","NONE"))
+    try:bar=max(0,int(s.get("bar",0)))
+    except Exception:bar=0
+    bb=min(5,bar//15)
+    return (
+      "SFB|"+src+"|"+fam+"|"+str(bb),
+      "SF|"+src+"|"+fam,
+      "S|"+src,
+      "F|"+fam,
+      "ALL"
+    )
+
+def _precision_anchor_bank(rows,idx,count=5):
+    out={}
+    cells=defaultdict(list)
+    for s in rows:
+      for k in _precision_rank_cell_keys(s):cells[k].append(s)
+    for k,v in cells.items():
+      if len(v)<4:continue
+      out[k]=[[float(s["x"][j]) for j in idx] for s in _contrast_anchor_rows(v,count)]
+    return out
+
+def _precision_pair_probability(pair,xx,anchor):
+    d=[xx[i]-float(anchor[i]) for i in range(len(xx))]
+    fw,s1=_boost_pred(pair,d);bw,s2=_boost_pred(pair,[-v for v in d])
+    p=.5*(max(0.0,min(1.0,fw))+(1.0-max(0.0,min(1.0,bw))))
+    return p,max(1,min(s1 or 1,s2 or 1))
+
 def fit_contrastive_winner_ranker(route_decisions,fit_years):
-    """Year-balanced pairwise winner-vs-loser admission ranking.
+    """Event-balanced hard-negative/listwise Precision@250 retrieval ranker.
 
-    The two-axis and threshold-oracle diagnostics prove that the remaining V74
-    blocker is event admission ranking, not route feasibility or threshold
-    transfer. Absolute ENTER regressors have repeatedly collapsed toward the
-    ~30% base win rate. This ranker instead learns only within-year winner-minus-
-    loser feature contrasts, which removes year-level regime/base-rate offsets.
+    Random global winner/loser pairs were not aligned with V74's deployment
+    question.  This version pairs each winning event-bar against structurally
+    confusable losing event-bars from the same year, preferring source+family+
+    maturity bucket, then source+family/source/family/global fallbacks.
 
-    Training outcomes create pair labels only. Runtime inference compares the
-    current contemporaneous admission_x with fixed loser anchors frozen from
-    training years; no current/future outcome, Validation or Fresh data is used.
+    Every positive harmonic event has equal total pair mass inside a year and
+    every training year has equal total mass.  Each year also owns an independent
+    pair expert and matched positive/negative anchor banks.  Runtime therefore
+    produces a semantically fixed score: higher means the current causal state
+    beats matched losers and is less dominated by matched winners.  No burned
+    outcome, Validation, Fresh or future bar enters inference.
     """
     ss=_admission_training_samples(route_decisions,fit_years)
-    if len(ss)<500:raise SystemExit("V74 insufficient contrastive admission samples")
+    if len(ss)<500:raise SystemExit("V74 insufficient precision-retrieval samples")
     win=[1.0 if float(s["y"])>0.0 else 0.0 for s in ss]
-    idx=stable_idx_target(ss,win,TREE_KFEAT)
-    if not idx:raise SystemExit("V74 no temporally stable contrastive winner features")
+    idx=stable_idx_target(ss,win,max(TREE_KFEAT,36))
+    if not idx:raise SystemExit("V74 no temporally stable precision-retrieval features")
+    idx=idx[:36]
 
     by=defaultdict(list)
     for s in ss:by[s["window"]].append(s)
-    X=[];yy=[];pairs_per_year={};loser_anchors={}
+    allX=[];allY=[];allEvent=[];experts={};pairs_per_year={}
     for w in fit_years:
       ww=by.get(w,[])
       pos=sorted([s for s in ww if float(s["y"])>0.0],
-                 key=lambda s:(event_identity(s["setup"]),int(s["bar"]),s["route"]))
+                 key=lambda s:(event_identity(s["setup"]),int(s["bar"]),s["source"],s["route"]))
       neg=sorted([s for s in ww if float(s["y"])<=0.0],
-                 key=lambda s:(event_identity(s["setup"]),int(s["bar"]),s["route"]))
+                 key=lambda s:(event_identity(s["setup"]),int(s["bar"]),s["source"],s["route"]))
       if len(pos)<25 or len(neg)<25:continue
-      # Equal pair budget per year => no high-supply regime can dominate.
-      cap=900
-      for t in range(cap):
-        p=pos[(t*37+t//max(1,len(neg)))%len(pos)]
-        n=neg[(t*53+t//max(1,len(pos)))%len(neg)]
-        d=[float(p["x"][j])-float(n["x"][j]) for j in idx]
-        X.append(d);yy.append(1.0)
-        X.append([-v for v in d]);yy.append(0.0)
-      pairs_per_year[w]=cap
-      loser_anchors[w]=[
-        [float(s["x"][j]) for j in idx]
-        for s in _contrast_anchor_rows(neg,5)
-      ]
+      neg_cells=defaultdict(list)
+      for n in neg:
+        for k in _precision_rank_cell_keys(n):neg_cells[k].append(n)
 
-    if len(X)<1000 or len(loser_anchors)<2:
-      raise SystemExit("V74 insufficient year-balanced contrastive pairs")
-    use=list(range(len(idx)))
-    Xf,targets=_fit_view(X,[yy],7000);yf=targets[0]
-    orders=_root_orders(Xf,use)
-    pair=_boost_train(Xf,yf,use,rounds=TREE_ROUNDS,lr=.075,max_rows=10**9,root_orders=orders)
-    return {"type":"YEAR_BALANCED_CONTRASTIVE_WINNER_RANKER",
-            "fit_years":list(fit_years),"idx":idx,"pair":pair,
-            "pairs_per_year":pairs_per_year,"loser_anchors":loser_anchors,
-            "pair_rows":len(X)}
+      X=[];yy=[];event_keys=[];pair_count=0
+      # At most three hierarchy levels per positive state; this is bounded and
+      # deterministic while deliberately concentrating capacity on hard negatives.
+      for pi,p in enumerate(pos):
+        used=set()
+        for level,k in enumerate(_precision_rank_cell_keys(p)):
+          vv=neg_cells.get(k,[])
+          if not vv:continue
+          ni=(pi*53+level*97+len(vv)//3)%len(vv)
+          n=vv[ni]
+          nk=(event_identity(n["setup"]),int(n["bar"]),n["route"])
+          if nk in used:continue
+          used.add(nk)
+          d=[float(p["x"][j])-float(n["x"][j]) for j in idx]
+          X.append(d);yy.append(1.0);event_keys.append((w,event_identity(p["setup"])))
+          X.append([-v for v in d]);yy.append(0.0);event_keys.append((w,event_identity(p["setup"])))
+          pair_count+=1
+          if len(used)>=3:break
+        if pair_count>=1800:break
+      if len(X)<300:continue
+
+      # Unit total mass per positive event, then equal year mass.
+      ev=defaultdict(list)
+      for i,k in enumerate(event_keys):ev[k].append(i)
+      weights=[0.0]*len(X)
+      for ids in ev.values():
+        q=1.0/max(1,len(ids))
+        for i in ids:weights[i]=q
+      sw=sum(weights);scale=len(weights)/max(1e-18,sw)
+      weights=[z*scale for z in weights]
+
+      use=list(range(len(idx)));orders=_root_orders(X,use)
+      pair=_boost_train(X,yy,use,rounds=max(10,TREE_ROUNDS),lr=.065,max_rows=10**9,
+                        root_orders=orders,max_depth=2,min_leaf=24,weights=weights)
+      experts[w]={
+        "pair":pair,
+        "positive_anchors":_precision_anchor_bank(pos,idx,5),
+        "negative_anchors":_precision_anchor_bank(neg,idx,7),
+        "n_pos":len(pos),"n_neg":len(neg),"pair_rows":len(X)
+      }
+      pairs_per_year[w]=pair_count
+      # Equal-year global model: normalize each year's pair weight mass.
+      ysw=sum(weights)
+      yw=[z/max(1e-18,ysw) for z in weights]
+      allX.extend(X);allY.extend(yy);allEvent.extend([(w,z) for z in yw])
+
+    if len(experts)<2 or len(allX)<1000:
+      raise SystemExit("V74 insufficient hard-negative precision experts")
+
+    # A global fallback sees equal mass from each contributing training year.
+    gw=[z for _,z in allEvent];gs=sum(gw);gw=[z*len(gw)/max(1e-18,gs) for z in gw]
+    use=list(range(len(idx)));orders=_root_orders(allX,use)
+    global_pair=_boost_train(allX,allY,use,rounds=max(10,TREE_ROUNDS),lr=.065,max_rows=10**9,
+                             root_orders=orders,max_depth=2,min_leaf=28,weights=gw)
+    return {"type":"EVENT_BALANCED_MATCHED_HARD_NEGATIVE_PRECISION_RANKER",
+            "fit_years":[w for w in fit_years if w in experts],"idx":idx,
+            "global_pair":global_pair,"experts":experts,
+            "pairs_per_year":pairs_per_year,"pair_rows":len(allX)}
 
 def pred_contrastive_winner(model,e):
     s=e["s"];x=s.get("admission_x",s["x"]);idx=model["idx"]
     xx=[float(x[j]) for j in idx]
-    per_year=[];supports=[]
-    for w in model["fit_years"]:
-      anchors=model.get("loser_anchors",{}).get(w,[])
-      if not anchors:continue
-      pp=[]
-      for a in anchors:
-        d=[xx[i]-float(a[i]) for i in range(len(xx))]
-        rd=[-v for v in d]
-        fw,s1=_boost_pred(model["pair"],d);bw,s2=_boost_pred(model["pair"],rd)
-        p=.5*(max(0.0,min(1.0,fw))+(1.0-max(0.0,min(1.0,bw))))
-        pp.append(p);supports.extend([s1 or 1,s2 or 1])
-      per_year.append(sum(pp)/len(pp))
-    if not per_year:return {"score":-999.0,"median":0.0,"per_year":[],"support":0}
-    z=sorted(per_year)
-    q25=z[int(math.floor(.25*(len(z)-1)))]
-    return {"score":q25,"median":statistics.median(per_year),"per_year":per_year,
-            "support":max(1,min(supports)) if supports else 1}
+    per_year=[];supports=[];details=[]
+    for w in model.get("fit_years",[]):
+      ex=model.get("experts",{}).get(w)
+      if not ex:continue
+      keys=_precision_rank_cell_keys(s)
+      na=None;pa=None;cell=None
+      for k in keys:
+        n0=ex.get("negative_anchors",{}).get(k)
+        p0=ex.get("positive_anchors",{}).get(k)
+        if n0 and p0:
+          na=n0;pa=p0;cell=k;break
+      if not na:
+        na=ex.get("negative_anchors",{}).get("ALL",[])
+      if not pa:
+        pa=ex.get("positive_anchors",{}).get("ALL",[])
+      if not na or not pa:continue
+
+      pair=ex.get("pair",model["global_pair"])
+      beat_neg=[]
+      for a in na:
+        p0,sup=_precision_pair_probability(pair,xx,a);beat_neg.append(p0);supports.append(sup)
+      # "not dominated by a known winner" is a second listwise coordinate.
+      survive_pos=[]
+      for a in pa:
+        p0,sup=_precision_pair_probability(pair,a,xx)
+        survive_pos.append(1.0-p0);supports.append(sup)
+      bn=sum(beat_neg)/len(beat_neg);sp=sum(survive_pos)/len(survive_pos)
+      score=.72*bn+.28*sp
+      per_year.append(score)
+      details.append({"year":w,"cell":cell or "ALL","beat_negative":bn,
+                      "survive_positive":sp,"score":score})
+    if not per_year:
+      return {"score":-999.0,"q25":0.0,"median":0.0,"minimum":0.0,
+              "dispersion":1.0,"per_year":[],"support":0,"details":[]}
+    z=sorted(per_year);q25=z[int(math.floor(.25*(len(z)-1)))]
+    return {"score":q25,"q25":q25,"median":statistics.median(per_year),
+            "minimum":min(per_year),
+            "dispersion":statistics.pstdev(per_year) if len(per_year)>1 else 0.0,
+            "per_year":per_year,
+            "support":max(1,min(supports)) if supports else 1,
+            "details":details}
 
 def score_contrastive_decisions(route_decisions,model):
     out=[]
@@ -2750,13 +2845,19 @@ def _fit_r4_meta_policy(stage_samples,years):
     # contrastive ranker and independent year experts on the direct causal meta
     # state.  These models use outcomes only as prior-year training labels.
     contrast=fit_contrastive_winner_ranker(tr_route,years)
-    yexp=fit_year_expert_rankers(tr_route,years)
-    if yexp is None:raise SystemExit("V74-R4 missing meta year experts")
-    return {"type":"R4_OOF_STACKED_LANE_ACTION_META_POLICY","value":vm,"pair":pm,
+    return {"type":"R4_EVENT_LISTWISE_PRECISION_META_POLICY","value":vm,"pair":pm,
             "admission_bundle":bundle,"calibrator":cal,
-            "contrastive":contrast,"year_experts":yexp,
-            "score_orientation":1.0,"fit_years":list(years),
-            "selected_features":list(idx)}
+            "contrastive":contrast,"score_mode":"HARD_LISTWISE",
+            "fit_years":list(years),"selected_features":list(idx)}
+
+R4_SEMANTIC_SCORE_MODES=(
+  "HARD_LISTWISE",
+  "HARD_PLUS_ENTER",
+  "HARD_PLUS_ADVANTAGE",
+  "ENTER_ADVANTAGE_LCB",
+  "ENTER_RAW",
+  "CURRENT_ROBUST_META"
+)
 
 def _apply_r4_meta_policy(model,stage_samples):
     route=event_decisions(stage_samples,model["value"],model["pair"])
@@ -2765,39 +2866,37 @@ def _apply_r4_meta_policy(model,stage_samples):
         z=pred_admission(model["admission_bundle"],e)
         cz=_pred_r4_calibrator(model["calibrator"],model["admission_bundle"],e)
         comp=max(float(z["defer"]),float(z["reject"]))
-        p=e["pred"]
-        uncertainty=max(0.0,float(z["enter"])-float(z["enter_lcb"]))
+        p=e["pred"];uncertainty=max(0.0,float(z["enter"])-float(z["enter_lcb"]))
         ct=pred_contrastive_winner(model["contrastive"],e)
-        ye=pred_year_experts(model["year_experts"],e)
-        # Robust retrieval score.  High rank requires agreement across absolute
-        # calibration, pairwise winner retrieval and independent year experts.
-        # The lower-tail/minimum terms implement Group-DRO-like conservatism:
-        # one favourable research year cannot dominate capital admission.
-        probs=[
-          max(.001,min(.999,float(cz["p"]))),
-          max(.001,min(.999,float(ct.get("score",.5)))),
-          max(.001,min(.999,float(ye.get("q25",.5)))),
-          max(.001,min(.999,float(ye.get("minimum",.5))))
-        ]
-        hmean=len(probs)/sum(1.0/q for q in probs)
-        raw_score=(.55*hmean
-                   +.20*float(cz["lcb"])
-                   +.15*(float(z["enter_lcb"])-comp)
-                   +.08*math.tanh(float(p.get("mean",0.0))/2.0)
-                   +.06*float(p.get("best_probability",.5))
-                   -.10*float(ye.get("dispersion",0.0))
-                   -.04*math.tanh(uncertainty/.10))
-        orient=float(model.get("score_orientation",1.0))
-        score=orient*raw_score
+        hard=max(0.0,min(1.0,float(ct.get("score",0.0))))
+        hard_min=max(0.0,min(1.0,float(ct.get("minimum",hard))))
+        adv01=.5+.5*math.tanh(float(z["advantage_lcb"])/1.25)
+        margin01=.5+.5*math.tanh(2.0*(float(z["enter_lcb"])-comp))
+        current=(.48*hard+.12*hard_min+.15*float(cz["lcb"])
+                 +.10*float(z["enter"])+.10*adv01+.05*margin01
+                 -.08*float(ct.get("dispersion",0.0))
+                 -.03*math.tanh(uncertainty/.10))
+        bank={
+          "HARD_LISTWISE":hard,
+          "HARD_PLUS_ENTER":.72*hard+.28*float(z["enter"]),
+          "HARD_PLUS_ADVANTAGE":.72*hard+.28*adv01,
+          "ENTER_ADVANTAGE_LCB":float(z["advantage_lcb"]),
+          "ENTER_RAW":float(z["enter"]),
+          "CURRENT_ROBUST_META":current
+        }
+        mode=str(model.get("score_mode","HARD_LISTWISE"))
+        if mode not in bank:raise SystemExit("V74 unknown R4 semantic score mode "+mode)
+        score=float(bank[mode])
         q=dict(e);q["score"]=score
         q["stop_advantage"]=float(p.get("stop_advantage",-999.0))
         q["pred"]=dict(p,admission=z,r4_calibrated_enter=cz["p"],
                        r4_calibrated_lcb=cz["lcb"],
                        contrastive_winner=ct,
-                       year_expert_q25=ye.get("q25",.5),
-                       year_expert_min=ye.get("minimum",.5),
-                       year_expert_dispersion=ye.get("dispersion",0.0),
-                       raw_meta_score=raw_score,score_orientation=orient,
+                       year_expert_q25=ct.get("q25",hard),
+                       year_expert_min=ct.get("minimum",hard),
+                       year_expert_dispersion=ct.get("dispersion",0.0),
+                       raw_meta_score=current,semantic_scores=bank,
+                       score_mode=mode,score_orientation=1.0,
                        regime_id=int(e["s"].get("regime_id",0)))
         out.append(q)
     return out
@@ -2825,6 +2924,15 @@ def _compute_shared_inner_r4_year(vw):
           "validation_events":len({event_identity(s["setup"]) for s in stage})}
     return vw,{"stage":stage,"meta":meta}
 
+def _r4_meta_cache_key(years):
+    return tuple(str(w) for w in years)
+
+def _fit_r4_meta_policy_cached(stage_samples,years):
+    key=_r4_meta_cache_key(years)
+    md=globals().get("_R4_META_MODEL_CACHE",{}).get(key)
+    if md is not None:return md
+    return _fit_r4_meta_policy(stage_samples,years)
+
 def _fit_r4_tournament(samples,years):
     eligible=[years[i] for i in range(2,len(years))]
     val_years=list(eligible)
@@ -2847,7 +2955,7 @@ def _fit_r4_tournament(samples,years):
         tr=[s for s in stage if s["window"] in ty]
         va=[s for s in stage if s["window"]==hw]
         if len(tr)<700 or not va:continue
-        md=_fit_r4_meta_policy(tr,ty)
+        md=_fit_r4_meta_policy_cached(tr,ty)
         dd=_apply_r4_meta_policy(md,va);cross.extend(dd);cross_years.append(hw)
         meta_cv.append({"held_year":hw,"fit_years":list(ty),"train_stage":len(tr),
                         "test_stage":len(va),"decisions":len(dd),
@@ -2856,27 +2964,32 @@ def _fit_r4_tournament(samples,years):
         raise SystemExit("V74-R4 empty causal forward meta OOF")
 
     candidates=[]
-    for orient in (1.0,-1.0):
-        oriented=[]
+    for mode in R4_SEMANTIC_SCORE_MODES:
+        scored=[]
         for e in cross:
-            q=dict(e);q["score"]=orient*float(e["score"])
-            q["pred"]=dict(e["pred"],score_orientation=orient)
-            oriented.append(q)
-        cmi=_conditional_mi_bits(oriented)
+            bank=e.get("pred",{}).get("semantic_scores",{})
+            if mode not in bank:raise SystemExit("V74 missing semantic score "+mode)
+            q=dict(e);q["score"]=float(bank[mode])
+            q["pred"]=dict(e["pred"],score_mode=mode,score_orientation=1.0)
+            scored.append(q)
+        cmi=_conditional_mi_bits(scored)
         for target in (250,275,300):
-            z=_precision_threshold(oriented,cross_years,target)
+            z=_precision_threshold(scored,cross_years,target)
             if z is None:continue
-            rank=(z["rank"][0],cmi)+z["rank"][1:]
-            candidates.append((rank,target,z,orient,cmi,oriented))
-    if not candidates:raise SystemExit("V74-R4 no coverage-feasible OOF candidate")
+            # Formal priority is worst-year WR -> LCB -> MeanR -> PF -> AvgRR -> N.
+            # Conditional MI is only a final tie-breaker, never allowed to outrank
+            # the hard-gate ordering.
+            rank=tuple(z["rank"])+(cmi,)
+            candidates.append((rank,target,z,mode,cmi,scored))
+    if not candidates:raise SystemExit("V74-R4 no coverage-feasible semantic scorer")
     candidates.sort(key=lambda x:x[0],reverse=True)
-    rank,target,z,orientation,cmi,cross_oriented=candidates[0]
-    cross=cross_oriented
+    rank,target,z,score_mode,cmi,cross_scored=candidates[0]
+    cross=cross_scored
 
-    # Freeze the second layer on all honest first-layer OOF samples and apply
-    # the training-only chosen score orientation before threshold transfer.
-    final_meta=_fit_r4_meta_policy(stage,val_years)
-    final_meta["score_orientation"]=orientation
+    # Freeze the second layer on all honest first-layer OOF samples.  The score
+    # semantics are fixed high=winner; only a named causal scorer may be selected.
+    final_meta=dict(_fit_r4_meta_policy_cached(stage,val_years))
+    final_meta["score_mode"]=score_mode
     fitted_dec=_apply_r4_meta_policy(final_meta,stage)
 
     # The final meta model has seen all OOF rows, so only its score scale changes.
@@ -2919,7 +3032,7 @@ def _fit_r4_tournament(samples,years):
             "coverage_target":target,"inner_oof_years":val_years,
             "meta_oof_years":cross_years,
             "nested_meta":meta,"meta_crossfit":meta_cv,
-            "conditional_mi_bits":cmi,"score_orientation":orientation,
+            "conditional_mi_bits":cmi,"score_orientation":1.0,"score_mode":score_mode,
             "training_oracle_admission":training_oracle,
             "threshold_transfer":{"oof_median":om,"full_fit_median":fm,
               "oof_iqr":oq3-oq1,"full_fit_iqr":fq3-fq1,"scale":scale,
@@ -2955,7 +3068,8 @@ def fit_policy(train_rows,prebuilt_samples=None):
               "nested_meta":r4["nested_meta"],
               "meta_crossfit":r4["meta_crossfit"],"threshold_transfer":r4["threshold_transfer"],
               "conditional_mi_bits":r4["conditional_mi_bits"],
-              "score_orientation":r4["score_orientation"]}},samples
+              "score_orientation":r4["score_orientation"],
+              "score_mode":r4.get("score_mode")}},samples
 
 def apply_policy(policy,test_rows,prebuilt_samples=None):
     samples=list(prebuilt_samples) if prebuilt_samples is not None else make_samples(test_rows)
@@ -3106,7 +3220,7 @@ summary={"version":"HarmonyBot V74 One-Shot Family-Native Causal Action Selector
            "reaction_state":"CAUSAL_FEATURE_NOT_HARD_FILTER","physical_route_contract":"EVENT_NATIVE_CANONICAL_EVENT_FULL_COMPLETED_BAR_ENTRY_TIMING__EARLY_F00_M05_M10_M15__LATE_PREENTRY_F20_F30__SURVIVAL_FRESH__NETRR_GE230","v75_management_variants_excluded":True,"all_entry_maturity_stages_completed_bar_only":True,
            "route_choice":"LANE_NATIVE_VALUE_PLUS_PAIRWISE_EVENT_RANKING__EARLY_LATE_SURVIVAL_FAILURE",
            "optimal_stopping":"SOURCE_SPECIFIC_ENTER_DEFER_REJECT__TRAINING_ONLY_FUTURE_LABELS__CAUSAL_RUNTIME_STATE",
-           "admission":"EVENT_LEVEL_CAUSAL_TRAJECTORY_STATE__CONTRASTIVE_WINNER_RETRIEVAL__YEAR_EXPERT_GROUP_DRO__CALIBRATED_ENTER_DEFER_REJECT__FORWARD_OOF__PRECISION_AT_250",
+           "admission":"EVENT_LEVEL_CAUSAL_TRAJECTORY_STATE__MATCHED_HARD_NEGATIVE_LISTWISE_PRECISION_RETRIEVAL__EVENT_YEAR_BALANCED__CALIBRATED_ENTER_DEFER_REJECT__FORWARD_OOF__PRECISION_AT_250",
            "training_coverage_target_per_year":TRAIN_COVERAGE,
            "family_hierarchy":"12_FAMILY_CANONICAL_IDENTITY__ALL_CAUSAL_LANES_ACTIVE__SOURCE_NATIVE_EXPERTS__FAILURE_IS_DISTINCT_CONTINUATION",
            "no_trigger_posttrigger_lock_future_state":True,
@@ -3194,6 +3308,24 @@ if os.environ.get("V74_DISABLE_SHARED_INNER_CACHE","0")!="1" and _inner_needed:
 print("[V74-R4-INNER-CACHE] years="+str(_inner_needed)+" built="+
       str(sorted(_INNER_R4_OOF_CACHE))+" seconds="+
       str(round(time.perf_counter()-_t_inner,3)),flush=True)
+
+# Prefix meta models are identical across burned outer folds.  Fit reusable
+# prefixes once in the parent so forked folds share the model pages read-only.
+_t_meta_cache=time.perf_counter();_R4_META_MODEL_CACHE={}
+if _INNER_R4_OOF_CACHE:
+    _all_stage=[]
+    for _w in _inner_needed:
+        _z=_INNER_R4_OOF_CACHE.get(_w)
+        if _z:_all_stage.extend(_z.get("stage",[]))
+    # Prefix-2/3/4 are reused by multiple outer folds. Prefix-5 is needed only
+    # once as the Y2023 final fit and is left to that worker.
+    for _k in range(2,min(4,len(_inner_needed))+1):
+        _ty=_inner_needed[:_k]
+        _tr=[s for s in _all_stage if s["window"] in set(_ty)]
+        if len(_tr)>=700:
+            _R4_META_MODEL_CACHE[_r4_meta_cache_key(_ty)]=_fit_r4_meta_policy(_tr,_ty)
+print("[V74-R4-META-CACHE] prefixes="+str([list(k) for k in sorted(_R4_META_MODEL_CACHE)])+
+      " seconds="+str(round(time.perf_counter()-_t_meta_cache,3)),flush=True)
 parallel_used=False
 fold_results=None
 # Each burned fold is causally independent and reads immutable rows only. Fork
@@ -3223,7 +3355,7 @@ for test,fold,policy in fold_results:
           for k in ("n","mean_r","pf_r","win_rate","average_rr","lcb_r","pass")}),flush=True)
 
 alpha=bool(allpass)
-champ="V74_R4_CONTRASTIVE_RETRIEVAL_OPTIMAL_STOPPING" if alpha else None
+champ="V74_R4_EVENT_LISTWISE_PRECISION_RETRIEVAL" if alpha else None
 fold_metrics={w:{k:summary["folds"][w][k] for k in ("n","mean_r","pf_r","win_rate","average_rr","lcb_r")}
               for w in BURNED}
 current_rank=_guard_rank(fold_metrics)
@@ -3242,8 +3374,11 @@ summary["performance_engine"]={"immutable_sample_prebuild":True,
  "shared_unique_inner_oof_years":sorted(globals().get("_INNER_R4_OOF_CACHE",{})),
  "unified_r4_inner_oof_reuse":True,"prepared_inference_reuse":True,
  "inner_cache_build_seconds":round(time.perf_counter()-_t_inner,3) if "_t_inner" in globals() else None,
+ "meta_prefix_cache":True,
+ "meta_prefixes_cached":[list(k) for k in sorted(globals().get("_R4_META_MODEL_CACHE",{}))],
+ "meta_cache_build_seconds":round(time.perf_counter()-_t_meta_cache,3) if "_t_meta_cache" in globals() else None,
  "parity_fail_closed":True}
-summary["root_cause_rearchitecture"]="V74_R4_CAUSAL_TRAJECTORY_OPTIMAL_STOPPING"
+summary["root_cause_rearchitecture"]="V74_R4_EVENT_LISTWISE_PRECISION_RETRIEVAL_OPTIMAL_STOPPING"
 summary["component_rank_diagnostic_version"]="EVENT_TOP250_COMPONENT_RANK_V1"
 summary["survival_primary_alpha"]=False
 summary["generic_early_late_failure_shadow_only"]=False
