@@ -1452,12 +1452,216 @@ def _pred_r6_common_calibrator(cal,precision_bundle,e):
             "percentile":pct,"utility":utility,"calibration_origin":cal_origin,
             "fallback_penalty":fallback,"dispersion":dispersion}
 
+
+# ---------------------------------------------------------------------------
+# V74-R8: source-native local matched-counterfactual admission.
+#
+# R7 proved that adding a richer trajectory vector to a global/semi-global
+# function approximator does not create winner purity.  R8 changes the
+# statistical problem instead: estimate conditional risk inside multiple small
+# historical cohorts that match source/family/action/route/regime and a sparse
+# quantile hash of the *current completed-bar causal state*.  Every cell is
+# event/year balanced, shrunk to its own source prior and pooled conservatively
+# across independently chosen subspaces.  This is a causal retrieval estimator,
+# not a future-outcome oracle; burned/test outcomes are never used to fit cells,
+# cuts, feature indices, thresholds, or source allocation.
+# ---------------------------------------------------------------------------
+
+R8_MAX_FEATURES=18
+R8_SUBSPACES=7
+R8_CELL_MIN_SUPPORT=18
+R8_CELL_SHRINK=24.0
+
+def _r8_cell_stats(rr,prior=None,shrink=R8_CELL_SHRINK):
+    if not rr:
+        return {"p":.5,"win_lcb":0.0,"mean_r":0.0,"mean_lcb":-999.0,
+                "sd_r":2.0,"event_support":0,"year_support":0,
+                "p_q25":0.0,"mean_q25":-999.0,"year_dispersion":1.0}
+    per_event=Counter((r["window"],event_identity(r["setup"])) for r in rr)
+    events_by_year=defaultdict(set)
+    for r in rr:events_by_year[r["window"]].add(event_identity(r["setup"]))
+    ww=[]
+    for r in rr:
+        ek=(r["window"],event_identity(r["setup"]))
+        den=max(1,len(events_by_year[r["window"]]))*max(1,per_event[ek])
+        ww.append(1.0/den)
+    sw=max(1e-18,sum(ww))
+    p=sum(w*(1.0 if float(r["y"])>0.0 else 0.0) for w,r in zip(ww,rr))/sw
+    mu=sum(w*float(r["y"]) for w,r in zip(ww,rr))/sw
+    sec=sum(w*float(r["y"])*float(r["y"]) for w,r in zip(ww,rr))/sw
+    by_year=defaultdict(list)
+    for r in rr:by_year[r["window"]].append(r)
+    yp=[];ym=[]
+    for w,z in sorted(by_year.items()):
+        pev=Counter(event_identity(q["setup"]) for q in z)
+        zw=[1.0/max(1,pev[event_identity(q["setup"])]) for q in z]
+        zsw=max(1e-18,sum(zw))
+        yp.append(sum(a*(1.0 if float(q["y"])>0.0 else 0.0) for a,q in zip(zw,z))/zsw)
+        ym.append(sum(a*float(q["y"]) for a,q in zip(zw,z))/zsw)
+    pq=_q25_safe(yp,p);mq=_q25_safe(ym,mu)
+    disp=statistics.pstdev(yp) if len(yp)>1 else 0.0
+    n=float(len(per_event));k=float(shrink if prior is not None else 0.0)
+    if prior is not None:
+        pp=float(prior.get("p",.5));pm=float(prior.get("mean_r",0.0));ps=float(prior.get("sd_r",2.0))
+        p=(n*p+k*pp)/max(1e-9,n+k)
+        sec=(n*sec+k*(ps*ps+pm*pm))/max(1e-9,n+k)
+        mu=(n*mu+k*pm)/max(1e-9,n+k)
+    sd=math.sqrt(max(1e-9,sec-mu*mu))
+    en=max(1.0,n+k)
+    robust_p=max(0.0,min(1.0,.70*p+.30*pq))
+    robust_mu=.70*mu+.30*mq
+    return {"p":p,"win_lcb":_r4_wilson_lcb(robust_p,en),
+            "mean_r":mu,"mean_lcb":robust_mu-Z*sd/math.sqrt(en),
+            "sd_r":sd,"event_support":int(n),"effective_n":en,
+            "year_support":len(by_year),"p_q25":pq,"mean_q25":mq,
+            "year_dispersion":disp}
+
+def _r8_feature_union(ss):
+    p=len(ss[0]["x"]) if ss else 0
+    if p<=0:return []
+    yw=[1.0 if float(z["y"])>0.0 else 0.0 for z in ss]
+    ys=[1.0 if float(z["y"])>=1.0 else 0.0 for z in ss]
+    yr=[(max(-1.0,min(2.5,float(z["y"])))+1.0)/3.5 for z in ss]
+    banks=[
+      stable_idx_target(ss,yw,min(12,p)),
+      stable_idx_target(ss,ys,min(10,p)),
+      stable_idx_target(ss,yr,min(10,p)),
+      stable_idx(ss,min(12,p))
+    ]
+    out=[]
+    for b in banks:
+        for j in b:
+            if j not in out:out.append(j)
+            if len(out)>=min(R8_MAX_FEATURES,p):return out
+    return out
+
+def _r8_bin(cuts,v):
+    return bisect.bisect_right(cuts,float(v))
+
+def _r8_cat_key(level,s):
+    src=str(s.get("source","NONE"));fam=str(s.get("family","NONE"))
+    act=str(s.get("action","NONE"));route=str(s.get("route","NONE"))
+    rid=int(s.get("regime_id",0))
+    if level=="route_regime":return (src,fam,act,route,rid)
+    if level=="family_regime":return (src,fam,act,rid)
+    if level=="family_action":return (src,fam,act)
+    if level=="family":return (src,fam)
+    return (src,)
+
+def _fit_r8_source_matcher(stage_samples,years,src):
+    yy=set(years)
+    ss=[z for z in stage_samples if z["window"] in yy and z.get("source")==src]
+    evn=len({(z["window"],event_identity(z["setup"])) for z in ss})
+    if len(ss)<240 or evn<120:return None
+    idx=_r8_feature_union(ss)
+    if len(idx)<4:return None
+    cuts={}
+    for j in idx:
+        vals=[float(z["x"][j]) for z in ss if math.isfinite(float(z["x"][j]))]
+        cuts[str(j)]=sorted(set(qtile(vals,q) for q in (.20,.40,.60,.80))) if vals else []
+    m=min(len(idx),12)
+    pairs=[]
+    for i in range(min(R8_SUBSPACES,m)):
+        a=idx[i]
+        b=idx[(i+3)%m] if m>1 else idx[i]
+        c=idx[(i+7)%m] if m>2 else b
+        q=[]
+        for z in (a,b,c):
+            if z not in q:q.append(z)
+        pairs.append(q[:3])
+    prior=_r8_cell_stats(ss,None,0.0)
+    levels=("route_regime","family_regime","family_action","family")
+    raw={lvl:[defaultdict(list) for _ in pairs] for lvl in levels}
+    for z in ss:
+        for qi,sub in enumerate(pairs):
+            sig=tuple(_r8_bin(cuts[str(j)],z["x"][j]) for j in sub)
+            for lvl in levels:
+                k=str((_r8_cat_key(lvl,z),sig))
+                raw[lvl][qi][k].append(z)
+    banks={lvl:[] for lvl in levels}
+    for lvl in levels:
+        for qbank in raw[lvl]:
+            dst={}
+            for k,rr in qbank.items():
+                st=_r8_cell_stats(rr,prior,R8_CELL_SHRINK)
+                if st["event_support"]>=8 and st["year_support"]>=2:dst[k]=st
+            banks[lvl].append(dst)
+    return {"type":"R8_SOURCE_NATIVE_MATCHED_COUNTERFACTUAL",
+            "source":src,"fit_years":list(years),"idx":idx,
+            "cuts":cuts,"subspaces":pairs,"levels":list(levels),
+            "prior":prior,"banks":banks,"rows":len(ss),"event_support":evn,
+            "min_support":R8_CELL_MIN_SUPPORT,"shrink":R8_CELL_SHRINK}
+
+def fit_r8_local_matcher(stage_samples,years):
+    active=sorted({z.get("source","NONE") for z in stage_samples if z["window"] in set(years)})
+    by={}
+    for src in active:
+        md=_fit_r8_source_matcher(stage_samples,years,src)
+        if md is not None:by[src]=md
+    if "SURVIVAL" in active and "SURVIVAL" not in by:
+        raise SystemExit("V74-R8 SURVIVAL has OOF support but no matched-counterfactual head")
+    if not by:raise SystemExit("V74-R8 no source-native matched-counterfactual heads")
+    return {"type":"R8_LOCAL_MATCHED_COUNTERFACTUAL_BUNDLE",
+            "fit_years":list(years),"by_source":by,
+            "independent_sources":sorted(by),"future_information_used":False,
+            "burned_outcomes_used_for_fit":False}
+
+def _pred_r8_local_matcher(bundle,e):
+    s=e["s"];src=s.get("source","NONE")
+    md=bundle.get("by_source",{}).get(src)
+    if md is None:
+        return {"p":0.0,"win_lcb":-1.0,"mean_r":-9.0,"mean_lcb":-9.0,
+                "utility":-1.0,"support":0.0,"matched_cells":0,
+                "dispersion":1.0,"match_depth":0.0,"origin":"NO_SOURCE_HEAD"}
+    x=s["x"];picked=[];depths=[]
+    depth={"route_regime":1.0,"family_regime":.82,"family_action":.66,"family":.50}
+    for qi,sub in enumerate(md["subspaces"]):
+        sig=tuple(_r8_bin(md["cuts"].get(str(j),[]),x[j]) for j in sub)
+        got=None;gd=0.0
+        for lvl in md["levels"]:
+            k=str((_r8_cat_key(lvl,s),sig))
+            q=md["banks"][lvl][qi].get(k)
+            if q is None:continue
+            if int(q.get("event_support",0))<int(md["min_support"]):continue
+            if int(q.get("year_support",0))<2:continue
+            got=q;gd=depth[lvl];break
+        if got is not None:
+            picked.append(got);depths.append(gd)
+    if not picked:
+        q=md["prior"];picked=[q];depths=[.20]
+        origin="SOURCE_PRIOR"
+    else:origin="MATCHED_COHORT"
+    pp=sorted(float(q["p"]) for q in picked)
+    wl=sorted(float(q["win_lcb"]) for q in picked)
+    mm=sorted(float(q["mean_r"]) for q in picked)
+    ml=sorted(float(q["mean_lcb"]) for q in picked)
+    nn=sorted(float(q.get("event_support",0)) for q in picked)
+    dd=[float(q.get("year_dispersion",0.0)) for q in picked]
+    p=statistics.median(pp);win_lcb=wl[int(math.floor(.25*(len(wl)-1)))]
+    mu=statistics.median(mm);mean_lcb=ml[int(math.floor(.25*(len(ml)-1))]
+    support=statistics.median(nn);disp=statistics.median(dd)
+    mdp=sum(depths)/len(depths)
+    mean_quality=.5+.5*math.tanh(mean_lcb/1.25)
+    support_quality=min(1.0,support/80.0)
+    # Precision is the hard bottleneck: conservative P(win) LCB dominates.
+    # Mean-R LCB, match specificity and support are secondary; temporal
+    # dispersion is explicitly penalized to reject regime-fragile cells.
+    utility=(.76*win_lcb+.14*mean_quality+.055*mdp+.045*support_quality
+             -.075*disp)
+    return {"p":p,"win_lcb":win_lcb,"mean_r":mu,"mean_lcb":mean_lcb,
+            "utility":utility,"support":support,"matched_cells":len(picked),
+            "dispersion":disp,"match_depth":mdp,"origin":origin}
+
+
 R6_SEMANTIC_SCORE_MODES=(
   "R6_COMMON_UTILITY",
   "R6_WIN_LCB",
   "R6_WIN_PROB",
   "R6_MEAN_LCB",
-  "R6_UTILITY_PLUS_STOP"
+  "R6_UTILITY_PLUS_STOP",
+  "R8_MATCHED_UTILITY",
+  "R8_MATCHED_WIN_LCB",
+  "R8_MATCHED_MEAN_LCB"
 )
 
 def _r6_arbitrate(scored_lanes,mode):
@@ -3226,16 +3430,20 @@ def _fit_r4_meta_policy(stage_samples,years):
     admission=fit_admission_bundle(tr_route,years)
     precision=fit_source_precision_bundle(tr_route,years)
     common_cal=_fit_r6_common_calibrator(tr_route,precision,years)
-    return {"type":"R7_CAUSAL_REACTION_STATE_WINNER_RETRIEVAL_COMMON_SCALE_POLICY",
+    r8=fit_r8_local_matcher(stage_samples,years)
+    return {"type":"R8_LOCAL_MATCHED_COUNTERFACTUAL__R7_CAUSAL_TRAJECTORY_POLICY",
             "value":vm,"pair":None,
             "admission_bundle":admission,
             "source_precision_bundle":precision,
             "common_calibrator":common_cal,
-            "score_mode":"R6_COMMON_UTILITY",
+            "r8_matcher":r8,
+            "score_mode":"R8_MATCHED_UTILITY",
             "fit_years":list(years),"selected_features":list(idx),
             "lane_preserving_until_post_admission":True,
             "mode_specific_post_admission_arbitration":True,
-            "forward_oof_common_scale_calibration":True}
+            "forward_oof_common_scale_calibration":True,
+            "local_counterfactual_matching":True,
+            "source_native_matched_cells":True}
 
 
 def _apply_r4_meta_policy(model,stage_samples,preserve_lanes=False,score_mode=None):
@@ -3245,6 +3453,7 @@ def _apply_r4_meta_policy(model,stage_samples,preserve_lanes=False,score_mode=No
         z=pred_admission(model["admission_bundle"],e)
         cc=_pred_r6_common_calibrator(model["common_calibrator"],
                                       model["source_precision_bundle"],e)
+        r8=_pred_r8_local_matcher(model["r8_matcher"],e)
         p=e["pred"];comp=max(float(z["defer"]),float(z["reject"]))
         stop01=.5+.5*math.tanh(float(z["advantage_lcb"])/1.25)
         common=float(cc["utility"])
@@ -3253,7 +3462,10 @@ def _apply_r4_meta_policy(model,stage_samples,preserve_lanes=False,score_mode=No
           "R6_WIN_LCB":float(cc["win_lcb"]),
           "R6_WIN_PROB":float(cc["win_p"]),
           "R6_MEAN_LCB":float(cc["mean_lcb"]),
-          "R6_UTILITY_PLUS_STOP":common+.06*stop01
+          "R6_UTILITY_PLUS_STOP":common+.06*stop01,
+          "R8_MATCHED_UTILITY":float(r8["utility"]),
+          "R8_MATCHED_WIN_LCB":float(r8["win_lcb"]),
+          "R8_MATCHED_MEAN_LCB":float(r8["mean_lcb"])
         }
         q=dict(e);q["score"]=common
         q["stop_advantage"]=float(p.get("stop_advantage",-999.0))
@@ -3267,8 +3479,18 @@ def _apply_r4_meta_policy(model,stage_samples,preserve_lanes=False,score_mode=No
                        r6_calibration_origin=cc["calibration_origin"],
                        r6_effective_n=cc["effective_n"],
                        r6_fallback_penalty=cc["fallback_penalty"],
+                       r8_matched_probability=r8["p"],
+                       r8_matched_win_lcb=r8["win_lcb"],
+                       r8_matched_mean_r=r8["mean_r"],
+                       r8_matched_mean_lcb=r8["mean_lcb"],
+                       r8_matched_utility=r8["utility"],
+                       r8_matched_support=r8["support"],
+                       r8_matched_cells=r8["matched_cells"],
+                       r8_matched_dispersion=r8["dispersion"],
+                       r8_match_depth=r8["match_depth"],
+                       r8_match_origin=r8["origin"],
                        raw_meta_score=common,semantic_scores=bank,
-                       score_mode="R6_COMMON_UTILITY",score_orientation=1.0,
+                       score_mode=str(score_mode or model.get("score_mode","R8_MATCHED_UTILITY")),score_orientation=1.0,
                        enter_wait_margin=float(z["enter_lcb"])-comp,
                        regime_id=int(e["s"].get("regime_id",0)))
         scored.append(q)
@@ -3578,7 +3800,7 @@ for _required_fn in ("_diag_metrics","_oracle_top250","fit_mechanism_heads_from_
                      "_fit_r4_meta_policy","_apply_r4_meta_policy","_fit_r4_tournament"):
     if not callable(globals().get(_required_fn)):
         raise SystemExit("V74 evaluator preflight missing callable "+_required_fn)
-_required_modes=("R6_COMMON_UTILITY","R6_WIN_LCB","R6_WIN_PROB","R6_MEAN_LCB","R6_UTILITY_PLUS_STOP")
+_required_modes=("R6_COMMON_UTILITY","R6_WIN_LCB","R6_WIN_PROB","R6_MEAN_LCB","R6_UTILITY_PLUS_STOP","R8_MATCHED_UTILITY","R8_MATCHED_WIN_LCB","R8_MATCHED_MEAN_LCB")
 if tuple(globals().get("R6_SEMANTIC_SCORE_MODES",()))!=_required_modes:
     raise SystemExit("V74 evaluator preflight invalid R6 semantic score mode contract")
 
