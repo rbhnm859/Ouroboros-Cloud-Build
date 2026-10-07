@@ -26,5 +26,5 @@
   ],
   "validation_used": false,
   "fresh_used": false,
-  "note": "Exact Rapid Decision universe: immutable 2016-2023 custody bytes were hash-verified, all eight windows used the same candidate .algo and run_window R_V73_OPPORTUNITY_UNIVERSE semantics, and V73 was revalidated before decision. Safe for evaluator/oracle-only replay; any guarded semantic drift remains fail-closed."
+  "note": "Exact R9 Rapid #117 universe; Y2016-Y2023 immutable artifacts complete, V73 and physical feasibility passed. Parser/evaluator-only replay allowed under unchanged fingerprint. Supersession guard v2 ignores only equivalent note-only pins; all semantic/model drift remains fail-closed. Validation/Fresh unused."
 }
