@@ -4512,39 +4512,38 @@ def _fit_r13_tournament(samples,years):
 
 
 def fit_policy(train_rows,prebuilt_samples=None):
-    """V74-R13 event-bar representative precision hazard policy."""
+    """V74-R12 event-hazard capital admission policy."""
     samples=list(prebuilt_samples) if prebuilt_samples is not None else make_samples(train_rows)
-    if len(samples)<3000:raise SystemExit("V74-R13 insufficient causal actions")
+    if len(samples)<3000:raise SystemExit("V74-R12 insufficient causal actions")
     yrs=sorted({r["window"] for r in train_rows},key=lambda w:int(w[1:]))
-    r13=_fit_r13_tournament(samples,yrs)
-    tm=r13["training_metrics"];worst=min(gate_margin(m) for m in tm.values()) if tm else -999.0
+    r12=_fit_r12_hazard_tournament(samples,yrs)
+    tm=r12["training_metrics"];worst=min(gate_margin(m) for m in tm.values()) if tm else -999.0
     training_gate=all(gate(m) for m in tm.values()) if tm else False
-    return {"architecture":"V74_R13_EVENT_BAR_REPRESENTATIVE_PRECISION_HAZARD",
-            "mechanism_heads":r13["mechanism_heads"],"stage_prior":r13["stage_prior"],
-            "hazard_model":r13["hazard_model"],
-            "admission_fit_years":yrs,"admission_inner_oof_years":r13["inner_oof_years"],
-            "threshold":r13["threshold"],"oof_threshold":r13["oof_threshold"],
-            "stop_margin":r13["stop_margin"],
-            "training_coverage_limits":r13["training_limits"],"training_supply":r13["training_supply"],
+    return {"architecture":"V74_R12_EVENT_HAZARD_CAPITAL_ADMISSION",
+            "mechanism_heads":r12["mechanism_heads"],"stage_prior":r12["stage_prior"],
+            "hazard_model":r12["hazard_model"],
+            "admission_fit_years":yrs,"admission_inner_oof_years":r12["inner_oof_years"],
+            "threshold":r12["threshold"],"oof_threshold":r12["oof_threshold"],
+            "stop_margin":r12["stop_margin"],
+            "training_coverage_limits":r12["training_limits"],"training_supply":r12["training_supply"],
             "training_metrics":tm,"training_worst_gate_margin":worst,
-            "training_oracle_admission":r13["training_oracle_admission"],
-            "training_gate":training_gate,"coverage_target":r13["coverage_target"],
+            "training_oracle_admission":r12["training_oracle_admission"],
+            "training_gate":training_gate,"coverage_target":r12["coverage_target"],
             "admission_sweep":{"rounds":[],"evaluated_candidates":3,
-              "training_rank":r13["training_rank"],"baseline_rank":None,
+              "training_rank":r12["training_rank"],"baseline_rank":None,
               "non_regression_vs_current_training":True,
-              "selected_mode":"R13_SINGLE_EVENT_BAR_REPRESENTATIVE__PAIRWISE_PRECISION_HAZARD",
-              "inner_oof_years":r13["inner_oof_years"],"meta_oof_years":r13["meta_oof_years"],
-              "nested_meta":r13["nested_meta"],"meta_crossfit":r13["meta_crossfit"],
-              "threshold_transfer":r13["threshold_transfer"],
-              "conditional_mi_bits":r13["conditional_mi_bits"],
-              "information_gate":r13["information_gate"],"score_orientation":1.0}},samples
+              "selected_mode":"R12_CALIBRATED_EVENT_HAZARD__POST_ADMISSION_MAXACTIVEBASKET1",
+              "inner_oof_years":r12["inner_oof_years"],"meta_oof_years":r12["meta_oof_years"],
+              "nested_meta":r12["nested_meta"],"meta_crossfit":r12["meta_crossfit"],
+              "threshold_transfer":r12["threshold_transfer"],
+              "conditional_mi_bits":r12["conditional_mi_bits"],
+              "information_gate":r12["information_gate"],"score_orientation":1.0}},samples
 
 def apply_policy(policy,test_rows,prebuilt_samples=None):
     samples=list(prebuilt_samples) if prebuilt_samples is not None else make_samples(test_rows)
     route=mechanism_decisions(samples,policy["mechanism_heads"])
     stage=_r4_stage_samples(route,policy["stage_prior"])
-    reps=_r13_representative_stage(stage)
-    dec=_r13_decisions(reps,policy["hazard_model"])
+    dec=_r12_hazard_decisions(stage,policy["hazard_model"])
     sel=simulate(dec,policy["threshold"],stop_margin=policy.get("stop_margin",-math.inf))
     return sel,samples,dec
 def _diag_metrics(samples):
@@ -4687,7 +4686,7 @@ if tuple(globals().get("R6_SEMANTIC_SCORE_MODES",()))!=_required_modes:
 
 checks=telemetry_guard()
 summary={"version":"HarmonyBot V74 One-Shot Family-Native Causal Action Selector",
- "architecture":"V74_R13_EVENT_BAR_REPRESENTATIVE_PRECISION_HAZARD__R11_ACTION_SURFACE",
+ "architecture":"V74_R12_EVENT_HAZARD_CAPITAL_ADMISSION__R11_REACTION_COMMIT_ACTION_SURFACE",
  "gate":{"min_selected_per_year":MIN_N,"min_mean_r":MIN_MEAN,"min_pf_r":MIN_PF,
          "min_win_rate":MIN_WR,"min_average_rr":MIN_AVG_RR,"lcb95_gt":0.0},
  "research_training_windows":RESEARCH,"burned_oof_windows":BURNED,
@@ -4695,8 +4694,8 @@ summary={"version":"HarmonyBot V74 One-Shot Family-Native Causal Action Selector
            "harmonic_completion":"DIRECTION_TIME_D_EVENT_IDENTITY__MULTI_GEOMETRY_IS_CONFLUENCE_NOT_SUPPLY",
            "reaction_state":"CAUSAL_FEATURE_NOT_HARD_FILTER","physical_route_contract":"EVENT_NATIVE_CANONICAL_EVENT_FULL_COMPLETED_BAR_ENTRY_TIMING__EARLY_F00_M05_M10_M15__LATE_PREENTRY_F20_F30__SURVIVAL_FRESH__NETRR_GE230","v75_management_variants_excluded":True,"all_entry_maturity_stages_completed_bar_only":True,
            "route_choice":"SOURCE_NATIVE_EVENT_BALANCED_PAIRWISE_ROUTE_ARBITRATION__ALL_CAUSAL_LANES",
-           "optimal_stopping":"R13_SINGLE_REPRESENTATIVE_COMPETING_RISK_ENTER_WAIT_REJECT__FITTED_CURRENT_VS_STRICT_FUTURE_CONTINUATION_LCB",
-           "admission":"R13_EVENT_BAR_SINGLE_CAPITAL_CLAIM__MATCHED_HARD_NEGATIVE_PAIRWISE_PRECISION__HIERARCHICAL_JEFFREYS_CALIBRATION",
+           "optimal_stopping":"R12_COMPETING_RISK_ENTER_WAIT_REJECT__FITTED_CURRENT_VS_STRICT_FUTURE_CONTINUATION_LCB",
+           "admission":"R12_EVENT_HAZARD__HIERARCHICAL_JEFFREYS_YEAR_REGIME_CALIBRATION__PRECISION_AT_250_GROUP_DRO",
            "training_coverage_target_per_year":TRAIN_COVERAGE,
            "family_hierarchy":"CANONICAL_FAMILY_IDENTITY__ALL_LEGAL_CAUSAL_LANES__NO_FAMILY_BLACKLIST",
            "no_trigger_posttrigger_lock_future_state":True,
@@ -4816,7 +4815,7 @@ for test,fold,policy in fold_results:
           for k in ("n","mean_r","pf_r","win_rate","average_rr","lcb_r","pass")}),flush=True)
 
 alpha=bool(allpass)
-champ="V74_R13_EVENT_BAR_REPRESENTATIVE_PRECISION_HAZARD" if alpha else None
+champ="V74_R12_EVENT_HAZARD_CAPITAL_ADMISSION" if alpha else None
 fold_metrics={w:{k:summary["folds"][w][k] for k in ("n","mean_r","pf_r","win_rate","average_rr","lcb_r")}
               for w in BURNED}
 current_rank=_guard_rank(fold_metrics)
@@ -4837,7 +4836,7 @@ summary["performance_engine"]={"immutable_sample_prebuild":True,
  "inner_cache_build_seconds":globals().get("_inner_cache_seconds"),
  "meta_prefix_cache":False,"meta_prefix_parallel":False,
  "parity_fail_closed":True}
-summary["root_cause_rearchitecture"]="V74_R13_EVENT_BAR_REPRESENTATIVE_PRECISION_HAZARD"
+summary["root_cause_rearchitecture"]="V74_R12_EVENT_HAZARD_CAPITAL_ADMISSION"
 summary["component_rank_diagnostic_version"]="EVENT_TOP250_COMPONENT_RANK_V1"
 summary["event_identity_weighting_contract"]="YEAR_EQUAL__INDEPENDENT_EVENT_EQUAL__ROUTE_MULTIPLICITY_NEUTRAL__EARLY_ALIAS_DEDUP"
 summary["survival_primary_alpha"]=False
@@ -4884,11 +4883,13 @@ summary["r12_competing_risk_event_hazard_active"]=True
 summary["r12_probability_calibration"]="EVENT_BALANCED_JEFFREYS__SOURCE_FAMILY_REGIME_HIERARCHY__LOWER_QUARTILE_YEAR_ROBUST"
 summary["r12_optimal_stopping"]="LCB_CURRENT_EXPECTED_R_MINUS_LCB_STRICT_FUTURE_CONTINUATION"
 summary["r12_future_information_used"]=False
-summary["r13_single_event_bar_capital_claim"]=True
+summary["r13_single_event_bar_capital_claim"]=False
 summary["r13_representative_route_policy"]="MAX_COMMON_EXPECTED_R__LCB_WIN_TIEBREAK__NO_OUTCOME"
 summary["r13_precision_ranker"]="EVENT_YEAR_BALANCED_MATCHED_HARD_NEGATIVE_PAIRWISE"
-summary["r13_max_selection_bias_removed"]=True
+summary["r13_max_selection_bias_removed"]=False
 summary["r13_future_information_used"]=False
+summary["r13_experiment_rejected_by_non_regression"]=True
+summary["r13_rejected_run_id"]=37667183282
 summary["parallel_fold_execution"]=parallel_used
 summary["parallel_fold_workers"]=min(len(BURNED),max(1,int(os.cpu_count() or 1))) if parallel_used else 1
 summary["alpha_gate"]=alpha;summary["alpha_champion"]=champ
