@@ -3721,6 +3721,7 @@ summary["r6_hierarchical_source_shrinkage"]=True
 summary["r6_causal_trajectory_representation"]="EXISTING_COMPLETED_BAR_ROUTE_STATE_V3__SURVIVAL_PATH_V3__NO_NEW_FUTURE_TELEMETRY"
 summary["source_head_missing_feature_policy"]="EVENT_YEAR_BALANCED_SOURCE_PRIOR__NEVER_GLOBAL_RUNTIME_HEAD"
 summary["fast_replay_supersession_contract"]="R6_GENERATION__STALE_HEAD_AUTO_TERMINATE__35M_HARD_TIMEOUT"
+summary["r6_evidence_generation"]="R6_CAUSAL_WINNER_RETRIEVAL_COMMON_SCALE__FIRST_FORMAL_BURNED_REPLAY"
 summary["parallel_fold_execution"]=parallel_used
 summary["parallel_fold_workers"]=min(len(BURNED),max(1,int(os.cpu_count() or 1))) if parallel_used else 1
 summary["alpha_gate"]=alpha;summary["alpha_champion"]=champ
