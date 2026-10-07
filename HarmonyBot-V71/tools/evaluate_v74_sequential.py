@@ -3739,7 +3739,7 @@ def fit_policy(train_rows,prebuilt_samples=None):
     tm=r8["training_metrics"];worst=min(gate_margin(m) for m in tm.values()) if tm else -999.0
     training_gate=all(gate(m) for m in tm.values()) if tm else False
     training_oracle={w:_oracle_top250([s for s in survival if s["window"]==w]) for w in yrs}
-    return {"architecture":"V74_R8_SURVIVAL_NATIVE_MATCHED_COUNTERFACTUAL_POLICY",
+    return {"architecture":"V74_R9_SURVIVAL_PROOF_MATCHED_COUNTERFACTUAL_POLICY",
             "r8_matcher":r8["model"],
             "admission_fit_years":yrs,"admission_inner_oof_years":r8["inner_oof_years"],
             "threshold":r8["threshold"],"oof_threshold":r8["oof_threshold"],
@@ -3751,7 +3751,7 @@ def fit_policy(train_rows,prebuilt_samples=None):
             "admission_sweep":{"rounds":[],"evaluated_candidates":3,
               "training_rank":r8["training_rank"],"baseline_rank":None,
               "non_regression_vs_current_training":True,
-              "selected_mode":"R8_SURVIVAL_LOCAL_MATCHED_COUNTERFACTUAL__EVENT_YEAR_BALANCED__CAUSAL_FIRST_HIT",
+              "selected_mode":"R9_SURVIVAL_PROOF__LOCAL_MATCHED_COUNTERFACTUAL__EVENT_YEAR_BALANCED__CAUSAL_FIRST_HIT",
               "inner_oof_years":r8["inner_oof_years"],"nested_meta":r8["nested_meta"],
               "threshold_transfer":r8["threshold_transfer"],
               "conditional_mi_bits":r8["conditional_mi_bits"],
@@ -3903,7 +3903,7 @@ if tuple(globals().get("R6_SEMANTIC_SCORE_MODES",()))!=_required_modes:
 
 checks=telemetry_guard()
 summary={"version":"HarmonyBot V74 One-Shot Family-Native Causal Action Selector",
- "architecture":"V74_R8_SURVIVAL_NATIVE_COUNTERFACTUAL_ADMISSION__HARD_NEGATIVE_PRECISION__CAUSAL_STOPPING",
+ "architecture":"V74_R9_CAUSAL_REVERSAL_PROOF__SURVIVAL_MATCHED_COUNTERFACTUAL_ADMISSION",
  "gate":{"min_selected_per_year":MIN_N,"min_mean_r":MIN_MEAN,"min_pf_r":MIN_PF,
          "min_win_rate":MIN_WR,"min_average_rr":MIN_AVG_RR,"lcb95_gt":0.0},
  "research_training_windows":RESEARCH,"burned_oof_windows":BURNED,
@@ -4030,7 +4030,7 @@ for test,fold,policy in fold_results:
           for k in ("n","mean_r","pf_r","win_rate","average_rr","lcb_r","pass")}),flush=True)
 
 alpha=bool(allpass)
-champ="V74_R8_SURVIVAL_NATIVE_COUNTERFACTUAL_ADMISSION" if alpha else None
+champ="V74_R9_CAUSAL_REVERSAL_PROOF_ADMISSION" if alpha else None
 fold_metrics={w:{k:summary["folds"][w][k] for k in ("n","mean_r","pf_r","win_rate","average_rr","lcb_r")}
               for w in BURNED}
 current_rank=_guard_rank(fold_metrics)
@@ -4051,7 +4051,7 @@ summary["performance_engine"]={"immutable_sample_prebuild":True,
  "inner_cache_build_seconds":globals().get("_inner_cache_seconds"),
  "meta_prefix_cache":False,"meta_prefix_parallel":False,
  "parity_fail_closed":True}
-summary["root_cause_rearchitecture"]="V74_R8_SURVIVAL_NATIVE_LOCAL_MATCHED_COUNTERFACTUAL_ADMISSION"
+summary["root_cause_rearchitecture"]="V74_R9_CAUSAL_REVERSAL_PROOF_ACTION_SPACE__SURVIVAL_MATCHED_ADMISSION"
 summary["component_rank_diagnostic_version"]="EVENT_TOP250_COMPONENT_RANK_V1"
 summary["event_identity_weighting_contract"]="YEAR_EQUAL__INDEPENDENT_EVENT_EQUAL__ROUTE_MULTIPLICITY_NEUTRAL__EARLY_ALIAS_DEDUP"
 summary["survival_primary_alpha"]=True
@@ -4080,6 +4080,10 @@ summary["r8_route_family_regime_hierarchical_prior"]=True
 summary["r8_other_lanes_shadow_only"]=True
 summary["r8_lean_local_matcher_formal_path"]=True
 summary["r8_heavy_survival_boosting_tournament_active"]=False
+summary["r9_causal_reversal_proof_action_space"]=True
+summary["r9_base_route_semantics"]="RECLAIM_OBSERVE__NEXT_COMPLETED_M1_BOS_ENTRY"
+summary["r9_c1_route_semantics"]="RECLAIM_OBSERVE__BOS_OBSERVE__RETEST_HOLD_OBSERVE__LATER_REBREAK_ENTRY"
+summary["r9_future_information_used"]=False
 summary["parallel_fold_execution"]=parallel_used
 summary["parallel_fold_workers"]=min(len(BURNED),max(1,int(os.cpu_count() or 1))) if parallel_used else 1
 summary["alpha_gate"]=alpha;summary["alpha_champion"]=champ
