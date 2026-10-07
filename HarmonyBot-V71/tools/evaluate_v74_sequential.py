@@ -1715,19 +1715,21 @@ def _pred_r8_local_matcher(bundle,e):
 
 
 
-def _r8_survival_decisions(samples,bundle):
-    """Lean causal R8 decision surface from SURVIVAL matched cohorts only.
+def _r10_multisource_decisions(samples,bundle):
+    """R10 feasible-manifold source-native counterfactual decisions.
 
-    Same-bar route multiplicity is collapsed by the training-only matched score.
-    Across bars, simulate() remains the sole first-hit ENTER rule.  No future
-    score, future price, or outcome participates in inference.
+    Each source is scored only by its own training-only matcher.  Route
+    multiplicity is collapsed inside source/event/bar first.  Only afterwards
+    are source candidates compared for the single capital slot, preserving
+    source-native admission and MaxActiveBasket=1 semantics.
     """
-    by_bar=defaultdict(list)
+    by_src_bar=defaultdict(list)
     for s in samples:
-        if s.get("source")!="SURVIVAL":continue
+        src=str(s.get("source","NONE"))
         rr=_pred_r8_local_matcher(bundle,{"s":s})
-        q=dict(s)
-        pred={"r8_matched_probability":float(rr["p"]),
+        if rr.get("origin")=="NO_SOURCE_HEAD":continue
+        pred={"r10_source":src,
+              "r8_matched_probability":float(rr["p"]),
               "r8_matched_win_lcb":float(rr["win_lcb"]),
               "r8_matched_mean_r":float(rr["mean_r"]),
               "r8_matched_mean_lcb":float(rr["mean_lcb"]),
@@ -1737,32 +1739,43 @@ def _r8_survival_decisions(samples,bundle):
               "r8_matched_dispersion":float(rr["dispersion"]),
               "r8_match_depth":float(rr["match_depth"]),
               "r8_match_origin":str(rr["origin"])}
+        q=dict(s)
         e={"score":float(rr["utility"]),"route_rank":float(rr["win_lcb"]),
            "stop_advantage":0.0,"pred":pred,"s":q}
-        by_bar[(s["window"],event_identity(s["setup"]),int(s["bar"]))].append(e)
+        by_src_bar[(s["window"],event_identity(s["setup"]),int(s["bar"]),src)].append(e)
+
+    # First choose the best legal route inside each independent source lane.
+    lane=[]
+    for vv in by_src_bar.values():
+        lane.append(max(vv,key=lambda z:(float(z["score"]),float(z["route_rank"]),z["s"]["route"])))
+
+    # Then arbitrate the capital slot across source lanes at the same event/bar.
+    by_event_bar=defaultdict(list)
+    for e in lane:
+        s=e["s"];by_event_bar[(s["window"],event_identity(s["setup"]),int(s["bar"]))].append(e)
     out=[]
-    for vv in by_bar.values():
-        e=max(vv,key=lambda z:(float(z["score"]),float(z["route_rank"]),z["s"]["route"]))
-        out.append(e)
-    out.sort(key=lambda e:(e["s"]["window"],event_identity(e["s"]["setup"]),int(e["s"]["bar"]),e["s"]["route"]))
+    for vv in by_event_bar.values():
+        out.append(max(vv,key=lambda z:(float(z["score"]),float(z["route_rank"]),z["s"]["source"],z["s"]["route"])))
+    out.sort(key=lambda e:(e["s"]["window"],event_identity(e["s"]["setup"]),int(e["s"]["bar"]),e["s"]["source"],e["s"]["route"]))
     return out
 
 def _compute_shared_inner_r8_year(vw):
-    """One honest expanding-forward R8 held year, reusable by all outer folds."""
+    """One honest expanding-forward R10 multi-source held year."""
     vy=int(vw[1:])
-    tr=[s for s in _ALL_SURVIVAL_SAMPLES if int(s["window"][1:])<vy]
-    va=[s for s in _ALL_SURVIVAL_SAMPLES if s["window"]==vw]
+    tr=[s for s in _ALL_SAMPLES if int(s["window"][1:])<vy]
+    va=[s for s in _ALL_SAMPLES if s["window"]==vw]
     ty=sorted({s["window"] for s in tr},key=lambda w:int(w[1:]))
     md=fit_r8_local_matcher(tr,ty)
-    dec=_r8_survival_decisions(va,md)
+    dec=_r10_multisource_decisions(va,md)
     return vw,{"decisions":[_compact_tournament_decision(e) for e in dec],
                "meta":{"validation_year":vw,"training_years":ty,
-                       "train_survival_actions":len(tr),
-                       "validation_survival_actions":len(va),
-                       "matched_counterfactual":True}}
+                       "train_actions":len(tr),"validation_actions":len(va),
+                       "sources":sorted(md.get("by_source",{})),
+                       "matched_counterfactual":True,
+                       "post_admission_max_active_basket_1":True}}
 
-def _fit_r8_survival_matched_tournament(samples,years):
-    """Primary R8: local matched counterfactual SURVIVAL admission.
+def _fit_r10_multisource_matched_tournament(samples,years):
+    """Primary R10: feasible-manifold multi-source matched counterfactual admission.
 
     Architecture/threshold are selected only on expanding-forward OOF years
     contained inside the outer training window.  Final threshold transfer is
@@ -1770,7 +1783,7 @@ def _fit_r8_survival_matched_tournament(samples,years):
     """
     eligible=[years[i] for i in range(2,len(years))]
     val_years=eligible[-min(3,len(eligible)):]
-    if len(val_years)<2:raise SystemExit("V74-R8 insufficient inner OOF years")
+    if len(val_years)<2:raise SystemExit("V74-R10 insufficient inner OOF years")
     cross=[];meta=[]
     shared=globals().get("_INNER_R8_MATCHED_OOF_CACHE",{})
     for vw in val_years:
@@ -1779,17 +1792,17 @@ def _fit_r8_survival_matched_tournament(samples,years):
         expected_ty=sorted({s["window"] for s in samples if int(s["window"][1:])<vy},key=lambda w:int(w[1:]))
         if z is not None:
             if z.get("meta",{}).get("training_years")!=expected_ty:
-                raise SystemExit("V74-R8 shared inner cache semantic mismatch "+vw)
+                raise SystemExit("V74-R10 shared inner cache semantic mismatch "+vw)
             cross.extend(z.get("decisions",[]));meta.append(z.get("meta",{}));continue
         tr=[s for s in samples if int(s["window"][1:])<vy]
         va=[s for s in samples if s["window"]==vw]
         md=fit_r8_local_matcher(tr,expected_ty)
-        dd=_r8_survival_decisions(va,md)
+        dd=_r10_multisource_decisions(va,md)
         cross.extend(dd)
         meta.append({"validation_year":vw,"training_years":expected_ty,
                      "train_survival_actions":len(tr),"validation_survival_actions":len(va),
                      "matched_counterfactual":True})
-    if not cross:raise SystemExit("V74-R8 empty matched counterfactual OOF")
+    if not cross:raise SystemExit("V74-R10 empty matched counterfactual OOF")
     candidates=[]
     for target in (250,275,300):
         z=_precision_threshold(cross,val_years,target)
@@ -1797,18 +1810,18 @@ def _fit_r8_survival_matched_tournament(samples,years):
         cmi=_conditional_mi_bits(cross)
         rank=tuple(z["rank"])+(cmi,)
         candidates.append((rank,target,z,cmi))
-    if not candidates:raise SystemExit("V74-R8 no coverage-feasible matched threshold")
+    if not candidates:raise SystemExit("V74-R10 no coverage-feasible matched threshold")
     candidates.sort(key=lambda x:x[0],reverse=True)
     rank,target,z,cmi=candidates[0]
 
     final=fit_r8_local_matcher(samples,years)
-    full_dec=_r8_survival_decisions(samples,final)
+    full_dec=_r10_multisource_decisions(samples,final)
     os=[float(e["score"]) for e in cross];fs=[float(e["score"]) for e in full_dec]
     om=med(os,0.0);fm=med(fs,0.0)
     oq1,oq3=qtile(os,.25),qtile(os,.75);fq1,fq3=qtile(fs,.25),qtile(fs,.75)
     scale=max(.35,min(2.5,(fq3-fq1)/max(1e-9,oq3-oq1)))
     transferred=fm+(float(z["threshold"])-om)*scale
-    print("[V74-R8-SELECT] "+json.dumps({"coverage_target":target,
+    print("[V74-R10-SELECT] "+json.dumps({"coverage_target":target,
           "rank":list(rank),"conditional_mi_bits":cmi,
           "threshold_oof":z["threshold"],"threshold_full":transferred},sort_keys=True),flush=True)
     return {"model":final,"threshold":transferred,"oof_threshold":z["threshold"],
@@ -1819,7 +1832,7 @@ def _fit_r8_survival_matched_tournament(samples,years):
             "conditional_mi_bits":cmi,"information_gate":bool(cmi>1e-4),
             "threshold_transfer":{"oof_median":om,"full_fit_median":fm,
               "oof_iqr":oq3-oq1,"full_fit_iqr":fq3-fq1,"scale":scale,
-              "rule":"OUTCOME_FREE_R8_MATCHED_SCORE_AFFINE_TRANSFER"}}
+              "rule":"OUTCOME_FREE_R10_MULTISOURCE_MATCHED_SCORE_AFFINE_TRANSFER"}}
 
 R6_SEMANTIC_SCORE_MODES=(
   "R6_COMMON_UTILITY",
@@ -3790,38 +3803,36 @@ def _fit_r4_tournament(samples,years):
               "rule":"OUTCOME_FREE_R6_COMMON_SCALE_AND_STOP_MARGIN_AFFINE_TRANSFER"}}
 
 def fit_policy(train_rows,prebuilt_samples=None):
-    """V74-R8 lean SURVIVAL-native matched-counterfactual admission."""
+    """V74-R10 feasible-manifold multi-source matched-counterfactual policy."""
     samples=list(prebuilt_samples) if prebuilt_samples is not None else make_samples(train_rows)
-    survival=[s for s in samples if s.get("source")=="SURVIVAL"]
-    if len(survival)<1500:raise SystemExit("V74-R8 insufficient SURVIVAL causal actions")
+    if len(samples)<3000:raise SystemExit("V74-R10 insufficient causal actions")
     yrs=sorted({r["window"] for r in train_rows},key=lambda w:int(w[1:]))
-    r8=_fit_r8_survival_matched_tournament(survival,yrs)
-    tm=r8["training_metrics"];worst=min(gate_margin(m) for m in tm.values()) if tm else -999.0
+    r10=_fit_r10_multisource_matched_tournament(samples,yrs)
+    tm=r10["training_metrics"];worst=min(gate_margin(m) for m in tm.values()) if tm else -999.0
     training_gate=all(gate(m) for m in tm.values()) if tm else False
-    training_oracle={w:_oracle_top250([s for s in survival if s["window"]==w]) for w in yrs}
-    return {"architecture":"V74_R9_SURVIVAL_PROOF_MATCHED_COUNTERFACTUAL_POLICY",
-            "r8_matcher":r8["model"],
-            "admission_fit_years":yrs,"admission_inner_oof_years":r8["inner_oof_years"],
-            "threshold":r8["threshold"],"oof_threshold":r8["oof_threshold"],
-            "stop_margin":r8["stop_margin"],
-            "training_coverage_limits":r8["training_limits"],"training_supply":r8["training_supply"],
+    training_oracle={w:_oracle_top250([s for s in samples if s["window"]==w]) for w in yrs}
+    return {"architecture":"V74_R10_FEASIBLE_MANIFOLD_MULTISOURCE_MATCHED_COUNTERFACTUAL_POLICY",
+            "r8_matcher":r10["model"],
+            "admission_fit_years":yrs,"admission_inner_oof_years":r10["inner_oof_years"],
+            "threshold":r10["threshold"],"oof_threshold":r10["oof_threshold"],
+            "stop_margin":r10["stop_margin"],
+            "training_coverage_limits":r10["training_limits"],"training_supply":r10["training_supply"],
             "training_metrics":tm,"training_worst_gate_margin":worst,
             "training_oracle_admission":training_oracle,
-            "training_gate":training_gate,"coverage_target":r8["coverage_target"],
+            "training_gate":training_gate,"coverage_target":r10["coverage_target"],
             "admission_sweep":{"rounds":[],"evaluated_candidates":3,
-              "training_rank":r8["training_rank"],"baseline_rank":None,
+              "training_rank":r10["training_rank"],"baseline_rank":None,
               "non_regression_vs_current_training":True,
-              "selected_mode":"R9_SURVIVAL_PROOF__LOCAL_MATCHED_COUNTERFACTUAL__EVENT_YEAR_BALANCED__CAUSAL_FIRST_HIT",
-              "inner_oof_years":r8["inner_oof_years"],"nested_meta":r8["nested_meta"],
-              "threshold_transfer":r8["threshold_transfer"],
-              "conditional_mi_bits":r8["conditional_mi_bits"],
-              "information_gate":r8["information_gate"],
+              "selected_mode":"R10_SOURCE_NATIVE_LOCAL_MATCHED_COUNTERFACTUAL__POST_ADMISSION_MAXACTIVEBASKET1",
+              "inner_oof_years":r10["inner_oof_years"],"nested_meta":r10["nested_meta"],
+              "threshold_transfer":r10["threshold_transfer"],
+              "conditional_mi_bits":r10["conditional_mi_bits"],
+              "information_gate":r10["information_gate"],
               "score_orientation":1.0}},samples
 
 def apply_policy(policy,test_rows,prebuilt_samples=None):
     samples=list(prebuilt_samples) if prebuilt_samples is not None else make_samples(test_rows)
-    survival=[s for s in samples if s.get("source")=="SURVIVAL"]
-    dec=_r8_survival_decisions(survival,policy["r8_matcher"])
+    dec=_r10_multisource_decisions(samples,policy["r8_matcher"])
     sel=simulate(dec,policy["threshold"],stop_margin=policy.get("stop_margin",-math.inf))
     return sel,samples,dec
 
@@ -3963,7 +3974,7 @@ if tuple(globals().get("R6_SEMANTIC_SCORE_MODES",()))!=_required_modes:
 
 checks=telemetry_guard()
 summary={"version":"HarmonyBot V74 One-Shot Family-Native Causal Action Selector",
- "architecture":"V74_R9_CAUSAL_REVERSAL_PROOF__SURVIVAL_MATCHED_COUNTERFACTUAL_ADMISSION",
+ "architecture":"V74_R10_FEASIBLE_MANIFOLD__SOURCE_NATIVE_MATCHED_COUNTERFACTUAL__POST_ADMISSION_ARBITRATION",
  "gate":{"min_selected_per_year":MIN_N,"min_mean_r":MIN_MEAN,"min_pf_r":MIN_PF,
          "min_win_rate":MIN_WR,"min_average_rr":MIN_AVG_RR,"lcb95_gt":0.0},
  "research_training_windows":RESEARCH,"burned_oof_windows":BURNED,
@@ -4090,7 +4101,7 @@ for test,fold,policy in fold_results:
           for k in ("n","mean_r","pf_r","win_rate","average_rr","lcb_r","pass")}),flush=True)
 
 alpha=bool(allpass)
-champ="V74_R9_CAUSAL_REVERSAL_PROOF_ADMISSION" if alpha else None
+champ="V74_R10_FEASIBLE_MANIFOLD_MULTISOURCE_ADMISSION" if alpha else None
 fold_metrics={w:{k:summary["folds"][w][k] for k in ("n","mean_r","pf_r","win_rate","average_rr","lcb_r")}
               for w in BURNED}
 current_rank=_guard_rank(fold_metrics)
@@ -4111,13 +4122,13 @@ summary["performance_engine"]={"immutable_sample_prebuild":True,
  "inner_cache_build_seconds":globals().get("_inner_cache_seconds"),
  "meta_prefix_cache":False,"meta_prefix_parallel":False,
  "parity_fail_closed":True}
-summary["root_cause_rearchitecture"]="V74_R9_CAUSAL_REVERSAL_PROOF_ACTION_SPACE__SURVIVAL_MATCHED_ADMISSION"
+summary["root_cause_rearchitecture"]="V74_R10_FEASIBLE_MANIFOLD_MULTISOURCE_MATCHED_ADMISSION"
 summary["component_rank_diagnostic_version"]="EVENT_TOP250_COMPONENT_RANK_V1"
 summary["event_identity_weighting_contract"]="YEAR_EQUAL__INDEPENDENT_EVENT_EQUAL__ROUTE_MULTIPLICITY_NEUTRAL__EARLY_ALIAS_DEDUP"
-summary["survival_primary_alpha"]=True
-summary["generic_early_late_failure_shadow_only"]=True
-summary["all_causal_lanes_active"]=False
-summary["lane_preserving_until_post_admission"]=False
+summary["survival_primary_alpha"]=False
+summary["generic_early_late_failure_shadow_only"]=False
+summary["all_causal_lanes_active"]=True
+summary["lane_preserving_until_post_admission"]=True
 summary["cross_source_pair_ranker_removed_at_meta"]=True
 summary["strict_source_native_admission"]=True
 summary["global_runtime_admission_fallback"]=False
@@ -4147,6 +4158,10 @@ summary["r9_future_information_used"]=False
 summary["r9_high_conviction_proof_commit_actions_active"]=True
 summary["r9_high_conviction_proof_commit_source"]="SURVIVAL_PRIMARY_MANIFOLD"
 summary["r9_high_conviction_proof_commit_fail_closed"]=True
+summary["r10_physical_feasible_manifold_required"]=True
+summary["r10_source_native_local_matchers"]=True
+summary["r10_cross_source_arbitration"]="POST_ADMISSION_MAXACTIVEBASKET1"
+summary["r10_survival_only_rejected_reason"]="Y2022_Y2023_PHYSICAL_TOP250_WR_BELOW_70"
 summary["parallel_fold_execution"]=parallel_used
 summary["parallel_fold_workers"]=min(len(BURNED),max(1,int(os.cpu_count() or 1))) if parallel_used else 1
 summary["alpha_gate"]=alpha;summary["alpha_champion"]=champ
