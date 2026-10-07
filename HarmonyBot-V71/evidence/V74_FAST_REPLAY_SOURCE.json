@@ -1,8 +1,8 @@
 {
   "version": 2,
-  "source_run_id": 37652374634,
-  "source_head_sha": "fd92f76d91d0615ecb9878dcd99fae19641d765d",
-  "semantic_fingerprint": "b8ac4981b3079cfe75d4c3a8b51cd644b6840ef0d28f84d61c154c945c92e17c",
+  "source_run_id": 37660271590,
+  "source_head_sha": "8bd8343e15d806623f5e1a8a4d98e6f7815bcc2d",
+  "semantic_fingerprint": "694781f760368ff0ba90b013b9e8032b266abd4d25bec6e9140c3ba85a9289cd",
   "branch": "harmonybot/v73-opportunity-universe",
   "artifact_pattern": "v74-rapid-universe-*",
   "evidence_origin": "rapid_exact_2016_2023",
@@ -26,5 +26,5 @@
   ],
   "validation_used": false,
   "fresh_used": false,
-  "note": "Exact R9 Rapid #117 universe; Y2016-Y2023 immutable artifacts complete, V73 and physical feasibility passed. Parser/evaluator-only replay allowed under unchanged fingerprint. Supersession guard v2 ignores only equivalent note-only pins; all semantic/model drift remains fail-closed. Validation/Fresh unused."
+  "note": "Pinned exact R11 fixed-payoff reaction-commit universe from Rapid #118. All Y2016-Y2023 annual artifacts completed successfully under semantic fingerprint 694781f760368ff0ba90b013b9e8032b266abd4d25bec6e9140c3ba85a9289cd. Subsequent parser/evaluator commits are semantics-neutral to cTrader universe. Validation/Fresh unused."
 }
