@@ -668,7 +668,7 @@ namespace cAlgo.Robots
             double riskVsOriginal=risk/originalRisk;
             double runwayUse=Math.Abs(target-entry)/Math.Max(_symbol.PipSize,Math.Abs(o.Target-entry));
 
-            // V74-R7 causal reaction-state telemetry. These sixteen coordinates
+            // V74-R7 causal reaction-state telemetry generation 2. These sixteen coordinates
             // are frozen on the completed decision bar for every lane. They measure
             // morphology, persistence, expansion and PRZ interaction without using
             // any post-entry MFE/MAE, target/stop result or future bar.
