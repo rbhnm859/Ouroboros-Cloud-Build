@@ -17,7 +17,7 @@ profit-capture and Grid/capital-capacity mechanics are intentionally excluded.
 import bisect,json,math,os,pathlib,statistics,sys,time,multiprocessing as mp
 # V74 performance-engine generation: immutable-prebuild/shared-inner-context-v1
 from collections import defaultdict,Counter
-from v74_model_lib import load_rows,metrics,SEQUENTIAL_STATE_FEATURE_COUNT,SURVIVAL_MORPH_FEATURE_COUNT,SURVIVAL_PATH_V2_FEATURE_COUNT,R7_COMMON_PATH_FEATURE_COUNT,FAMILIES,SURVIVAL_FRESH_KEYS,FEATURE_NAMES
+from v74_model_lib import load_rows,metrics,SEQUENTIAL_STATE_FEATURE_COUNT,SURVIVAL_MORPH_FEATURE_COUNT,SURVIVAL_PATH_V2_FEATURE_COUNT,R7_COMMON_PATH_FEATURE_COUNT,FAMILIES,SURVIVAL_FRESH_KEYS,HIGH_CONVICTION_KEYS,FEATURE_NAMES
 from v74_model_lib import event_identity
 from harmonic_precision_contract import harmonic_precision_vector
 
@@ -194,6 +194,37 @@ def survival_xvec(r,sf,eb):
             aa+ee+delta+[ap,ep,1.0 if ap and ep else 0.0]+timing+morph+path_v3)
 
 
+def proof_commit_xvec(r,hc,eb):
+    """R9 high-conviction proof-commit vector, dimension-parity with SURVIVAL.
+
+    All fields are frozen on completed causal bars by C#.  The common 32-D R7
+    path is right-padded to the SURVIVAL Path-V4 width so the matched estimator
+    sees one stable feature geometry across native survival and proof routes.
+    """
+    a=r.get("high_conviction_maturity_state",{}).get(hc)
+    e=r.get("high_conviction_entry_state",{}).get(hc)
+    ap=1.0 if a is not None and len(a)==SEQUENTIAL_STATE_FEATURE_COUNT else 0.0
+    ep=1.0 if e is not None and len(e)==SEQUENTIAL_STATE_FEATURE_COUNT else 0.0
+    aa=[float(x) for x in a] if ap else [0.0]*SEQUENTIAL_STATE_FEATURE_COUNT
+    ee=[float(x) for x in e] if ep else [0.0]*SEQUENTIAL_STATE_FEATURE_COUNT
+    delta=[ee[i]-aa[i] if ap and ep else 0.0 for i in range(SEQUENTIAL_STATE_FEATURE_COUNT)]
+    rb=r.get("high_conviction_reaction_bar",{}).get(hc,-1)
+    bars=r.get("high_conviction_bars",{}).get(hc,0)
+    timing=[max(-1.0,min(6.0,float(eb)/10.0)),
+            max(-1.0,min(6.0,float(rb)/10.0)) if rb is not None else -1.0,
+            max(-1.0,min(6.0,float(eb-rb)/10.0)) if rb is not None and rb>=0 else -1.0,
+            max(0.0,min(6.0,float(bars)/10.0))]
+    pv=r.get("high_conviction_path_r7",{}).get(hc)
+    common=[float(x) for x in pv] if pv is not None and len(pv)==R7_COMMON_PATH_FEATURE_COUNT else [0.0]*R7_COMMON_PATH_FEATURE_COUNT
+    if SURVIVAL_PATH_V2_FEATURE_COUNT<R7_COMMON_PATH_FEATURE_COUNT:
+        raise SystemExit("V74-R9 proof path width exceeds SURVIVAL vector contract")
+    path=common+[0.0]*(SURVIVAL_PATH_V2_FEATURE_COUNT-R7_COMMON_PATH_FEATURE_COUNT)
+    hp=_precision_vector(r)
+    return (list(r.get("features",[]))+hp+route_cats(r,"SURVIVAL","SURVIVAL","FIB","00",None)+
+            aa+ee+delta+[ap,ep,1.0 if ap and ep else 0.0]+timing+
+            [0.0]*SURVIVAL_MORPH_FEATURE_COUNT+path)
+
+
 def failure_xvec(r,eb):
     a=r.get("failure_continuation_maturity_state",{}).get("FC230")
     e=r.get("failure_continuation_entry_state",{}).get("FC230")
@@ -217,7 +248,7 @@ def failure_xvec(r,eb):
 
 def telemetry_guard():
     legal={"EARLY":0,"LATE":0,"SURVIVAL":0,"FAILURE":0};with_state={"EARLY":0,"LATE":0,"SURVIVAL":0,"FAILURE":0}
-    survival_morphology=0;survival_path_v2=0;r7_common_legal=0;r7_common_complete=0
+    survival_morphology=0;survival_path_v2=0;r7_common_legal=0;r7_common_complete=0;proof_legal=0;proof_complete=0
     for r in rows:
       for b in BASES:
         for src in REGULAR_SOURCES:
@@ -242,6 +273,20 @@ def telemetry_guard():
         if q is not None and len(q)==SURVIVAL_MORPH_FEATURE_COUNT:survival_morphology+=1
         pv=r.get("survival_fresh_path_v2",{}).get(sf)
         if pv is not None and len(pv)==SURVIVAL_PATH_V2_FEATURE_COUNT:survival_path_v2+=1
+      for hc in HIGH_CONVICTION_KEYS:
+        y=r.get("high_conviction",{}).get(hc);rr=r.get("high_conviction_rr",{}).get(hc)
+        try:eb=int(r.get("high_conviction_entry_bar",{}).get(hc,-1))
+        except:eb=-1
+        if eb<0 or y is None or rr is None or float(rr)+1e-9<LEGAL_MIN_RR:continue
+        legal["SURVIVAL"]+=1;proof_legal+=1
+        a=r.get("high_conviction_maturity_state",{}).get(hc)
+        e=r.get("high_conviction_entry_state",{}).get(hc)
+        p=r.get("high_conviction_path_r7",{}).get(hc)
+        ok=(a is not None and e is not None and p is not None and
+            len(a)==SEQUENTIAL_STATE_FEATURE_COUNT and len(e)==SEQUENTIAL_STATE_FEATURE_COUNT and
+            len(p)==R7_COMMON_PATH_FEATURE_COUNT)
+        if ok:
+            with_state["SURVIVAL"]+=1;proof_complete+=1
       fy=r.get("failure_continuation",{}).get("FC230")
       frr=r.get("failure_continuation_rr",{}).get("FC230")
       try:feb=int(r.get("failure_continuation_entry_bar",{}).get("FC230",-1))
@@ -258,9 +303,13 @@ def telemetry_guard():
     if sum(legal.values())==0:raise SystemExit("V74 no legal completed-bar actions")
     if r7_common_legal>0 and r7_common_complete!=r7_common_legal:
         raise SystemExit("V74-R7 common path completeness contract failure "+str(r7_common_complete)+"/"+str(r7_common_legal))
-    if legal["SURVIVAL"]>0 and survival_path_v2!=legal["SURVIVAL"]:
+    native_survival_legal=legal["SURVIVAL"]-proof_legal
+    if native_survival_legal>0 and survival_path_v2!=native_survival_legal:
         raise SystemExit("V74 R7 survival path-v4 completeness contract failure "+
-                         str(survival_path_v2)+"/"+str(legal["SURVIVAL"]))
+                         str(survival_path_v2)+"/"+str(native_survival_legal))
+    if proof_legal>0 and proof_complete!=proof_legal:
+        raise SystemExit("V74-R9 high-conviction proof telemetry completeness failure "+
+                         str(proof_complete)+"/"+str(proof_legal))
     return {"legal_actions":legal,"complete_path_state":with_state,
             "survival_morphology_complete":survival_morphology,
             "survival_morphology_missing":max(0,legal["SURVIVAL"]-survival_morphology),
@@ -270,6 +319,8 @@ def telemetry_guard():
             "r7_common_path_complete":r7_common_complete,"r7_common_path_legal":r7_common_legal,
             "r7_common_path_contract_pass":r7_common_complete==r7_common_legal,
             "survival_path_v3_compat_complete":survival_path_v2,
+            "r9_proof_commit_legal":proof_legal,"r9_proof_commit_complete":proof_complete,
+            "r9_proof_commit_contract_pass":proof_complete==proof_legal,
             "missing_state_is_feature_not_veto":True,
             "future_trigger_decision_lock_state_used":False}
 
@@ -319,6 +370,15 @@ def make_samples(xs):
         out.append({"window":r["window"],"setup":r["setup"],"family":r["family"],"action":r["action"],
                     "source":"SURVIVAL","base":"SURVIVAL_"+sf,"route":"SURVIVAL|"+sf,"bar":eb,"bars":bars,
                     "x":survival_xvec(r,sf,eb),"y":float(y),"row":r})
+      for hc in HIGH_CONVICTION_KEYS:
+        y=r.get("high_conviction",{}).get(hc);rr=r.get("high_conviction_rr",{}).get(hc)
+        try:eb=int(r.get("high_conviction_entry_bar",{}).get(hc,-1))
+        except:eb=-1
+        if y is None or rr is None or eb<0 or float(rr)+1e-9<LEGAL_MIN_RR:continue
+        bars=max(1,int(r.get("high_conviction_bars",{}).get(hc,r.get("bars",1)) or 1))
+        out.append({"window":r["window"],"setup":r["setup"],"family":r["family"],"action":r["action"],
+                    "source":"SURVIVAL","base":"SURVIVAL_PROOF_"+hc,"route":"SURVIVAL|"+hc,
+                    "bar":eb,"bars":bars,"x":proof_commit_xvec(r,hc,eb),"y":float(y),"row":r})
       fy=r.get("failure_continuation",{}).get("FC230");frr=r.get("failure_continuation_rr",{}).get("FC230")
       try:feb=int(r.get("failure_continuation_entry_bar",{}).get("FC230",-1))
       except:feb=-1
@@ -4084,6 +4144,9 @@ summary["r9_causal_reversal_proof_action_space"]=True
 summary["r9_base_route_semantics"]="RECLAIM_OBSERVE__NEXT_COMPLETED_M1_BOS_ENTRY"
 summary["r9_c1_route_semantics"]="RECLAIM_OBSERVE__BOS_OBSERVE__RETEST_HOLD_OBSERVE__LATER_REBREAK_ENTRY"
 summary["r9_future_information_used"]=False
+summary["r9_high_conviction_proof_commit_actions_active"]=True
+summary["r9_high_conviction_proof_commit_source"]="SURVIVAL_PRIMARY_MANIFOLD"
+summary["r9_high_conviction_proof_commit_fail_closed"]=True
 summary["parallel_fold_execution"]=parallel_used
 summary["parallel_fold_workers"]=min(len(BURNED),max(1,int(os.cpu_count() or 1))) if parallel_used else 1
 summary["alpha_gate"]=alpha;summary["alpha_champion"]=champ
