@@ -285,7 +285,7 @@ namespace cAlgo.Robots
             public double V74FailureBoundary, V74FailureRetestHigh, V74FailureRetestLow;
             public double V74FailureEntry, V74FailureStop, V74FailureTarget, V74FailureRisk, V74FailureNetRr;
             public double V74FailureOutcomeR=double.NaN;
-            public string V74FailureMaturityStateCsv="", V74FailureEntryStateCsv="";
+            public string V74FailureMaturityStateCsv="", V74FailureEntryStateCsv="", V74FailurePathR7Csv="";
             public int[] V74HighConvictionReactionBar = Enumerable.Repeat(-1, 4).ToArray();
             public bool[] V74HighConvictionActive = new bool[4];
             public bool[] V74HighConvictionPositiveArmed = new bool[4];
@@ -313,6 +313,7 @@ namespace cAlgo.Robots
             public double[] V74SequentialOutcomeR = Enumerable.Repeat(double.NaN,V74SequentialKey.Length).ToArray();
             public string V74SequentialState025Csv = "", V74SequentialState050Csv = "";
             public string[] V74SequentialEntryStateCsv = new string[V74SequentialKey.Length];
+            public string[] V74SequentialPathR7Csv = new string[V74SequentialKey.Length];
             public string[] V74SequentialTriggerStateCsv = new string[V74SequentialKey.Length];
             public string[] V74SequentialDecisionStateCsv = new string[V74SequentialKey.Length];
 
@@ -338,6 +339,7 @@ namespace cAlgo.Robots
             public double[] V74LateAuctionOutcomeR = Enumerable.Repeat(double.NaN,V74LateAuctionKey.Length).ToArray();
             public string[] V74LateAuctionMaturityStateCsv = new string[V74LateAuctionKey.Length];
             public string[] V74LateAuctionEntryStateCsv = new string[V74LateAuctionKey.Length];
+            public string[] V74LateAuctionPathR7Csv = new string[V74LateAuctionKey.Length];
 
             public bool[] V74LateAuctionPositiveArmed = new bool[V74LateAuctionKey.Length];
             public int[] V74LateAuctionPostTriggerBar = Enumerable.Repeat(-1,V74LateAuctionKey.Length).ToArray();
@@ -938,6 +940,58 @@ namespace cAlgo.Robots
             }
         }
 
+        private double[] V74DecisionPathR7(V72HcogOpportunity o,int i,int causalStartBar,double decisionEntry,double decisionRisk,bool invertDirection=false)
+        {
+            // R7 common 32-D causal trajectory signature. Frozen at the completed
+            // decision bar for EVERY source. No post-entry bar, outcome, MFE/MAE,
+            // Validation/Fresh label or future trigger is referenced.
+            if(o==null||i<1||i>=_m1Bars.Count)return new double[32];
+            bool buy=invertDirection?o.Direction==TradeDirection.Sell:o.Direction==TradeDirection.Buy;
+            double risk=Math.Max(_symbol.PipSize,decisionRisk);
+            double atr=Math.Max(_symbol.PipSize,Atr(_m1Bars,14,i));
+            int age=Math.Max(0,o.BarsActive-Math.Max(0,causalStartBar));
+            int n=Math.Max(2,Math.Min(32,age+1));
+            int start=Math.Max(1,i-n+1);
+            double signed=0,absPath=0,sq=0,pos=0,neg=0,turns=0,acc=0,jerk=0;
+            double maxFav=double.NegativeInfinity,maxAdv=double.NegativeInfinity;
+            double closeLoc=0,rangeAtr=0,bodyFrac=0,alignedWick=0,opposedWick=0,przOcc=0;
+            double prevStep=0,prevAcc=0,firstClose=_m1Bars.ClosePrices[start-1];
+            for(int j=start;j<=i;j++)
+            {
+                double op=_m1Bars.OpenPrices[j],cl=_m1Bars.ClosePrices[j],hi=_m1Bars.HighPrices[j],lo=_m1Bars.LowPrices[j],pc=_m1Bars.ClosePrices[j-1];
+                double step=(buy?cl-pc:pc-cl)/risk;signed+=step;absPath+=Math.Abs(step);sq+=step*step;
+                if(step>0)pos++;else if(step<0)neg++;
+                if(j>start&&step*prevStep<0)turns++;
+                if(j>start){double a=step-prevStep;acc+=Math.Abs(a);if(j>start+1)jerk+=Math.Abs(a-prevAcc);prevAcc=a;}
+                prevStep=step;
+                double range=Math.Max(_symbol.PipSize,hi-lo),body=Math.Abs(cl-op);
+                closeLoc+=buy?(cl-lo)/range:(hi-cl)/range;rangeAtr+=range/atr;bodyFrac+=body/range;
+                double upper=hi-Math.Max(op,cl),lower=Math.Min(op,cl)-lo;
+                alignedWick+=buy?lower/range:upper/range;opposedWick+=buy?upper/range:lower/range;
+                maxFav=Math.Max(maxFav,(buy?hi-decisionEntry:decisionEntry-lo)/risk);
+                maxAdv=Math.Max(maxAdv,(buy?decisionEntry-lo:hi-decisionEntry)/risk);
+                if(hi+_symbol.PipSize>=o.Signal.PrzLow&&lo-_symbol.PipSize<=o.Signal.PrzHigh)przOcc++;
+            }
+            double nn=Math.Max(1,i-start+1),eff=Math.Abs(signed)/Math.Max(1e-9,absPath);
+            double last=_m1Bars.ClosePrices[i],d1=(buy?last-_m1Bars.ClosePrices[Math.Max(0,i-1)]:_m1Bars.ClosePrices[Math.Max(0,i-1)]-last)/risk;
+            double d3=(buy?last-_m1Bars.ClosePrices[Math.Max(0,i-3)]:_m1Bars.ClosePrices[Math.Max(0,i-3)]-last)/risk;
+            double d8=(buy?last-_m1Bars.ClosePrices[Math.Max(0,i-8)]:_m1Bars.ClosePrices[Math.Max(0,i-8)]-last)/risk;
+            double przMid=(o.Signal.PrzLow+o.Signal.PrzHigh)*.5,przHalf=Math.Max(_symbol.PipSize,Math.Abs(o.Signal.PrzHigh-o.Signal.PrzLow)*.5);
+            double przSigned=(buy?last-przMid:przMid-last)/risk;
+            double originalSigned=(buy?last-o.Entry:o.Entry-last)/Math.Max(_symbol.PipSize,o.RiskDistance);
+            double decisionVsOriginal=(buy?decisionEntry-o.Entry:o.Entry-decisionEntry)/Math.Max(_symbol.PipSize,o.RiskDistance);
+            double pathFromFirst=(buy?last-firstClose:firstClose-last)/risk;
+            double er8=EfficiencyRatio(_m1Bars.ClosePrices,i,Math.Min(8,Math.Max(1,i)));
+            return new[]{
+                signed,absPath,eff,Math.Sqrt(Math.Max(0,sq)),pos/nn,neg/nn,turns/nn,
+                maxFav,maxAdv,maxFav-maxAdv,closeLoc/nn,rangeAtr/nn,bodyFrac/nn,
+                alignedWick/nn,opposedWick/nn,przOcc/nn,d1,d3,d8,acc/nn,jerk/nn,
+                przSigned,Math.Abs(last-przMid)/przHalf,originalSigned,decisionVsOriginal,
+                pathFromFirst,er8,Math.Min(1.0,age/60.0),Math.Min(1.0,n/32.0),
+                VClamp((signed+2.0)/4.0),VClamp((maxFav+1.0)/4.0),VClamp((1.0-maxAdv)/2.0)
+            };
+        }
+
         private double[] V74SurvivalPathV2(V72HcogOpportunity o,int i,int reactionBar,int pullbackBar,
             double fibPrice,double impulseExtreme,double pullbackExtreme)
         {
@@ -1378,6 +1432,8 @@ namespace cAlgo.Robots
             o.V74FailureEntryStateCsv=string.Join(",",V74RouteStateFeatures(
                 o,i,entry,risk,target,0,0,0,0.0,true)
                 .Select(v=>v.ToString("R",System.Globalization.CultureInfo.InvariantCulture)));
+            o.V74FailurePathR7Csv=string.Join(",",V74DecisionPathR7(o,i,o.V74FailureBreakBar,entry,risk,true)
+                .Select(v=>v.ToString("R",System.Globalization.CultureInfo.InvariantCulture)));
             o.V74FailureEntryBar=o.BarsActive;o.V74FailureEntry=entry;o.V74FailureStop=stop;
             o.V74FailureTarget=target;o.V74FailureRisk=risk;o.V74FailureNetRr=rr;
             o.V74FailureFreshBars=0;o.V74FailureFreshActive=true;
@@ -1573,6 +1629,8 @@ namespace cAlgo.Robots
                     o.V74SequentialPositiveArmed[k]=false;
                     o.V74SequentialEntryStateCsv[k]=string.Join(",",V74RouteStateFeatures(
                         o,i,entry,risk,target,0,0,0,reactionR)
+                        .Select(v=>v.ToString("R",System.Globalization.CultureInfo.InvariantCulture)));
+                    o.V74SequentialPathR7Csv[k]=string.Join(",",V74DecisionPathR7(o,i,o.V74SequentialReactionBar[k],entry,risk)
                         .Select(v=>v.ToString("R",System.Globalization.CultureInfo.InvariantCulture)));
                     continue;
                 }
@@ -1780,6 +1838,8 @@ namespace cAlgo.Robots
                 o.V74LateAuctionEntryStateCsv[k]=string.Join(",",V74RouteStateFeatures(
                     o,i,entry,risk,target,0,0,0,reactionR)
                     .Select(v=>v.ToString("R",System.Globalization.CultureInfo.InvariantCulture)));
+                o.V74LateAuctionPathR7Csv[k]=string.Join(",",V74DecisionPathR7(o,i,o.V74LateAuctionReactionBar[k],entry,risk)
+                    .Select(v=>v.ToString("R",System.Globalization.CultureInfo.InvariantCulture)));
 
                 o.V74LateAuctionPending[k]=false;
                 o.V74LateAuctionActive[k]=true;
@@ -1944,10 +2004,11 @@ namespace cAlgo.Robots
                 sfParts.Add("rb"+k+"="+o.V74SurvivalFreshBars[k].ToString(System.Globalization.CultureInfo.InvariantCulture));
             }
             Print("[V74-SURVIVAL-FRESH-PATH] "+string.Join(" ",sfParts));
-            Print("[V74-FAILURE-CONTINUATION-PATH] setup={0} family={1} lane={2} observed={3} bb={4} rb={5} eb={6} m={7} e={8} b={9} rr={10:F6} bars={11}",
+            Print("[V74-FAILURE-CONTINUATION-PATH] setup={0} family={1} lane={2} observed={3} bb={4} rb={5} eb={6} m={7} e={8} p={9} b={10} rr={11:F6} bars={12}",
                 o.SetupKey,o.Family,o.Lane,o.V74FailureObserved,o.V74FailureBreakBar,o.V74FailureRetestBar,o.V74FailureEntryBar,
                 string.IsNullOrWhiteSpace(o.V74FailureMaturityStateCsv)?"NONE":o.V74FailureMaturityStateCsv,
                 string.IsNullOrWhiteSpace(o.V74FailureEntryStateCsv)?"NONE":o.V74FailureEntryStateCsv,
+                string.IsNullOrWhiteSpace(o.V74FailurePathR7Csv)?"NONE":o.V74FailurePathR7Csv,
                 double.IsFinite(o.V74FailureOutcomeR)?o.V74FailureOutcomeR.ToString("R",System.Globalization.CultureInfo.InvariantCulture):"NA",
                 o.V74FailureNetRr,o.V74FailureFreshBars);
 
@@ -1958,6 +2019,7 @@ namespace cAlgo.Robots
             {
                 if(V74ResearchQualificationOnly&&!V74SequentialQualificationKey(k))continue;
                 seqParts.Add("e"+k+"="+(string.IsNullOrWhiteSpace(o.V74SequentialEntryStateCsv[k])?"NONE":o.V74SequentialEntryStateCsv[k]));
+                seqParts.Add("p"+k+"="+(string.IsNullOrWhiteSpace(o.V74SequentialPathR7Csv[k])?"NONE":o.V74SequentialPathR7Csv[k]));
                 if(!V74ResearchQualificationOnly)
                 {
                     seqParts.Add("t"+k+"="+(string.IsNullOrWhiteSpace(o.V74SequentialTriggerStateCsv[k])?"NONE":o.V74SequentialTriggerStateCsv[k]));
@@ -1979,6 +2041,7 @@ namespace cAlgo.Robots
                 if(V74ResearchQualificationOnly&&!V74LateQualificationKey(k))continue;
                 auctionParts.Add("m"+k+"="+(string.IsNullOrWhiteSpace(o.V74LateAuctionMaturityStateCsv[k])?"NONE":o.V74LateAuctionMaturityStateCsv[k]));
                 auctionParts.Add("e"+k+"="+(string.IsNullOrWhiteSpace(o.V74LateAuctionEntryStateCsv[k])?"NONE":o.V74LateAuctionEntryStateCsv[k]));
+                auctionParts.Add("p"+k+"="+(string.IsNullOrWhiteSpace(o.V74LateAuctionPathR7Csv[k])?"NONE":o.V74LateAuctionPathR7Csv[k]));
                 auctionParts.Add("b"+k+"="+(double.IsFinite(o.V74LateAuctionOutcomeR[k])?o.V74LateAuctionOutcomeR[k].ToString("R",System.Globalization.CultureInfo.InvariantCulture):"NA"));
                 auctionParts.Add("rr"+k+"="+o.V74LateAuctionNetRr[k].ToString("R",System.Globalization.CultureInfo.InvariantCulture));
                 auctionParts.Add("rx"+k+"="+o.V74LateAuctionReactionBar[k].ToString(System.Globalization.CultureInfo.InvariantCulture));
