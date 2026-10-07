@@ -241,10 +241,14 @@ namespace cAlgo.Robots
             public double[] V74RcrOutcomeR = Enumerable.Repeat(double.NaN, 3).ToArray();
             public double[] V74HybridOutcomeR = Enumerable.Repeat(double.NaN, 4).ToArray();
             public int[] V74ReactionCommitReactionBar = Enumerable.Repeat(-1, 4).ToArray();
+            public int[] V74ReactionCommitEntryBar = Enumerable.Repeat(-1, 4).ToArray();
             public bool[] V74ReactionCommitActive = new bool[4];
             public int[] V74ReactionCommitBars = new int[4];
             public int[] V74ReactionCommitStage = Enumerable.Repeat(-1, 4).ToArray();
             public int[] V74ReactionCommitStageBar = Enumerable.Repeat(-1, 4).ToArray();
+            public string[] V74ReactionCommitMaturityStateCsv = new string[4];
+            public string[] V74ReactionCommitEntryStateCsv = new string[4];
+            public string[] V74ReactionCommitPathR7Csv = new string[4];
             public double[] V74ReactionCommitEntry = new double[4];
             public double[] V74ReactionCommitStop = new double[4];
             public double[] V74ReactionCommitTarget = new double[4];
@@ -1533,9 +1537,12 @@ namespace cAlgo.Robots
             {
                 if(double.IsFinite(o.V74ReactionCommitOutcomeR[k]))continue;
 
-                if(o.V74ReactionCommitReactionBar[k]<0&&!nativeStop&&virtualFav+1e-12>=V74ReactionCommitR[k])
+                if(o.V74ReactionCommitReactionBar[k]<0&&!nativeStop&&!nativeTarget&&virtualFav+1e-12>=V74ReactionCommitR[k])
                 {
                     o.V74ReactionCommitReactionBar[k]=o.BarsActive;
+                    o.V74ReactionCommitMaturityStateCsv[k]=string.Join(",",V74RouteStateFeatures(
+                        o,i,o.Entry,o.RiskDistance,o.Target,o.BarsActive,o.MfeR,o.MaeR,V74ReactionCommitR[k])
+                        .Select(v=>v.ToString("R",System.Globalization.CultureInfo.InvariantCulture)));
                     continue; // reaction bar itself is observation only; capital cannot enter same bar
                 }
 
@@ -1556,45 +1563,28 @@ namespace cAlgo.Robots
                     if(rr+1e-9<2.30)continue;
 
                     o.V74ReactionCommitActive[k]=true;
+                    o.V74ReactionCommitEntryBar[k]=o.BarsActive;
                     o.V74ReactionCommitEntry[k]=entry;o.V74ReactionCommitStop[k]=stop;o.V74ReactionCommitTarget[k]=o.Target;
                     o.V74ReactionCommitRisk[k]=risk;o.V74ReactionCommitNetRr[k]=rr;o.V74ReactionCommitBars[k]=0;
                     o.V74ReactionCommitStage[k]=-1;o.V74ReactionCommitStageBar[k]=-1;
+                    o.V74ReactionCommitEntryStateCsv[k]=string.Join(",",V74RouteStateFeatures(
+                        o,i,entry,risk,o.Target,0,0,0,V74ReactionCommitR[k])
+                        .Select(v=>v.ToString("R",System.Globalization.CultureInfo.InvariantCulture)));
+                    o.V74ReactionCommitPathR7Csv[k]=string.Join(",",V74DecisionPathR7(
+                        o,i,o.V74ReactionCommitReactionBar[k],entry,risk)
+                        .Select(v=>v.ToString("R",System.Globalization.CultureInfo.InvariantCulture)));
                     continue;
                 }
 
                 o.V74ReactionCommitBars[k]++;
-                double entryR=(buy?close-o.V74ReactionCommitEntry[k]:o.V74ReactionCommitEntry[k]-close)/o.V74ReactionCommitRisk[k];
-                double favR=buy?(high-o.V74ReactionCommitEntry[k])/o.V74ReactionCommitRisk[k]
-                               :(o.V74ReactionCommitEntry[k]-low)/o.V74ReactionCommitRisk[k];
                 bool stopHit=buy?low<=o.V74ReactionCommitStop[k]:high>=o.V74ReactionCommitStop[k];
                 bool targetHit=buy?high>=o.V74ReactionCommitTarget[k]:low<=o.V74ReactionCommitTarget[k];
 
-                int newStage=o.V74ReactionCommitStage[k];
-                for(int s=0;s<V74ReactionCommitStageR.Length;s++)
-                    if(favR+1e-12>=V74ReactionCommitStageR[s])newStage=s;
-                if(newStage>o.V74ReactionCommitStage[k])
-                {
-                    o.V74ReactionCommitStage[k]=newStage;
-                    o.V74ReactionCommitStageBar[k]=o.V74ReactionCommitBars[k];
-                }
-
-                int stage=o.V74ReactionCommitStage[k];
-                if(stage>=0&&o.V74ReactionCommitBars[k]>o.V74ReactionCommitStageBar[k])
-                {
-                    double floor=buy?o.V74ReactionCommitEntry[k]+o.V74ReactionCommitRisk[k]*V74ReactionCommitFloorR[stage]
-                                    :o.V74ReactionCommitEntry[k]-o.V74ReactionCommitRisk[k]*V74ReactionCommitFloorR[stage];
-                    bool floorHit=buy?low<=floor:high>=floor;
-                    if(floorHit){o.V74ReactionCommitOutcomeR[k]=V74ReactionCommitFloorR[stage];o.V74ReactionCommitActive[k]=false;continue;}
-                }
-
-                // Existing broker stop/target orders resolve before a close-only early-adverse decision.
+                // R11 V74 qualification is deliberately fixed SL/TP only.
+                // No post-entry floor, trailing, break-even, partial, early adverse
+                // cut or V75 profit-capture semantics may influence the Alpha label.
                 if(stopHit){o.V74ReactionCommitOutcomeR[k]=-1.0;o.V74ReactionCommitActive[k]=false;continue;}
                 if(targetHit){o.V74ReactionCommitOutcomeR[k]=o.V74ReactionCommitNetRr[k];o.V74ReactionCommitActive[k]=false;continue;}
-                if(stage<0&&entryR<=V74ReactionCommitAdverseCutR[k])
-                {
-                    o.V74ReactionCommitOutcomeR[k]=Math.Max(-1.0,entryR);
-                    o.V74ReactionCommitActive[k]=false;
-                }
             }
         }
 
@@ -2087,6 +2077,20 @@ namespace cAlgo.Robots
                 hcParts.Add("rb"+k+"="+o.V74HighConvictionBars[k].ToString(System.Globalization.CultureInfo.InvariantCulture));
             }
             Print("[V74-HIGH-CONVICTION-PATH] "+string.Join(" ",hcParts));
+
+            var rcParts=new List<string>{"setup="+o.SetupKey,"family="+o.Family,"lane="+o.Lane};
+            for(int k=0;k<V74ReactionCommitKey.Length;k++)
+            {
+                rcParts.Add("m"+k+"="+(string.IsNullOrWhiteSpace(o.V74ReactionCommitMaturityStateCsv[k])?"NONE":o.V74ReactionCommitMaturityStateCsv[k]));
+                rcParts.Add("e"+k+"="+(string.IsNullOrWhiteSpace(o.V74ReactionCommitEntryStateCsv[k])?"NONE":o.V74ReactionCommitEntryStateCsv[k]));
+                rcParts.Add("p"+k+"="+(string.IsNullOrWhiteSpace(o.V74ReactionCommitPathR7Csv[k])?"NONE":o.V74ReactionCommitPathR7Csv[k]));
+                rcParts.Add("b"+k+"="+(double.IsFinite(o.V74ReactionCommitOutcomeR[k])?o.V74ReactionCommitOutcomeR[k].ToString("R",System.Globalization.CultureInfo.InvariantCulture):"NA"));
+                rcParts.Add("rr"+k+"="+o.V74ReactionCommitNetRr[k].ToString("R",System.Globalization.CultureInfo.InvariantCulture));
+                rcParts.Add("re"+k+"="+o.V74ReactionCommitReactionBar[k].ToString(System.Globalization.CultureInfo.InvariantCulture));
+                rcParts.Add("eb"+k+"="+o.V74ReactionCommitEntryBar[k].ToString(System.Globalization.CultureInfo.InvariantCulture));
+                rcParts.Add("rb"+k+"="+o.V74ReactionCommitBars[k].ToString(System.Globalization.CultureInfo.InvariantCulture));
+            }
+            Print("[V74-REACTION-COMMIT-PATH] "+string.Join(" ",rcParts));
 
             var sfParts=new List<string>{"setup="+o.SetupKey,"family="+o.Family,"lane="+o.Lane};
             for(int k=0;k<V74SurvivalFreshKey.Length;k++)
