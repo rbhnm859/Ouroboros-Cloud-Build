@@ -160,6 +160,51 @@ def load_rows(root,windows):
                     except:p[dst]={}
                 continue
 
+            if "[V74-REACTION-COMMIT-PATH]" in line:
+                payload=line.split("[V74-REACTION-COMMIT-PATH]",1)[1].strip();kv={}
+                for tok in payload.split():
+                    if "=" in tok:
+                        a,b=tok.split("=",1);kv[a]=b
+                setup=kv.get("setup")
+                if not setup:continue
+                p=paths.setdefault(setup,{"protect_r":{},"milestones":{},"rcr":{},"hybrid":{},"reaction_commit":{},"high_conviction":{},
+                                          "sequential":{},"sequential_rr":{},"sequential_bars":{},"sequential_state":{},"sequential_entry_state":{},
+                                          "sequential_trigger_state":{},"sequential_decision_state":{}})
+                outcomes={};rrs={};maturity={};entries={};path_r7={};reaction_bars={};entry_bars={};bars={}
+                for ridx,key in enumerate(REACTION_COMMIT_KEYS):
+                    for prefix,dst in (("m",maturity),("e",entries)):
+                        raw=kv.get(prefix+str(ridx))
+                        if raw not in (None,"NONE","NA","NaN","nan"):
+                            try:
+                                vv=[float(x) for x in raw.split(",")]
+                                if len(vv)==SEQUENTIAL_STATE_FEATURE_COUNT and all(math.isfinite(x) for x in vv):dst[key]=vv
+                            except Exception:pass
+                    rawp=kv.get("p"+str(ridx))
+                    if rawp not in (None,"NONE","NA","NaN","nan"):
+                        try:
+                            vv=[float(x) for x in rawp.split(",")]
+                            if len(vv)==R7_COMMON_PATH_FEATURE_COUNT and all(math.isfinite(x) for x in vv):path_r7[key]=vv
+                        except Exception:pass
+                    raw=kv.get("b"+str(ridx));rawrr=kv.get("rr"+str(ridx))
+                    if raw not in (None,"NA","NaN","nan"):
+                        try:
+                            v=float(raw)
+                            if math.isfinite(v):outcomes[key]=v
+                        except Exception:pass
+                    if rawrr not in (None,"NA","NaN","nan"):
+                        try:
+                            v=float(rawrr)
+                            if math.isfinite(v):rrs[key]=v
+                        except Exception:pass
+                    for prefix,dst in (("re",reaction_bars),("eb",entry_bars),("rb",bars)):
+                        try:dst[key]=int(kv.get(prefix+str(ridx),"-1"))
+                        except Exception:pass
+                p["reaction_commit"]=outcomes;p["reaction_commit_rr"]=rrs
+                p["reaction_commit_maturity_state"]=maturity;p["reaction_commit_entry_state"]=entries
+                p["reaction_commit_path_r7"]=path_r7;p["reaction_commit_reaction_bar"]=reaction_bars
+                p["reaction_commit_entry_bar"]=entry_bars;p["reaction_commit_bars"]=bars
+                continue
+
             if "[V74-HIGH-CONVICTION-PATH]" in line:
                 payload=line.split("[V74-HIGH-CONVICTION-PATH]",1)[1].strip();kv={}
                 for tok in payload.split():
@@ -382,6 +427,13 @@ def load_rows(root,windows):
                          "protect_r":path.get("protect_r",{}),"milestones":path.get("milestones",{}),
                          "rcr":path.get("rcr",{}),"hybrid":path.get("hybrid",{}),
                          "reaction_commit":path.get("reaction_commit",{}),
+                         "reaction_commit_rr":path.get("reaction_commit_rr",{}),
+                         "reaction_commit_maturity_state":path.get("reaction_commit_maturity_state",{}),
+                         "reaction_commit_entry_state":path.get("reaction_commit_entry_state",{}),
+                         "reaction_commit_path_r7":path.get("reaction_commit_path_r7",{}),
+                         "reaction_commit_reaction_bar":path.get("reaction_commit_reaction_bar",{}),
+                         "reaction_commit_entry_bar":path.get("reaction_commit_entry_bar",{}),
+                         "reaction_commit_bars":path.get("reaction_commit_bars",{}),
                          "high_conviction":path.get("high_conviction",{}),
                          "high_conviction_rr":path.get("high_conviction_rr",{}),
                          "high_conviction_maturity_state":path.get("high_conviction_maturity_state",{}),
