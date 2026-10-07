@@ -1921,7 +1921,8 @@ def _fit_struct_prior(samples,shrink=36.0):
     yrs=sorted({s["window"] for s in samples});by=defaultdict(list)
     for s in samples:by[s["window"]].append(s)
     names=("source","family","source_family","source_action",
-           "regime","family_regime","source_regime")
+           "regime","family_regime","source_regime",
+           "survival_route","survival_family_route","survival_regime_route")
     banks={k:defaultdict(list) for k in names};globals_=[]
     for w in yrs:
       ww=by[w]
@@ -1937,6 +1938,11 @@ def _fit_struct_prior(samples,shrink=36.0):
         loc["regime"][reg].append(z)
         loc["family_regime"][str((fam,reg))].append(z)
         loc["source_regime"][str((src,reg))].append(z)
+        if src=="SURVIVAL":
+          rt=_sf_key(s)
+          loc["survival_route"][rt].append(z)
+          loc["survival_family_route"][str((fam,rt))].append(z)
+          loc["survival_regime_route"][str((reg,rt))].append(z)
       for name,d in loc.items():
         for k,v in d.items():
           # posterior-like shrink to year-global; no test-year outcome involved
@@ -1954,7 +1960,10 @@ def _pred_struct_prior(pr,s):
       pr.get("source_action",{}).get(str((src,act))),
       pr.get("regime",{}).get(reg),
       pr.get("family_regime",{}).get(str((fam,reg))),
-      pr.get("source_regime",{}).get(str((src,reg)))
+      pr.get("source_regime",{}).get(str((src,reg))),
+      pr.get("survival_route",{}).get(_sf_key(s)) if src=="SURVIVAL" else None,
+      pr.get("survival_family_route",{}).get(str((fam,_sf_key(s)))) if src=="SURVIVAL" else None,
+      pr.get("survival_regime_route",{}).get(str((reg,_sf_key(s)))) if src=="SURVIVAL" else None
     ]
     z=[float(x) for x in vals if x is not None]
     if not z:return fb
@@ -2517,11 +2526,23 @@ def _fit_survival_distribution(samples,spec,manifold,fit_ctx=None):
     layout=ctx["layout"];idx=_idx_for_spec(layout,spec)
     kw={"rounds":spec["rounds"],"lr":spec["lr"],"max_rows":10**9,
         "max_depth":spec["depth"],"min_leaf":spec["min_leaf"]}
-    pm=_boost_train(ctx["Xp"],ctx["yp"],idx,root_orders=ctx["orders"],weights=ctx["wp"],**kw)
+    # R8 precision-first two-pass probability fit.  Pass 1 discovers the
+    # training-only false-positive frontier.  Pass 2 upweights hard negatives
+    # (and, more mildly, missed positives) so the learned ordering targets
+    # Top-K winner purity rather than average classification accuracy.  Nested
+    # expanding OOF below is the only place architecture/threshold is selected.
+    pm0=_boost_train(ctx["Xp"],ctx["yp"],idx,root_orders=ctx["orders"],weights=ctx["wp"],**kw)
+    hard_w=[]
+    for xx,yy,ww0 in zip(ctx["Xp"],ctx["yp"],ctx["wp"]):
+        pp,_=_boost_pred(pm0,xx);pp=max(.001,min(.999,float(pp)))
+        difficulty=pp if float(yy)<.5 else .35*(1.0-pp)
+        hard_w.append(float(ww0)*(1.0+2.75*difficulty))
+    pm=_boost_train(ctx["Xp"],ctx["yp"],idx,root_orders=ctx["orders"],weights=hard_w,**kw)
     wm=_boost_train(ctx["Xw"],ctx["yw"],idx,root_orders=ctx["ow"],weights=ctx["ww"],**kw)
     lm=_boost_train(ctx["Xl"],ctx["yl"],idx,root_orders=ctx["ol"],weights=ctx["wl"],**kw)
-    return {"type":"SURVIVAL_PWL_DISTRIBUTION","spec":spec,"layout":layout,"idx":idx,
-            "p":pm,"w":wm,"l":lm,"manifold":manifold,
+    return {"type":"R8_SURVIVAL_COUNTERFACTUAL_PWL_DISTRIBUTION","spec":spec,"layout":layout,"idx":idx,
+            "p":pm,"p_stage1":pm0,"w":wm,"l":lm,"manifold":manifold,
+            "precision_hard_negative_refit":True,
             "prior":ctx["prior"],"n":len(ctx["ss"]),
             "wins":ctx["wins"],"losses":ctx["losses"]}
 
@@ -3379,40 +3400,50 @@ def _fit_r4_tournament(samples,years):
               "rule":"OUTCOME_FREE_R6_COMMON_SCALE_AND_STOP_MARGIN_AFFINE_TRANSFER"}}
 
 def fit_policy(train_rows,prebuilt_samples=None):
-    """V74-R4 honest OOF stacked unified-lane action/admission policy."""
+    """V74-R8 SURVIVAL-native counterfactual admission policy.
+
+    Physical/forensic evidence says winner supply is concentrated in the
+    SURVIVAL manifold.  Formal fitting therefore learns capital admission only
+    inside SURVIVAL; EARLY/LATE/FAILURE remain complete shadow telemetry and are
+    never deleted or family-blacklisted.  All architecture, threshold and
+    stopping choices are nested expanding-forward OOF on prior years only.
+    """
     samples=list(prebuilt_samples) if prebuilt_samples is not None else make_samples(train_rows)
-    if len(samples)<3000:raise SystemExit("V74-R4 insufficient unified causal actions")
+    survival=[s for s in samples if s.get("source")=="SURVIVAL"]
+    if len(survival)<1500:raise SystemExit("V74-R8 insufficient SURVIVAL causal actions")
     yrs=sorted({r["window"] for r in train_rows},key=lambda w:int(w[1:]))
-    r4=_fit_r4_tournament(samples,yrs)
-    tm=r4["training_metrics"];worst=min(gate_margin(m) for m in tm.values()) if tm else -999.0
+    r8=_fit_survival_state_space_tournament(survival,yrs)
+    tm=r8["training_metrics"];worst=min(gate_margin(m) for m in tm.values()) if tm else -999.0
     training_gate=all(gate(m) for m in tm.values()) if tm else False
-    return {"architecture":"V74_R7_CAUSAL_REACTION_STATE_WINNER_RETRIEVAL_COMMON_SCALE_POLICY",
-            "mechanism_heads":r4["mechanism_heads"],"mechanism_training":r4["mechanism_training"],
-            "stage_prior":r4["stage_prior"],"meta_policy":r4["meta_policy"],
-            "admission_fit_years":yrs,"admission_inner_oof_years":r4["inner_oof_years"],
-            "threshold":r4["threshold"],"oof_threshold":r4["oof_threshold"],
-            "stop_margin":r4["stop_margin"],"oof_stop_margin":r4["oof_stop_margin"],
-            "training_coverage_limits":r4["training_limits"],"training_supply":r4["training_supply"],
+    training_oracle={w:_oracle_top250([s for s in survival if s["window"]==w]) for w in yrs}
+    return {"architecture":"V74_R8_SURVIVAL_NATIVE_COUNTERFACTUAL_ADMISSION_POLICY",
+            "survival_model":r8["model"],"stopping_model":r8["stopping_model"],
+            "admission_fit_years":yrs,"admission_inner_oof_years":r8["inner_oof_years"],
+            "threshold":r8["threshold"],"oof_threshold":r8["oof_threshold"],
+            "stop_margin":r8["stop_margin"],
+            "training_coverage_limits":r8["training_limits"],"training_supply":r8["training_supply"],
             "training_metrics":tm,"training_worst_gate_margin":worst,
-            "training_oracle_admission":r4["training_oracle_admission"],
-            "training_gate":training_gate,"coverage_target":r4["coverage_target"],
-            "admission_sweep":{"rounds":[],"evaluated_candidates":3,
-              "training_rank":r4["training_rank"],"baseline_rank":None,
+            "training_oracle_admission":training_oracle,
+            "training_gate":training_gate,"coverage_target":r8["coverage_target"],
+            "admission_sweep":{"rounds":[],"evaluated_candidates":len(_survival_specs()),
+              "training_rank":r8["training_rank"],"baseline_rank":None,
               "non_regression_vs_current_training":True,
-              "selected_mode":"R6_SOURCE_NATIVE_WINNER_RETRIEVAL__FORWARD_OOF_COMMON_SCALE__POST_ADMISSION_CAPITAL_ARBITRATION",
-              "inner_oof_years":r4["inner_oof_years"],"meta_oof_years":r4["meta_oof_years"],
-              "nested_meta":r4["nested_meta"],
-              "meta_crossfit":r4["meta_crossfit"],"threshold_transfer":r4["threshold_transfer"],
-              "conditional_mi_bits":r4["conditional_mi_bits"],
-              "score_orientation":r4["score_orientation"],
-              "score_mode":r4.get("score_mode")}},samples
+              "selected_mode":"R8_SURVIVAL_NATIVE_COUNTERFACTUAL__HARD_NEGATIVE_PRECISION__PWL_DISTRIBUTION__CAUSAL_STOPPING",
+              "inner_oof_years":r8["inner_oof_years"],"nested_meta":r8["nested_meta"],
+              "threshold_transfer":r8["threshold_transfer"],
+              "conditional_mi_bits":r8["conditional_mi_bits"],
+              "information_gate":r8["information_gate"],
+              "score_orientation":1.0}},samples
 
 def apply_policy(policy,test_rows,prebuilt_samples=None):
     samples=list(prebuilt_samples) if prebuilt_samples is not None else make_samples(test_rows)
-    route=mechanism_decisions(samples,policy["mechanism_heads"])
-    stage=_r4_stage_samples(route,policy["stage_prior"])
-    dec=_apply_r4_meta_policy(policy["meta_policy"],stage)
+    survival=[s for s in samples if s.get("source")=="SURVIVAL"]
+    model=policy["survival_model"]
+    prepared=_prepare_survival_inference(survival,model["manifold"],model["prior"])
+    dec=_survival_stopping_decisions(survival,model,policy["stopping_model"],prepared)
     sel=simulate(dec,policy["threshold"],stop_margin=policy.get("stop_margin",-math.inf))
+    # Return the full action surface for oracle diagnostics, while deployed
+    # decisions are strictly SURVIVAL-native.
     return sel,samples,dec
 
 def _diag_metrics(samples):
@@ -3553,18 +3584,18 @@ if tuple(globals().get("R6_SEMANTIC_SCORE_MODES",()))!=_required_modes:
 
 checks=telemetry_guard()
 summary={"version":"HarmonyBot V74 One-Shot Family-Native Causal Action Selector",
- "architecture":"V74_R7_COMMON_CAUSAL_TRAJECTORY__SOURCE_NATIVE_WINNER_RETRIEVAL__FORWARD_OOF_COMMON_SCALE__POST_ADMISSION_CAPITAL_ARBITRATION",
+ "architecture":"V74_R8_SURVIVAL_NATIVE_COUNTERFACTUAL_ADMISSION__HARD_NEGATIVE_PRECISION__CAUSAL_STOPPING",
  "gate":{"min_selected_per_year":MIN_N,"min_mean_r":MIN_MEAN,"min_pf_r":MIN_PF,
          "min_win_rate":MIN_WR,"min_average_rr":MIN_AVG_RR,"lcb95_gt":0.0},
  "research_training_windows":RESEARCH,"burned_oof_windows":BURNED,
  "policy":{"actions":"EARLY_OR_LATE_COMPLETED_BAR_ENTRY_ACTION__RAW_F00_EARLY__PREENTRY_CONFIRMATION_F20_F30_LATE",
            "harmonic_completion":"DIRECTION_TIME_D_EVENT_IDENTITY__MULTI_GEOMETRY_IS_CONFLUENCE_NOT_SUPPLY",
            "reaction_state":"CAUSAL_FEATURE_NOT_HARD_FILTER","physical_route_contract":"EVENT_NATIVE_CANONICAL_EVENT_FULL_COMPLETED_BAR_ENTRY_TIMING__EARLY_F00_M05_M10_M15__LATE_PREENTRY_F20_F30__SURVIVAL_FRESH__NETRR_GE230","v75_management_variants_excluded":True,"all_entry_maturity_stages_completed_bar_only":True,
-           "route_choice":"SOURCE_NATIVE_ROUTE_FROZEN__CROSS_SOURCE_CAPITAL_ARBITRATION_POST_ADMISSION",
-           "optimal_stopping":"STRICT_SOURCE_NATIVE_ENTER_DEFER_REJECT__SOURCE_PRIOR_PER_MISSING_HEAD__NO_GLOBAL_RUNTIME_FALLBACK__CAUSAL_RUNTIME_STATE",
-           "admission":"LANE_PRESERVING_CAUSAL_TRAJECTORY__SOURCE_NATIVE_ENTER_DEFER_REJECT__MATCHED_HARD_NEGATIVE_LISTWISE_PRECISION__POST_ADMISSION_CAPITAL_ARBITRATION",
+           "route_choice":"SURVIVAL_NATIVE_ROUTE_SELECTION__EARLY_LATE_FAILURE_SHADOW_ONLY",
+           "optimal_stopping":"SURVIVAL_NATIVE_ENTER_DEFER_REJECT__PWL_DISTRIBUTION__CAUSAL_CONTINUATION_VALUE",
+           "admission":"SURVIVAL_ONLY_PRIMARY_CAPITAL_ADMISSION__ROUTE_FAMILY_REGIME_COUNTERFACTUAL_PRIOR__HARD_NEGATIVE_PRECISION_REFIT",
            "training_coverage_target_per_year":TRAIN_COVERAGE,
-           "family_hierarchy":"12_FAMILY_CANONICAL_IDENTITY__ALL_CAUSAL_LANES_ACTIVE__SOURCE_NATIVE_EXPERTS__FAILURE_IS_DISTINCT_CONTINUATION",
+           "family_hierarchy":"12_FAMILY_CANONICAL_IDENTITY__SURVIVAL_PRIMARY__OTHER_LANES_SHADOW__NO_FAMILY_BLACKLIST",
            "no_trigger_posttrigger_lock_future_state":True,
            "canonical_family_blanket_blacklist":False,"grid":False,
            "v75_profit_capture_used":False},
@@ -3626,64 +3657,33 @@ print("[V74-PREBUILD-PARITY] pass=true window="+_probe_window+
 print("[V74-PREBUILD] rows="+str(len(rows))+" samples="+str(len(_ALL_SAMPLES))+
       " precision_cache="+str(len(_HARMONIC_PRECISION_CACHE)),flush=True)
 
-# R4 consumes the same five unique expanding-window inner years across the
-# three burned folds. Compute each unified-lane OOF year once and share it.
+# R8 consumes the same expanding-window SURVIVAL inner years across the
+# three burned folds.  Compute them once and share read-only between folds.
 _inner_needed=sorted(set(
     vw for test in BURNED
     for vw in (lambda yrs:(yrs[2:])[-min(3,len(yrs[2:])):])(
         sorted([w for w in ALL if int(w[1:])<int(test[1:])],key=lambda w:int(w[1:])))
 ))
-_t_inner=time.perf_counter();_INNER_R4_OOF_CACHE={}
+_t_inner=time.perf_counter();_INNER_SURVIVAL_OOF_CACHE={}
 if os.environ.get("V74_DISABLE_SHARED_INNER_CACHE","0")!="1" and _inner_needed:
     try:
         _ctx=mp.get_context("fork")
         _workers=min(len(_inner_needed),max(1,int(os.cpu_count() or 1)))
         if _workers>1:
             with _ctx.Pool(processes=_workers) as _pool:
-                _inner_results=_pool.map(_compute_shared_inner_r4_year,_inner_needed)
+                _inner_results=_pool.map(_compute_shared_inner_survival_year,_inner_needed)
         else:
-            _inner_results=[_compute_shared_inner_r4_year(w) for w in _inner_needed]
-        _INNER_R4_OOF_CACHE=dict(_inner_results)
+            _inner_results=[_compute_shared_inner_survival_year(w) for w in _inner_needed]
+        _INNER_SURVIVAL_OOF_CACHE=dict(_inner_results)
     except OSError as ex:
-        print("[V74-R4-INNER-CACHE-FALLBACK] infrastructure="+repr(ex),flush=True)
-        _INNER_R4_OOF_CACHE={}
+        print("[V74-R8-SURVIVAL-INNER-CACHE-FALLBACK] infrastructure="+repr(ex),flush=True)
+        _INNER_SURVIVAL_OOF_CACHE={}
 _inner_cache_seconds=round(time.perf_counter()-_t_inner,3)
-print("[V74-R4-INNER-CACHE] years="+str(_inner_needed)+" built="+
-      str(sorted(_INNER_R4_OOF_CACHE))+" seconds="+str(_inner_cache_seconds),flush=True)
+print("[V74-R8-SURVIVAL-INNER-CACHE] years="+str(_inner_needed)+" built="+
+      str(sorted(_INNER_SURVIVAL_OOF_CACHE))+" seconds="+str(_inner_cache_seconds),flush=True)
+_R4_META_MODEL_CACHE={}
+_meta_cache_seconds=0.0
 
-# Prefix meta models are identical across burned outer folds. Build independent
-# prefix fits concurrently, then fork burned folds so all workers share the
-# completed immutable cache copy-on-write. This changes no model semantics.
-_t_meta_cache=time.perf_counter();_R4_META_MODEL_CACHE={};_R4_META_STAGE_SOURCE=[]
-def _fit_r4_meta_prefix_parallel(ty):
-    ys=set(ty)
-    tr=[s for s in _R4_META_STAGE_SOURCE if s["window"] in ys]
-    if len(tr)<700:return _r4_meta_cache_key(ty),None
-    return _r4_meta_cache_key(ty),_fit_r4_meta_policy(tr,list(ty))
-
-if _INNER_R4_OOF_CACHE:
-    for _w in _inner_needed:
-        _z=_INNER_R4_OOF_CACHE.get(_w)
-        if _z:_R4_META_STAGE_SOURCE.extend(_z.get("stage",[]))
-    _prefixes=[tuple(_inner_needed[:_k]) for _k in range(2,min(4,len(_inner_needed))+1)]
-    try:
-        _ctx_meta=mp.get_context("fork")
-        _meta_workers=min(len(_prefixes),max(1,int(os.cpu_count() or 1)))
-        if _meta_workers>1 and len(_prefixes)>1:
-            with _ctx_meta.Pool(processes=_meta_workers) as _pool:
-                _meta_results=_pool.map(_fit_r4_meta_prefix_parallel,_prefixes)
-        else:
-            _meta_results=[_fit_r4_meta_prefix_parallel(x) for x in _prefixes]
-        _R4_META_MODEL_CACHE={k:v for k,v in _meta_results if v is not None}
-    except OSError as ex:
-        print("[V74-R4-META-CACHE-FALLBACK] infrastructure="+repr(ex),flush=True)
-        _R4_META_MODEL_CACHE={}
-        for _ty in _prefixes:
-            k,v=_fit_r4_meta_prefix_parallel(_ty)
-            if v is not None:_R4_META_MODEL_CACHE[k]=v
-_meta_cache_seconds=round(time.perf_counter()-_t_meta_cache,3)
-print("[V74-R4-META-CACHE] prefixes="+str([list(k) for k in sorted(_R4_META_MODEL_CACHE)])+
-      " seconds="+str(_meta_cache_seconds),flush=True)
 parallel_used=False
 fold_results=None
 # Each burned fold is causally independent and reads immutable rows only. Fork
@@ -3713,7 +3713,7 @@ for test,fold,policy in fold_results:
           for k in ("n","mean_r","pf_r","win_rate","average_rr","lcb_r","pass")}),flush=True)
 
 alpha=bool(allpass)
-champ="V74_R7_CAUSAL_REACTION_STATE_WINNER_RETRIEVAL_COMMON_SCALE" if alpha else None
+champ="V74_R8_SURVIVAL_NATIVE_COUNTERFACTUAL_ADMISSION" if alpha else None
 fold_metrics={w:{k:summary["folds"][w][k] for k in ("n","mean_r","pf_r","win_rate","average_rr","lcb_r")}
               for w in BURNED}
 current_rank=_guard_rank(fold_metrics)
@@ -3729,21 +3729,18 @@ summary["historical_best_guard"]={"baseline":HISTORICAL_BEST_GUARD,
 print("[V74-NONREGRESSION]",json.dumps(summary["historical_best_guard"],sort_keys=True),flush=True)
 summary["evaluator_runtime_seconds"]=round(time.perf_counter()-t0,3)
 summary["performance_engine"]={"immutable_sample_prebuild":True,
- "shared_unique_inner_oof_years":sorted(globals().get("_INNER_R4_OOF_CACHE",{})),
- "unified_r4_inner_oof_reuse":True,"prepared_inference_reuse":True,
+ "shared_unique_inner_oof_years":sorted(globals().get("_INNER_SURVIVAL_OOF_CACHE",{})),
+ "survival_inner_oof_reuse":True,"prepared_inference_reuse":True,
  "inner_cache_build_seconds":globals().get("_inner_cache_seconds"),
- "meta_prefix_cache":True,
- "meta_prefix_parallel":True,
- "meta_prefixes_cached":[list(k) for k in sorted(globals().get("_R4_META_MODEL_CACHE",{}))],
- "meta_cache_build_seconds":globals().get("_meta_cache_seconds"),
+ "meta_prefix_cache":False,"meta_prefix_parallel":False,
  "parity_fail_closed":True}
-summary["root_cause_rearchitecture"]="V74_R7_CAUSAL_REACTION_STATE_WINNER_RETRIEVAL_COMMON_SCALE"
+summary["root_cause_rearchitecture"]="V74_R8_SURVIVAL_NATIVE_COUNTERFACTUAL_ADMISSION"
 summary["component_rank_diagnostic_version"]="EVENT_TOP250_COMPONENT_RANK_V1"
 summary["event_identity_weighting_contract"]="YEAR_EQUAL__INDEPENDENT_EVENT_EQUAL__ROUTE_MULTIPLICITY_NEUTRAL__EARLY_ALIAS_DEDUP"
-summary["survival_primary_alpha"]=False
-summary["generic_early_late_failure_shadow_only"]=False
-summary["all_causal_lanes_active"]=True
-summary["lane_preserving_until_post_admission"]=True
+summary["survival_primary_alpha"]=True
+summary["generic_early_late_failure_shadow_only"]=True
+summary["all_causal_lanes_active"]=False
+summary["lane_preserving_until_post_admission"]=False
 summary["cross_source_pair_ranker_removed_at_meta"]=True
 summary["strict_source_native_admission"]=True
 summary["global_runtime_admission_fallback"]=False
@@ -3759,7 +3756,7 @@ summary["r7_causal_reaction_state_telemetry"]="ROUTE_STATE_V4_80D__SURVIVAL_PATH
 summary["r6_causal_trajectory_representation"]="SUPERSEDED_BY_R7_ROUTE_STATE_V4_AND_SURVIVAL_PATH_V4"
 summary["source_head_missing_feature_policy"]="EVENT_YEAR_BALANCED_SOURCE_PRIOR__NEVER_GLOBAL_RUNTIME_HEAD"
 summary["fast_replay_supersession_contract"]="R7_GENERATION__STALE_HEAD_AUTO_TERMINATE__35M_HARD_TIMEOUT"
-summary["r7_evidence_generation"]="R7_CAUSAL_REACTION_STATE_TELEMETRY__EXACT_2016_2023_RAPID_REGENERATION"
+summary["r7_evidence_generation"]="R7_CAUSAL_REACTION_STATE_TELEMETRY__EXACT_2016_2023_RAPID_REGENERATION"\nsummary["r8_survival_counterfactual_primary"]=True\nsummary["r8_hard_negative_precision_refit"]=True\nsummary["r8_route_family_regime_hierarchical_prior"]=True\nsummary["r8_other_lanes_shadow_only"]=True
 summary["parallel_fold_execution"]=parallel_used
 summary["parallel_fold_workers"]=min(len(BURNED),max(1,int(os.cpu_count() or 1))) if parallel_used else 1
 summary["alpha_gate"]=alpha;summary["alpha_champion"]=champ
