@@ -603,7 +603,7 @@ namespace cAlgo.Robots
         private double[] V74RouteStateFeatures(V72HcogOpportunity o,int i,double entry,double risk,double target,
             int bars,double mfeR,double maeR,double milestoneR,bool reverseDirection=false)
         {
-            const int FeatureCount=8*8;
+            const int FeatureCount=10*8;
             if(o==null||risk<=0||i<0||i>=_m1Bars.Count)return Enumerable.Repeat(0.0,FeatureCount).ToArray();
             double open=_m1Bars.OpenPrices[i],close=_m1Bars.ClosePrices[i],high=_m1Bars.HighPrices[i],low=_m1Bars.LowPrices[i];
             double atr=Math.Max(_symbol.PipSize,Atr(_m1Bars,14,i)),body=Math.Max(_symbol.PipSize,Math.Abs(close-open));
@@ -668,6 +668,53 @@ namespace cAlgo.Robots
             double riskVsOriginal=risk/originalRisk;
             double runwayUse=Math.Abs(target-entry)/Math.Max(_symbol.PipSize,Math.Abs(o.Target-entry));
 
+            // V74-R7 causal reaction-state telemetry. These sixteen coordinates
+            // are frozen on the completed decision bar for every lane. They measure
+            // morphology, persistence, expansion and PRZ interaction without using
+            // any post-entry MFE/MAE, target/stop result or future bar.
+            double priorRangeSum=0.0,priorBodySum=0.0;
+            int priorN=0;
+            for(int j=Math.Max(1,i-5);j<i;j++)
+            {
+                priorRangeSum+=Math.Max(_symbol.PipSize,_m1Bars.HighPrices[j]-_m1Bars.LowPrices[j]);
+                priorBodySum+=Math.Abs(_m1Bars.ClosePrices[j]-_m1Bars.OpenPrices[j]);
+                priorN++;
+            }
+            double priorRangeMean=priorN>0?priorRangeSum/priorN:atr;
+            double priorBodyMean=priorN>0?priorBodySum/priorN:Math.Max(_symbol.PipSize,body);
+            double signedPath=0.0,absPath=0.0,sqPath=0.0,alignedSteps=0.0,adverseSteps=0.0;
+            double localFavR=0.0,localAdvR=0.0,przTouches=0.0,przReclaims=0.0;
+            int recentN=0;
+            int recentStart=Math.Max(1,i-7);
+            for(int j=recentStart;j<=i;j++)
+            {
+                double c0=_m1Bars.ClosePrices[j],c1=_m1Bars.ClosePrices[j-1];
+                double hi=_m1Bars.HighPrices[j],lo=_m1Bars.LowPrices[j];
+                double step=(buy?c0-c1:c1-c0)/atr;
+                signedPath+=step;absPath+=Math.Abs(step);sqPath+=step*step;
+                if(step>0)alignedSteps++;else if(step<0)adverseSteps++;
+                localFavR=Math.Max(localFavR,(buy?hi-entry:entry-lo)/Math.Max(risk,_symbol.PipSize));
+                localAdvR=Math.Max(localAdvR,(buy?entry-lo:hi-entry)/Math.Max(risk,_symbol.PipSize));
+                if(o.Signal!=null)
+                {
+                    if(hi+_symbol.PipSize>=o.Signal.PrzLow&&lo-_symbol.PipSize<=o.Signal.PrzHigh)przTouches++;
+                    if(buy?c0>=o.Signal.PrzHigh:c0<=o.Signal.PrzLow)przReclaims++;
+                }
+                recentN++;
+            }
+            double signedEffR7=signedPath/Math.Max(1e-9,absPath);
+            double stepVolR7=Math.Sqrt(Math.Max(0.0,sqPath/Math.Max(1,recentN)));
+            double prevMom3=0.0;
+            if(i>=4)
+            {
+                double p0=_m1Bars.ClosePrices[i-1],p3=_m1Bars.ClosePrices[i-4];
+                prevMom3=(buy?p0-p3:p3-p0)/atr;
+            }
+            double momAccel3=mom3-prevMom3;
+            double przMid=o.Signal==null?close:(o.Signal.PrzLow+o.Signal.PrzHigh)*.5;
+            double przSigned=(buy?close-przMid:przMid-close)/atr;
+            double przReclaimMargin=o.Signal==null?0.0:(buy?close-o.Signal.PrzHigh:o.Signal.PrzLow-close)/atr;
+
             return new[]
             {
                 VClamp(milestoneR),VClamp(bars/120.0),VClamp((closeR+1.0)/4.0),
@@ -727,7 +774,25 @@ namespace cAlgo.Robots
                 VClamp(targetGapR/4.0),
                 VClamp(targetAtr/8.0),
                 VClamp(costR*4.0),
-                VClamp(runwayUse)
+                VClamp(runwayUse),
+
+                // R7 generic causal reaction-state block (indices 64..79).
+                VClamp(body/range),
+                VClamp(favWick/range),
+                VClamp(adverseWick/range),
+                VClamp((signedEffR7+1.0)*0.5),
+                VClamp(recentN>0?alignedSteps/recentN:0.0),
+                VClamp(recentN>0?adverseSteps/recentN:0.0),
+                VClamp(stepVolR7/2.0),
+                VClamp((range/Math.Max(_symbol.PipSize,priorRangeMean))/3.0),
+                VClamp((body/Math.Max(_symbol.PipSize,priorBodyMean))/3.0),
+                VClamp((Math.Tanh(momAccel3)+1.0)*0.5),
+                VClamp((Math.Tanh(przSigned)+1.0)*0.5),
+                VClamp((Math.Tanh(przReclaimMargin)+1.0)*0.5),
+                VClamp(recentN>0?przTouches/recentN:0.0),
+                VClamp(recentN>0?przReclaims/recentN:0.0),
+                VClamp(Math.Max(0.0,localFavR)/3.0),
+                VClamp(Math.Max(0.0,localAdvR)/2.0)
             };
         }
 
@@ -876,11 +941,11 @@ namespace cAlgo.Robots
         private double[] V74SurvivalPathV2(V72HcogOpportunity o,int i,int reactionBar,int pullbackBar,
             double fibPrice,double impulseExtreme,double pullbackExtreme)
         {
-            // V74 Path-V3: two-scale causal path signature frozen at the completed
-            // fresh-entry decision bar.  No post-entry price, MFE/MAE, TP/SL or
-            // outcome is referenced.  The first 16 coordinates preserve V2 exactly;
-            // the second 16 add local curvature/Fibonacci-boundary dynamics that
-            // V2's long-window averages could wash out.
+            // V74-R7 Path-V4: multiscale causal path signature frozen at the completed
+            // fresh-entry decision bar. No post-entry price, MFE/MAE, TP/SL or
+            // outcome is referenced. The first 32 coordinates preserve Path-V3;
+            // the final 16 explicitly encode rejection/reclaim velocity, expansion,
+            // persistence and pullback asymmetry around the Fibonacci boundary.
             int n=Math.Max(1,Math.Min(60,o.BarsActive-reactionBar+1));
             int start=Math.Max(1,i-n+1);
             bool buy=o.Direction==TradeDirection.Buy;
@@ -972,6 +1037,49 @@ namespace cAlgo.Robots
             double fdAccel=fdAcc/Math.Max(1.0,ln-2.0);
             double wave=lateWave-earlyWave;
 
+            // R7 Fibonacci-boundary morphology at the causal entry decision.
+            int pullIdx=Math.Max(1,Math.Min(i,i-Math.Max(0,o.BarsActive-pullbackBar)));
+            double pOpen=_m1Bars.OpenPrices[pullIdx],pClose=_m1Bars.ClosePrices[pullIdx];
+            double pHigh=_m1Bars.HighPrices[pullIdx],pLow=_m1Bars.LowPrices[pullIdx];
+            double pRange=Math.Max(_symbol.PipSize,pHigh-pLow),pBody=Math.Abs(pClose-pOpen);
+            double pAdverseWick=buy?Math.Max(0.0,Math.Min(pOpen,pClose)-pLow):Math.Max(0.0,pHigh-Math.Max(pOpen,pClose));
+            double eOpen=_m1Bars.OpenPrices[i],eClose=_m1Bars.ClosePrices[i];
+            double eHigh=_m1Bars.HighPrices[i],eLow=_m1Bars.LowPrices[i];
+            double eRange=Math.Max(_symbol.PipSize,eHigh-eLow),eBody=Math.Abs(eClose-eOpen);
+            double eFavWick=buy?Math.Max(0.0,eHigh-Math.Max(eOpen,eClose)):Math.Max(0.0,Math.Min(eOpen,eClose)-eLow);
+            double fibMargin=(buy?eClose-fibPrice:fibPrice-eClose)/impulse;
+            double fibPenetration=(buy?fibPrice-pullbackExtreme:pullbackExtreme-fibPrice)/impulse;
+            int reactionToPull=Math.Max(1,pullbackBar-reactionBar);
+            int pullToEntry=Math.Max(1,o.BarsActive-pullbackBar);
+            double reclaim3=0.0,touchN=0.0;
+            int reclaimN=0;
+            for(int j=Math.Max(1,i-2);j<=i;j++)
+            {
+                double c0=_m1Bars.ClosePrices[j];
+                if(buy?c0>=fibPrice:c0<=fibPrice)reclaim3++;
+                reclaimN++;
+            }
+            int touchStart=Math.Max(1,pullIdx);
+            int touchCount=0;
+            for(int j=touchStart;j<=i;j++)
+            {
+                if(_m1Bars.HighPrices[j]+_symbol.PipSize>=fibPrice&&_m1Bars.LowPrices[j]-_symbol.PipSize<=fibPrice)touchN++;
+                touchCount++;
+            }
+            double priorR=0.0,priorB=0.0;int priorCount=0;
+            for(int j=Math.Max(1,i-5);j<i;j++)
+            {
+                priorR+=Math.Max(_symbol.PipSize,_m1Bars.HighPrices[j]-_m1Bars.LowPrices[j]);
+                priorB+=Math.Abs(_m1Bars.ClosePrices[j]-_m1Bars.OpenPrices[j]);
+                priorCount++;
+            }
+            double priorRMean=priorCount>0?priorR/priorCount:atr;
+            double priorBMean=priorCount>0?priorB/priorCount:Math.Max(_symbol.PipSize,eBody);
+            double pullVelocity=pbDepth/reactionToPull;
+            double recoveryVelocity=Math.Max(-1.0,Math.Min(2.0,fibMargin))/pullToEntry;
+            double impulseVelocity=(impulse/risk)/reactionToPull;
+            double pathAsymmetry=recoveryVelocity-pullVelocity;
+
             return new[]{
                 // V2 invariant block.
                 VClamp((signedNet+3.0)/6.0),VClamp(absVar/6.0),VClamp(rv/3.0),VClamp(eff),
@@ -986,7 +1094,25 @@ namespace cAlgo.Robots
                 VClamp(lJerk/Math.Max(1.0,ln-2.0)/2.0),VClamp(lCloseLoc/ln),
                 VClamp(lRange/ln/3.0),VClamp((fdMean+1.0)/2.0),VClamp(fdStd),
                 VClamp((fdSlope+.50)/1.0),VClamp(fdAccel),VClamp(reclaimed/ln),
-                VClamp(crossings/Math.Max(1.0,ln-1.0)),VClamp((wave+2.0)/4.0)
+                VClamp(crossings/Math.Max(1.0,ln-1.0)),VClamp((wave+2.0)/4.0),
+
+                // R7 Path-V4 targeted pullback/reclaim block (indices 32..47).
+                VClamp(pBody/pRange),
+                VClamp(pAdverseWick/pRange),
+                VClamp(eBody/eRange),
+                VClamp(eFavWick/eRange),
+                VClamp((Math.Tanh(fibMargin*2.0)+1.0)*0.5),
+                VClamp(Math.Max(0.0,fibPenetration)/.75),
+                VClamp(reclaimN>0?reclaim3/reclaimN:0.0),
+                VClamp(touchCount>0?touchN/touchCount:0.0),
+                VClamp((eRange/Math.Max(_symbol.PipSize,priorRMean))/3.0),
+                VClamp((eBody/Math.Max(_symbol.PipSize,priorBMean))/3.0),
+                VClamp(reactionToPull/60.0),
+                VClamp(pullToEntry/30.0),
+                VClamp(pullVelocity*8.0),
+                VClamp(Math.Max(0.0,recoveryVelocity)*8.0),
+                VClamp(impulseVelocity*8.0),
+                VClamp((Math.Tanh(pathAsymmetry*8.0)+1.0)*0.5)
             };
         }
 

@@ -239,14 +239,15 @@ def telemetry_guard():
             with_state["FAILURE"]+=1
     if sum(legal.values())==0:raise SystemExit("V74 no legal completed-bar actions")
     if legal["SURVIVAL"]>0 and survival_path_v2!=legal["SURVIVAL"]:
-        raise SystemExit("V74 survival path-v3 completeness contract failure "+
+        raise SystemExit("V74 R7 survival path-v4 completeness contract failure "+
                          str(survival_path_v2)+"/"+str(legal["SURVIVAL"]))
     return {"legal_actions":legal,"complete_path_state":with_state,
             "survival_morphology_complete":survival_morphology,
             "survival_morphology_missing":max(0,legal["SURVIVAL"]-survival_morphology),
-            "survival_path_v3_complete":survival_path_v2,
-            "survival_path_v3_missing":max(0,legal["SURVIVAL"]-survival_path_v2),
-            "survival_path_v3_contract_pass":survival_path_v2==legal["SURVIVAL"],
+            "survival_path_v4_complete":survival_path_v2,
+            "survival_path_v4_missing":max(0,legal["SURVIVAL"]-survival_path_v2),
+            "survival_path_v4_contract_pass":survival_path_v2==legal["SURVIVAL"],
+            "survival_path_v3_compat_complete":survival_path_v2,
             "missing_state_is_feature_not_veto":True,
             "future_trigger_decision_lock_state_used":False}
 
@@ -2251,7 +2252,8 @@ def _score_structural_decisions(route_decisions,model):
 _SURVIVAL_CORE_FEATURES=(0,1,2,3,4,6,7,8,9,10,11,12,13,14,15,16,19,21,23,24,25,26,27,28,29,30,
                          32,33,34,35,36,37,38,39,40,41,42,43,44,45,46,47,48,49,50,51,52)
 _SURVIVAL_STATE_FEATURES=(5,6,7,12,13,14,15,16,17,18,19,20,21,24,25,26,27,28,29,30,31,32,33,34,
-                          35,36,37,38,42,43,44,45,46,47,48,49,50,51,52,53,54,55,56,57,58,59,60,61,62,63)
+                          35,36,37,38,42,43,44,45,46,47,48,49,50,51,52,53,54,55,56,57,58,59,60,61,62,63,
+                          64,65,66,67,68,69,70,71,72,73,74,75,76,77,78,79)
 
 def _sf_key(s):
     b=str(s.get("base",""))
@@ -3172,7 +3174,7 @@ def _fit_r4_meta_policy(stage_samples,years):
     admission=fit_admission_bundle(tr_route,years)
     precision=fit_source_precision_bundle(tr_route,years)
     common_cal=_fit_r6_common_calibrator(tr_route,precision,years)
-    return {"type":"R6_CAUSAL_WINNER_RETRIEVAL_COMMON_SCALE_POLICY",
+    return {"type":"R7_CAUSAL_REACTION_STATE_WINNER_RETRIEVAL_COMMON_SCALE_POLICY",
             "value":vm,"pair":None,
             "admission_bundle":admission,
             "source_precision_bundle":precision,
@@ -3353,7 +3355,7 @@ def fit_policy(train_rows,prebuilt_samples=None):
     r4=_fit_r4_tournament(samples,yrs)
     tm=r4["training_metrics"];worst=min(gate_margin(m) for m in tm.values()) if tm else -999.0
     training_gate=all(gate(m) for m in tm.values()) if tm else False
-    return {"architecture":"V74_R6_CAUSAL_WINNER_RETRIEVAL_COMMON_SCALE_POLICY",
+    return {"architecture":"V74_R7_CAUSAL_REACTION_STATE_WINNER_RETRIEVAL_COMMON_SCALE_POLICY",
             "mechanism_heads":r4["mechanism_heads"],"mechanism_training":r4["mechanism_training"],
             "stage_prior":r4["stage_prior"],"meta_policy":r4["meta_policy"],
             "admission_fit_years":yrs,"admission_inner_oof_years":r4["inner_oof_years"],
@@ -3680,7 +3682,7 @@ for test,fold,policy in fold_results:
           for k in ("n","mean_r","pf_r","win_rate","average_rr","lcb_r","pass")}),flush=True)
 
 alpha=bool(allpass)
-champ="V74_R6_CAUSAL_WINNER_RETRIEVAL_COMMON_SCALE" if alpha else None
+champ="V74_R7_CAUSAL_REACTION_STATE_WINNER_RETRIEVAL_COMMON_SCALE" if alpha else None
 fold_metrics={w:{k:summary["folds"][w][k] for k in ("n","mean_r","pf_r","win_rate","average_rr","lcb_r")}
               for w in BURNED}
 current_rank=_guard_rank(fold_metrics)
@@ -3704,7 +3706,7 @@ summary["performance_engine"]={"immutable_sample_prebuild":True,
  "meta_prefixes_cached":[list(k) for k in sorted(globals().get("_R4_META_MODEL_CACHE",{}))],
  "meta_cache_build_seconds":globals().get("_meta_cache_seconds"),
  "parity_fail_closed":True}
-summary["root_cause_rearchitecture"]="V74_R6_CAUSAL_WINNER_RETRIEVAL_COMMON_SCALE"
+summary["root_cause_rearchitecture"]="V74_R7_CAUSAL_REACTION_STATE_WINNER_RETRIEVAL_COMMON_SCALE"
 summary["component_rank_diagnostic_version"]="EVENT_TOP250_COMPONENT_RANK_V1"
 summary["event_identity_weighting_contract"]="YEAR_EQUAL__INDEPENDENT_EVENT_EQUAL__ROUTE_MULTIPLICITY_NEUTRAL__EARLY_ALIAS_DEDUP"
 summary["survival_primary_alpha"]=False
@@ -3718,10 +3720,10 @@ summary["r6_source_native_precision_retrieval"]=True
 summary["r6_forward_oof_common_scale_calibration"]=True
 summary["r6_mode_specific_post_admission_arbitration"]=True
 summary["r6_hierarchical_source_shrinkage"]=True
-summary["r6_causal_trajectory_representation"]="EXISTING_COMPLETED_BAR_ROUTE_STATE_V3__SURVIVAL_PATH_V3__NO_NEW_FUTURE_TELEMETRY"
+summary["r7_causal_reaction_state_telemetry"]="ROUTE_STATE_V4_80D__SURVIVAL_PATH_V4_48D__COMPLETED_M1_ONLY__NO_FUTURE_TELEMETRY"\nsummary["r6_causal_trajectory_representation"]="SUPERSEDED_BY_R7_ROUTE_STATE_V4_AND_SURVIVAL_PATH_V4"
 summary["source_head_missing_feature_policy"]="EVENT_YEAR_BALANCED_SOURCE_PRIOR__NEVER_GLOBAL_RUNTIME_HEAD"
-summary["fast_replay_supersession_contract"]="R6_GENERATION__STALE_HEAD_AUTO_TERMINATE__35M_HARD_TIMEOUT"
-summary["r6_evidence_generation"]="R6_CAUSAL_WINNER_RETRIEVAL_COMMON_SCALE__FIRST_FORMAL_BURNED_REPLAY"
+summary["fast_replay_supersession_contract"]="R7_GENERATION__STALE_HEAD_AUTO_TERMINATE__35M_HARD_TIMEOUT"
+summary["r7_evidence_generation"]="R7_CAUSAL_REACTION_STATE_TELEMETRY__EXACT_2016_2023_RAPID_REGENERATION"
 summary["parallel_fold_execution"]=parallel_used
 summary["parallel_fold_workers"]=min(len(BURNED),max(1,int(os.cpu_count() or 1))) if parallel_used else 1
 summary["alpha_gate"]=alpha;summary["alpha_champion"]=champ
