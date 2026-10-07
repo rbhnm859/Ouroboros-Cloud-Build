@@ -355,7 +355,9 @@ def telemetry_guard():
     if proof_legal>0 and proof_complete!=proof_legal:
         raise SystemExit("V74-R9 high-conviction proof telemetry completeness failure "+
                          str(proof_complete)+"/"+str(proof_legal))
-    if reaction_legal>0 and reaction_complete!=reaction_legal:
+    if reaction_legal<=0:
+        raise SystemExit("V74-R11 reaction-commit action generation failure: legal=0")
+    if reaction_complete!=reaction_legal:
         raise SystemExit("V74-R11 reaction-commit telemetry completeness failure "+
                          str(reaction_complete)+"/"+str(reaction_legal))
     return {"legal_actions":legal,"complete_path_state":with_state,
