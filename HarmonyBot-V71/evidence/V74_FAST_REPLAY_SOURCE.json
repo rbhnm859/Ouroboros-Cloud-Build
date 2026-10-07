@@ -1,8 +1,8 @@
 {
   "version": 2,
-  "source_run_id": 37641911625,
-  "source_head_sha": "e0773933178594745f0fd4da8247930c370e0598",
-  "semantic_fingerprint": "36159d84d774af36d0d8790e396146e7bc437b3561b337d807267e5e6afe34f1",
+  "source_run_id": 37652374634,
+  "source_head_sha": "fd92f76d91d0615ecb9878dcd99fae19641d765d",
+  "semantic_fingerprint": "b8ac4981b3079cfe75d4c3a8b51cd644b6840ef0d28f84d61c154c945c92e17c",
   "branch": "harmonybot/v73-opportunity-universe",
   "artifact_pattern": "v74-rapid-universe-*",
   "evidence_origin": "rapid_exact_2016_2023",
@@ -26,5 +26,5 @@
   ],
   "validation_used": false,
   "fresh_used": false,
-  "note": "Exact R7 universe from Rapid #115: all eight Y2016-Y2023 universe jobs completed SUCCESS with immutable custody and identical e0773933 execution semantics. Fast Replay independently revalidates V73, Physical Oracle, R7 telemetry contracts and burned OOF. Clean-run retrigger after stale runner state."
+  "note": "Pinned exact R9 high-conviction proof-commit universe from Rapid #117 (run 37652374634). All Y2016-Y2023 artifacts completed successfully under semantic fingerprint b8ac4981b3079cfe75d4c3a8b51cd644b6840ef0d28f84d61c154c945c92e17c. Later changes through 4d55091 are parser/evaluator-only; guarded C#/data semantics are unchanged. Validation/Fresh unused."
 }
