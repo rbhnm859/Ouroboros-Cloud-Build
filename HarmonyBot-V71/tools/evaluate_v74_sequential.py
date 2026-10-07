@@ -312,10 +312,10 @@ def telemetry_guard():
                          str(proof_complete)+"/"+str(proof_legal))
     return {"legal_actions":legal,"complete_path_state":with_state,
             "survival_morphology_complete":survival_morphology,
-            "survival_morphology_missing":max(0,legal["SURVIVAL"]-survival_morphology),
+            "survival_morphology_missing":max(0,native_survival_legal-survival_morphology),
             "survival_path_v4_complete":survival_path_v2,
-            "survival_path_v4_missing":max(0,legal["SURVIVAL"]-survival_path_v2),
-            "survival_path_v4_contract_pass":survival_path_v2==legal["SURVIVAL"],
+            "survival_path_v4_missing":max(0,native_survival_legal-survival_path_v2),
+            "survival_path_v4_contract_pass":survival_path_v2==native_survival_legal,
             "r7_common_path_complete":r7_common_complete,"r7_common_path_legal":r7_common_legal,
             "r7_common_path_contract_pass":r7_common_complete==r7_common_legal,
             "survival_path_v3_compat_complete":survival_path_v2,
