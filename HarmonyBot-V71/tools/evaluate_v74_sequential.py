@@ -17,7 +17,7 @@ profit-capture and Grid/capital-capacity mechanics are intentionally excluded.
 import bisect,json,math,os,pathlib,statistics,sys,time,multiprocessing as mp
 # V74 performance-engine generation: immutable-prebuild/shared-inner-context-v1
 from collections import defaultdict,Counter
-from v74_model_lib import load_rows,metrics,SEQUENTIAL_STATE_FEATURE_COUNT,SURVIVAL_MORPH_FEATURE_COUNT,SURVIVAL_PATH_V2_FEATURE_COUNT,FAMILIES,SURVIVAL_FRESH_KEYS,FEATURE_NAMES
+from v74_model_lib import load_rows,metrics,SEQUENTIAL_STATE_FEATURE_COUNT,SURVIVAL_MORPH_FEATURE_COUNT,SURVIVAL_PATH_V2_FEATURE_COUNT,R7_COMMON_PATH_FEATURE_COUNT,FAMILIES,SURVIVAL_FRESH_KEYS,FEATURE_NAMES
 from v74_model_lib import event_identity
 from harmonic_precision_contract import harmonic_precision_vector
 
@@ -120,6 +120,16 @@ def timing_state(r,src,m,b,f,eb):
             max(-1.0,min(6.0,float(ab)/10.0)) if ab is not None else -1.0,
             max(-1.0,min(6.0,float(tb)/10.0)) if tb is not None else -1.0]
 
+def common_path_r7(r,src,m,b,f):
+    k=key(m,b,f)
+    bank=r.get("sequential_path_r7",{}) if src=="EARLY" else r.get("late_auction_path_r7",{})
+    v=bank.get(k)
+    if v is None or len(v)!=R7_COMMON_PATH_FEATURE_COUNT:return None
+    try:
+        z=[float(x) for x in v]
+        return z if all(math.isfinite(x) for x in z) else None
+    except:return None
+
 def route_cats(r,src,b,m,f,sfkey=None,action_override=None):
     action=action_override or r["action"]
     return [1.0 if r["family"]==ff else 0.0 for ff in FAMILIES]+[
@@ -153,7 +163,8 @@ def xvec(r,src,m,b,f,eb):
     hp=_precision_vector(r)
     return (list(r.get("features",[]))+hp+route_cats(r,src,b,m,f)+aa+ee+delta+
             [ap,ep,1.0 if ap and ep else 0.0]+timing_state(r,src,m,b,f,eb)+
-            [0.0]*SURVIVAL_MORPH_FEATURE_COUNT)
+            [0.0]*SURVIVAL_MORPH_FEATURE_COUNT+
+            (common_path_r7(r,src,m,b,f) or [0.0]*R7_COMMON_PATH_FEATURE_COUNT))
 
 def survival_xvec(r,sf,eb):
     a=r.get("survival_fresh_maturity_state",{}).get(sf)
@@ -198,13 +209,15 @@ def failure_xvec(r,eb):
             max(-1.0,min(6.0,float(rb)/10.0)) if rb is not None else -1.0,
             max(-1.0,min(6.0,float(eb-rb)/10.0)) if rb is not None and rb>=0 else -1.0]
     hp=_precision_vector(r)
+    pv=r.get("failure_continuation_path_r7",{}).get("FC230")
+    path_r7=[float(x) for x in pv] if pv is not None and len(pv)==R7_COMMON_PATH_FEATURE_COUNT else [0.0]*R7_COMMON_PATH_FEATURE_COUNT
     return (list(r.get("features",[]))+hp+route_cats(r,"FAILURE","FAILURE","FC230","00",None,"CONTINUATION")+
             aa+ee+delta+[ap,ep,1.0 if ap and ep else 0.0]+timing+
-            [0.0]*SURVIVAL_MORPH_FEATURE_COUNT)
+            [0.0]*SURVIVAL_MORPH_FEATURE_COUNT+path_r7)
 
 def telemetry_guard():
     legal={"EARLY":0,"LATE":0,"SURVIVAL":0,"FAILURE":0};with_state={"EARLY":0,"LATE":0,"SURVIVAL":0,"FAILURE":0}
-    survival_morphology=0;survival_path_v2=0
+    survival_morphology=0;survival_path_v2=0;r7_common_legal=0;r7_common_complete=0
     for r in rows:
       for b in BASES:
         for src in REGULAR_SOURCES:
@@ -238,6 +251,8 @@ def telemetry_guard():
         if fm is not None and fe is not None and len(fm)==SEQUENTIAL_STATE_FEATURE_COUNT and len(fe)==SEQUENTIAL_STATE_FEATURE_COUNT:
             with_state["FAILURE"]+=1
     if sum(legal.values())==0:raise SystemExit("V74 no legal completed-bar actions")
+    if r7_common_legal>0 and r7_common_complete!=r7_common_legal:
+        raise SystemExit("V74-R7 common path completeness contract failure "+str(r7_common_complete)+"/"+str(r7_common_legal))
     if legal["SURVIVAL"]>0 and survival_path_v2!=legal["SURVIVAL"]:
         raise SystemExit("V74 R7 survival path-v4 completeness contract failure "+
                          str(survival_path_v2)+"/"+str(legal["SURVIVAL"]))
@@ -247,6 +262,8 @@ def telemetry_guard():
             "survival_path_v4_complete":survival_path_v2,
             "survival_path_v4_missing":max(0,legal["SURVIVAL"]-survival_path_v2),
             "survival_path_v4_contract_pass":survival_path_v2==legal["SURVIVAL"],
+            "r7_common_path_complete":r7_common_complete,"r7_common_path_legal":r7_common_legal,
+            "r7_common_path_contract_pass":r7_common_complete==r7_common_legal,
             "survival_path_v3_compat_complete":survival_path_v2,
             "missing_state_is_feature_not_veto":True,
             "future_trigger_decision_lock_state_used":False}
@@ -3522,7 +3539,7 @@ if tuple(globals().get("R6_SEMANTIC_SCORE_MODES",()))!=_required_modes:
 
 checks=telemetry_guard()
 summary={"version":"HarmonyBot V74 One-Shot Family-Native Causal Action Selector",
- "architecture":"V74_R5_R6_SOURCE_NATIVE_WINNER_RETRIEVAL__FORWARD_OOF_COMMON_SCALE__POST_ADMISSION_CAPITAL_ARBITRATION",
+ "architecture":"V74_R7_COMMON_CAUSAL_TRAJECTORY__SOURCE_NATIVE_WINNER_RETRIEVAL__FORWARD_OOF_COMMON_SCALE__POST_ADMISSION_CAPITAL_ARBITRATION",
  "gate":{"min_selected_per_year":MIN_N,"min_mean_r":MIN_MEAN,"min_pf_r":MIN_PF,
          "min_win_rate":MIN_WR,"min_average_rr":MIN_AVG_RR,"lcb95_gt":0.0},
  "research_training_windows":RESEARCH,"burned_oof_windows":BURNED,
@@ -3720,6 +3737,8 @@ summary["r6_source_native_precision_retrieval"]=True
 summary["r6_forward_oof_common_scale_calibration"]=True
 summary["r6_mode_specific_post_admission_arbitration"]=True
 summary["r6_hierarchical_source_shrinkage"]=True
+summary["r7_common_causal_trajectory_all_sources"]=True
+summary["r7_future_information_used"]=False
 summary["r7_causal_reaction_state_telemetry"]="ROUTE_STATE_V4_80D__SURVIVAL_PATH_V4_48D__COMPLETED_M1_ONLY__NO_FUTURE_TELEMETRY"
 summary["r6_causal_trajectory_representation"]="SUPERSEDED_BY_R7_ROUTE_STATE_V4_AND_SURVIVAL_PATH_V4"
 summary["source_head_missing_feature_policy"]="EVENT_YEAR_BALANCED_SOURCE_PRIOR__NEVER_GLOBAL_RUNTIME_HEAD"
