@@ -26,5 +26,5 @@
   ],
   "validation_used": false,
   "fresh_used": false,
-  "note": "Pinned exact R9 high-conviction proof-commit universe from Rapid #117 (run 37652374634). Y2016-Y2023 artifacts all completed successfully; V73 revalidation and physical feasibility passed. Subsequent commits through 53a3b293 are parser/evaluator-only and guarded C#/data semantics are unchanged. Validation/Fresh unused."
+  "note": "Exact Rapid Decision universe: immutable 2016-2023 custody bytes were hash-verified, all eight windows used the same candidate .algo and run_window R_V73_OPPORTUNITY_UNIVERSE semantics, and V73 was revalidated before decision. Safe for evaluator/oracle-only replay; any guarded semantic drift remains fail-closed."
 }
