@@ -1,8 +1,8 @@
 {
   "version": 2,
-  "source_run_id": 37332121530,
-  "source_head_sha": "debf794680708a880c24210c191797f6e55ac293",
-  "semantic_fingerprint": "99690a7051873c11d2c83052ac851cd44bd3aa7ee26fa91fb1216c36faaa2e32",
+  "source_run_id": 37641911625,
+  "source_head_sha": "e0773933178594745f0fd4da8247930c370e0598",
+  "semantic_fingerprint": "36159d84d774af36d0d8790e396146e7bc437b3561b337d807267e5e6afe34f1",
   "branch": "harmonybot/v73-opportunity-universe",
   "artifact_pattern": "v74-rapid-universe-*",
   "evidence_origin": "rapid_exact_2016_2023",
@@ -26,5 +26,5 @@
   ],
   "validation_used": false,
   "fresh_used": false,
-  "note": "Exact Rapid Decision universe: immutable 2016-2023 custody bytes were hash-verified, all eight windows used the same candidate .algo and run_window R_V73_OPPORTUNITY_UNIVERSE semantics, and V73 was revalidated before decision. Safe for evaluator/oracle-only replay; any guarded semantic drift remains fail-closed."
+  "note": "Pinned exact R7 universe from Rapid #115. All Y2016-Y2023 artifacts completed successfully; subsequent changes through 2d000972 are parser/evaluator-only. Validation/Fresh unused."
 }
