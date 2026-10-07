@@ -254,10 +254,29 @@ jobs:
               sleep 20
               LATEST=$(git -C control ls-remote origin "refs/heads/${GITHUB_REF_NAME}" 2>/dev/null | awk '{print $1}' || true)
               if [[ -n "$LATEST" && "$LATEST" != "$GITHUB_SHA" ]]; then
-                echo "[V74-SUPERSEDED] current=$GITHUB_SHA latest=$LATEST; terminating stale tournament"
-                printf '%s\n' "$LATEST" > tournament/superseded.txt
-                kill -TERM "$EVAL_PID" 2>/dev/null || true
-                exit 0
+                # A Rapid pin job may advance HEAD after producing the exact same
+                # source_run/source_head/fingerprint and only rewrite descriptive
+                # manifest metadata.  Such a note-only evidence commit must not
+                # kill an otherwise valid tournament, especially because commits
+                # made by GITHUB_TOKEN do not trigger a replacement Fast Replay.
+                git -C control fetch --quiet origin "$LATEST" || true
+                mapfile -t CHANGED < <(git -C control diff --name-only "$GITHUB_SHA" "$LATEST" 2>/dev/null || true)
+                BENIGN_PIN=false
+                PIN=HarmonyBot-V71/evidence/V74_FAST_REPLAY_SOURCE.json
+                if [[ "${#CHANGED[@]}" -eq 1 && "${CHANGED[0]}" == "$PIN" ]]; then
+                  CUR_KEY=$(git -C control show "$GITHUB_SHA:$PIN" 2>/dev/null | python3 -c 'import json,sys; d=json.load(sys.stdin); print(json.dumps([d.get("source_run_id"),d.get("source_head_sha"),d.get("semantic_fingerprint"),d.get("required_artifacts"),d.get("semantic_guard_paths"),d.get("validation_used"),d.get("fresh_used")],sort_keys=True,separators=(",",":")))' || true)
+                  NEW_KEY=$(git -C control show "$LATEST:$PIN" 2>/dev/null | python3 -c 'import json,sys; d=json.load(sys.stdin); print(json.dumps([d.get("source_run_id"),d.get("source_head_sha"),d.get("semantic_fingerprint"),d.get("required_artifacts"),d.get("semantic_guard_paths"),d.get("validation_used"),d.get("fresh_used")],sort_keys=True,separators=(",",":")))' || true)
+                  if [[ -n "$CUR_KEY" && "$CUR_KEY" == "$NEW_KEY" ]]; then
+                    BENIGN_PIN=true
+                    echo "[V74-SUPERSESSION-IGNORE] note-only equivalent evidence pin current=$GITHUB_SHA latest=$LATEST"
+                  fi
+                fi
+                if [[ "$BENIGN_PIN" != "true" ]]; then
+                  echo "[V74-SUPERSEDED] current=$GITHUB_SHA latest=$LATEST; terminating stale tournament"
+                  printf '%s\n' "$LATEST" > tournament/superseded.txt
+                  kill -TERM "$EVAL_PID" 2>/dev/null || true
+                  exit 0
+                fi
               fi
             done
           ) &
