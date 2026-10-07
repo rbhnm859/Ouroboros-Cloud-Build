@@ -262,6 +262,14 @@ namespace cAlgo.Robots
             public double[] V74SurvivalFreshPullbackExtreme = new double[V74SurvivalFreshKey.Length];
             public double[] V74SurvivalFreshReclaimHigh = new double[V74SurvivalFreshKey.Length];
             public double[] V74SurvivalFreshReclaimLow = new double[V74SurvivalFreshKey.Length];
+            // R9 proof-of-reversal state.  Base routes now require reclaim -> next-bar
+            // BOS; C1 routes require the stronger reclaim -> BOS -> retest/hold ->
+            // rebreak sequence.  Every timestamp is a completed M1 bar.
+            public int[] V74SurvivalFreshProofBar = Enumerable.Repeat(-1, V74SurvivalFreshKey.Length).ToArray();
+            public int[] V74SurvivalFreshProofRetestBar = Enumerable.Repeat(-1, V74SurvivalFreshKey.Length).ToArray();
+            public double[] V74SurvivalFreshProofHigh = new double[V74SurvivalFreshKey.Length];
+            public double[] V74SurvivalFreshProofLow = new double[V74SurvivalFreshKey.Length];
+            public double[] V74SurvivalFreshProofRetestExtreme = new double[V74SurvivalFreshKey.Length];
             public double[] V74SurvivalFreshEntry = new double[V74SurvivalFreshKey.Length];
             public double[] V74SurvivalFreshStop = new double[V74SurvivalFreshKey.Length];
             public double[] V74SurvivalFreshTarget = new double[V74SurvivalFreshKey.Length];
@@ -1212,6 +1220,11 @@ namespace cAlgo.Robots
                         o.V74SurvivalFreshImpulseExtreme[k]=buy?high:low;
                         o.V74SurvivalFreshPullbackBar[k]=-1;
                         o.V74SurvivalFreshTriggerBar[k]=-1;
+                        o.V74SurvivalFreshProofBar[k]=-1;
+                        o.V74SurvivalFreshProofRetestBar[k]=-1;
+                        o.V74SurvivalFreshProofHigh[k]=0.0;
+                        o.V74SurvivalFreshProofLow[k]=0.0;
+                        o.V74SurvivalFreshProofRetestExtreme[k]=0.0;
                         o.V74SurvivalFreshPending[k]=false;
                     }
                     continue; // displacement bar is observation only
@@ -1245,28 +1258,39 @@ namespace cAlgo.Robots
                         Math.Min(o.V74SurvivalFreshPullbackExtreme[k],low):
                         Math.Max(o.V74SurvivalFreshPullbackExtreme[k],high);
 
-                // Completed-bar Fibonacci rejection/reclaim. Existing routes may
-                // enter on this completed reclaim bar. C1 routes deliberately require
-                // a second independent completed M1 bar: the first reclaim is only
-                // observation; the next bar must still hold the Fibonacci level and
-                // close through the reclaim bar's favorable extreme (BOS/follow-through).
-                // This creates a genuinely later causal decision point instead of
-                // attempting to classify the same noisy rejection bar more aggressively.
+                // R9 completed-bar proof-of-reversal semantics.
+                //
+                // Stage A (all routes): the first quality Fibonacci reclaim is
+                // observation only.  No capital may enter on the noisy rejection bar.
+                // Stage B (all routes): the immediately following completed M1 bar
+                // must still hold the Fib level and close through the reclaim bar's
+                // favourable extreme (BOS).  Legacy base routes enter only here.
+                // Stage C (C1 routes): BOS is still observation only.  Within six
+                // completed M1 bars price must retest the frozen breakout boundary,
+                // close on the favourable side, then a later completed bar must
+                // rebreak the BOS extreme with directional reacceleration.  This
+                // turns C1 into a genuine reclaim->BOS->retest->rebreak proof state.
+                //
+                // Every branch is online/causal.  No later bar is read before it
+                // closes; no MFE/MAE/outcome, Validation or Fresh label is consulted.
                 bool reclaimed=buy?close>=fibPrice:close<=fibPrice;
                 bool quality=directional&&reaccelerating&&alignedClose+1e-12>=.55;
                 bool confirm=V74SurvivalFreshRequiresConfirmation(V74SurvivalFreshKey[k]);
-                if(confirm)
-                {
-                    if(o.V74SurvivalFreshTriggerBar[k]<0)
-                    {
-                        if(!(reclaimed&&quality))continue;
-                        o.V74SurvivalFreshTriggerBar[k]=o.BarsActive;
-                        o.V74SurvivalFreshReclaimHigh[k]=high;
-                        o.V74SurvivalFreshReclaimLow[k]=low;
-                        continue; // first reclaim bar is observation only
-                    }
 
-                    // Fail closed on anything other than immediate next-bar proof.
+                if(o.V74SurvivalFreshTriggerBar[k]<0)
+                {
+                    if(!(reclaimed&&quality))continue;
+                    o.V74SurvivalFreshTriggerBar[k]=o.BarsActive;
+                    o.V74SurvivalFreshReclaimHigh[k]=high;
+                    o.V74SurvivalFreshReclaimLow[k]=low;
+                    o.V74SurvivalFreshProofBar[k]=-1;
+                    o.V74SurvivalFreshProofRetestBar[k]=-1;
+                    continue; // first reclaim is observation only for every R9 route
+                }
+
+                if(o.V74SurvivalFreshProofBar[k]<0)
+                {
+                    // The BOS proof must be the independent next completed bar.
                     if(o.BarsActive!=o.V74SurvivalFreshTriggerBar[k]+1)
                     {
                         o.V74SurvivalFreshTriggerBar[k]=-1;
@@ -1284,17 +1308,71 @@ namespace cAlgo.Robots
                         o.V74SurvivalFreshTriggerBar[k]=-1;
                         continue;
                     }
+
+                    if(!confirm)
+                    {
+                        // Base R9 route: reclaim -> independent next-bar BOS.
+                        o.V74SurvivalFreshProofBar[k]=o.BarsActive;
+                    }
+                    else
+                    {
+                        // Strong R9 C1 route: BOS remains observation only.
+                        o.V74SurvivalFreshProofBar[k]=o.BarsActive;
+                        o.V74SurvivalFreshProofHigh[k]=high;
+                        o.V74SurvivalFreshProofLow[k]=low;
+                        o.V74SurvivalFreshProofRetestBar[k]=-1;
+                        continue;
+                    }
                 }
-                else
+
+                if(confirm)
                 {
-                    if(!(reclaimed&&quality))continue;
-                    o.V74SurvivalFreshTriggerBar[k]=o.BarsActive;
+                    int proofAge=o.BarsActive-o.V74SurvivalFreshProofBar[k];
+                    if(proofAge<=0)continue;
+                    if(proofAge>6)
+                    {
+                        // Expired proof may start a new reclaim sequence later.
+                        o.V74SurvivalFreshTriggerBar[k]=-1;
+                        o.V74SurvivalFreshProofBar[k]=-1;
+                        o.V74SurvivalFreshProofRetestBar[k]=-1;
+                        continue;
+                    }
+
+                    bool fibInvalid=buy?close<fibPrice:close>fibPrice;
+                    if(fibInvalid)
+                    {
+                        o.V74SurvivalFreshTriggerBar[k]=-1;
+                        o.V74SurvivalFreshProofBar[k]=-1;
+                        o.V74SurvivalFreshProofRetestBar[k]=-1;
+                        continue;
+                    }
+
+                    if(o.V74SurvivalFreshProofRetestBar[k]<0)
+                    {
+                        // Retest the frozen first-reclaim breakout boundary; the
+                        // completed close must hold the favourable side.
+                        bool retestTouch=buy?low<=o.V74SurvivalFreshReclaimHigh[k]
+                                             :high>=o.V74SurvivalFreshReclaimLow[k];
+                        bool retestHold=buy?close>=o.V74SurvivalFreshReclaimHigh[k]
+                                            :close<=o.V74SurvivalFreshReclaimLow[k];
+                        if(!(retestTouch&&retestHold))continue;
+                        o.V74SurvivalFreshProofRetestBar[k]=o.BarsActive;
+                        o.V74SurvivalFreshProofRetestExtreme[k]=buy?low:high;
+                        continue; // retest is observation only
+                    }
+
+                    if(o.BarsActive<=o.V74SurvivalFreshProofRetestBar[k])continue;
+                    bool rebreak=buy?close>o.V74SurvivalFreshProofHigh[k]
+                                      :close<o.V74SurvivalFreshProofLow[k];
+                    bool proofQuality=directional&&reaccelerating&&alignedClose+1e-12>=.60&&reclaimed;
+                    if(!(rebreak&&proofQuality))continue;
                 }
 
                 double entry=close;
                 double buffer=Math.Max(PipsToPrice(ModeledCostPips()),_symbol.PipSize);
-                double localStop=buy?o.V74SurvivalFreshPullbackExtreme[k]-buffer
-                                     :o.V74SurvivalFreshPullbackExtreme[k]+buffer;
+                double stopExtreme=(confirm&&o.V74SurvivalFreshProofRetestBar[k]>=0)?
+                    o.V74SurvivalFreshProofRetestExtreme[k]:o.V74SurvivalFreshPullbackExtreme[k];
+                double localStop=buy?stopExtreme-buffer:stopExtreme+buffer;
                 double stop=buy?Math.Max(o.Stop,localStop):Math.Min(o.Stop,localStop);
                 double risk=Math.Abs(entry-stop),riskPips=PriceToPips(risk);
                 if(riskPips<MinStopLossPips)continue;
@@ -1307,9 +1385,8 @@ namespace cAlgo.Robots
                 double rr=(PriceToPips(Math.Abs(target-entry))-ModeledCostPips())/Math.Max(1e-9,riskPips);
                 if(rr+1e-9<2.30)continue;
 
-                // For immediate routes TriggerBar == EntryBar. For C1 routes it
-                // intentionally remains the prior reclaim-observation bar.
-                if(!confirm)o.V74SurvivalFreshTriggerBar[k]=o.BarsActive;
+                // TriggerBar is always the first reclaim-observation bar in R9.
+                // ProofBar is the independent BOS bar; C1 also records a later retest.
 
                 // V74 causal rejection-morphology v1. These values describe only the
                 // observed reaction -> Fibonacci touch -> completed-bar reclaim path.
