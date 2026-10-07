@@ -1134,7 +1134,7 @@ def _precision_pair_probability(pair,xx,anchor):
     p=.5*(max(0.0,min(1.0,fw))+(1.0-max(0.0,min(1.0,bw))))
     return p,max(1,min(s1 or 1,s2 or 1))
 
-def fit_contrastive_winner_ranker(route_decisions,fit_years):
+def fit_contrastive_winner_ranker(route_decisions,fit_years,source=None):
     """Event-balanced hard-negative/listwise Precision@250 retrieval ranker.
 
     Random global winner/loser pairs were not aligned with V74's deployment
@@ -1150,10 +1150,15 @@ def fit_contrastive_winner_ranker(route_decisions,fit_years):
     outcome, Validation, Fresh or future bar enters inference.
     """
     ss=_admission_training_samples(route_decisions,fit_years)
-    if len(ss)<500:raise SystemExit("V74 insufficient precision-retrieval samples")
+    if source is not None:ss=[s for s in ss if s.get("source")==source]
+    if len(ss)<500:
+      if source is not None:return None
+      raise SystemExit("V74 insufficient precision-retrieval samples")
     win=[1.0 if float(s["y"])>0.0 else 0.0 for s in ss]
     idx=stable_idx_target(ss,win,max(TREE_KFEAT,36))
-    if not idx:raise SystemExit("V74 no temporally stable precision-retrieval features")
+    if not idx:
+      if source is not None:return None
+      raise SystemExit("V74 no temporally stable precision-retrieval features")
     idx=idx[:36]
 
     by=defaultdict(list)
@@ -1216,7 +1221,9 @@ def fit_contrastive_winner_ranker(route_decisions,fit_years):
       yw=[z/max(1e-18,ysw) for z in weights]
       allX.extend(X);allY.extend(yy);allEvent.extend([(w,z) for z in yw])
 
-    if len(experts)<2 or len(allX)<1000:
+    min_pair_rows=500 if source is not None else 1000
+    if len(experts)<2 or len(allX)<min_pair_rows:
+      if source is not None:return None
       raise SystemExit("V74 insufficient hard-negative precision experts")
 
     # A global fallback sees equal mass from each contributing training year.
@@ -1225,15 +1232,17 @@ def fit_contrastive_winner_ranker(route_decisions,fit_years):
     global_pair=_boost_train(allX,allY,use,rounds=max(10,TREE_ROUNDS),lr=.065,max_rows=10**9,
                              root_orders=orders,max_depth=2,min_leaf=28,weights=gw)
     return {"type":"EVENT_BALANCED_MATCHED_HARD_NEGATIVE_PRECISION_RANKER",
+            "source":source or "GLOBAL",
             "fit_years":[w for w in fit_years if w in experts],"idx":idx,
             "global_pair":global_pair,"experts":experts,
             "pairs_per_year":pairs_per_year,"pair_rows":len(allX)}
 
-def pred_contrastive_winner(model,e):
+def pred_contrastive_winner(model,e,max_year_exclusive=None):
     s=e["s"];x=s.get("admission_x",s["x"]);idx=model["idx"]
     xx=[float(x[j]) for j in idx]
     per_year=[];supports=[];details=[]
     for w in model.get("fit_years",[]):
+      if max_year_exclusive is not None and int(str(w)[1:])>=int(str(max_year_exclusive)[1:]):continue
       ex=model.get("experts",{}).get(w)
       if not ex:continue
       keys=_precision_rank_cell_keys(s)
@@ -1273,6 +1282,178 @@ def pred_contrastive_winner(model,e):
             "per_year":per_year,
             "support":max(1,min(supports)) if supports else 1,
             "details":details}
+
+
+def fit_source_precision_bundle(route_decisions,fit_years):
+    """R6 source-native hard-negative retrieval with hierarchical fallback.
+
+    Each sufficiently supported source receives its own stable-feature pair
+    ranker.  The global ranker is retained only as a shrinkage/fallback prior
+    for genuinely low-support sources; SURVIVAL is fail-closed whenever it has
+    enough rows to deserve an independent model.
+    """
+    glob=fit_contrastive_winner_ranker(route_decisions,fit_years,None)
+    ss=_admission_training_samples(route_decisions,fit_years)
+    active=sorted({s.get("source","NONE") for s in ss})
+    counts=Counter(s.get("source","NONE") for s in ss)
+    by={}
+    for src in active:
+        md=fit_contrastive_winner_ranker(route_decisions,fit_years,src)
+        if md is not None:by[src]=md
+    if counts.get("SURVIVAL",0)>=500 and "SURVIVAL" in active and "SURVIVAL" not in by:
+        raise SystemExit("V74-R6 SURVIVAL has support but no source-native precision ranker")
+    return {"type":"R6_SOURCE_NATIVE_HARD_NEGATIVE_PRECISION_BUNDLE",
+            "fit_years":list(fit_years),"global_prior_ranker":glob,
+            "by_source":by,"source_counts":dict(counts),
+            "independent_sources":sorted(by)}
+
+def pred_source_precision(bundle,e,max_year_exclusive=None):
+    src=e["s"].get("source","NONE")
+    md=bundle.get("by_source",{}).get(src)
+    origin="SOURCE_NATIVE"
+    if md is None:
+        md=bundle["global_prior_ranker"];origin="HIERARCHICAL_GLOBAL_PRIOR"
+    z=dict(pred_contrastive_winner(md,e,max_year_exclusive=max_year_exclusive))
+    z["ranker_origin"]=origin;z["ranker_source"]=md.get("source","GLOBAL")
+    z["requested_source"]=src
+    return z
+
+def _r6_calibration_stats(rows):
+    """Event/year-balanced probability and R moments for calibration cells."""
+    if not rows:
+        return {"p":.5,"mean_r":0.0,"sd_r":2.0,"event_support":0,"row_support":0}
+    per_event=Counter((r["window"],r["event"]) for r in rows)
+    events_by_year=defaultdict(set)
+    for r in rows:events_by_year[r["window"]].add(r["event"])
+    ww=[]
+    for r in rows:
+        ek=(r["window"],r["event"])
+        den=max(1,len(events_by_year[r["window"]]))*max(1,per_event[ek])
+        ww.append(1.0/den)
+    sw=max(1e-18,sum(ww))
+    p=sum(w*float(r["win"]) for w,r in zip(ww,rows))/sw
+    mu=sum(w*float(r["y"]) for w,r in zip(ww,rows))/sw
+    sec=sum(w*float(r["y"])*float(r["y"]) for w,r in zip(ww,rows))/sw
+    sd=math.sqrt(max(1e-9,sec-mu*mu))
+    return {"p":max(0.0,min(1.0,p)),"mean_r":mu,"sd_r":sd,
+            "event_support":len(per_event),"row_support":len(rows)}
+
+def _r6_shrink_stats(obs,prior,k):
+    if prior is None or float(k)<=0:return dict(obs)
+    n=max(0.0,float(obs.get("event_support",0)));k=float(k);d=max(1e-9,n+k)
+    p=(n*float(obs["p"])+k*float(prior["p"]))/d
+    mu=(n*float(obs["mean_r"])+k*float(prior["mean_r"]))/d
+    so=float(obs["sd_r"])**2+float(obs["mean_r"])**2
+    sp=float(prior["sd_r"])**2+float(prior["mean_r"])**2
+    sec=(n*so+k*sp)/d
+    q=dict(obs);q.update({"p":max(0.0,min(1.0,p)),"mean_r":mu,
+                          "sd_r":math.sqrt(max(1e-9,sec-mu*mu)),
+                          "effective_support":d})
+    return q
+
+def _r6_build_calibration_bank(rows,global_prior=None):
+    vals=[float(r["score"]) for r in rows if math.isfinite(float(r["score"]))]
+    prior=_r6_calibration_stats(rows)
+    if global_prior is not None:
+        prior=_r6_shrink_stats(prior,global_prior,24.0)
+    if not vals:
+        return {"cuts":[],"prior":prior,"cells":{},"rows":0}
+    cuts=sorted(set(qtile(vals,q) for q in (.12,.25,.40,.55,.70,.82,.92)))
+    cells={}
+    for b in range(len(cuts)+1):
+        rr=[r for r in rows if bisect.bisect_right(cuts,float(r["score"]))==b]
+        if not rr:continue
+        obs=_r6_calibration_stats(rr)
+        # Bin estimates are deliberately shrunk to the source prior; this is the
+        # hierarchical theta_s = theta_global + Delta_s layer.
+        cells[str(b)]=_r6_shrink_stats(obs,prior,18.0)
+    return {"cuts":cuts,"prior":prior,"cells":cells,"rows":len(rows)}
+
+def _fit_r6_common_calibrator(route_decisions,precision_bundle,fit_years):
+    """Forward-OOF source calibration onto one comparable capital scale.
+
+    For a row in year Y, only independent ranker experts from years <Y may
+    produce its calibration score.  The final source-native ranker can therefore
+    be refit on all training years without calibrating on its own fitted labels.
+    """
+    reps=admission_lane_context(route_decisions);rows=[]
+    yy=set(fit_years)
+    for e in reps:
+        s=e["s"];w=s["window"]
+        if w not in yy:continue
+        z=pred_source_precision(precision_bundle,e,max_year_exclusive=w)
+        if int(z.get("support",0))<=0 or not math.isfinite(float(z.get("score",-999.0))):continue
+        rows.append({"window":w,"event":event_identity(s["setup"]),
+                     "source":s.get("source","NONE"),"score":float(z["score"]),
+                     "win":1.0 if float(s["y"])>0.0 else 0.0,"y":float(s["y"])})
+    if len(rows)<250:
+        raise SystemExit("V74-R6 insufficient forward-OOF calibration rows")
+    global_bank=_r6_build_calibration_bank(rows,None)
+    by={};counts=Counter(r["source"] for r in rows)
+    for src in sorted(counts):
+        rr=[r for r in rows if r["source"]==src]
+        if len(rr)>=60:
+            by[src]=_r6_build_calibration_bank(rr,global_bank["prior"])
+    return {"type":"R6_FORWARD_OOF_SOURCE_TO_COMMON_CAPITAL_CALIBRATOR",
+            "fit_years":list(fit_years),"global":global_bank,"by_source":by,
+            "forward_oof_rows":len(rows),"source_rows":dict(counts),
+            "future_year_experts_forbidden":True}
+
+def _pred_r6_common_calibrator(cal,precision_bundle,e):
+    z=pred_source_precision(precision_bundle,e)
+    src=e["s"].get("source","NONE")
+    bank=cal.get("by_source",{}).get(src)
+    cal_origin="SOURCE_NATIVE"
+    if bank is None:
+        bank=cal["global"];cal_origin="HIERARCHICAL_GLOBAL_PRIOR"
+    raw=float(z.get("score",-999.0));cuts=bank.get("cuts",[])
+    b=bisect.bisect_right(cuts,raw)
+    cell=bank.get("cells",{}).get(str(b),bank.get("prior",{}))
+    p=max(0.0,min(1.0,float(cell.get("p",.5))))
+    mu=float(cell.get("mean_r",0.0));sd=max(.05,float(cell.get("sd_r",2.0)))
+    n=max(1.0,float(cell.get("effective_support",cell.get("event_support",1))))
+    win_lcb=_r4_wilson_lcb(p,n)
+    mean_lcb=mu-Z*sd/math.sqrt(n)
+    pct=(float(b)+.5)/max(1.0,float(len(cuts)+1))
+    fallback=(1.0 if z.get("ranker_origin")!="SOURCE_NATIVE" else 0.0)+(
+              1.0 if cal_origin!="SOURCE_NATIVE" else 0.0)
+    dispersion=max(0.0,float(z.get("dispersion",0.0)))
+    mean_quality=.5+.5*math.tanh(mean_lcb/1.25)
+    mean_level=.5+.5*math.tanh(mu/1.50)
+    # Gate priorities are encoded ex ante: winner purity dominates; Expected-R
+    # lower bound and level break ties; uncertainty/fallbacks are penalized.
+    utility=(.82*win_lcb+.12*mean_quality+.04*mean_level+.02*pct
+             -.025*fallback-.035*dispersion)
+    return {"raw_rank":raw,"ranker":z,"win_p":p,"win_lcb":win_lcb,
+            "mean_r":mu,"mean_lcb":mean_lcb,"sd_r":sd,"effective_n":n,
+            "percentile":pct,"utility":utility,"calibration_origin":cal_origin,
+            "fallback_penalty":fallback,"dispersion":dispersion}
+
+R6_SEMANTIC_SCORE_MODES=(
+  "R6_COMMON_UTILITY",
+  "R6_WIN_LCB",
+  "R6_WIN_PROB",
+  "R6_MEAN_LCB",
+  "R6_UTILITY_PLUS_STOP"
+)
+
+def _r6_arbitrate(scored_lanes,mode):
+    by=defaultdict(list)
+    for e in scored_lanes:
+        bank=e.get("pred",{}).get("semantic_scores",{})
+        if mode not in bank:raise SystemExit("V74-R6 missing semantic score "+str(mode))
+        q=dict(e);q["score"]=float(bank[mode])
+        q["pred"]=dict(e["pred"],score_mode=mode,score_orientation=1.0)
+        s=q["s"];by[(s["window"],event_identity(s["setup"]),int(s["bar"]))].append(q)
+    out=[]
+    for vv in by.values():
+        out.append(max(vv,key=lambda e:(float(e["score"]),
+            float(e["pred"].get("r6_win_lcb",-999.0)),
+            float(e["pred"].get("r6_mean_lcb",-999.0)),
+            float(e["pred"].get("r6_source_precision",{}).get("score",-999.0)),
+            e["s"]["route"])))
+    return out
+
 
 def score_contrastive_decisions(route_decisions,model):
     out=[]
@@ -2983,87 +3164,63 @@ def _r4_meta_feature_idx(stage_samples):
 
 
 def _fit_r4_meta_policy(stage_samples,years):
-    if len(stage_samples)<700:raise SystemExit("V74-R5 insufficient OOF stage samples")
+    if len(stage_samples)<700:raise SystemExit("V74-R6 insufficient OOF stage samples")
     p=len(stage_samples[0]["x"]);idx=_r4_meta_feature_idx(stage_samples)
     if len(idx)<6:idx=list(range(min(24,p)))
     vm=_r4_fit_value_balanced(stage_samples,idx)
-    # Source-native route choice is already frozen below this layer. A second
-    # cross-source pair ranker caused the high-purity SURVIVAL lane to disappear
-    # before its own admission head could score it, so it is intentionally removed.
     tr_route=meta_lane_decisions(stage_samples,vm)
-    bundle=fit_admission_bundle(tr_route,years)
-    cal=_fit_r4_calibrator(tr_route,bundle)
-    contrast=fit_contrastive_winner_ranker(tr_route,years)
-    return {"type":"R5_LANE_PRESERVING_EVENT_LISTWISE_PRECISION_META_POLICY",
+    admission=fit_admission_bundle(tr_route,years)
+    precision=fit_source_precision_bundle(tr_route,years)
+    common_cal=_fit_r6_common_calibrator(tr_route,precision,years)
+    return {"type":"R6_CAUSAL_WINNER_RETRIEVAL_COMMON_SCALE_POLICY",
             "value":vm,"pair":None,
-            "admission_bundle":bundle,"calibrator":cal,
-            "contrastive":contrast,"score_mode":"HARD_LISTWISE",
+            "admission_bundle":admission,
+            "source_precision_bundle":precision,
+            "common_calibrator":common_cal,
+            "score_mode":"R6_COMMON_UTILITY",
             "fit_years":list(years),"selected_features":list(idx),
-            "lane_preserving_until_post_admission":True}
+            "lane_preserving_until_post_admission":True,
+            "mode_specific_post_admission_arbitration":True,
+            "forward_oof_common_scale_calibration":True}
 
 
-R5_SEMANTIC_SCORE_MODES=(
-  "HARD_LISTWISE",
-  "HARD_PLUS_ENTER",
-  "HARD_PLUS_ADVANTAGE",
-  "ENTER_ADVANTAGE_LCB",
-  "ENTER_RAW",
-  "CURRENT_ROBUST_META"
-)
-
-
-def _apply_r4_meta_policy(model,stage_samples):
+def _apply_r4_meta_policy(model,stage_samples,preserve_lanes=False,score_mode=None):
     route=meta_lane_decisions(stage_samples,model["value"])
     scored=[]
     for e in admission_lane_context(route):
         z=pred_admission(model["admission_bundle"],e)
-        cz=_pred_r4_calibrator(model["calibrator"],model["admission_bundle"],e)
-        comp=max(float(z["defer"]),float(z["reject"]))
-        p=e["pred"];uncertainty=max(0.0,float(z["enter"])-float(z["enter_lcb"]))
-        ct=pred_contrastive_winner(model["contrastive"],e)
-        hard=max(0.0,min(1.0,float(ct.get("score",0.0))))
-        hard_min=max(0.0,min(1.0,float(ct.get("minimum",hard))))
-        adv01=.5+.5*math.tanh(float(z["advantage_lcb"])/1.25)
-        margin01=.5+.5*math.tanh(2.0*(float(z["enter_lcb"])-comp))
-        current=(.48*hard+.12*hard_min+.15*float(cz["lcb"])
-                 +.10*float(z["enter"])+.10*adv01+.05*margin01
-                 -.08*float(ct.get("dispersion",0.0))
-                 -.03*math.tanh(uncertainty/.10))
+        cc=_pred_r6_common_calibrator(model["common_calibrator"],
+                                      model["source_precision_bundle"],e)
+        p=e["pred"];comp=max(float(z["defer"]),float(z["reject"]))
+        stop01=.5+.5*math.tanh(float(z["advantage_lcb"])/1.25)
+        common=float(cc["utility"])
         bank={
-          "HARD_LISTWISE":hard,
-          "HARD_PLUS_ENTER":.72*hard+.28*float(z["enter"]),
-          "HARD_PLUS_ADVANTAGE":.72*hard+.28*adv01,
-          "ENTER_ADVANTAGE_LCB":float(z["advantage_lcb"]),
-          "ENTER_RAW":float(z["enter"]),
-          "CURRENT_ROBUST_META":current
+          "R6_COMMON_UTILITY":common,
+          "R6_WIN_LCB":float(cc["win_lcb"]),
+          "R6_WIN_PROB":float(cc["win_p"]),
+          "R6_MEAN_LCB":float(cc["mean_lcb"]),
+          "R6_UTILITY_PLUS_STOP":common+.06*stop01
         }
-        mode=str(model.get("score_mode","HARD_LISTWISE"))
-        if mode not in bank:raise SystemExit("V74 unknown R5 semantic score mode "+mode)
-        q=dict(e);q["score"]=float(bank[mode])
+        q=dict(e);q["score"]=common
         q["stop_advantage"]=float(p.get("stop_advantage",-999.0))
-        q["pred"]=dict(p,admission=z,r4_calibrated_enter=cz["p"],
-                       r4_calibrated_lcb=cz["lcb"],contrastive_winner=ct,
-                       year_expert_q25=ct.get("q25",hard),
-                       year_expert_min=ct.get("minimum",hard),
-                       year_expert_dispersion=ct.get("dispersion",0.0),
-                       raw_meta_score=current,semantic_scores=bank,
-                       score_mode=mode,score_orientation=1.0,
+        q["pred"]=dict(p,admission=z,
+                       r6_source_precision=cc["ranker"],
+                       r6_win_probability=cc["win_p"],
+                       r6_win_lcb=cc["win_lcb"],
+                       r6_mean_r=cc["mean_r"],
+                       r6_mean_lcb=cc["mean_lcb"],
+                       r6_common_utility=common,
+                       r6_calibration_origin=cc["calibration_origin"],
+                       r6_effective_n=cc["effective_n"],
+                       r6_fallback_penalty=cc["fallback_penalty"],
+                       raw_meta_score=common,semantic_scores=bank,
+                       score_mode="R6_COMMON_UTILITY",score_orientation=1.0,
+                       enter_wait_margin=float(z["enter_lcb"])-comp,
                        regime_id=int(e["s"].get("regime_id",0)))
         scored.append(q)
-
-    # MaxActiveBasket=1 arbitration occurs only after each source has received
-    # its own causal admission score. Preserve one capital candidate/event/bar.
-    by=defaultdict(list)
-    for e in scored:
-      s=e["s"];by[(s["window"],event_identity(s["setup"]),int(s["bar"]))].append(e)
-    out=[]
-    for vv in by.values():
-      out.append(max(vv,key=lambda e:(float(e["score"]),
-                                      float(e["pred"].get("r4_calibrated_lcb",-999.0)),
-                                      float(e["pred"].get("contrastive_winner",{}).get("score",0.0)),
-                                      float(e["pred"].get("lcb",-999.0)),
-                                      e["s"]["route"])))
-    return out
+    if preserve_lanes:return scored
+    mode=str(score_mode or model.get("score_mode","R6_COMMON_UTILITY"))
+    return _r6_arbitrate(scored,mode)
 
 def _compact_r4_stage(s):
     return {"window":s["window"],"setup":s["setup"],"family":s["family"],
@@ -3100,74 +3257,57 @@ def _fit_r4_meta_policy_cached(stage_samples,years):
 def _fit_r4_tournament(samples,years):
     eligible=[years[i] for i in range(2,len(years))]
     val_years=list(eligible)
-    if len(val_years)<3:raise SystemExit("V74-R4 insufficient inner OOF years")
+    if len(val_years)<3:raise SystemExit("V74-R6 insufficient inner OOF years")
     shared=globals().get("_INNER_R4_OOF_CACHE",{});stage=[];meta=[]
     for vw in val_years:
         z=shared.get(vw)
         if z is None:
             _,z=_compute_shared_inner_r4_year(vw)
-        if not z.get("stage"):raise SystemExit("V74-R4 empty OOF stage "+vw)
+        if not z.get("stage"):raise SystemExit("V74-R6 empty OOF stage "+vw)
         stage.extend(z["stage"]);meta.append(z["meta"])
 
-    # Second layer must also be temporally causal.  The previous leave-one-year-
-    # out loop trained an earlier held year on later research years.  Use an
-    # expanding forward chain and require two complete prior OOF years before a
-    # meta year is scored.
-    cross=[];meta_cv=[];cross_years=[]
+    # Honest expanding-forward meta OOF.  Preserve every scored source lane here;
+    # each candidate semantic mode performs its own post-admission arbitration.
+    cross_lanes=[];meta_cv=[];cross_years=[]
     for hi in range(2,len(val_years)):
         hw=val_years[hi];ty=val_years[:hi]
         tr=[s for s in stage if s["window"] in ty]
         va=[s for s in stage if s["window"]==hw]
         if len(tr)<700 or not va:continue
         md=_fit_r4_meta_policy_cached(tr,ty)
-        dd=_apply_r4_meta_policy(md,va);cross.extend(dd);cross_years.append(hw)
+        dd=_apply_r4_meta_policy(md,va,preserve_lanes=True)
+        cross_lanes.extend(dd);cross_years.append(hw)
         meta_cv.append({"held_year":hw,"fit_years":list(ty),"train_stage":len(tr),
-                        "test_stage":len(va),"decisions":len(dd),
-                        "causal_forward_chain":True})
-    if not cross or not cross_years:
-        raise SystemExit("V74-R4 empty causal forward meta OOF")
+                        "test_stage":len(va),"scored_lanes":len(dd),
+                        "causal_forward_chain":True,
+                        "mode_specific_arbitration":True})
+    if not cross_lanes or not cross_years:
+        raise SystemExit("V74-R6 empty causal forward meta OOF")
 
     candidates=[]
-    for mode in R5_SEMANTIC_SCORE_MODES:
-        scored=[]
-        for e in cross:
-            bank=e.get("pred",{}).get("semantic_scores",{})
-            if mode not in bank:raise SystemExit("V74 missing semantic score "+mode)
-            q=dict(e);q["score"]=float(bank[mode])
-            q["pred"]=dict(e["pred"],score_mode=mode,score_orientation=1.0)
-            scored.append(q)
+    for mode in R6_SEMANTIC_SCORE_MODES:
+        scored=_r6_arbitrate(cross_lanes,mode)
         cmi=_conditional_mi_bits(scored)
         for target in (250,275,300):
             z=_precision_threshold(scored,cross_years,target)
             if z is None:continue
-            # Formal priority is worst-year WR -> LCB -> MeanR -> PF -> AvgRR -> N.
-            # Conditional MI is only a final tie-breaker, never allowed to outrank
-            # the hard-gate ordering.
             rank=tuple(z["rank"])+(cmi,)
             candidates.append((rank,target,z,mode,cmi,scored))
-    if not candidates:raise SystemExit("V74-R4 no coverage-feasible semantic scorer")
+    if not candidates:raise SystemExit("V74-R6 no coverage-feasible common-scale scorer")
     candidates.sort(key=lambda x:x[0],reverse=True)
-    rank,target,z,score_mode,cmi,cross_scored=candidates[0]
-    cross=cross_scored
+    rank,target,z,score_mode,cmi,cross=candidates[0]
 
-    # Freeze the second layer on all honest first-layer OOF samples.  The score
-    # semantics are fixed high=winner; only a named causal scorer may be selected.
     final_meta=dict(_fit_r4_meta_policy_cached(stage,val_years))
     final_meta["score_mode"]=score_mode
-    fitted_dec=_apply_r4_meta_policy(final_meta,stage)
+    fitted_lanes=_apply_r4_meta_policy(final_meta,stage,preserve_lanes=True)
+    fitted_dec=_r6_arbitrate(fitted_lanes,score_mode)
 
-    # The final meta model has seen all OOF rows, so only its score scale changes.
-    # Transfer the cross-fitted threshold through an outcome-free robust affine
-    # map; no burned/test distribution is consulted.
     os=[float(e["score"]) for e in cross];fs=[float(e["score"]) for e in fitted_dec]
     om=med(os,0.0);fm=med(fs,0.0)
     oq1,oq3=qtile(os,.25),qtile(os,.75);fq1,fq3=qtile(fs,.25),qtile(fs,.75)
     scale=max(.35,min(2.5,(fq3-fq1)/max(1e-9,oq3-oq1)))
     transferred=fm+(float(z["threshold"])-om)*scale
 
-    # Optimal-stopping is a two-dimensional frozen decision: score threshold
-    # AND ENTER-vs-WAIT margin.  Transfer the learned OOF stop margin onto the
-    # final-fit meta model without consulting the burned/test distribution.
     oof_stop=float(z.get("stop_margin",-math.inf))
     if math.isfinite(oof_stop):
         oa=[float(e.get("stop_advantage",-999.0)) for e in cross
@@ -3182,7 +3322,6 @@ def _fit_r4_tournament(samples,years):
         oam=fam=0.0;oaq1=oaq3=faq1=faq3=0.0;stop_scale=1.0
         stop_transferred=-math.inf
 
-    # First layer for the actual burned fold is fit only on its prior years.
     heads,training=fit_mechanism_heads_from_samples(samples)
     route=mechanism_decisions(samples,heads)
     prior=_fit_struct_prior([e["s"] for e in route])
@@ -3204,7 +3343,7 @@ def _fit_r4_tournament(samples,years):
               "stop_oof_median":oam,"stop_full_fit_median":fam,
               "stop_oof_iqr":oaq3-oaq1,"stop_full_fit_iqr":faq3-faq1,
               "stop_scale":stop_scale,
-              "rule":"OUTCOME_FREE_META_SCORE_AND_STOP_MARGIN_AFFINE_TRANSFER"}}
+              "rule":"OUTCOME_FREE_R6_COMMON_SCALE_AND_STOP_MARGIN_AFFINE_TRANSFER"}}
 
 def fit_policy(train_rows,prebuilt_samples=None):
     """V74-R4 honest OOF stacked unified-lane action/admission policy."""
@@ -3214,7 +3353,7 @@ def fit_policy(train_rows,prebuilt_samples=None):
     r4=_fit_r4_tournament(samples,yrs)
     tm=r4["training_metrics"];worst=min(gate_margin(m) for m in tm.values()) if tm else -999.0
     training_gate=all(gate(m) for m in tm.values()) if tm else False
-    return {"architecture":"V74_R5_LANE_PRESERVING_SOURCE_NATIVE_ADMISSION_POLICY",
+    return {"architecture":"V74_R6_CAUSAL_WINNER_RETRIEVAL_COMMON_SCALE_POLICY",
             "mechanism_heads":r4["mechanism_heads"],"mechanism_training":r4["mechanism_training"],
             "stage_prior":r4["stage_prior"],"meta_policy":r4["meta_policy"],
             "admission_fit_years":yrs,"admission_inner_oof_years":r4["inner_oof_years"],
@@ -3227,7 +3366,7 @@ def fit_policy(train_rows,prebuilt_samples=None):
             "admission_sweep":{"rounds":[],"evaluated_candidates":3,
               "training_rank":r4["training_rank"],"baseline_rank":None,
               "non_regression_vs_current_training":True,
-              "selected_mode":"LANE_PRESERVING_SOURCE_NATIVE_ADMISSION__POST_ADMISSION_CAPITAL_ARBITRATION",
+              "selected_mode":"R6_SOURCE_NATIVE_WINNER_RETRIEVAL__FORWARD_OOF_COMMON_SCALE__POST_ADMISSION_CAPITAL_ARBITRATION",
               "inner_oof_years":r4["inner_oof_years"],"meta_oof_years":r4["meta_oof_years"],
               "nested_meta":r4["nested_meta"],
               "meta_crossfit":r4["meta_crossfit"],"threshold_transfer":r4["threshold_transfer"],
@@ -3370,18 +3509,18 @@ def two_axis_oracle_diagnostic(test_samples,dec,sel):
 # accidentally removed by a future refactor.
 for _required_fn in ("_diag_metrics","_oracle_top250","fit_mechanism_heads_from_samples",
                      "fit_admission_bundle","fit_contrastive_winner_ranker",
+                     "fit_source_precision_bundle","_fit_r6_common_calibrator","_r6_arbitrate",
                      "meta_lane_decisions","admission_lane_context",
                      "_fit_r4_meta_policy","_apply_r4_meta_policy","_fit_r4_tournament"):
     if not callable(globals().get(_required_fn)):
         raise SystemExit("V74 evaluator preflight missing callable "+_required_fn)
-_required_modes=("HARD_LISTWISE","HARD_PLUS_ENTER","HARD_PLUS_ADVANTAGE",
-                 "ENTER_ADVANTAGE_LCB","ENTER_RAW","CURRENT_ROBUST_META")
-if tuple(globals().get("R5_SEMANTIC_SCORE_MODES",()))!=_required_modes:
-    raise SystemExit("V74 evaluator preflight invalid R5 semantic score mode contract")
+_required_modes=("R6_COMMON_UTILITY","R6_WIN_LCB","R6_WIN_PROB","R6_MEAN_LCB","R6_UTILITY_PLUS_STOP")
+if tuple(globals().get("R6_SEMANTIC_SCORE_MODES",()))!=_required_modes:
+    raise SystemExit("V74 evaluator preflight invalid R6 semantic score mode contract")
 
 checks=telemetry_guard()
 summary={"version":"HarmonyBot V74 One-Shot Family-Native Causal Action Selector",
- "architecture":"V74_R5_LANE_PRESERVING_SOURCE_NATIVE_ADMISSION__POST_ADMISSION_CAPITAL_ARBITRATION",
+ "architecture":"V74_R5_R6_SOURCE_NATIVE_WINNER_RETRIEVAL__FORWARD_OOF_COMMON_SCALE__POST_ADMISSION_CAPITAL_ARBITRATION",
  "gate":{"min_selected_per_year":MIN_N,"min_mean_r":MIN_MEAN,"min_pf_r":MIN_PF,
          "min_win_rate":MIN_WR,"min_average_rr":MIN_AVG_RR,"lcb95_gt":0.0},
  "research_training_windows":RESEARCH,"burned_oof_windows":BURNED,
@@ -3541,7 +3680,7 @@ for test,fold,policy in fold_results:
           for k in ("n","mean_r","pf_r","win_rate","average_rr","lcb_r","pass")}),flush=True)
 
 alpha=bool(allpass)
-champ="V74_R5_LANE_PRESERVING_SOURCE_NATIVE_ADMISSION" if alpha else None
+champ="V74_R6_CAUSAL_WINNER_RETRIEVAL_COMMON_SCALE" if alpha else None
 fold_metrics={w:{k:summary["folds"][w][k] for k in ("n","mean_r","pf_r","win_rate","average_rr","lcb_r")}
               for w in BURNED}
 current_rank=_guard_rank(fold_metrics)
@@ -3565,7 +3704,7 @@ summary["performance_engine"]={"immutable_sample_prebuild":True,
  "meta_prefixes_cached":[list(k) for k in sorted(globals().get("_R4_META_MODEL_CACHE",{}))],
  "meta_cache_build_seconds":globals().get("_meta_cache_seconds"),
  "parity_fail_closed":True}
-summary["root_cause_rearchitecture"]="V74_R5_LANE_PRESERVING_SOURCE_NATIVE_ADMISSION"
+summary["root_cause_rearchitecture"]="V74_R6_CAUSAL_WINNER_RETRIEVAL_COMMON_SCALE"
 summary["component_rank_diagnostic_version"]="EVENT_TOP250_COMPONENT_RANK_V1"
 summary["event_identity_weighting_contract"]="YEAR_EQUAL__INDEPENDENT_EVENT_EQUAL__ROUTE_MULTIPLICITY_NEUTRAL__EARLY_ALIAS_DEDUP"
 summary["survival_primary_alpha"]=False
@@ -3575,8 +3714,13 @@ summary["lane_preserving_until_post_admission"]=True
 summary["cross_source_pair_ranker_removed_at_meta"]=True
 summary["strict_source_native_admission"]=True
 summary["global_runtime_admission_fallback"]=False
+summary["r6_source_native_precision_retrieval"]=True
+summary["r6_forward_oof_common_scale_calibration"]=True
+summary["r6_mode_specific_post_admission_arbitration"]=True
+summary["r6_hierarchical_source_shrinkage"]=True
+summary["r6_causal_trajectory_representation"]="EXISTING_COMPLETED_BAR_ROUTE_STATE_V3__SURVIVAL_PATH_V3__NO_NEW_FUTURE_TELEMETRY"
 summary["source_head_missing_feature_policy"]="EVENT_YEAR_BALANCED_SOURCE_PRIOR__NEVER_GLOBAL_RUNTIME_HEAD"
-summary["fast_replay_supersession_contract"]="R5_GENERATION__STALE_HEAD_AUTO_TERMINATE__35M_HARD_TIMEOUT"
+summary["fast_replay_supersession_contract"]="R6_GENERATION__STALE_HEAD_AUTO_TERMINATE__35M_HARD_TIMEOUT"
 summary["parallel_fold_execution"]=parallel_used
 summary["parallel_fold_workers"]=min(len(BURNED),max(1,int(os.cpu_count() or 1))) if parallel_used else 1
 summary["alpha_gate"]=alpha;summary["alpha_champion"]=champ
