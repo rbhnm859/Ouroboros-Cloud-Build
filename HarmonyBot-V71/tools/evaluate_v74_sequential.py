@@ -4174,39 +4174,377 @@ def _fit_r12_hazard_tournament(samples,years):
               "rule":"OUTCOME_FREE_R12_HAZARD_SCORE_AND_STOP_AFFINE_TRANSFER"}}
 
 
+
+# ---------------------------------------------------------------------------
+# V74-R13 Representative-State Precision Hazard
+#
+# R12 improved conditional information but still trained multiple mutually
+# exclusive lane rows at the same event/bar, then applied a runtime maximum.
+# That creates contradictory supervision and winner's-curse calibration.  R13
+# first freezes exactly one causal representative per independent event/bar,
+# using cross-source Expected-R on common physical units with LCB/win tie-breaks.
+# Admission is then learned on the same unit that consumes MaxActiveBasket=1.
+#
+# The representative state already contains same-bar lane consensus plus all
+# strictly-prior trajectory history from R4; no information is discarded except
+# duplicate capital claims.  A hard-negative pairwise ranker directly targets
+# Precision@250 before hierarchical probability calibration.
+# ---------------------------------------------------------------------------
+
+def _r13_representative_stage(stage_samples):
+    by=defaultdict(list)
+    for s in stage_samples:
+        by[(s["window"],event_identity(s["setup"]),int(s["bar"]))].append(s)
+    out=[]
+    def xv(s,i,d=-999.0):
+        try:
+            z=float(s["x"][i])
+            return z if math.isfinite(z) else d
+        except Exception:return d
+    for vv in by.values():
+        # R4 stage layout: [win, tanh(mean/2), tanh(lcb/2), continuation,
+        # -regret, best_probability, ..., lane score, route rank, ...].
+        # Expected-R is the cross-lane physical unit; LCB/win are conservative
+        # deterministic tie-breaks.  No realized outcome participates.
+        s=max(vv,key=lambda q:(xv(q,1),xv(q,2),xv(q,0),xv(q,5),
+                               xv(q,10),xv(q,9),q.get("source",""),q.get("route","")))
+        z=dict(s)
+        z["r13_same_bar_lane_count"]=len(vv)
+        out.append(z)
+    out.sort(key=lambda s:(s["window"],event_identity(s["setup"]),int(s["bar"]),
+                           s.get("source",""),s.get("route","")))
+    return out
+
+
+def _r13_rank_keys(s):
+    fam=str(s.get("family","NONE"));act=str(s.get("action","NONE"))
+    rid=int(s.get("regime_id",_r4_regime_id(s)))
+    try:bar=max(0,int(s.get("bar",0)))
+    except Exception:bar=0
+    bb=min(8,bar//12)
+    return (
+      "FARB|"+fam+"|"+act+"|"+str(rid)+"|"+str(bb),
+      "FRB|"+fam+"|"+str(rid)+"|"+str(bb),
+      "FAR|"+fam+"|"+act+"|"+str(rid),
+      "FR|"+fam+"|"+str(rid),
+      "FB|"+fam+"|"+str(bb),
+      "RB|"+str(rid)+"|"+str(bb),
+      "F|"+fam,
+      "R|"+str(rid),
+      "ALL"
+    )
+
+
+def _r13_anchor_bank(rows,idx,count=7):
+    cells=defaultdict(list)
+    for s in rows:
+        for k in _r13_rank_keys(s):cells[k].append(s)
+    out={}
+    for k,v in cells.items():
+        if len(v)<4:continue
+        out[k]=[[float(s["x"][j]) for j in idx] for s in _contrast_anchor_rows(v,count)]
+    return out
+
+
+def _fit_r13_pair_ranker(reps,years):
+    if len(reps)<500:raise SystemExit("V74-R13 insufficient representative states")
+    ywin=[1.0 if float(s["y"])>0.0 else 0.0 for s in reps]
+    p=len(reps[0]["x"])
+    idx=stable_idx_target(reps,ywin,min(40,p))
+    if len(idx)<8:
+        idx=_r4_meta_feature_idx(reps)[:min(40,p)]
+    if not idx:raise SystemExit("V74-R13 no stable representative rank features")
+
+    by_year=defaultdict(list)
+    for s in reps:by_year[s["window"]].append(s)
+    X=[];yy=[];pair_keys=[];pairs_per_year={}
+    for w in years:
+        ww=by_year.get(w,[])
+        pos=sorted([s for s in ww if float(s["y"])>0.0],
+                   key=lambda s:(event_identity(s["setup"]),int(s["bar"]),s.get("route","")))
+        neg=sorted([s for s in ww if float(s["y"])<=0.0],
+                   key=lambda s:(event_identity(s["setup"]),int(s["bar"]),s.get("route","")))
+        if len(pos)<30 or len(neg)<30:continue
+        cells=defaultdict(list)
+        for n in neg:
+            for k in _r13_rank_keys(n):cells[k].append(n)
+        pc=0
+        for pi,p0 in enumerate(pos):
+            used=set();peid=event_identity(p0["setup"])
+            for level,k in enumerate(_r13_rank_keys(p0)):
+                vv=cells.get(k,[])
+                if not vv:continue
+                # Deterministic matched negative. Advance until it is from a
+                # different independent event so pair labels cannot be aliases.
+                ni=(pi*47+level*89+len(vv)//2)%len(vv)
+                n0=None
+                for off in range(min(11,len(vv))):
+                    q=vv[(ni+off)%len(vv)]
+                    nk=(event_identity(q["setup"]),int(q["bar"]),q.get("route",""))
+                    if event_identity(q["setup"])!=peid and nk not in used:
+                        n0=q;used.add(nk);break
+                if n0 is None:continue
+                d=[float(p0["x"][j])-float(n0["x"][j]) for j in idx]
+                X.append(d);yy.append(1.0);pair_keys.append((w,peid))
+                X.append([-z for z in d]);yy.append(0.0);pair_keys.append((w,peid))
+                pc+=1
+                if len(used)>=4:break
+            if pc>=2200:break
+        pairs_per_year[w]=pc
+    if len(X)<800:raise SystemExit("V74-R13 insufficient matched pair rows")
+
+    pw=_balanced_weights_from_keys(pair_keys)
+    use=list(range(len(idx)));orders=_root_orders(X,use)
+    pair=_boost_train(X,yy,use,rounds=max(10,PAIR_ROUNDS+2),lr=.065,max_rows=10**9,
+                      root_orders=orders,max_depth=2,min_leaf=26,weights=pw)
+    neg=[s for s in reps if float(s["y"])<=0.0]
+    return {"type":"R13_EVENT_BAR_REPRESENTATIVE_HARD_NEGATIVE_RANKER",
+            "fit_years":list(years),"idx":list(idx),"pair":pair,
+            "negative_anchors":_r13_anchor_bank(neg,idx,7),
+            "pairs_per_year":pairs_per_year,"pair_rows":len(X)}
+
+
+def _pred_r13_pair_raw(model,s):
+    idx=model["idx"];xx=[float(s["x"][j]) for j in idx]
+    aa=None
+    for k in _r13_rank_keys(s):
+        z=model.get("negative_anchors",{}).get(k)
+        if z:
+            aa=z;break
+    if not aa:return .5,1
+    pp=[];sup=[]
+    for a in aa:
+        p,n=_precision_pair_probability({"pair":model["pair"]},xx,a) if False else (None,None)
+        d=[xx[i]-float(a[i]) for i in range(len(xx))]
+        fw,s1=_boost_pred(model["pair"],d);bw,s2=_boost_pred(model["pair"],[-v for v in d])
+        q=.5*(max(0.0,min(1.0,fw))+(1.0-max(0.0,min(1.0,bw))))
+        pp.append(q);sup.append(max(1,min(s1 or 1,s2 or 1)))
+    return (sum(pp)/len(pp),min(sup) if sup else 1)
+
+
+def _fit_r13_precision_hazard(reps,years):
+    if len(reps)<700:raise SystemExit("V74-R13 insufficient representative hazard states")
+    enter,wait,reject,future_value=_r12_competing_targets(reps)
+    ranker=_fit_r13_pair_ranker(reps,years)
+    raw=[];rsup=[]
+    for s in reps:
+        p,n=_pred_r13_pair_raw(ranker,s);raw.append(p);rsup.append(n)
+    enter_cal=_r12_fit_calibrator(reps,raw,enter,years)
+
+    p=len(reps[0]["x"]);idx=_r4_meta_feature_idx(reps)
+    if len(idx)<8:idx=list(range(min(32,p)))
+    X=[s["x"] for s in reps]
+    ymean=[max(-4.0,min(4.0,float(s["y"]))) for s in reps]
+    yhold=[max(1.0,min(180.0,float(s.get("bars",1) or 1)))/180.0 for s in reps]
+    w=_r4_event_year_weights(reps)
+    wait_w=[w[i] if enter[i]<.5 else 0.0 for i in range(len(w))]
+    orders=_root_orders(X,idx)
+    kw={"rounds":max(8,TREE_ROUNDS),"lr":.070,"max_rows":10**9,
+        "root_orders":orders,"max_depth":2,"min_leaf":32}
+    wait_model=_boost_train(X,wait,idx,weights=wait_w,**kw)
+    mean_model=_boost_train(X,ymean,idx,weights=w,**kw)
+    cont_model=_boost_train(X,future_value,idx,weights=w,**kw)
+    hold_model=_boost_train(X,yhold,idx,rounds=max(6,TREE_ROUNDS-2),lr=.070,max_rows=10**9,
+                            root_orders=orders,max_depth=2,min_leaf=32,weights=w)
+    raw_wait=[]
+    for x in X:
+        pw,_=_boost_pred(wait_model,x);raw_wait.append(max(0.0,min(1.0,pw)))
+    active_wait=[z<.5 for z in enter]
+    wait_cal=_r12_fit_calibrator(reps,raw_wait,wait,years,active_wait)
+    return {"type":"R13_REPRESENTATIVE_PRECISION_HAZARD",
+            "fit_years":list(years),"idx":list(idx),"ranker":ranker,
+            "enter_calibrator":enter_cal,"wait_model":wait_model,
+            "wait_calibrator":wait_cal,"mean_model":mean_model,
+            "continuation_model":cont_model,"hold_model":hold_model,
+            "representative_policy":"MAX_COMMON_EXPECTED_R__LCB_WIN_TIEBREAK",
+            "event_bar_single_claim":True}
+
+
+def _pred_r13_hazard(model,s):
+    raw,rs=_pred_r13_pair_raw(model["ranker"],s)
+    ep,en,eo=_r12_calibrated_probability(model["enter_calibrator"],s,raw)
+    en=max(1,min(int(rs or 1),int(en or 1)))
+    enter_lcb=_r4_wilson_lcb(ep,en)
+
+    pw,sw=_boost_pred(model["wait_model"],s["x"]);pw=max(0.0,min(1.0,pw))
+    wp,wn,wo=_r12_calibrated_probability(model["wait_calibrator"],s,pw)
+    wait_p=max(0.0,min(1.0,(1.0-ep)*wp))
+    reject_p=max(0.0,min(1.0,(1.0-ep)*(1.0-wp)))
+
+    mu,sm=_boost_pred(model["mean_model"],s["x"])
+    co,sc=_boost_pred(model["continuation_model"],s["x"])
+    hh,sh=_boost_pred(model["hold_model"],s["x"])
+    sm=max(1,int(sm or 1));sc=max(1,int(sc or 1))
+    mse=float(model["mean_model"].get("sigma",1.0))
+    cse=float(model["continuation_model"].get("sigma",1.0))
+    q_enter_lcb=float(mu)-Z*max(.05,mse)/math.sqrt(sm)
+    q_wait_lcb=max(0.0,float(co)-Z*max(.05,cse)/math.sqrt(sc))
+    stop_adv=q_enter_lcb-q_wait_lcb
+    return {"rank_raw":raw,"enter":ep,"enter_lcb":enter_lcb,
+            "defer":wait_p,"reject":reject_p,"wait_raw":pw,
+            "mean_r":float(mu),"continuation_r":float(co),
+            "q_enter_lcb":q_enter_lcb,"q_wait_lcb":q_wait_lcb,
+            "stop_advantage":stop_adv,
+            "expected_hold_bars":max(1.0,min(180.0,float(hh)*180.0)),
+            "enter_support":en,"enter_calibration_origin":eo,
+            "wait_support":max(1,int(wn or 1)),"wait_calibration_origin":wo}
+
+
+def _r13_decisions(reps,model):
+    out=[]
+    for s in reps:
+        z=_pred_r13_hazard(model,s);q=dict(s)
+        q["decision_score"]=float(z["enter_lcb"])
+        q["decision_margin"]=float(z["enter_lcb"])-max(float(z["defer"]),float(z["reject"]))
+        pred={
+          "win":float(z["enter"]),"mean":float(z["mean_r"]),
+          "lcb":float(z["q_enter_lcb"]),"continuation":float(z["continuation_r"]),
+          "regret":max(0.0,float(z["q_wait_lcb"])-float(z["q_enter_lcb"])),
+          "best_probability":float(z["enter"]),"stop_advantage":float(z["stop_advantage"]),
+          "expected_hold_bars":float(z["expected_hold_bars"]),
+          "admission":{"enter":float(z["enter"]),"enter_lcb":float(z["enter_lcb"]),
+                       "defer":float(z["defer"]),"reject":float(z["reject"]),
+                       "advantage":float(z["mean_r"])-float(z["continuation_r"]),
+                       "advantage_lcb":float(z["stop_advantage"])},
+          "r4_calibrated_enter":float(z["enter"]),"r4_calibrated_lcb":float(z["enter_lcb"]),
+          "raw_meta_score":float(z["rank_raw"]),
+          "r13_rank_raw":float(z["rank_raw"]),
+          "r13_q_enter_lcb":float(z["q_enter_lcb"]),
+          "r13_q_wait_lcb":float(z["q_wait_lcb"]),
+          "regime_id":int(s.get("regime_id",_r4_regime_id(s)))
+        }
+        out.append({"score":float(z["enter_lcb"])+1e-6*float(z["rank_raw"]),
+                    "route_rank":float(z["q_enter_lcb"]),
+                    "stop_advantage":float(z["stop_advantage"]),
+                    "pred":pred,"s":q})
+    return out
+
+
+def _fit_r13_tournament(samples,years):
+    val_years=[years[i] for i in range(2,len(years))]
+    if len(val_years)<3:raise SystemExit("V74-R13 insufficient inner OOF years")
+    shared=globals().get("_INNER_R4_OOF_CACHE",{});stage=[];meta=[]
+    for vw in val_years:
+        z=shared.get(vw)
+        if z is None:
+            _,z=_compute_shared_inner_r4_year(vw)
+        if not z.get("stage"):raise SystemExit("V74-R13 empty OOF stage "+vw)
+        stage.extend(z["stage"]);meta.append(z["meta"])
+
+    cross=[];cross_years=[];meta_cv=[]
+    for hi in range(2,len(val_years)):
+        hw=val_years[hi];ty=val_years[:hi]
+        tr_stage=[s for s in stage if s["window"] in ty]
+        va_stage=[s for s in stage if s["window"]==hw]
+        tr=_r13_representative_stage(tr_stage);va=_r13_representative_stage(va_stage)
+        if len(tr)<700 or not va:continue
+        md=_fit_r13_precision_hazard(tr,ty)
+        dd=_r13_decisions(va,md)
+        cross.extend(dd);cross_years.append(hw)
+        meta_cv.append({"held_year":hw,"fit_years":list(ty),
+                        "train_stage":len(tr_stage),"train_representatives":len(tr),
+                        "test_stage":len(va_stage),"test_representatives":len(va),
+                        "causal_forward_chain":True,
+                        "single_event_bar_capital_claim":True,
+                        "precision_pair_ranker":True})
+    if not cross or not cross_years:
+        raise SystemExit("V74-R13 empty causal forward representative OOF")
+
+    cmi=_conditional_mi_bits(cross);candidates=[]
+    for target in (250,275,300):
+        z=_precision_threshold(cross,cross_years,target)
+        if z is None:continue
+        candidates.append((tuple(z["rank"])+(cmi,),target,z))
+    if not candidates:raise SystemExit("V74-R13 no coverage-feasible threshold")
+    candidates.sort(key=lambda q:q[0],reverse=True)
+    rank,target,z=candidates[0]
+
+    full_reps=_r13_representative_stage(stage)
+    final=_fit_r13_precision_hazard(full_reps,val_years)
+    fitted_dec=_r13_decisions(full_reps,final)
+    os=[float(e["score"]) for e in cross];fs=[float(e["score"]) for e in fitted_dec]
+    om=med(os,0.0);fm=med(fs,0.0)
+    oq1,oq3=qtile(os,.25),qtile(os,.75);fq1,fq3=qtile(fs,.25),qtile(fs,.75)
+    scale=max(.35,min(2.5,(fq3-fq1)/max(1e-9,oq3-oq1)))
+    transferred=fm+(float(z["threshold"])-om)*scale
+
+    oof_stop=float(z.get("stop_margin",-math.inf))
+    if math.isfinite(oof_stop):
+        oa=[float(e.get("stop_advantage",-999.0)) for e in cross
+            if math.isfinite(float(e.get("stop_advantage",-999.0))) and float(e.get("stop_advantage",-999.0))>-900.0]
+        fa=[float(e.get("stop_advantage",-999.0)) for e in fitted_dec
+            if math.isfinite(float(e.get("stop_advantage",-999.0))) and float(e.get("stop_advantage",-999.0))>-900.0]
+        oam=med(oa,0.0);fam=med(fa,0.0)
+        oaq1,oaq3=qtile(oa,.25),qtile(oa,.75);faq1,faq3=qtile(fa,.25),qtile(fa,.75)
+        stop_scale=max(.35,min(2.5,(faq3-faq1)/max(1e-9,oaq3-oaq1)))
+        stop_transferred=fam+(oof_stop-oam)*stop_scale
+    else:
+        oam=fam=0.0;oaq1=oaq3=faq1=faq3=0.0;stop_scale=1.0
+        stop_transferred=-math.inf
+
+    heads,training=fit_mechanism_heads_from_samples(samples)
+    route=mechanism_decisions(samples,heads)
+    prior=_fit_struct_prior([e["s"] for e in route])
+    training_oracle={w:_oracle_top250([s for s in samples if s["window"]==w]) for w in years}
+    print("[V74-R13-SELECT] "+json.dumps({
+          "coverage_target":target,"rank":list(rank),"conditional_mi_bits":cmi,
+          "threshold_oof":z["threshold"],"threshold_full":transferred,
+          "stop_margin_oof":oof_stop,"stop_margin_full":stop_transferred,
+          "representative_rows":len(full_reps)},sort_keys=True),flush=True)
+    return {"mechanism_heads":heads,"mechanism_training":training,
+            "stage_prior":prior,"hazard_model":final,
+            "threshold":transferred,"oof_threshold":z["threshold"],
+            "stop_margin":stop_transferred,"oof_stop_margin":oof_stop,
+            "training_metrics":z["metrics"],"training_rank":list(rank),
+            "training_limits":z["limits"],"training_supply":z["supply"],
+            "coverage_target":target,"inner_oof_years":val_years,
+            "meta_oof_years":cross_years,"nested_meta":meta,
+            "meta_crossfit":meta_cv,"conditional_mi_bits":cmi,
+            "information_gate":bool(cmi>1e-4),
+            "training_oracle_admission":training_oracle,
+            "threshold_transfer":{"oof_median":om,"full_fit_median":fm,
+              "oof_iqr":oq3-oq1,"full_fit_iqr":fq3-fq1,"scale":scale,
+              "oof_stop_margin":oof_stop,"transferred_stop_margin":stop_transferred,
+              "stop_oof_median":oam,"stop_full_fit_median":fam,
+              "stop_oof_iqr":oaq3-oaq1,"stop_full_fit_iqr":faq3-faq1,
+              "stop_scale":stop_scale,
+              "rule":"OUTCOME_FREE_R13_REPRESENTATIVE_SCORE_AND_STOP_AFFINE_TRANSFER"}}
+
+
 def fit_policy(train_rows,prebuilt_samples=None):
-    """V74-R12 event-hazard capital admission policy."""
+    """V74-R13 event-bar representative precision hazard policy."""
     samples=list(prebuilt_samples) if prebuilt_samples is not None else make_samples(train_rows)
-    if len(samples)<3000:raise SystemExit("V74-R12 insufficient causal actions")
+    if len(samples)<3000:raise SystemExit("V74-R13 insufficient causal actions")
     yrs=sorted({r["window"] for r in train_rows},key=lambda w:int(w[1:]))
-    r12=_fit_r12_hazard_tournament(samples,yrs)
-    tm=r12["training_metrics"];worst=min(gate_margin(m) for m in tm.values()) if tm else -999.0
+    r13=_fit_r13_tournament(samples,yrs)
+    tm=r13["training_metrics"];worst=min(gate_margin(m) for m in tm.values()) if tm else -999.0
     training_gate=all(gate(m) for m in tm.values()) if tm else False
-    return {"architecture":"V74_R12_EVENT_HAZARD_CAPITAL_ADMISSION",
-            "mechanism_heads":r12["mechanism_heads"],"stage_prior":r12["stage_prior"],
-            "hazard_model":r12["hazard_model"],
-            "admission_fit_years":yrs,"admission_inner_oof_years":r12["inner_oof_years"],
-            "threshold":r12["threshold"],"oof_threshold":r12["oof_threshold"],
-            "stop_margin":r12["stop_margin"],
-            "training_coverage_limits":r12["training_limits"],"training_supply":r12["training_supply"],
+    return {"architecture":"V74_R13_EVENT_BAR_REPRESENTATIVE_PRECISION_HAZARD",
+            "mechanism_heads":r13["mechanism_heads"],"stage_prior":r13["stage_prior"],
+            "hazard_model":r13["hazard_model"],
+            "admission_fit_years":yrs,"admission_inner_oof_years":r13["inner_oof_years"],
+            "threshold":r13["threshold"],"oof_threshold":r13["oof_threshold"],
+            "stop_margin":r13["stop_margin"],
+            "training_coverage_limits":r13["training_limits"],"training_supply":r13["training_supply"],
             "training_metrics":tm,"training_worst_gate_margin":worst,
-            "training_oracle_admission":r12["training_oracle_admission"],
-            "training_gate":training_gate,"coverage_target":r12["coverage_target"],
+            "training_oracle_admission":r13["training_oracle_admission"],
+            "training_gate":training_gate,"coverage_target":r13["coverage_target"],
             "admission_sweep":{"rounds":[],"evaluated_candidates":3,
-              "training_rank":r12["training_rank"],"baseline_rank":None,
+              "training_rank":r13["training_rank"],"baseline_rank":None,
               "non_regression_vs_current_training":True,
-              "selected_mode":"R12_CALIBRATED_EVENT_HAZARD__POST_ADMISSION_MAXACTIVEBASKET1",
-              "inner_oof_years":r12["inner_oof_years"],"meta_oof_years":r12["meta_oof_years"],
-              "nested_meta":r12["nested_meta"],"meta_crossfit":r12["meta_crossfit"],
-              "threshold_transfer":r12["threshold_transfer"],
-              "conditional_mi_bits":r12["conditional_mi_bits"],
-              "information_gate":r12["information_gate"],"score_orientation":1.0}},samples
+              "selected_mode":"R13_SINGLE_EVENT_BAR_REPRESENTATIVE__PAIRWISE_PRECISION_HAZARD",
+              "inner_oof_years":r13["inner_oof_years"],"meta_oof_years":r13["meta_oof_years"],
+              "nested_meta":r13["nested_meta"],"meta_crossfit":r13["meta_crossfit"],
+              "threshold_transfer":r13["threshold_transfer"],
+              "conditional_mi_bits":r13["conditional_mi_bits"],
+              "information_gate":r13["information_gate"],"score_orientation":1.0}},samples
 
 def apply_policy(policy,test_rows,prebuilt_samples=None):
     samples=list(prebuilt_samples) if prebuilt_samples is not None else make_samples(test_rows)
     route=mechanism_decisions(samples,policy["mechanism_heads"])
     stage=_r4_stage_samples(route,policy["stage_prior"])
-    dec=_r12_hazard_decisions(stage,policy["hazard_model"])
+    reps=_r13_representative_stage(stage)
+    dec=_r13_decisions(reps,policy["hazard_model"])
     sel=simulate(dec,policy["threshold"],stop_margin=policy.get("stop_margin",-math.inf))
     return sel,samples,dec
 def _diag_metrics(samples):
@@ -4339,7 +4677,8 @@ for _required_fn in ("_diag_metrics","_oracle_top250","fit_mechanism_heads_from_
                      "fit_source_precision_bundle","_fit_r6_common_calibrator","_r6_arbitrate",
                      "meta_lane_decisions","admission_lane_context",
                      "_fit_r4_meta_policy","_apply_r4_meta_policy","_fit_r4_tournament",
-                     "_fit_r12_hazard","_r12_hazard_decisions","_fit_r12_hazard_tournament"):
+                     "_fit_r12_hazard","_r12_hazard_decisions","_fit_r12_hazard_tournament",
+                     "_r13_representative_stage","_fit_r13_precision_hazard","_fit_r13_tournament"):
     if not callable(globals().get(_required_fn)):
         raise SystemExit("V74 evaluator preflight missing callable "+_required_fn)
 _required_modes=("R6_COMMON_UTILITY","R6_WIN_LCB","R6_WIN_PROB","R6_MEAN_LCB","R6_UTILITY_PLUS_STOP","R8_MATCHED_UTILITY","R8_MATCHED_WIN_LCB","R8_MATCHED_MEAN_LCB")
@@ -4348,7 +4687,7 @@ if tuple(globals().get("R6_SEMANTIC_SCORE_MODES",()))!=_required_modes:
 
 checks=telemetry_guard()
 summary={"version":"HarmonyBot V74 One-Shot Family-Native Causal Action Selector",
- "architecture":"V74_R12_EVENT_HAZARD_CAPITAL_ADMISSION__R11_REACTION_COMMIT_ACTION_SURFACE",
+ "architecture":"V74_R13_EVENT_BAR_REPRESENTATIVE_PRECISION_HAZARD__R11_ACTION_SURFACE",
  "gate":{"min_selected_per_year":MIN_N,"min_mean_r":MIN_MEAN,"min_pf_r":MIN_PF,
          "min_win_rate":MIN_WR,"min_average_rr":MIN_AVG_RR,"lcb95_gt":0.0},
  "research_training_windows":RESEARCH,"burned_oof_windows":BURNED,
@@ -4356,8 +4695,8 @@ summary={"version":"HarmonyBot V74 One-Shot Family-Native Causal Action Selector
            "harmonic_completion":"DIRECTION_TIME_D_EVENT_IDENTITY__MULTI_GEOMETRY_IS_CONFLUENCE_NOT_SUPPLY",
            "reaction_state":"CAUSAL_FEATURE_NOT_HARD_FILTER","physical_route_contract":"EVENT_NATIVE_CANONICAL_EVENT_FULL_COMPLETED_BAR_ENTRY_TIMING__EARLY_F00_M05_M10_M15__LATE_PREENTRY_F20_F30__SURVIVAL_FRESH__NETRR_GE230","v75_management_variants_excluded":True,"all_entry_maturity_stages_completed_bar_only":True,
            "route_choice":"SOURCE_NATIVE_EVENT_BALANCED_PAIRWISE_ROUTE_ARBITRATION__ALL_CAUSAL_LANES",
-           "optimal_stopping":"R12_COMPETING_RISK_ENTER_WAIT_REJECT__FITTED_CURRENT_VS_STRICT_FUTURE_CONTINUATION_LCB",
-           "admission":"R12_EVENT_HAZARD__HIERARCHICAL_JEFFREYS_YEAR_REGIME_CALIBRATION__PRECISION_AT_250_GROUP_DRO",
+           "optimal_stopping":"R13_SINGLE_REPRESENTATIVE_COMPETING_RISK_ENTER_WAIT_REJECT__FITTED_CURRENT_VS_STRICT_FUTURE_CONTINUATION_LCB",
+           "admission":"R13_EVENT_BAR_SINGLE_CAPITAL_CLAIM__MATCHED_HARD_NEGATIVE_PAIRWISE_PRECISION__HIERARCHICAL_JEFFREYS_CALIBRATION",
            "training_coverage_target_per_year":TRAIN_COVERAGE,
            "family_hierarchy":"CANONICAL_FAMILY_IDENTITY__ALL_LEGAL_CAUSAL_LANES__NO_FAMILY_BLACKLIST",
            "no_trigger_posttrigger_lock_future_state":True,
@@ -4477,7 +4816,7 @@ for test,fold,policy in fold_results:
           for k in ("n","mean_r","pf_r","win_rate","average_rr","lcb_r","pass")}),flush=True)
 
 alpha=bool(allpass)
-champ="V74_R12_EVENT_HAZARD_CAPITAL_ADMISSION" if alpha else None
+champ="V74_R13_EVENT_BAR_REPRESENTATIVE_PRECISION_HAZARD" if alpha else None
 fold_metrics={w:{k:summary["folds"][w][k] for k in ("n","mean_r","pf_r","win_rate","average_rr","lcb_r")}
               for w in BURNED}
 current_rank=_guard_rank(fold_metrics)
@@ -4498,7 +4837,7 @@ summary["performance_engine"]={"immutable_sample_prebuild":True,
  "inner_cache_build_seconds":globals().get("_inner_cache_seconds"),
  "meta_prefix_cache":False,"meta_prefix_parallel":False,
  "parity_fail_closed":True}
-summary["root_cause_rearchitecture"]="V74_R12_EVENT_HAZARD_CAPITAL_ADMISSION"
+summary["root_cause_rearchitecture"]="V74_R13_EVENT_BAR_REPRESENTATIVE_PRECISION_HAZARD"
 summary["component_rank_diagnostic_version"]="EVENT_TOP250_COMPONENT_RANK_V1"
 summary["event_identity_weighting_contract"]="YEAR_EQUAL__INDEPENDENT_EVENT_EQUAL__ROUTE_MULTIPLICITY_NEUTRAL__EARLY_ALIAS_DEDUP"
 summary["survival_primary_alpha"]=False
@@ -4545,6 +4884,11 @@ summary["r12_competing_risk_event_hazard_active"]=True
 summary["r12_probability_calibration"]="EVENT_BALANCED_JEFFREYS__SOURCE_FAMILY_REGIME_HIERARCHY__LOWER_QUARTILE_YEAR_ROBUST"
 summary["r12_optimal_stopping"]="LCB_CURRENT_EXPECTED_R_MINUS_LCB_STRICT_FUTURE_CONTINUATION"
 summary["r12_future_information_used"]=False
+summary["r13_single_event_bar_capital_claim"]=True
+summary["r13_representative_route_policy"]="MAX_COMMON_EXPECTED_R__LCB_WIN_TIEBREAK__NO_OUTCOME"
+summary["r13_precision_ranker"]="EVENT_YEAR_BALANCED_MATCHED_HARD_NEGATIVE_PAIRWISE"
+summary["r13_max_selection_bias_removed"]=True
+summary["r13_future_information_used"]=False
 summary["parallel_fold_execution"]=parallel_used
 summary["parallel_fold_workers"]=min(len(BURNED),max(1,int(os.cpu_count() or 1))) if parallel_used else 1
 summary["alpha_gate"]=alpha;summary["alpha_champion"]=champ
