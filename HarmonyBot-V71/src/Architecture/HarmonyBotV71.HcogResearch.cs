@@ -295,8 +295,13 @@ namespace cAlgo.Robots
             public double V74FailureOutcomeR=double.NaN;
             public string V74FailureMaturityStateCsv="", V74FailureEntryStateCsv="", V74FailurePathR7Csv="";
             public int[] V74HighConvictionReactionBar = Enumerable.Repeat(-1, 4).ToArray();
+            public int[] V74HighConvictionEntryBar = Enumerable.Repeat(-1, 4).ToArray();
+            public int[] V74HighConvictionBars = new int[4];
             public bool[] V74HighConvictionActive = new bool[4];
             public bool[] V74HighConvictionPositiveArmed = new bool[4];
+            public string[] V74HighConvictionMaturityStateCsv = new string[4];
+            public string[] V74HighConvictionEntryStateCsv = new string[4];
+            public string[] V74HighConvictionPathR7Csv = new string[4];
             public double[] V74HighConvictionEntry = new double[4];
             public double[] V74HighConvictionStop = new double[4];
             public double[] V74HighConvictionTarget = new double[4];
@@ -1620,6 +1625,9 @@ namespace cAlgo.Robots
                 if(o.V74HighConvictionReactionBar[k]<0&&!nativeStop&&!nativeTarget&&virtualFav+1e-12>=V74HighConvictionReactionR[k])
                 {
                     o.V74HighConvictionReactionBar[k]=o.BarsActive;
+                    o.V74HighConvictionMaturityStateCsv[k]=string.Join(",",V74RouteStateFeatures(
+                        o,i,o.Entry,o.RiskDistance,o.Target,o.BarsActive,o.MfeR,o.MaeR,V74HighConvictionReactionR[k])
+                        .Select(v=>v.ToString("R",System.Globalization.CultureInfo.InvariantCulture)));
                     continue; // reaction bar is observation only; no same-bar capital
                 }
 
@@ -1639,11 +1647,19 @@ namespace cAlgo.Robots
                     if(rr+1e-9<2.30)continue;
 
                     o.V74HighConvictionActive[k]=true;
+                    o.V74HighConvictionEntryBar[k]=o.BarsActive;o.V74HighConvictionBars[k]=0;
                     o.V74HighConvictionEntry[k]=entry;o.V74HighConvictionStop[k]=stop;o.V74HighConvictionTarget[k]=o.Target;
                     o.V74HighConvictionRisk[k]=risk;o.V74HighConvictionNetRr[k]=rr;o.V74HighConvictionPositiveArmed[k]=false;
+                    o.V74HighConvictionEntryStateCsv[k]=string.Join(",",V74RouteStateFeatures(
+                        o,i,entry,risk,o.Target,0,0,0,V74HighConvictionReactionR[k])
+                        .Select(v=>v.ToString("R",System.Globalization.CultureInfo.InvariantCulture)));
+                    o.V74HighConvictionPathR7Csv[k]=string.Join(",",V74DecisionPathR7(
+                        o,i,o.V74HighConvictionReactionBar[k],entry,risk)
+                        .Select(v=>v.ToString("R",System.Globalization.CultureInfo.InvariantCulture)));
                     continue;
                 }
 
+                o.V74HighConvictionBars[k]++;
                 double routeFav=buy?(high-o.V74HighConvictionEntry[k])/o.V74HighConvictionRisk[k]
                                    :(o.V74HighConvictionEntry[k]-low)/o.V74HighConvictionRisk[k];
                 double routeCloseR=(buy?close-o.V74HighConvictionEntry[k]:o.V74HighConvictionEntry[k]-close)/o.V74HighConvictionRisk[k];
@@ -1654,13 +1670,9 @@ namespace cAlgo.Robots
                 if(stopHit){o.V74HighConvictionOutcomeR[k]=-1.0;o.V74HighConvictionActive[k]=false;continue;}
                 if(targetHit){o.V74HighConvictionOutcomeR[k]=o.V74HighConvictionNetRr[k];o.V74HighConvictionActive[k]=false;continue;}
 
-                // Before the live trade proves +0.25R, cut a completed-close adverse move.
-                // This only reduces loss magnitude; it never converts a loser into a fake win.
-                if(!o.V74HighConvictionPositiveArmed[k]&&routeCloseR<=-.25)
-                {
-                    o.V74HighConvictionOutcomeR[k]=Math.Max(-1.0,routeCloseR);
-                    o.V74HighConvictionActive[k]=false;
-                }
+                // R9 V74 qualification deliberately has no post-entry early cut,
+                // break-even, partial or profit floor.  Fresh qualification is a raw
+                // SL/TP basket so V75 exit/profit-capture semantics remain downstream.
             }
         }
 
@@ -2029,8 +2041,8 @@ namespace cAlgo.Robots
                 for(int k=0;k<o.V74HybridOutcomeR.Length;k++)if(double.IsNaN(o.V74HybridOutcomeR[k]))o.V74HybridOutcomeR[k]=r;
                 V74FinalizeReactionConfirmedReentry(o,close);
                 V74FinalizeReactionCommitLadders(o,close);
-                V74FinalizeHighConvictionDelayedCommit(o,close);
             }
+            V74FinalizeHighConvictionDelayedCommit(o,close);
             V74FinalizeSurvivalFresh(o,close);
             V74FinalizePostStopFailureContinuation(o,close);
             V74FinalizeCausalSequentialDelayedCommit(o,close);
@@ -2062,6 +2074,20 @@ namespace cAlgo.Robots
                     double.IsFinite(o.V74HighConvictionOutcomeR[2])?o.V74HighConvictionOutcomeR[2].ToString("R",System.Globalization.CultureInfo.InvariantCulture):"NA",
                     double.IsFinite(o.V74HighConvictionOutcomeR[3])?o.V74HighConvictionOutcomeR[3].ToString("R",System.Globalization.CultureInfo.InvariantCulture):"NA");
             }
+            var hcParts=new List<string>{"setup="+o.SetupKey,"family="+o.Family,"lane="+o.Lane};
+            for(int k=0;k<V74HighConvictionKey.Length;k++)
+            {
+                hcParts.Add("m"+k+"="+(string.IsNullOrWhiteSpace(o.V74HighConvictionMaturityStateCsv[k])?"NONE":o.V74HighConvictionMaturityStateCsv[k]));
+                hcParts.Add("e"+k+"="+(string.IsNullOrWhiteSpace(o.V74HighConvictionEntryStateCsv[k])?"NONE":o.V74HighConvictionEntryStateCsv[k]));
+                hcParts.Add("p"+k+"="+(string.IsNullOrWhiteSpace(o.V74HighConvictionPathR7Csv[k])?"NONE":o.V74HighConvictionPathR7Csv[k]));
+                hcParts.Add("b"+k+"="+(double.IsFinite(o.V74HighConvictionOutcomeR[k])?o.V74HighConvictionOutcomeR[k].ToString("R",System.Globalization.CultureInfo.InvariantCulture):"NA"));
+                hcParts.Add("rr"+k+"="+o.V74HighConvictionNetRr[k].ToString("R",System.Globalization.CultureInfo.InvariantCulture));
+                hcParts.Add("re"+k+"="+o.V74HighConvictionReactionBar[k].ToString(System.Globalization.CultureInfo.InvariantCulture));
+                hcParts.Add("eb"+k+"="+o.V74HighConvictionEntryBar[k].ToString(System.Globalization.CultureInfo.InvariantCulture));
+                hcParts.Add("rb"+k+"="+o.V74HighConvictionBars[k].ToString(System.Globalization.CultureInfo.InvariantCulture));
+            }
+            Print("[V74-HIGH-CONVICTION-PATH] "+string.Join(" ",hcParts));
+
             var sfParts=new List<string>{"setup="+o.SetupKey,"family="+o.Family,"lane="+o.Lane};
             for(int k=0;k<V74SurvivalFreshKey.Length;k++)
             {
@@ -2147,8 +2173,8 @@ namespace cAlgo.Robots
                 V74UpdateReactionConfirmedReentry(o,i,stop,target);
                 V74UpdateHybridSurvivalFrontiers(o,i,stop,target);
                 V74UpdateReactionCommitLadders(o,i,stop,target);
-                V74UpdateHighConvictionDelayedCommit(o,i,stop,target);
             }
+            V74UpdateHighConvictionDelayedCommit(o,i,stop,target);
             V74UpdateSurvivalFresh(o,i,stop,target);
             V74UpdateCausalSequentialDelayedCommit(o,i,stop,target);
             V74UpdateTrueLateEntryAuction(o,i,stop,target);
