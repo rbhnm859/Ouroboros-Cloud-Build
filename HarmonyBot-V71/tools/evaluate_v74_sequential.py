@@ -17,7 +17,7 @@ profit-capture and Grid/capital-capacity mechanics are intentionally excluded.
 import bisect,json,math,os,pathlib,statistics,sys,time,multiprocessing as mp
 # V74 performance-engine generation: immutable-prebuild/shared-inner-context-v1
 from collections import defaultdict,Counter
-from v74_model_lib import load_rows,metrics,SEQUENTIAL_STATE_FEATURE_COUNT,SURVIVAL_MORPH_FEATURE_COUNT,SURVIVAL_PATH_V2_FEATURE_COUNT,R7_COMMON_PATH_FEATURE_COUNT,FAMILIES,SURVIVAL_FRESH_KEYS,HIGH_CONVICTION_KEYS,FEATURE_NAMES
+from v74_model_lib import load_rows,metrics,SEQUENTIAL_STATE_FEATURE_COUNT,SURVIVAL_MORPH_FEATURE_COUNT,SURVIVAL_PATH_V2_FEATURE_COUNT,R7_COMMON_PATH_FEATURE_COUNT,FAMILIES,SURVIVAL_FRESH_KEYS,HIGH_CONVICTION_KEYS,REACTION_COMMIT_KEYS,FEATURE_NAMES
 from v74_model_lib import event_identity
 from harmonic_precision_contract import harmonic_precision_vector
 
@@ -39,7 +39,7 @@ HISTORICAL_BEST_GUARD={
  "min_win_rate":0.2914438502673797,
  "min_lcb_r":-0.16393054369487778
 }
-REGULAR_SOURCES=("EARLY","LATE");SOURCES=("EARLY","LATE","SURVIVAL","FAILURE");EARLY_QUALIFICATION_FRACTION="00";EARLY_FRACTIONS=(EARLY_QUALIFICATION_FRACTION,);LATE_FRACTIONS=("20","30");ALL_FRACTIONS=(EARLY_QUALIFICATION_FRACTION,)+LATE_FRACTIONS;MSTAGES=("05","10","15");EARLY_MSTAGES=MSTAGES;LATE_MSTAGES=MSTAGES
+REGULAR_SOURCES=("EARLY","LATE");SOURCES=("EARLY","LATE","SURVIVAL","REACTION","FAILURE");EARLY_QUALIFICATION_FRACTION="00";EARLY_FRACTIONS=(EARLY_QUALIFICATION_FRACTION,);LATE_FRACTIONS=("20","30");ALL_FRACTIONS=(EARLY_QUALIFICATION_FRACTION,)+LATE_FRACTIONS;MSTAGES=("05","10","15");EARLY_MSTAGES=MSTAGES;LATE_MSTAGES=MSTAGES
 BASES=[f"R{r}_{h}_RR{rr}" for r in ("025","050") for h in ("H","D") for rr in ("35","40")]
 TREE_KFEAT=30;PAIR_KFEAT=26;TREE_ROUNDS=10;PAIR_ROUNDS=8;TREE_DEPTH=3;TOP_PAIR=6
 rows=load_rows(root,ALL)
@@ -136,6 +136,7 @@ def route_cats(r,src,b,m,f,sfkey=None,action_override=None):
       1.0 if action=="CONTINUATION" else 0.0,
       1.0 if src=="LATE" else 0.0,
       1.0 if src=="SURVIVAL" else 0.0,
+      1.0 if src=="REACTION" else 0.0,
       1.0 if src=="FAILURE" else 0.0,
       1.0 if b.startswith("R050_") else 0.0,
       1.0 if "_D_" in b else 0.0,
@@ -225,6 +226,36 @@ def proof_commit_xvec(r,hc,eb):
             [0.0]*SURVIVAL_MORPH_FEATURE_COUNT+path)
 
 
+def reaction_commit_xvec(r,rc,eb):
+    """R11 fixed-payoff delayed reaction-commit vector.
+
+    Maturity is the completed shadow +0.75R/+1.00R observation; entry is a later
+    completed hold bar.  All telemetry is frozen before capital is committed.
+    """
+    a=r.get("reaction_commit_maturity_state",{}).get(rc)
+    e=r.get("reaction_commit_entry_state",{}).get(rc)
+    ap=1.0 if a is not None and len(a)==SEQUENTIAL_STATE_FEATURE_COUNT else 0.0
+    ep=1.0 if e is not None and len(e)==SEQUENTIAL_STATE_FEATURE_COUNT else 0.0
+    aa=[float(x) for x in a] if ap else [0.0]*SEQUENTIAL_STATE_FEATURE_COUNT
+    ee=[float(x) for x in e] if ep else [0.0]*SEQUENTIAL_STATE_FEATURE_COUNT
+    delta=[ee[i]-aa[i] if ap and ep else 0.0 for i in range(SEQUENTIAL_STATE_FEATURE_COUNT)]
+    rb=r.get("reaction_commit_reaction_bar",{}).get(rc,-1)
+    bars=r.get("reaction_commit_bars",{}).get(rc,0)
+    timing=[max(-1.0,min(6.0,float(eb)/10.0)),
+            max(-1.0,min(6.0,float(rb)/10.0)) if rb is not None else -1.0,
+            max(-1.0,min(6.0,float(eb-rb)/10.0)) if rb is not None and rb>=0 else -1.0,
+            max(0.0,min(6.0,float(bars)/10.0))]
+    pv=r.get("reaction_commit_path_r7",{}).get(rc)
+    common=[float(x) for x in pv] if pv is not None and len(pv)==R7_COMMON_PATH_FEATURE_COUNT else [0.0]*R7_COMMON_PATH_FEATURE_COUNT
+    if SURVIVAL_PATH_V2_FEATURE_COUNT<R7_COMMON_PATH_FEATURE_COUNT:
+        raise SystemExit("V74-R11 reaction path width exceeds unified vector contract")
+    path=common+[0.0]*(SURVIVAL_PATH_V2_FEATURE_COUNT-R7_COMMON_PATH_FEATURE_COUNT)
+    hp=_precision_vector(r)
+    return (list(r.get("features",[]))+hp+route_cats(r,"REACTION","REACTION","RC","00",None)+
+            aa+ee+delta+[ap,ep,1.0 if ap and ep else 0.0]+timing+
+            [0.0]*SURVIVAL_MORPH_FEATURE_COUNT+path)
+
+
 def failure_xvec(r,eb):
     a=r.get("failure_continuation_maturity_state",{}).get("FC230")
     e=r.get("failure_continuation_entry_state",{}).get("FC230")
@@ -247,8 +278,8 @@ def failure_xvec(r,eb):
             [0.0]*SURVIVAL_MORPH_FEATURE_COUNT+path_r7)
 
 def telemetry_guard():
-    legal={"EARLY":0,"LATE":0,"SURVIVAL":0,"FAILURE":0};with_state={"EARLY":0,"LATE":0,"SURVIVAL":0,"FAILURE":0}
-    survival_morphology=0;survival_path_v2=0;r7_common_legal=0;r7_common_complete=0;proof_legal=0;proof_complete=0
+    legal={"EARLY":0,"LATE":0,"SURVIVAL":0,"REACTION":0,"FAILURE":0};with_state={"EARLY":0,"LATE":0,"SURVIVAL":0,"REACTION":0,"FAILURE":0}
+    survival_morphology=0;survival_path_v2=0;r7_common_legal=0;r7_common_complete=0;proof_legal=0;proof_complete=0;reaction_legal=0;reaction_complete=0
     for r in rows:
       for b in BASES:
         for src in REGULAR_SOURCES:
@@ -287,6 +318,20 @@ def telemetry_guard():
             len(p)==R7_COMMON_PATH_FEATURE_COUNT)
         if ok:
             with_state["SURVIVAL"]+=1;proof_complete+=1
+      for rc in REACTION_COMMIT_KEYS:
+        y=r.get("reaction_commit",{}).get(rc);rr=r.get("reaction_commit_rr",{}).get(rc)
+        try:eb=int(r.get("reaction_commit_entry_bar",{}).get(rc,-1))
+        except:eb=-1
+        if eb<0 or y is None or rr is None or float(rr)+1e-9<LEGAL_MIN_RR:continue
+        legal["REACTION"]+=1;reaction_legal+=1
+        a=r.get("reaction_commit_maturity_state",{}).get(rc)
+        e=r.get("reaction_commit_entry_state",{}).get(rc)
+        p=r.get("reaction_commit_path_r7",{}).get(rc)
+        ok=(a is not None and e is not None and p is not None and
+            len(a)==SEQUENTIAL_STATE_FEATURE_COUNT and len(e)==SEQUENTIAL_STATE_FEATURE_COUNT and
+            len(p)==R7_COMMON_PATH_FEATURE_COUNT)
+        if ok:
+            with_state["REACTION"]+=1;reaction_complete+=1
       fy=r.get("failure_continuation",{}).get("FC230")
       frr=r.get("failure_continuation_rr",{}).get("FC230")
       try:feb=int(r.get("failure_continuation_entry_bar",{}).get("FC230",-1))
@@ -310,6 +355,9 @@ def telemetry_guard():
     if proof_legal>0 and proof_complete!=proof_legal:
         raise SystemExit("V74-R9 high-conviction proof telemetry completeness failure "+
                          str(proof_complete)+"/"+str(proof_legal))
+    if reaction_legal>0 and reaction_complete!=reaction_legal:
+        raise SystemExit("V74-R11 reaction-commit telemetry completeness failure "+
+                         str(reaction_complete)+"/"+str(reaction_legal))
     return {"legal_actions":legal,"complete_path_state":with_state,
             "survival_morphology_complete":survival_morphology,
             "survival_morphology_missing":max(0,native_survival_legal-survival_morphology),
@@ -321,6 +369,8 @@ def telemetry_guard():
             "survival_path_v3_compat_complete":survival_path_v2,
             "r9_proof_commit_legal":proof_legal,"r9_proof_commit_complete":proof_complete,
             "r9_proof_commit_contract_pass":proof_complete==proof_legal,
+            "r11_reaction_commit_legal":reaction_legal,"r11_reaction_commit_complete":reaction_complete,
+            "r11_reaction_commit_contract_pass":reaction_complete==reaction_legal,
             "missing_state_is_feature_not_veto":True,
             "future_trigger_decision_lock_state_used":False}
 
@@ -379,6 +429,15 @@ def make_samples(xs):
         out.append({"window":r["window"],"setup":r["setup"],"family":r["family"],"action":r["action"],
                     "source":"SURVIVAL","base":"SURVIVAL_PROOF_"+hc,"route":"SURVIVAL|"+hc,
                     "bar":eb,"bars":bars,"x":proof_commit_xvec(r,hc,eb),"y":float(y),"row":r})
+      for rc in REACTION_COMMIT_KEYS:
+        y=r.get("reaction_commit",{}).get(rc);rr=r.get("reaction_commit_rr",{}).get(rc)
+        try:eb=int(r.get("reaction_commit_entry_bar",{}).get(rc,-1))
+        except:eb=-1
+        if y is None or rr is None or eb<0 or float(rr)+1e-9<LEGAL_MIN_RR:continue
+        bars=max(1,int(r.get("reaction_commit_bars",{}).get(rc,r.get("bars",1)) or 1))
+        out.append({"window":r["window"],"setup":r["setup"],"family":r["family"],"action":r["action"],
+                    "source":"REACTION","base":"REACTION_"+rc,"route":"REACTION|"+rc,
+                    "bar":eb,"bars":bars,"x":reaction_commit_xvec(r,rc,eb),"y":float(y),"row":r})
       fy=r.get("failure_continuation",{}).get("FC230");frr=r.get("failure_continuation_rr",{}).get("FC230")
       try:feb=int(r.get("failure_continuation_entry_bar",{}).get("FC230",-1))
       except:feb=-1
@@ -3974,7 +4033,7 @@ if tuple(globals().get("R6_SEMANTIC_SCORE_MODES",()))!=_required_modes:
 
 checks=telemetry_guard()
 summary={"version":"HarmonyBot V74 One-Shot Family-Native Causal Action Selector",
- "architecture":"V74_R10_FEASIBLE_MANIFOLD__SOURCE_NATIVE_MATCHED_COUNTERFACTUAL__POST_ADMISSION_ARBITRATION",
+ "architecture":"V74_R11_REACTION_COMMIT_AUGMENTED_FEASIBLE_MANIFOLD__SOURCE_NATIVE_MATCHED_COUNTERFACTUAL",
  "gate":{"min_selected_per_year":MIN_N,"min_mean_r":MIN_MEAN,"min_pf_r":MIN_PF,
          "min_win_rate":MIN_WR,"min_average_rr":MIN_AVG_RR,"lcb95_gt":0.0},
  "research_training_windows":RESEARCH,"burned_oof_windows":BURNED,
@@ -4101,7 +4160,7 @@ for test,fold,policy in fold_results:
           for k in ("n","mean_r","pf_r","win_rate","average_rr","lcb_r","pass")}),flush=True)
 
 alpha=bool(allpass)
-champ="V74_R10_FEASIBLE_MANIFOLD_MULTISOURCE_ADMISSION" if alpha else None
+champ="V74_R11_REACTION_COMMIT_AUGMENTED_ADMISSION" if alpha else None
 fold_metrics={w:{k:summary["folds"][w][k] for k in ("n","mean_r","pf_r","win_rate","average_rr","lcb_r")}
               for w in BURNED}
 current_rank=_guard_rank(fold_metrics)
@@ -4122,7 +4181,7 @@ summary["performance_engine"]={"immutable_sample_prebuild":True,
  "inner_cache_build_seconds":globals().get("_inner_cache_seconds"),
  "meta_prefix_cache":False,"meta_prefix_parallel":False,
  "parity_fail_closed":True}
-summary["root_cause_rearchitecture"]="V74_R10_FEASIBLE_MANIFOLD_MULTISOURCE_MATCHED_ADMISSION"
+summary["root_cause_rearchitecture"]="V74_R11_REACTION_COMMIT_AUGMENTED_FEASIBLE_MANIFOLD"
 summary["component_rank_diagnostic_version"]="EVENT_TOP250_COMPONENT_RANK_V1"
 summary["event_identity_weighting_contract"]="YEAR_EQUAL__INDEPENDENT_EVENT_EQUAL__ROUTE_MULTIPLICITY_NEUTRAL__EARLY_ALIAS_DEDUP"
 summary["survival_primary_alpha"]=False
@@ -4162,6 +4221,9 @@ summary["r10_physical_feasible_manifold_required"]=True
 summary["r10_source_native_local_matchers"]=True
 summary["r10_cross_source_arbitration"]="POST_ADMISSION_MAXACTIVEBASKET1"
 summary["r10_survival_only_rejected_reason"]="Y2022_Y2023_PHYSICAL_TOP250_WR_BELOW_70"
+summary["r11_fixed_payoff_reaction_commit_active"]=True
+summary["r11_reaction_commit_semantics"]="SHADOW_R075_OR_R100__LATER_COMPLETED_HOLD_ENTRY__FIXED_SL_TP__NETRR_GE230"
+summary["r11_post_entry_profit_management_used"]=False
 summary["parallel_fold_execution"]=parallel_used
 summary["parallel_fold_workers"]=min(len(BURNED),max(1,int(os.cpu_count() or 1))) if parallel_used else 1
 summary["alpha_gate"]=alpha;summary["alpha_champion"]=champ
