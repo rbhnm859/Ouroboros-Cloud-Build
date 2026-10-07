@@ -19,6 +19,7 @@ MILESTONE_FEATURE_COUNT=12
 SEQUENTIAL_STATE_FEATURE_COUNT=80
 SURVIVAL_MORPH_FEATURE_COUNT=8
 SURVIVAL_PATH_V2_FEATURE_COUNT=48
+R7_COMMON_PATH_FEATURE_COUNT=32
 Z=1.645
 
 RX=re.compile(
@@ -147,6 +148,13 @@ def load_rows(root,windows):
                 p["failure_continuation_rr"]={"FC230":rr} if math.isfinite(rr) else {}
                 p["failure_continuation_maturity_state"]={"FC230":_vec("m")} if _vec("m") is not None else {}
                 p["failure_continuation_entry_state"]={"FC230":_vec("e")} if _vec("e") is not None else {}
+                rawp=kv.get("p");fp=None
+                if rawp not in (None,"NONE","NA","NaN","nan"):
+                    try:
+                        vv=[float(x) for x in rawp.split(",")]
+                        if len(vv)==R7_COMMON_PATH_FEATURE_COUNT and all(math.isfinite(x) for x in vv):fp=vv
+                    except Exception:pass
+                p["failure_continuation_path_r7"]={"FC230":fp} if fp is not None else {}
                 for src,dst in (("bb","failure_continuation_break_bar"),("rb","failure_continuation_retest_bar"),("eb","failure_continuation_entry_bar"),("bars","failure_continuation_bars")):
                     try:p[dst]={"FC230":int(kv.get(src,"-1"))}
                     except:p[dst]={}
@@ -219,7 +227,7 @@ def load_rows(root,windows):
                 p=paths.setdefault(setup,{"protect_r":{},"milestones":{},"rcr":{},"hybrid":{},"reaction_commit":{},"high_conviction":{},
                                           "sequential":{},"sequential_rr":{},"sequential_bars":{},"sequential_state":{},"sequential_entry_state":{},
                                           "sequential_trigger_state":{},"sequential_decision_state":{}})
-                outcomes={};rrs={};maturity={};entries={};bars={};reaction_bars={};anchor_bars={};trigger_bars={};entry_bars={};post_trigger_bars={};lock_bars={}
+                outcomes={};rrs={};maturity={};entries={};path_r7={};bars={};reaction_bars={};anchor_bars={};trigger_bars={};entry_bars={};post_trigger_bars={};lock_bars={}
                 for idx,key in enumerate(LATE_AUCTION_KEYS):
                     for prefix,dst in (("m",maturity),("e",entries)):
                         raw=kv.get(prefix+str(idx))
@@ -228,6 +236,12 @@ def load_rows(root,windows):
                                 vv=[float(x) for x in raw.split(",")]
                                 if len(vv)==SEQUENTIAL_STATE_FEATURE_COUNT and all(math.isfinite(x) for x in vv):dst[key]=vv
                             except Exception:pass
+                    rawp=kv.get("p"+str(idx))
+                    if rawp not in (None,"NONE","NA","NaN","nan"):
+                        try:
+                            vv=[float(x) for x in rawp.split(",")]
+                            if len(vv)==R7_COMMON_PATH_FEATURE_COUNT and all(math.isfinite(x) for x in vv):path_r7[key]=vv
+                        except Exception:pass
                     raw=kv.get("b"+str(idx));rawrr=kv.get("rr"+str(idx))
                     if raw not in (None,"NA","NaN","nan"):
                         try:
@@ -243,7 +257,7 @@ def load_rows(root,windows):
                         try:dst[key]=int(kv.get(prefix+str(idx),"-1"))
                         except Exception:pass
                 p["late_auction"]=outcomes;p["late_auction_rr"]=rrs
-                p["late_auction_maturity_state"]=maturity;p["late_auction_entry_state"]=entries
+                p["late_auction_maturity_state"]=maturity;p["late_auction_entry_state"]=entries;p["late_auction_path_r7"]=path_r7
                 p["late_auction_bars"]=bars;p["late_auction_reaction_bars"]=reaction_bars
                 p["late_auction_anchor_bars"]=anchor_bars;p["late_auction_trigger_bars"]=trigger_bars;p["late_auction_entry_bars"]=entry_bars
                 p["late_auction_post_trigger_bars"]=post_trigger_bars;p["late_auction_lock_bars"]=lock_bars
@@ -267,7 +281,7 @@ def load_rows(root,windows):
                         vv=[float(x) for x in raw.split(",")]
                         if len(vv)==SEQUENTIAL_STATE_FEATURE_COUNT and all(math.isfinite(x) for x in vv):states[label]=vv
                     except Exception:pass
-            seq={};seq_rr={};seq_bars={};reaction_bars={};entry_bars={};trigger_bars={};decision_bars={};entry_states={};trigger_states={};decision_states={}
+            seq={};seq_rr={};seq_bars={};reaction_bars={};entry_bars={};trigger_bars={};decision_bars={};entry_states={};path_r7={};trigger_states={};decision_states={}
             for idx,key in enumerate(SEQUENTIAL_KEYS):
                 for prefix,dst in (("e",entry_states),("t",trigger_states),("d",decision_states)):
                     raw=kv.get(prefix+str(idx))
@@ -276,6 +290,12 @@ def load_rows(root,windows):
                             vv=[float(x) for x in raw.split(",")]
                             if len(vv)==SEQUENTIAL_STATE_FEATURE_COUNT and all(math.isfinite(x) for x in vv):dst[key]=vv
                         except Exception:pass
+                rawp=kv.get("p"+str(idx))
+                if rawp not in (None,"NONE","NA","NaN","nan"):
+                    try:
+                        vv=[float(x) for x in rawp.split(",")]
+                        if len(vv)==R7_COMMON_PATH_FEATURE_COUNT and all(math.isfinite(x) for x in vv):path_r7[key]=vv
+                    except Exception:pass
                 raw=kv.get("b"+str(idx));rawrr=kv.get("rr"+str(idx));rawbars=kv.get("rb"+str(idx))
                 if raw not in (None,"NA","NaN","nan"):
                     try:
@@ -297,7 +317,7 @@ def load_rows(root,windows):
             p["sequential"]=seq;p["sequential_rr"]=seq_rr;p["sequential_bars"]=seq_bars
             p["sequential_reaction_bar"]=reaction_bars;p["sequential_entry_bar"]=entry_bars
             p["sequential_trigger_bar"]=trigger_bars;p["sequential_decision_bar"]=decision_bars
-            p["sequential_state"]=states;p["sequential_entry_state"]=entry_states;p["sequential_trigger_state"]=trigger_states;p["sequential_decision_state"]=decision_states
+            p["sequential_state"]=states;p["sequential_entry_state"]=entry_states;p["sequential_path_r7"]=path_r7;p["sequential_trigger_state"]=trigger_states;p["sequential_decision_state"]=decision_states
         for m in RX.finditer(txt):
             fam=m.group(3); lane=m.group(4); raw=m.group(17) if m.group(17) not in (None,"NONE") else m.group(16)
             if fam not in FAMILIES or lane not in (
@@ -333,6 +353,7 @@ def load_rows(root,windows):
                          "failure_continuation_rr":path.get("failure_continuation_rr",{}),
                          "failure_continuation_maturity_state":path.get("failure_continuation_maturity_state",{}),
                          "failure_continuation_entry_state":path.get("failure_continuation_entry_state",{}),
+                          "failure_continuation_path_r7":path.get("failure_continuation_path_r7",{}),
                          "failure_continuation_break_bar":path.get("failure_continuation_break_bar",{}),
                          "failure_continuation_retest_bar":path.get("failure_continuation_retest_bar",{}),
                          "failure_continuation_entry_bar":path.get("failure_continuation_entry_bar",{}),
@@ -342,6 +363,7 @@ def load_rows(root,windows):
                          "late_auction_rr":path.get("late_auction_rr",{}),
                          "late_auction_maturity_state":path.get("late_auction_maturity_state",{}),
                          "late_auction_entry_state":path.get("late_auction_entry_state",{}),
+                          "late_auction_path_r7":path.get("late_auction_path_r7",{}),
                          "late_auction_bars":path.get("late_auction_bars",{}),
                          "late_auction_reaction_bars":path.get("late_auction_reaction_bars",{}),
                          "late_auction_anchor_bars":path.get("late_auction_anchor_bars",{}),
@@ -358,6 +380,7 @@ def load_rows(root,windows):
                          "sequential_decision_bar":path.get("sequential_decision_bar",{}),
                          "sequential_state":path.get("sequential_state",{}),
                          "sequential_entry_state":path.get("sequential_entry_state",{}),
+                          "sequential_path_r7":path.get("sequential_path_r7",{}),
                          "sequential_trigger_state":path.get("sequential_trigger_state",{}),
                          "sequential_decision_state":path.get("sequential_decision_state",{})})
     # HCOG setup identity is the anti-duplicate truth. Last copy is equivalent if repeated artifact paths exist.
