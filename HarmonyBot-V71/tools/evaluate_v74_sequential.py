@@ -3861,40 +3861,352 @@ def _fit_r4_tournament(samples,years):
               "stop_scale":stop_scale,
               "rule":"OUTCOME_FREE_R6_COMMON_SCALE_AND_STOP_MARGIN_AFFINE_TRANSFER"}}
 
-def fit_policy(train_rows,prebuilt_samples=None):
-    """V74-R10 feasible-manifold multi-source matched-counterfactual policy."""
-    samples=list(prebuilt_samples) if prebuilt_samples is not None else make_samples(train_rows)
-    if len(samples)<3000:raise SystemExit("V74-R10 insufficient causal actions")
-    yrs=sorted({r["window"] for r in train_rows},key=lambda w:int(w[1:]))
-    r10=_fit_r10_multisource_matched_tournament(samples,yrs)
-    tm=r10["training_metrics"];worst=min(gate_margin(m) for m in tm.values()) if tm else -999.0
-    training_gate=all(gate(m) for m in tm.values()) if tm else False
-    training_oracle={w:_oracle_top250([s for s in samples if s["window"]==w]) for w in yrs}
-    return {"architecture":"V74_R10_FEASIBLE_MANIFOLD_MULTISOURCE_MATCHED_COUNTERFACTUAL_POLICY",
-            "r8_matcher":r10["model"],
-            "admission_fit_years":yrs,"admission_inner_oof_years":r10["inner_oof_years"],
-            "threshold":r10["threshold"],"oof_threshold":r10["oof_threshold"],
-            "stop_margin":r10["stop_margin"],
-            "training_coverage_limits":r10["training_limits"],"training_supply":r10["training_supply"],
-            "training_metrics":tm,"training_worst_gate_margin":worst,
+
+# ---------------------------------------------------------------------------
+# V74-R12 Event-Hazard Capital Admission Reconstruction
+# The action surface is frozen. R12 changes the supervised capital-admission
+# object to completed-bar competing risks: ENTER now, WAIT for a strictly later
+# causal state, or REJECT.  All later outcomes below are training labels only.
+# ---------------------------------------------------------------------------
+
+def _r12_competing_targets(samples):
+    n=len(samples)
+    enter=[0.0]*n;wait=[0.0]*n;reject=[0.0]*n;future_value=[0.0]*n
+    by=defaultdict(list)
+    for i,s in enumerate(samples):
+        by[(s["window"],event_identity(s["setup"]))].append(i)
+    for ids in by.values():
+        bars=defaultdict(list)
+        for i in ids:bars[int(samples[i]["bar"])].append(i)
+        later_best=-math.inf
+        for bar in sorted(bars,reverse=True):
+            later_win=math.isfinite(later_best) and later_best>0.0
+            later_q=max(0.0,later_best) if math.isfinite(later_best) else 0.0
+            for i in bars[bar]:
+                y=float(samples[i]["y"]);win=y>0.0
+                enter[i]=1.0 if win else 0.0
+                wait[i]=1.0 if (not win and later_win) else 0.0
+                reject[i]=1.0 if (not win and not later_win) else 0.0
+                future_value[i]=later_q
+            current=max(float(samples[i]["y"]) for i in bars[bar])
+            later_best=max(later_best,current)
+    return enter,wait,reject,future_value
+
+
+def _r12_calibration_keysets(s,b):
+    src=str(s.get("source","NONE"));fam=str(s.get("family","NONE"))
+    rid=int(s.get("regime_id",_r4_regime_id(s)))
+    return (
+      ("source_family_regime",str((src,fam,rid,b))),
+      ("source_family",str((src,fam,b))),
+      ("source_regime",str((src,rid,b))),
+      ("family_regime",str((fam,rid,b))),
+      ("source",str((src,b))),
+      ("family",str((fam,b))),
+      ("regime",str((rid,b)))
+    )
+
+
+def _r12_fit_calibrator(samples,raw,target,years,active=None):
+    """Event-balanced Jeffreys calibration with year/regime hierarchical shrinkage."""
+    if not samples:raise SystemExit("V74-R12 empty calibration surface")
+    yy=set(years)
+    ids=[i for i,s in enumerate(samples)
+         if s["window"] in yy and (active is None or bool(active[i]))]
+    if len(ids)<120:raise SystemExit("V74-R12 insufficient calibration support")
+    vals=[float(raw[i]) for i in ids]
+    cuts=sorted(set(qtile(vals,q) for q in (.10,.25,.40,.55,.70,.85,.95)))
+    weights=_r4_event_year_weights(samples)
+
+    def stats(ii,prior=.5,shrink=0.0):
+        if not ii:return {"p":float(prior),"event_support":0,"weight":0.0,"year_p":[]}
+        sw=sum(float(weights[i]) for i in ii)
+        sy=sum(float(weights[i])*float(target[i]) for i in ii)
+        pooled=(sy+float(shrink)*float(prior)+.5)/(sw+float(shrink)+1.0)
+        byy=defaultdict(list)
+        for i in ii:byy[samples[i]["window"]].append(i)
+        yp=[]
+        for _,jj in byy.items():
+            ww=sum(float(weights[i]) for i in jj)
+            wy=sum(float(weights[i])*float(target[i]) for i in jj)
+            yp.append((wy+4.0*float(prior)+.5)/(ww+5.0))
+        robust=min(pooled,_q25_safe(yp,pooled)) if len(yp)>=2 else pooled
+        ev=len({(samples[i]["window"],event_identity(samples[i]["setup"])) for i in ii})
+        return {"p":max(0.0,min(1.0,robust)),"pooled_p":pooled,
+                "event_support":ev,"weight":sw,"year_p":yp}
+
+    all_stats=stats(ids,.5,0.0);gp=float(all_stats["p"])
+    bins={}
+    for b in range(len(cuts)+1):
+        ii=[i for i in ids if bisect.bisect_right(cuts,float(raw[i]))==b]
+        bins[b]=stats(ii,gp,12.0)
+
+    cell_ids=defaultdict(list)
+    for i in ids:
+        b=bisect.bisect_right(cuts,float(raw[i]))
+        for name,key in _r12_calibration_keysets(samples[i],b):
+            cell_ids[(name,key)].append(i)
+    cells=defaultdict(dict)
+    for (name,key),ii in cell_ids.items():
+        b=bisect.bisect_right(cuts,float(raw[ii[0]]))
+        bp=float(bins.get(b,{"p":gp})["p"])
+        cells[name][key]=stats(ii,bp,32.0)
+    return {"type":"R12_YEAR_REGIME_HIERARCHICAL_JEFFREYS_CALIBRATOR",
+            "fit_years":list(years),"cuts":cuts,"global":all_stats,
+            "bins":bins,"cells":dict(cells),"min_specific_event_support":16}
+
+
+def _r12_calibrated_probability(cal,s,raw):
+    b=bisect.bisect_right(cal.get("cuts",[]),float(raw))
+    base=cal.get("bins",{}).get(b,cal.get("global",{"p":.5,"event_support":1}))
+    for name,key in _r12_calibration_keysets(s,b):
+        q=cal.get("cells",{}).get(name,{}).get(key)
+        if q is not None and int(q.get("event_support",0))>=int(cal.get("min_specific_event_support",16)):
+            return float(q["p"]),max(1,int(q.get("event_support",1))),name
+    return float(base.get("p",.5)),max(1,int(base.get("event_support",1))),"score_bin"
+
+
+def _fit_r12_hazard(stage_samples,years):
+    if len(stage_samples)<700:raise SystemExit("V74-R12 insufficient OOF stage samples")
+    p=len(stage_samples[0]["x"])
+    enter,wait,reject,future_value=_r12_competing_targets(stage_samples)
+    idx=_r4_meta_feature_idx(stage_samples)
+    losers=[stage_samples[i] for i in range(len(stage_samples)) if enter[i]<.5]
+    loser_wait=[wait[i] for i in range(len(stage_samples)) if enter[i]<.5]
+    if losers:
+        wi=stable_idx_target(losers,loser_wait,min(24,p))
+        for j in wi:
+            if j not in idx:idx.append(j)
+            if len(idx)>=64:break
+    if len(idx)<8:idx=list(range(min(32,p)))
+
+    X=[s["x"] for s in stage_samples]
+    ymean=[max(-4.0,min(4.0,float(s["y"]))) for s in stage_samples]
+    yhold=[max(1.0,min(180.0,float(s.get("bars",1) or 1)))/180.0 for s in stage_samples]
+    w=_r4_event_year_weights(stage_samples)
+    wait_w=[w[i] if enter[i]<.5 else 0.0 for i in range(len(w))]
+    orders=_root_orders(X,idx)
+    kw={"rounds":max(8,TREE_ROUNDS),"lr":.070,"max_rows":10**9,
+        "root_orders":orders,"max_depth":2,"min_leaf":34}
+    em=_boost_train(X,enter,idx,weights=w,**kw)
+    wm=_boost_train(X,wait,idx,weights=wait_w,**kw)
+    mm=_boost_train(X,ymean,idx,weights=w,**kw)
+    cm=_boost_train(X,future_value,idx,weights=w,**kw)
+    hm=_boost_train(X,yhold,idx,rounds=max(6,TREE_ROUNDS-2),lr=.070,max_rows=10**9,
+                    root_orders=orders,max_depth=2,min_leaf=34,weights=w)
+
+    raw_enter=[];raw_wait=[]
+    for x in X:
+        pe,_=_boost_pred(em,x);pw,_=_boost_pred(wm,x)
+        raw_enter.append(max(0.0,min(1.0,pe)))
+        raw_wait.append(max(0.0,min(1.0,pw)))
+    active_wait=[z<.5 for z in enter]
+    ce=_r12_fit_calibrator(stage_samples,raw_enter,enter,years)
+    cw=_r12_fit_calibrator(stage_samples,raw_wait,wait,years,active_wait)
+    return {"type":"R12_EVENT_HAZARD_ENTER_WAIT_REJECT_OPTIMAL_STOPPING",
+            "fit_years":list(years),"idx":list(idx),
+            "enter_model":em,"wait_model":wm,"mean_model":mm,
+            "continuation_model":cm,"hold_model":hm,
+            "enter_calibrator":ce,"wait_calibrator":cw,
+            "event_balanced":True,"competing_risk_factorization":True}
+
+
+def _pred_r12_hazard(model,s):
+    x=s["x"]
+    pe,se=_boost_pred(model["enter_model"],x)
+    pw,sw=_boost_pred(model["wait_model"],x)
+    pe=max(0.0,min(1.0,pe));pw=max(0.0,min(1.0,pw))
+    cep,cen,ceo=_r12_calibrated_probability(model["enter_calibrator"],s,pe)
+    cwp,cwn,cwo=_r12_calibrated_probability(model["wait_calibrator"],s,pw)
+    en=max(1,min(int(se or 1),int(cen or 1)))
+    wn=max(1,min(int(sw or 1),int(cwn or 1)))
+    enter_lcb=_r4_wilson_lcb(cep,en)
+    wait_p=max(0.0,min(1.0,(1.0-cep)*cwp))
+    reject_p=max(0.0,min(1.0,(1.0-cep)*(1.0-cwp)))
+
+    mu,sm=_boost_pred(model["mean_model"],x)
+    co,sc=_boost_pred(model["continuation_model"],x)
+    hh,sh=_boost_pred(model["hold_model"],x)
+    sm=max(1,int(sm or 1));sc=max(1,int(sc or 1))
+    mse=float(model["mean_model"].get("sigma",1.0))
+    cse=float(model["continuation_model"].get("sigma",1.0))
+    q_enter_lcb=float(mu)-Z*max(.05,mse)/math.sqrt(sm)
+    q_wait_lcb=max(0.0,float(co)-Z*max(.05,cse)/math.sqrt(sc))
+    stop_adv=q_enter_lcb-q_wait_lcb
+    hold=max(1.0,min(180.0,float(hh)*180.0))
+    return {"enter_raw":pe,"wait_raw":pw,
+            "enter":cep,"enter_lcb":enter_lcb,
+            "defer":wait_p,"reject":reject_p,
+            "mean_r":float(mu),"continuation_r":float(co),
+            "q_enter_lcb":q_enter_lcb,"q_wait_lcb":q_wait_lcb,
+            "stop_advantage":stop_adv,"expected_hold_bars":hold,
+            "enter_support":en,"wait_support":wn,
+            "enter_calibration_origin":ceo,"wait_calibration_origin":cwo}
+
+
+def _r12_hazard_decisions(stage_samples,model):
+    """Preserve all source lanes until calibrated capital admission."""
+    scored=[]
+    for s in stage_samples:
+        z=_pred_r12_hazard(model,s)
+        q=dict(s)
+        q["decision_score"]=float(z["enter_lcb"])
+        q["decision_margin"]=float(z["enter_lcb"])-max(float(z["defer"]),float(z["reject"]))
+        pred={
+          "win":float(z["enter"]),"mean":float(z["mean_r"]),
+          "lcb":float(z["q_enter_lcb"]),"continuation":float(z["continuation_r"]),
+          "regret":max(0.0,float(z["q_wait_lcb"])-float(z["q_enter_lcb"])),
+          "best_probability":float(z["enter"]),"stop_advantage":float(z["stop_advantage"]),
+          "expected_hold_bars":float(z["expected_hold_bars"]),
+          "admission":{"enter":float(z["enter"]),"enter_lcb":float(z["enter_lcb"]),
+                       "defer":float(z["defer"]),"reject":float(z["reject"]),
+                       "advantage":float(z["mean_r"])-float(z["continuation_r"]),
+                       "advantage_lcb":float(z["stop_advantage"])},
+          "r4_calibrated_enter":float(z["enter"]),
+          "r4_calibrated_lcb":float(z["enter_lcb"]),
+          "raw_meta_score":float(z["enter_raw"]),
+          "r12_enter_raw":float(z["enter_raw"]),"r12_wait_raw":float(z["wait_raw"]),
+          "r12_q_enter_lcb":float(z["q_enter_lcb"]),"r12_q_wait_lcb":float(z["q_wait_lcb"]),
+          "regime_id":int(s.get("regime_id",_r4_regime_id(s)))
+        }
+        scored.append({"score":float(z["enter_lcb"]),
+                       "route_rank":float(z["q_enter_lcb"]),
+                       "stop_advantage":float(z["stop_advantage"]),
+                       "pred":pred,"s":q})
+    by=defaultdict(list)
+    for e in scored:
+        s=e["s"];by[(s["window"],event_identity(s["setup"]),int(s["bar"]))].append(e)
+    out=[]
+    for vv in by.values():
+        out.append(max(vv,key=lambda e:(float(e["score"]),
+                                        float(e["route_rank"]),
+                                        -float(e["pred"].get("defer",0.0)),
+                                        e["s"]["source"],e["s"]["route"])))
+    out.sort(key=lambda e:(e["s"]["window"],event_identity(e["s"]["setup"]),
+                           int(e["s"]["bar"]),e["s"]["source"],e["s"]["route"]))
+    return out
+
+
+def _fit_r12_hazard_tournament(samples,years):
+    val_years=[years[i] for i in range(2,len(years))]
+    if len(val_years)<3:raise SystemExit("V74-R12 insufficient inner OOF years")
+    shared=globals().get("_INNER_R4_OOF_CACHE",{});stage=[];meta=[]
+    for vw in val_years:
+        z=shared.get(vw)
+        if z is None:
+            _,z=_compute_shared_inner_r4_year(vw)
+        if not z.get("stage"):raise SystemExit("V74-R12 empty OOF stage "+vw)
+        stage.extend(z["stage"]);meta.append(z["meta"])
+
+    cross=[];cross_years=[];meta_cv=[]
+    for hi in range(2,len(val_years)):
+        hw=val_years[hi];ty=val_years[:hi]
+        tr=[s for s in stage if s["window"] in ty]
+        va=[s for s in stage if s["window"]==hw]
+        if len(tr)<700 or not va:continue
+        md=_fit_r12_hazard(tr,ty)
+        dd=_r12_hazard_decisions(va,md)
+        cross.extend(dd);cross_years.append(hw)
+        meta_cv.append({"held_year":hw,"fit_years":list(ty),
+                        "train_stage":len(tr),"test_stage":len(va),
+                        "causal_forward_chain":True,"competing_risk_hazard":True})
+    if not cross or not cross_years:
+        raise SystemExit("V74-R12 empty causal forward hazard OOF")
+
+    cmi=_conditional_mi_bits(cross);candidates=[]
+    for target in (250,275,300):
+        z=_precision_threshold(cross,cross_years,target)
+        if z is None:continue
+        candidates.append((tuple(z["rank"])+(cmi,),target,z))
+    if not candidates:raise SystemExit("V74-R12 no coverage-feasible hazard threshold")
+    candidates.sort(key=lambda q:q[0],reverse=True)
+    rank,target,z=candidates[0]
+
+    final=_fit_r12_hazard(stage,val_years)
+    fitted_dec=_r12_hazard_decisions(stage,final)
+    os=[float(e["score"]) for e in cross];fs=[float(e["score"]) for e in fitted_dec]
+    om=med(os,0.0);fm=med(fs,0.0)
+    oq1,oq3=qtile(os,.25),qtile(os,.75);fq1,fq3=qtile(fs,.25),qtile(fs,.75)
+    scale=max(.35,min(2.5,(fq3-fq1)/max(1e-9,oq3-oq1)))
+    transferred=fm+(float(z["threshold"])-om)*scale
+
+    oof_stop=float(z.get("stop_margin",-math.inf))
+    if math.isfinite(oof_stop):
+        oa=[float(e.get("stop_advantage",-999.0)) for e in cross
+            if math.isfinite(float(e.get("stop_advantage",-999.0))) and float(e.get("stop_advantage",-999.0))>-900.0]
+        fa=[float(e.get("stop_advantage",-999.0)) for e in fitted_dec
+            if math.isfinite(float(e.get("stop_advantage",-999.0))) and float(e.get("stop_advantage",-999.0))>-900.0]
+        oam=med(oa,0.0);fam=med(fa,0.0)
+        oaq1,oaq3=qtile(oa,.25),qtile(oa,.75);faq1,faq3=qtile(fa,.25),qtile(fa,.75)
+        stop_scale=max(.35,min(2.5,(faq3-faq1)/max(1e-9,oaq3-oaq1)))
+        stop_transferred=fam+(oof_stop-oam)*stop_scale
+    else:
+        oam=fam=0.0;oaq1=oaq3=faq1=faq3=0.0;stop_scale=1.0
+        stop_transferred=-math.inf
+
+    heads,training=fit_mechanism_heads_from_samples(samples)
+    route=mechanism_decisions(samples,heads)
+    prior=_fit_struct_prior([e["s"] for e in route])
+    training_oracle={w:_oracle_top250([s for s in samples if s["window"]==w]) for w in years}
+    print("[V74-R12-SELECT] "+json.dumps({
+          "coverage_target":target,"rank":list(rank),"conditional_mi_bits":cmi,
+          "threshold_oof":z["threshold"],"threshold_full":transferred,
+          "stop_margin_oof":oof_stop,"stop_margin_full":stop_transferred},sort_keys=True),flush=True)
+    return {"mechanism_heads":heads,"mechanism_training":training,
+            "stage_prior":prior,"hazard_model":final,
+            "threshold":transferred,"oof_threshold":z["threshold"],
+            "stop_margin":stop_transferred,"oof_stop_margin":oof_stop,
+            "training_metrics":z["metrics"],"training_rank":list(rank),
+            "training_limits":z["limits"],"training_supply":z["supply"],
+            "coverage_target":target,"inner_oof_years":val_years,
+            "meta_oof_years":cross_years,"nested_meta":meta,
+            "meta_crossfit":meta_cv,"conditional_mi_bits":cmi,
+            "information_gate":bool(cmi>1e-4),
             "training_oracle_admission":training_oracle,
-            "training_gate":training_gate,"coverage_target":r10["coverage_target"],
+            "threshold_transfer":{"oof_median":om,"full_fit_median":fm,
+              "oof_iqr":oq3-oq1,"full_fit_iqr":fq3-fq1,"scale":scale,
+              "oof_stop_margin":oof_stop,"transferred_stop_margin":stop_transferred,
+              "stop_oof_median":oam,"stop_full_fit_median":fam,
+              "stop_oof_iqr":oaq3-oaq1,"stop_full_fit_iqr":faq3-faq1,
+              "stop_scale":stop_scale,
+              "rule":"OUTCOME_FREE_R12_HAZARD_SCORE_AND_STOP_AFFINE_TRANSFER"}}
+
+
+def fit_policy(train_rows,prebuilt_samples=None):
+    """V74-R12 event-hazard capital admission policy."""
+    samples=list(prebuilt_samples) if prebuilt_samples is not None else make_samples(train_rows)
+    if len(samples)<3000:raise SystemExit("V74-R12 insufficient causal actions")
+    yrs=sorted({r["window"] for r in train_rows},key=lambda w:int(w[1:]))
+    r12=_fit_r12_hazard_tournament(samples,yrs)
+    tm=r12["training_metrics"];worst=min(gate_margin(m) for m in tm.values()) if tm else -999.0
+    training_gate=all(gate(m) for m in tm.values()) if tm else False
+    return {"architecture":"V74_R12_EVENT_HAZARD_CAPITAL_ADMISSION",
+            "mechanism_heads":r12["mechanism_heads"],"stage_prior":r12["stage_prior"],
+            "hazard_model":r12["hazard_model"],
+            "admission_fit_years":yrs,"admission_inner_oof_years":r12["inner_oof_years"],
+            "threshold":r12["threshold"],"oof_threshold":r12["oof_threshold"],
+            "stop_margin":r12["stop_margin"],
+            "training_coverage_limits":r12["training_limits"],"training_supply":r12["training_supply"],
+            "training_metrics":tm,"training_worst_gate_margin":worst,
+            "training_oracle_admission":r12["training_oracle_admission"],
+            "training_gate":training_gate,"coverage_target":r12["coverage_target"],
             "admission_sweep":{"rounds":[],"evaluated_candidates":3,
-              "training_rank":r10["training_rank"],"baseline_rank":None,
+              "training_rank":r12["training_rank"],"baseline_rank":None,
               "non_regression_vs_current_training":True,
-              "selected_mode":"R10_SOURCE_NATIVE_LOCAL_MATCHED_COUNTERFACTUAL__POST_ADMISSION_MAXACTIVEBASKET1",
-              "inner_oof_years":r10["inner_oof_years"],"nested_meta":r10["nested_meta"],
-              "threshold_transfer":r10["threshold_transfer"],
-              "conditional_mi_bits":r10["conditional_mi_bits"],
-              "information_gate":r10["information_gate"],
-              "score_orientation":1.0}},samples
+              "selected_mode":"R12_CALIBRATED_EVENT_HAZARD__POST_ADMISSION_MAXACTIVEBASKET1",
+              "inner_oof_years":r12["inner_oof_years"],"meta_oof_years":r12["meta_oof_years"],
+              "nested_meta":r12["nested_meta"],"meta_crossfit":r12["meta_crossfit"],
+              "threshold_transfer":r12["threshold_transfer"],
+              "conditional_mi_bits":r12["conditional_mi_bits"],
+              "information_gate":r12["information_gate"],"score_orientation":1.0}},samples
 
 def apply_policy(policy,test_rows,prebuilt_samples=None):
     samples=list(prebuilt_samples) if prebuilt_samples is not None else make_samples(test_rows)
-    dec=_r10_multisource_decisions(samples,policy["r8_matcher"])
+    route=mechanism_decisions(samples,policy["mechanism_heads"])
+    stage=_r4_stage_samples(route,policy["stage_prior"])
+    dec=_r12_hazard_decisions(stage,policy["hazard_model"])
     sel=simulate(dec,policy["threshold"],stop_margin=policy.get("stop_margin",-math.inf))
     return sel,samples,dec
-
 def _diag_metrics(samples):
     rr=[]
     for s in samples:
@@ -4024,7 +4336,8 @@ for _required_fn in ("_diag_metrics","_oracle_top250","fit_mechanism_heads_from_
                      "fit_admission_bundle","fit_contrastive_winner_ranker",
                      "fit_source_precision_bundle","_fit_r6_common_calibrator","_r6_arbitrate",
                      "meta_lane_decisions","admission_lane_context",
-                     "_fit_r4_meta_policy","_apply_r4_meta_policy","_fit_r4_tournament"):
+                     "_fit_r4_meta_policy","_apply_r4_meta_policy","_fit_r4_tournament",
+                     "_fit_r12_hazard","_r12_hazard_decisions","_fit_r12_hazard_tournament"):
     if not callable(globals().get(_required_fn)):
         raise SystemExit("V74 evaluator preflight missing callable "+_required_fn)
 _required_modes=("R6_COMMON_UTILITY","R6_WIN_LCB","R6_WIN_PROB","R6_MEAN_LCB","R6_UTILITY_PLUS_STOP","R8_MATCHED_UTILITY","R8_MATCHED_WIN_LCB","R8_MATCHED_MEAN_LCB")
@@ -4033,18 +4346,18 @@ if tuple(globals().get("R6_SEMANTIC_SCORE_MODES",()))!=_required_modes:
 
 checks=telemetry_guard()
 summary={"version":"HarmonyBot V74 One-Shot Family-Native Causal Action Selector",
- "architecture":"V74_R11_REACTION_COMMIT_AUGMENTED_FEASIBLE_MANIFOLD__SOURCE_NATIVE_MATCHED_COUNTERFACTUAL",
+ "architecture":"V74_R12_EVENT_HAZARD_CAPITAL_ADMISSION__R11_REACTION_COMMIT_ACTION_SURFACE",
  "gate":{"min_selected_per_year":MIN_N,"min_mean_r":MIN_MEAN,"min_pf_r":MIN_PF,
          "min_win_rate":MIN_WR,"min_average_rr":MIN_AVG_RR,"lcb95_gt":0.0},
  "research_training_windows":RESEARCH,"burned_oof_windows":BURNED,
  "policy":{"actions":"EARLY_OR_LATE_COMPLETED_BAR_ENTRY_ACTION__RAW_F00_EARLY__PREENTRY_CONFIRMATION_F20_F30_LATE",
            "harmonic_completion":"DIRECTION_TIME_D_EVENT_IDENTITY__MULTI_GEOMETRY_IS_CONFLUENCE_NOT_SUPPLY",
            "reaction_state":"CAUSAL_FEATURE_NOT_HARD_FILTER","physical_route_contract":"EVENT_NATIVE_CANONICAL_EVENT_FULL_COMPLETED_BAR_ENTRY_TIMING__EARLY_F00_M05_M10_M15__LATE_PREENTRY_F20_F30__SURVIVAL_FRESH__NETRR_GE230","v75_management_variants_excluded":True,"all_entry_maturity_stages_completed_bar_only":True,
-           "route_choice":"SURVIVAL_NATIVE_ROUTE_SELECTION__EARLY_LATE_FAILURE_SHADOW_ONLY",
-           "optimal_stopping":"SURVIVAL_NATIVE_ENTER_DEFER_REJECT__PWL_DISTRIBUTION__CAUSAL_CONTINUATION_VALUE",
-           "admission":"SURVIVAL_ONLY_PRIMARY_CAPITAL_ADMISSION__ROUTE_FAMILY_REGIME_COUNTERFACTUAL_PRIOR__HARD_NEGATIVE_PRECISION_REFIT",
+           "route_choice":"SOURCE_NATIVE_EVENT_BALANCED_PAIRWISE_ROUTE_ARBITRATION__ALL_CAUSAL_LANES",
+           "optimal_stopping":"R12_COMPETING_RISK_ENTER_WAIT_REJECT__FITTED_CURRENT_VS_STRICT_FUTURE_CONTINUATION_LCB",
+           "admission":"R12_EVENT_HAZARD__HIERARCHICAL_JEFFREYS_YEAR_REGIME_CALIBRATION__PRECISION_AT_250_GROUP_DRO",
            "training_coverage_target_per_year":TRAIN_COVERAGE,
-           "family_hierarchy":"12_FAMILY_CANONICAL_IDENTITY__SURVIVAL_PRIMARY__OTHER_LANES_SHADOW__NO_FAMILY_BLACKLIST",
+           "family_hierarchy":"CANONICAL_FAMILY_IDENTITY__ALL_LEGAL_CAUSAL_LANES__NO_FAMILY_BLACKLIST",
            "no_trigger_posttrigger_lock_future_state":True,
            "canonical_family_blanket_blacklist":False,"grid":False,
            "v75_profit_capture_used":False},
@@ -4106,29 +4419,31 @@ print("[V74-PREBUILD-PARITY] pass=true window="+_probe_window+
 print("[V74-PREBUILD] rows="+str(len(rows))+" samples="+str(len(_ALL_SAMPLES))+
       " precision_cache="+str(len(_HARMONIC_PRECISION_CACHE)),flush=True)
 
-# R8 reuses honest expanding-forward matched-counterfactual held years.
+# R12 reuses honest first-layer lane-native OOF stages. Build each held year
+# once in the parent so all burned outer folds share identical immutable pages.
 _inner_needed=sorted(set(
     vw for test in BURNED
-    for vw in (lambda yrs:(yrs[2:])[-min(3,len(yrs[2:])):])(
+    for vw in (lambda yrs:yrs[2:])(
         sorted([w for w in ALL if int(w[1:])<int(test[1:])],key=lambda w:int(w[1:])))
 ))
-_t_inner=time.perf_counter();_INNER_R8_MATCHED_OOF_CACHE={}
+_t_inner=time.perf_counter();_INNER_R4_OOF_CACHE={}
 if _inner_needed:
     try:
         _ctx=mp.get_context("fork")
         _workers=min(len(_inner_needed),max(1,int(os.cpu_count() or 1)))
         if _workers>1:
             with _ctx.Pool(processes=_workers) as _pool:
-                _inner_results=_pool.map(_compute_shared_inner_r8_year,_inner_needed)
+                _inner_results=_pool.map(_compute_shared_inner_r4_year,_inner_needed)
         else:
-            _inner_results=[_compute_shared_inner_r8_year(w) for w in _inner_needed]
-        _INNER_R8_MATCHED_OOF_CACHE=dict(_inner_results)
+            _inner_results=[_compute_shared_inner_r4_year(w) for w in _inner_needed]
+        _INNER_R4_OOF_CACHE=dict(_inner_results)
     except OSError as ex:
-        print("[V74-R8-MATCHED-CACHE-FALLBACK] infrastructure="+repr(ex),flush=True)
-        _INNER_R8_MATCHED_OOF_CACHE={}
+        print("[V74-R12-R4-CACHE-FALLBACK] infrastructure="+repr(ex),flush=True)
+        _INNER_R4_OOF_CACHE={}
 _inner_cache_seconds=round(time.perf_counter()-_t_inner,3)
-print("[V74-R8-MATCHED-CACHE] years="+str(_inner_needed)+" built="+
-      str(sorted(_INNER_R8_MATCHED_OOF_CACHE))+" seconds="+str(_inner_cache_seconds),flush=True)
+print("[V74-R12-R4-CACHE] years="+str(_inner_needed)+" built="+
+      str(sorted(_INNER_R4_OOF_CACHE))+" seconds="+str(_inner_cache_seconds),flush=True)
+
 _R4_META_MODEL_CACHE={};_meta_cache_seconds=0.0
 
 parallel_used=False
@@ -4160,7 +4475,7 @@ for test,fold,policy in fold_results:
           for k in ("n","mean_r","pf_r","win_rate","average_rr","lcb_r","pass")}),flush=True)
 
 alpha=bool(allpass)
-champ="V74_R11_REACTION_COMMIT_AUGMENTED_ADMISSION" if alpha else None
+champ="V74_R12_EVENT_HAZARD_CAPITAL_ADMISSION" if alpha else None
 fold_metrics={w:{k:summary["folds"][w][k] for k in ("n","mean_r","pf_r","win_rate","average_rr","lcb_r")}
               for w in BURNED}
 current_rank=_guard_rank(fold_metrics)
@@ -4176,12 +4491,12 @@ summary["historical_best_guard"]={"baseline":HISTORICAL_BEST_GUARD,
 print("[V74-NONREGRESSION]",json.dumps(summary["historical_best_guard"],sort_keys=True),flush=True)
 summary["evaluator_runtime_seconds"]=round(time.perf_counter()-t0,3)
 summary["performance_engine"]={"immutable_sample_prebuild":True,
- "shared_unique_inner_oof_years":sorted(globals().get("_INNER_R8_MATCHED_OOF_CACHE",{})),
- "r8_matched_inner_oof_reuse":True,"prepared_inference_reuse":False,
+ "shared_unique_inner_oof_years":sorted(globals().get("_INNER_R4_OOF_CACHE",{})),
+ "r8_matched_inner_oof_reuse":False,"r12_first_layer_oof_reuse":True,"prepared_inference_reuse":False,
  "inner_cache_build_seconds":globals().get("_inner_cache_seconds"),
  "meta_prefix_cache":False,"meta_prefix_parallel":False,
  "parity_fail_closed":True}
-summary["root_cause_rearchitecture"]="V74_R11_REACTION_COMMIT_AUGMENTED_FEASIBLE_MANIFOLD"
+summary["root_cause_rearchitecture"]="V74_R12_EVENT_HAZARD_CAPITAL_ADMISSION"
 summary["component_rank_diagnostic_version"]="EVENT_TOP250_COMPONENT_RANK_V1"
 summary["event_identity_weighting_contract"]="YEAR_EQUAL__INDEPENDENT_EVENT_EQUAL__ROUTE_MULTIPLICITY_NEUTRAL__EARLY_ALIAS_DEDUP"
 summary["survival_primary_alpha"]=False
@@ -4224,6 +4539,10 @@ summary["r10_survival_only_rejected_reason"]="Y2022_Y2023_PHYSICAL_TOP250_WR_BEL
 summary["r11_fixed_payoff_reaction_commit_active"]=True
 summary["r11_reaction_commit_semantics"]="SHADOW_R075_OR_R100__LATER_COMPLETED_HOLD_ENTRY__FIXED_SL_TP__NETRR_GE230"
 summary["r11_post_entry_profit_management_used"]=False
+summary["r12_competing_risk_event_hazard_active"]=True
+summary["r12_probability_calibration"]="EVENT_BALANCED_JEFFREYS__SOURCE_FAMILY_REGIME_HIERARCHY__LOWER_QUARTILE_YEAR_ROBUST"
+summary["r12_optimal_stopping"]="LCB_CURRENT_EXPECTED_R_MINUS_LCB_STRICT_FUTURE_CONTINUATION"
+summary["r12_future_information_used"]=False
 summary["parallel_fold_execution"]=parallel_used
 summary["parallel_fold_workers"]=min(len(BURNED),max(1,int(os.cpu_count() or 1))) if parallel_used else 1
 summary["alpha_gate"]=alpha;summary["alpha_champion"]=champ
