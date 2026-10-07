@@ -26,5 +26,5 @@
   ],
   "validation_used": false,
   "fresh_used": false,
-  "note": "Pinned exact R7 universe from Rapid #115. All Y2016-Y2023 artifacts completed successfully; subsequent changes through 2d000972 are parser/evaluator-only. Validation/Fresh unused."
+  "note": "Exact R7 universe recovered from Rapid #115: all eight Y2016-Y2023 universe jobs completed SUCCESS with immutable custody and identical e0773933 execution semantics. Fast Replay must independently revalidate V73, Physical Oracle, telemetry contracts and burned OOF."
 }
