@@ -26,5 +26,5 @@
   ],
   "validation_used": false,
   "fresh_used": false,
-  "note": "Pinned exact R9 high-conviction proof-commit universe from Rapid #117 (run 37652374634). All Y2016-Y2023 artifacts completed successfully under semantic fingerprint b8ac4981b3079cfe75d4c3a8b51cd644b6840ef0d28f84d61c154c945c92e17c. Later changes through 4d55091 are parser/evaluator-only; guarded C#/data semantics are unchanged. Validation/Fresh unused."
+  "note": "Pinned exact R9 high-conviction proof-commit universe from Rapid #117 (run 37652374634). Y2016-Y2023 artifacts all completed successfully; V73 revalidation and physical feasibility passed. Subsequent commits through 53a3b293 are parser/evaluator-only and guarded C#/data semantics are unchanged. Validation/Fresh unused."
 }
