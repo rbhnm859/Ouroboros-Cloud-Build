@@ -228,6 +228,8 @@ def telemetry_guard():
               legal[src]+=1
               if maturity_state(r,src,m,b,f) is not None and entry_state(r,src,m,b,f) is not None:
                   with_state[src]+=1
+              r7_common_legal+=1
+              if common_path_r7(r,src,m,b,f) is not None:r7_common_complete+=1
       for sf in SURVIVAL_FRESH_KEYS:
         try:eb=int(r.get("survival_fresh_entry_bar",{}).get(sf,-1))
         except:eb=-1
@@ -250,6 +252,9 @@ def telemetry_guard():
         fe=r.get("failure_continuation_entry_state",{}).get("FC230")
         if fm is not None and fe is not None and len(fm)==SEQUENTIAL_STATE_FEATURE_COUNT and len(fe)==SEQUENTIAL_STATE_FEATURE_COUNT:
             with_state["FAILURE"]+=1
+        r7_common_legal+=1
+        fp=r.get("failure_continuation_path_r7",{}).get("FC230")
+        if fp is not None and len(fp)==R7_COMMON_PATH_FEATURE_COUNT:r7_common_complete+=1
     if sum(legal.values())==0:raise SystemExit("V74 no legal completed-bar actions")
     if r7_common_legal>0 and r7_common_complete!=r7_common_legal:
         raise SystemExit("V74-R7 common path completeness contract failure "+str(r7_common_complete)+"/"+str(r7_common_legal))
@@ -2942,6 +2947,15 @@ def _r4_direct_causal_state(s):
         hp=[float(z) for z in _precision_vector(r)]
     except Exception:
         hp=[0.0]*len(_precision_vector({}))
+    cp=[0.0]*R7_COMMON_PATH_FEATURE_COUNT
+    if s.get("source")!="SURVIVAL":
+        sx=list(s.get("x",[]))
+        if len(sx)>=R7_COMMON_PATH_FEATURE_COUNT:
+            try:
+                z=[float(v) for v in sx[-R7_COMMON_PATH_FEATURE_COUNT:]]
+                if all(math.isfinite(v) for v in z):cp=z
+            except Exception:
+                pass
     pv=[0.0]*SURVIVAL_PATH_V2_FEATURE_COUNT
     if s.get("source")=="SURVIVAL":
         sf=str(s.get("route","")).split("|",1)[1] if "|" in str(s.get("route","")) else ""
@@ -2953,7 +2967,7 @@ def _r4_direct_causal_state(s):
             except Exception:
                 pass
     fam=[1.0 if s.get("family")==ff else 0.0 for ff in FAMILIES]
-    return base+hp+pv+fam
+    return base+hp+cp+pv+fam
 
 def _r4_stage_samples(route_decisions,prior):
     """R4.3 causal trajectory state for unified-lane optimal stopping.
@@ -3738,6 +3752,8 @@ summary["r6_forward_oof_common_scale_calibration"]=True
 summary["r6_mode_specific_post_admission_arbitration"]=True
 summary["r6_hierarchical_source_shrinkage"]=True
 summary["r7_common_causal_trajectory_all_sources"]=True
+summary["r7_common_path_direct_meta_input"]=True
+summary["r7_common_path_fail_closed_completeness"]=True
 summary["r7_future_information_used"]=False
 summary["r7_causal_reaction_state_telemetry"]="ROUTE_STATE_V4_80D__SURVIVAL_PATH_V4_48D__COMPLETED_M1_ONLY__NO_FUTURE_TELEMETRY"
 summary["r6_causal_trajectory_representation"]="SUPERSEDED_BY_R7_ROUTE_STATE_V4_AND_SURVIVAL_PATH_V4"
