@@ -26,5 +26,7 @@
   ],
   "validation_used": false,
   "fresh_used": false,
-  "note": "Exact Rapid Decision universe: immutable 2016-2023 custody bytes were hash-verified, all eight windows used the same candidate .algo and run_window R_V73_OPPORTUNITY_UNIVERSE semantics, and V73 was revalidated before decision. Safe for evaluator/oracle-only replay; any guarded semantic drift remains fail-closed."
+  "note": "Exact Rapid Decision universe: immutable 2016-2023 custody bytes were hash-verified, all eight windows used the same candidate .algo and run_window R_V73_OPPORTUNITY_UNIVERSE semantics, and V73 was revalidated before decision. Safe for evaluator/oracle-only replay; any guarded semantic drift remains fail-closed.",
+  "replay_chain_repair": "explicit_workflow_dispatch_v1",
+  "replay_chain_repair_commit": "8097efcb0237d2ba670e2ce9068f09bc85cfe309"
 }
