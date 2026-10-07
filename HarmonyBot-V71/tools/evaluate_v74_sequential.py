@@ -3978,7 +3978,11 @@ summary["r7_causal_reaction_state_telemetry"]="ROUTE_STATE_V4_80D__SURVIVAL_PATH
 summary["r6_causal_trajectory_representation"]="SUPERSEDED_BY_R7_ROUTE_STATE_V4_AND_SURVIVAL_PATH_V4"
 summary["source_head_missing_feature_policy"]="EVENT_YEAR_BALANCED_SOURCE_PRIOR__NEVER_GLOBAL_RUNTIME_HEAD"
 summary["fast_replay_supersession_contract"]="R7_GENERATION__STALE_HEAD_AUTO_TERMINATE__35M_HARD_TIMEOUT"
-summary["r7_evidence_generation"]="R7_CAUSAL_REACTION_STATE_TELEMETRY__EXACT_2016_2023_RAPID_REGENERATION"\nsummary["r8_survival_counterfactual_primary"]=True\nsummary["r8_hard_negative_precision_refit"]=True\nsummary["r8_route_family_regime_hierarchical_prior"]=True\nsummary["r8_other_lanes_shadow_only"]=True
+summary["r7_evidence_generation"]="R7_CAUSAL_REACTION_STATE_TELEMETRY__EXACT_2016_2023_RAPID_REGENERATION"
+summary["r8_survival_counterfactual_primary"]=True
+summary["r8_hard_negative_precision_refit"]=True
+summary["r8_route_family_regime_hierarchical_prior"]=True
+summary["r8_other_lanes_shadow_only"]=True
 summary["parallel_fold_execution"]=parallel_used
 summary["parallel_fold_workers"]=min(len(BURNED),max(1,int(os.cpu_count() or 1))) if parallel_used else 1
 summary["alpha_gate"]=alpha;summary["alpha_champion"]=champ
