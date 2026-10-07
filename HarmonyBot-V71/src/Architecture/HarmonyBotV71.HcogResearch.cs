@@ -2030,8 +2030,10 @@ namespace cAlgo.Robots
                 for(int k=0;k<V74ProtectionOutcomeRLength(o);k++)if(double.IsNaN(o.V74ProtectionOutcomeR[k]))o.V74ProtectionOutcomeR[k]=r;
                 for(int k=0;k<o.V74HybridOutcomeR.Length;k++)if(double.IsNaN(o.V74HybridOutcomeR[k]))o.V74HybridOutcomeR[k]=r;
                 V74FinalizeReactionConfirmedReentry(o,close);
-                V74FinalizeReactionCommitLadders(o,close);
             }
+            // R11 qualification actions are active in both normal and research-only
+            // evidence modes; their payoff remains fixed SL/TP.
+            V74FinalizeReactionCommitLadders(o,close);
             V74FinalizeHighConvictionDelayedCommit(o,close);
             V74FinalizeSurvivalFresh(o,close);
             V74FinalizePostStopFailureContinuation(o,close);
@@ -2176,8 +2178,10 @@ namespace cAlgo.Robots
                 V74UpdateProtectionCounterfactuals(o,i,stop,target);
                 V74UpdateReactionConfirmedReentry(o,i,stop,target);
                 V74UpdateHybridSurvivalFrontiers(o,i,stop,target);
-                V74UpdateReactionCommitLadders(o,i,stop,target);
             }
+            // R11 is a V74 qualification action, not downstream profit management.
+            // It must be generated in qualification-only universe mode.
+            V74UpdateReactionCommitLadders(o,i,stop,target);
             V74UpdateHighConvictionDelayedCommit(o,i,stop,target);
             V74UpdateSurvivalFresh(o,i,stop,target);
             V74UpdateCausalSequentialDelayedCommit(o,i,stop,target);
