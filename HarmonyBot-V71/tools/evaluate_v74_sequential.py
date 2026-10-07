@@ -1638,7 +1638,7 @@ def _pred_r8_local_matcher(bundle,e):
     nn=sorted(float(q.get("event_support",0)) for q in picked)
     dd=[float(q.get("year_dispersion",0.0)) for q in picked]
     p=statistics.median(pp);win_lcb=wl[int(math.floor(.25*(len(wl)-1)))]
-    mu=statistics.median(mm);mean_lcb=ml[int(math.floor(.25*(len(ml)-1))]
+    mu=statistics.median(mm);mean_lcb=ml[int(math.floor(.25*(len(ml)-1)))]
     support=statistics.median(nn);disp=statistics.median(dd)
     mdp=sum(depths)/len(depths)
     mean_quality=.5+.5*math.tanh(mean_lcb/1.25)
