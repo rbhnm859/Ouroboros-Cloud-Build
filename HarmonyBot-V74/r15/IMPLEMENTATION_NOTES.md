@@ -59,3 +59,12 @@ adapter called every FAILURE action CONTINUATION. R15 corrects mechanism identit
 relative to the native action without changing action supply/payoff mechanics.
 A regression test covers both polarities. Native mechanism is an explicit causal
 input so temporal sign orientation is unambiguous to the mechanism experts.
+
+V2 #2 failed transport count audit. The in-bot census is unchanged at 897 closed
+Y2020 outcomes, while stdout contains only 797 outcome records (V1 had 871).
+This demonstrates lossy stdout capture; it does not establish the platform's
+internal logging limit. V3 therefore records every terminal outcome, route and
+frozen frame to a relative-path sidecar with AccessRights.None. The END seal
+checks written outcomes against the in-bot closed census and written frames
+against frozen count. The runner extracts the sidecar before container cleanup
+and hashes it. R15 parses only sealed sidecars, never partial stdout.

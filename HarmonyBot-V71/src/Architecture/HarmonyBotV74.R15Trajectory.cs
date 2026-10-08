@@ -72,15 +72,42 @@ namespace cAlgo.Robots
                 " bar="+o.BarsActive.ToString(CultureInfo.InvariantCulture)+" sha256="+digest+" data="+encoded;
             if(frame.Length>7000)throw new InvalidOperationException("R15_TRANSPORT_LENGTH");
             o.V74R15FrozenFrames.Add(frame);
+            _v74R15FrozenFrameCount++;
             o.V74R15Emitted.Add(i);
         }
         private void V74R15FlushTrajectory(V72HcogOpportunity o)
         {
             if(!EnableV73OpportunityUniverse)return;
             // Only transport is deferred. Every byte was frozen at decision time.
-            foreach(string frame in o.V74R15FrozenFrames)Print(frame);
-            Print("[V74-R15-TRANSPORT] setup={0} count={1}",o.SetupKey,o.V74R15FrozenFrames.Count);
+            foreach(string frame in o.V74R15FrozenFrames)V74R15ResearchPrint(frame);
+            V74R15ResearchPrint("[V74-R15-TRANSPORT] setup={0} count={1}",o.SetupKey,o.V74R15FrozenFrames.Count);
             o.V74R15FrozenFrames.Clear();
+        }
+        private StreamWriter _v74R15EvidenceWriter;
+        private int _v74R15WrittenOutcomes, _v74R15WrittenFrames, _v74R15FrozenFrameCount;
+        private void V74R15ResearchPrint(string format,params object[] args)
+        {
+            string message=args.Length==0?format:string.Format(CultureInfo.InvariantCulture,format,args);
+            if(EnableV73OpportunityUniverse)
+            {
+                // .NET 6 relative file operations are supported with AccessRights.None.
+                // A write failure propagates, so the required END seal will be absent.
+                if(_v74R15EvidenceWriter==null)
+                    _v74R15EvidenceWriter=new StreamWriter("V74_R15_EVIDENCE.log",false,new UTF8Encoding(false)){AutoFlush=true};
+                _v74R15EvidenceWriter.WriteLine(message);
+                if(message.StartsWith("[V72-HCOG-OUTCOME]",StringComparison.Ordinal))_v74R15WrittenOutcomes++;
+                if(message.StartsWith("[V74-R15-FRAME]",StringComparison.Ordinal))_v74R15WrittenFrames++;
+            }
+            Print(message);
+        }
+        private void V74R15SealEvidence()
+        {
+            if(!EnableV73OpportunityUniverse)return;
+            if(_v74R15WrittenOutcomes!=_v72HcogClosed||_v74R15WrittenFrames!=_v74R15FrozenFrameCount)
+                throw new InvalidOperationException("R15_EVIDENCE_CENSUS_MISMATCH");
+            V74R15ResearchPrint("[V74-R15-EVIDENCE-END] schema=V74_R15_EVIDENCE_V3 outcomes={0} frames={1}",
+                _v72HcogClosed,_v74R15FrozenFrameCount);
+            _v74R15EvidenceWriter.Flush();_v74R15EvidenceWriter.Dispose();_v74R15EvidenceWriter=null;
         }
     }
 }

@@ -108,5 +108,10 @@ if [[ -n "${V71_EXPECTED_DATA_SHA256:-}" && "$POST_DATA_HASH" != "$V71_EXPECTED_
  echo "[V71-DATA-CUSTODY-FAIL] variant=$VAR window=$WIN stage=post expected=$V71_EXPECTED_DATA_SHA256 actual=$POST_DATA_HASH"
  exit 47
 fi
+if [[ "$V73UNIVERSE" == "true" ]]; then
+ test -s "$W/seal/logs/$N-R15.log"
+ cp "$W/seal/logs/$N-R15.log" "$O/raw-logs/$N-R15.log"
+ sha256sum "$O/raw-logs/$N-R15.log" > "$O/R15_EVIDENCE_SHA256.txt"
+fi
 cp "$W/seal/logs/$N.log" "$O/raw-logs/$N.log"; cp "$W/seal/reports/$N.json" "$O/raw-report.json"
 python3 "$C/HarmonyBot-V71/tools/audit_report.py" --report "$W/seal/reports/$N.json" --log "$W/seal/logs/$N.log"  --out "$O/$VAR-$WIN.json" --window "$WIN" --variant "$VAR" --years "$YEARS" --balance 10000 --data-snapshot "$O/DATA_SNAPSHOT_SHA256.txt"

@@ -2046,14 +2046,14 @@ namespace cAlgo.Robots
             V74FinalizeCausalSequentialDelayedCommit(o,close);
             V74FinalizeTrueLateEntryAuction(o,close);
             o.Result=result;o.Active=false;o.State=V72HcogState.CLOSED;_v72HcogClosed++;V72HcogRecord(o,r);
-            Print("[V72-HCOG-OUTCOME] id={0} setup={1} family={2} lane={3} abcd={4} coreOverlap={5} r={6:F6} mfeR={7:F6} maeR={8:F6} bars={9} result={10} hcapSelected={11} q={12:F9} lcb={13:F9} hold={14:F3} features={15} v74features={16}",
+            V74R15ResearchPrint("[V72-HCOG-OUTCOME] id={0} setup={1} family={2} lane={3} abcd={4} coreOverlap={5} r={6:F6} mfeR={7:F6} maeR={8:F6} bars={9} result={10} hcapSelected={11} q={12:F9} lcb={13:F9} hold={14:F3} features={15} v74features={16}",
                 o.Id,o.SetupKey,o.Family,o.Lane,o.HasAbcdConfluence,o.CoreOverlapAtEntry,r,o.MfeR,o.MaeR,o.BarsActive,result,
                 o.HcapSelected,o.HcapQ,o.HcapLcb,o.HcapHoldBars,string.IsNullOrWhiteSpace(o.HcapFeatureCsv)?"NONE":o.HcapFeatureCsv,
                 string.IsNullOrWhiteSpace(o.V74FeatureCsv)?"NONE":o.V74FeatureCsv);
             V74R15FlushTrajectory(o);
             if(!V74ResearchQualificationOnly)
             {
-                Print("[V74-PROTECTION-PATH] setup={0} family={1} lane={2} p025={3:F6} p050={4:F6} p075={5:F6} p100={6:F6} p150={7:F6} m025={8} m050={9} m075={10} m100={11} m150={12} r050010={13} rr050010={14:F6} r075025={15} rr075025={16:F6} r100040={17} rr100040={18:F6} hs20={19:F6} hs30={20:F6} hs40={21:F6} hs50={22:F6} rc075c20={23} rc075c30={24} rc100c20={25} rc100c30={26} hc175h={27} hc175d={28} hc200h={29} hc200d={30}",
+                V74R15ResearchPrint("[V74-PROTECTION-PATH] setup={0} family={1} lane={2} p025={3:F6} p050={4:F6} p075={5:F6} p100={6:F6} p150={7:F6} m025={8} m050={9} m075={10} m100={11} m150={12} r050010={13} rr050010={14:F6} r075025={15} rr075025={16:F6} r100040={17} rr100040={18:F6} hs20={19:F6} hs30={20:F6} hs40={21:F6} hs50={22:F6} rc075c20={23} rc075c30={24} rc100c20={25} rc100c30={26} hc175h={27} hc175d={28} hc200h={29} hc200d={30}",
                     o.SetupKey,o.Family,o.Lane,o.V74ProtectionOutcomeR[0],o.V74ProtectionOutcomeR[1],o.V74ProtectionOutcomeR[2],o.V74ProtectionOutcomeR[3],o.V74ProtectionOutcomeR[4],
                     string.IsNullOrWhiteSpace(o.V74MilestoneFeatureCsv[0])?"NONE":o.V74MilestoneFeatureCsv[0],
                     string.IsNullOrWhiteSpace(o.V74MilestoneFeatureCsv[1])?"NONE":o.V74MilestoneFeatureCsv[1],
@@ -2085,7 +2085,7 @@ namespace cAlgo.Robots
                 hcParts.Add("eb"+k+"="+o.V74HighConvictionEntryBar[k].ToString(System.Globalization.CultureInfo.InvariantCulture));
                 hcParts.Add("rb"+k+"="+o.V74HighConvictionBars[k].ToString(System.Globalization.CultureInfo.InvariantCulture));
             }
-            Print("[V74-HIGH-CONVICTION-PATH] "+string.Join(" ",hcParts));
+            V74R15ResearchPrint("[V74-HIGH-CONVICTION-PATH] "+string.Join(" ",hcParts));
 
             var rcParts=new List<string>{"setup="+o.SetupKey,"family="+o.Family,"lane="+o.Lane};
             for(int k=0;k<V74ReactionCommitKey.Length;k++)
@@ -2099,7 +2099,7 @@ namespace cAlgo.Robots
                 rcParts.Add("eb"+k+"="+o.V74ReactionCommitEntryBar[k].ToString(System.Globalization.CultureInfo.InvariantCulture));
                 rcParts.Add("rb"+k+"="+o.V74ReactionCommitBars[k].ToString(System.Globalization.CultureInfo.InvariantCulture));
             }
-            Print("[V74-REACTION-COMMIT-PATH] "+string.Join(" ",rcParts));
+            V74R15ResearchPrint("[V74-REACTION-COMMIT-PATH] "+string.Join(" ",rcParts));
 
             var sfParts=new List<string>{"setup="+o.SetupKey,"family="+o.Family,"lane="+o.Lane};
             for(int k=0;k<V74SurvivalFreshKey.Length;k++)
@@ -2119,8 +2119,8 @@ namespace cAlgo.Robots
                 sfParts.Add("eb"+k+"="+o.V74SurvivalFreshEntryBar[k].ToString(System.Globalization.CultureInfo.InvariantCulture));
                 sfParts.Add("rb"+k+"="+o.V74SurvivalFreshBars[k].ToString(System.Globalization.CultureInfo.InvariantCulture));
             }
-            Print("[V74-SURVIVAL-FRESH-PATH] "+string.Join(" ",sfParts));
-            Print("[V74-FAILURE-CONTINUATION-PATH] setup={0} family={1} lane={2} observed={3} bb={4} rb={5} eb={6} m={7} e={8} p={9} b={10} rr={11:F6} bars={12}",
+            V74R15ResearchPrint("[V74-SURVIVAL-FRESH-PATH] "+string.Join(" ",sfParts));
+            V74R15ResearchPrint("[V74-FAILURE-CONTINUATION-PATH] setup={0} family={1} lane={2} observed={3} bb={4} rb={5} eb={6} m={7} e={8} p={9} b={10} rr={11:F6} bars={12}",
                 o.SetupKey,o.Family,o.Lane,o.V74FailureObserved,o.V74FailureBreakBar,o.V74FailureRetestBar,o.V74FailureEntryBar,
                 string.IsNullOrWhiteSpace(o.V74FailureMaturityStateCsv)?"NONE":o.V74FailureMaturityStateCsv,
                 string.IsNullOrWhiteSpace(o.V74FailureEntryStateCsv)?"NONE":o.V74FailureEntryStateCsv,
@@ -2149,7 +2149,7 @@ namespace cAlgo.Robots
                 seqParts.Add("re"+k+"="+o.V74SequentialReactionBar[k].ToString(System.Globalization.CultureInfo.InvariantCulture));
                 seqParts.Add("eb"+k+"="+o.V74SequentialEntryBar[k].ToString(System.Globalization.CultureInfo.InvariantCulture));
             }
-            Print("[V74-SEQUENTIAL-PATH] "+string.Join(" ",seqParts));
+            V74R15ResearchPrint("[V74-SEQUENTIAL-PATH] "+string.Join(" ",seqParts));
 
             var auctionParts=new List<string>{"setup="+o.SetupKey,"family="+o.Family,"lane="+o.Lane};
             for(int k=0;k<V74LateAuctionKey.Length;k++)
@@ -2171,7 +2171,7 @@ namespace cAlgo.Robots
                     auctionParts.Add("lb"+k+"="+o.V74LateAuctionLockBar[k].ToString(System.Globalization.CultureInfo.InvariantCulture));
                 }
             }
-            Print("[V74-LATE-AUCTION-PATH] "+string.Join(" ",auctionParts));
+            V74R15ResearchPrint("[V74-LATE-AUCTION-PATH] "+string.Join(" ",auctionParts));
 
         }
 
@@ -2232,6 +2232,7 @@ namespace cAlgo.Robots
                 _v72HcogDetected,_v72HcogPrzTouched,_v72HcogProofs,_v72HcogArmed,_v72HcogFailureArmed,_v72HcogClosed,_v72HcogCoreOverlapAtEntry,_v72HcogAbcdPrimitive,_v72HcogCapitalQueued,_v72Hcog.Values.Count(x=>x.Active));
             V72HcapPrintSummary();
             V73PrintUniverseSummary();
+            V74R15SealEvidence();
         }
     }
 }

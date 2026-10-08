@@ -71,9 +71,10 @@ def window_of(path,windows):
         if w in s:return w
     return None
 
-def load_rows(root,windows):
+def load_rows(root,windows,strict_r15=False):
     root=pathlib.Path(root); rows=[]
     for p in root.rglob("*.log"):
+        if strict_r15 and not p.name.endswith("-R15.log"):continue
         w=window_of(p,windows)
         if not w: continue
         txt=p.read_text(errors="ignore")

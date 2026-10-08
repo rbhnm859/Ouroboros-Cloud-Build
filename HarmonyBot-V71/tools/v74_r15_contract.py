@@ -76,9 +76,10 @@ def parse_frame(line):
 # V2 is the only production loader. V1 parser remains the audited inner schema.
 def load_trajectories(root,windows):
     result={};expected={};counts={}
-    for p in sorted(Path(root).rglob('*.log')):
+    for p in sorted(Path(root).rglob('*-R15.log')):
         found=[w for w in windows if w in str(p)]
         if len(found)!=1:continue
+        validate_sidecar(p)
         window=found[0]
         with p.open(errors='strict') as f:
             for line in f:
@@ -101,8 +102,9 @@ def load_trajectories(root,windows):
 def audit_raw_outcomes(root,windows):
     from v74_model_lib import RX,FEATURE_NAMES
     count=0
-    for p in Path(root).rglob('*.log'):
+    for p in Path(root).rglob('*-R15.log'):
         if sum(w in str(p) for w in windows)!=1:continue
+        validate_sidecar(p)
         with p.open(errors='strict') as f:
             for line in f:
                 if '[V72-HCOG-OUTCOME]' not in line:continue
@@ -117,3 +119,21 @@ def audit_raw_outcomes(root,windows):
                 count+=1
     if not count:raise ContractError('no terminal outcome records')
     return count
+
+
+def validate_sidecar(path):
+    import hashlib
+    path=Path(path);outcomes=0;frames=0;footer=None;tail=None
+    with path.open(errors='strict') as f:
+        for line in f:
+            if footer is not None and line.strip():raise ContractError('records after sidecar END seal')
+            if '[V72-HCOG-OUTCOME]' in line:outcomes+=1
+            if FRAME in line:frames+=1
+            if '[V74-R15-EVIDENCE-END]' in line:
+                try:footer=dict(t.split('=',1) for t in line.split('[V74-R15-EVIDENCE-END]',1)[1].strip().split())
+                except ValueError:raise ContractError('invalid sidecar END')
+    if footer is None or set(footer)!={'schema','outcomes','frames'} or footer['schema']!='V74_R15_EVIDENCE_V3':
+        raise ContractError('missing required lossless sidecar seal')
+    if int(footer['outcomes'])!=outcomes or int(footer['frames'])!=frames:raise ContractError('sidecar census/count mismatch')
+    if outcomes==0:raise ContractError('empty sidecar outcomes')
+    return {'outcomes':outcomes,'frames':frames}

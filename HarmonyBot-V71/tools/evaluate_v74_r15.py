@@ -30,7 +30,7 @@ def route_rr(s):
 
 def prepare(root):
     audit_raw_outcomes(root,RESEARCH)
-    bank=load_r15_trajectories(root,RESEARCH);rows=load_rows(root,RESEARCH)
+    bank=load_r15_trajectories(root,RESEARCH);rows=load_rows(root,RESEARCH,strict_r15=True)
     samples=make_samples(rows)
     if not samples:raise ContractError('no research action supply')
     seen=set();result=[];encoded={}

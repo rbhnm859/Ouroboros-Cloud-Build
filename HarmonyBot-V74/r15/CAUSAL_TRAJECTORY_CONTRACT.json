@@ -134,5 +134,7 @@
     2020
   ],
   "burned_locked": true,
-  "transport": "gzip+base64, raw SHA256, per-event frozen frame count; flush at finalization. Semantic cache changes."
+  "transport": "gzip+base64, raw SHA256, per-event frozen frame count; flush at finalization. Semantic cache changes.",
+  "evidence_schema": "V74_R15_EVIDENCE_V3",
+  "custody": "lossless relative-path sidecar with census/END seal and host SHA256; stdout is non-authoritative"
 }

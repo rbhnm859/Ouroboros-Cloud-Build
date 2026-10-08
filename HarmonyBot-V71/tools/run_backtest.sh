@@ -64,7 +64,20 @@ PY
  if ! kill -0 "$PID" 2>/dev/null; then break; fi
  sleep 5
 done
+test "$DONE" = 1 || { echo "[V71-WATCHDOG-FAIL] run=$RUN_NAME"; tail -400 "seal/logs/$RUN_NAME.log" || true; exit 20; }
+
+if [[ "${V73UNIVERSE:-false}" == "true" ]]; then
+ # No credentials are inspected: list only the named relative sandbox evidence.
+ docker export "$CNAME" | tar -tf - > seal/r15-container-paths.txt
+ mapfile -t R15_PATHS < <(rg '(^|/)V74_R15_EVIDENCE\.log$' seal/r15-container-paths.txt)
+ [[ "${#R15_PATHS[@]}" == 1 ]] || { echo "[R15-SIDECAR-FAIL] count=${#R15_PATHS[@]}"; exit 52; }
+ docker cp "$CNAME:/${R15_PATHS[0]}" "seal/logs/$RUN_NAME-R15.log"
+ test -s "seal/logs/$RUN_NAME-R15.log"
+ rg -q '^\[V74-R15-EVIDENCE-END\] schema=V74_R15_EVIDENCE_V3 ' "seal/logs/$RUN_NAME-R15.log"
+ sha256sum "seal/logs/$RUN_NAME-R15.log" > "seal/logs/$RUN_NAME-R15.sha256"
+ rm seal/r15-container-paths.txt
+ echo "[R15-SIDECAR] sealed=true"
+fi
 cleanup
 trap - EXIT
-test "$DONE" = 1 || { echo "[V71-WATCHDOG-FAIL] run=$RUN_NAME"; tail -400 "seal/logs/$RUN_NAME.log" || true; exit 20; }
 echo "[V71-WATCHDOG] run=$RUN_NAME status=complete"
