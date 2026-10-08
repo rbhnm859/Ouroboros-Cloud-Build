@@ -275,12 +275,18 @@ def fold(samples,test):
         'top275':topk(samples,representatives(samples,nix,npred),npred,'semantic'),
         'convergence_warnings':neg_conv
     }
-    result['semantic_precision_lift_vs_legacy']=
-        result['semantic_full']['top275']['precision']-result['legacy_full_same_support']['top275']['precision']
-    result['tick_precision_lift']=
-        result['semantic_full']['top275']['precision']-result['semantic_no_tick']['top275']['precision']
-    result['tick_logloss_delta']=
-        result['semantic_no_tick']['logloss']-result['semantic_full']['logloss']
+    result['semantic_precision_lift_vs_legacy'] = (
+        result['semantic_full']['top275']['precision']
+        - result['legacy_full_same_support']['top275']['precision']
+    )
+    result['tick_precision_lift'] = (
+        result['semantic_full']['top275']['precision']
+        - result['semantic_no_tick']['top275']['precision']
+    )
+    result['tick_logloss_delta'] = (
+        result['semantic_no_tick']['logloss']
+        - result['semantic_full']['logloss']
+    )
     return result
 
 def strict_metric_gate(f,join_coverage):
