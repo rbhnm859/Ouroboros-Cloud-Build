@@ -1,26 +1,29 @@
 [
   {
     "experiment": "R12",
-    "run_id": 37666816213,
-    "artifact_id": 11503677026,
-    "zip_sha256": "e796d96116a836b47ea3abd040abfacf5adf7bbe0b18572fc9e261e3225d119d",
-    "local_archive": "/workspace/evidence/R12.zip",
+    "run_id": 37668836200,
+    "run_number": 231,
+    "artifact_id": 11504267125,
+    "zip_sha256": "439d99bd3a8179af9bfb54f083f028c65789459fc3e9fd38281376b32abdcf02",
+    "repository_archive": "HarmonyBot-V74/r15/baseline-artifacts/R12-Run231.zip",
     "promotion_allowed": false
   },
   {
     "experiment": "R13",
     "run_id": 37667183282,
+    "run_number": 230,
     "artifact_id": 11503368975,
     "zip_sha256": "9ffc2cb12beee071ec28c18b1c5debd1d25c830d0d14293678420681346642a3",
-    "local_archive": "/workspace/evidence/R13.zip",
+    "repository_archive": "HarmonyBot-V74/r15/baseline-artifacts/R13-Run230.zip",
     "promotion_allowed": false
   },
   {
     "experiment": "R14",
     "run_id": 37695273401,
+    "run_number": 233,
     "artifact_id": 11514694739,
     "zip_sha256": "7f1aa6e735ed5c908f381fbf2b794e02a9c0e55b4527ed11851b595b47bf2cae",
-    "local_archive": "/workspace/evidence/R14.zip",
+    "repository_archive": "HarmonyBot-V74/r15/baseline-artifacts/R14-Run233.zip",
     "promotion_allowed": false
   }
 ]

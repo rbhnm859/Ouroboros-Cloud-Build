@@ -29,6 +29,23 @@ jobs:
         with:
           python-version: '3.12'
       - run: python3 -m pip install numpy==2.3.5 scipy==1.16.3 scikit-learn==1.8.0
+      - id: mode
+        name: Separate model evaluation from contract/verdict-only QA
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BEFORE_SHA: ${{ github.event.before }}
+        run: |
+          python3 - <<'PYMODE'
+          import os,subprocess
+          before=os.environ.get('BEFORE_SHA','')
+          evaluate=os.environ['EVENT_NAME']=='workflow_dispatch' or not before or set(before)=={'0'}
+          if not evaluate:
+              changed=subprocess.check_output(['git','-C','control','diff','--name-only',before,'HEAD'],text=True).splitlines()
+              exact={'HarmonyBot-V71/tools/evaluate_v74_r15.py','HarmonyBot-V71/tools/v74_model_lib.py','HarmonyBot-V74/r15/RESEARCH_SOURCE.json'}
+              evaluate=any(p in exact or p.startswith('HarmonyBot-V71/tools/v74_r15') for p in changed)
+          with open(os.environ['GITHUB_OUTPUT'],'a') as f:f.write('evaluate='+str(evaluate).lower()+'\n')
+          print('[R15-MODE] '+('MODEL_EVALUATION' if evaluate else 'CONTRACT_AND_VERDICT_QA_ONLY'))
+          PYMODE
       - id: source
         name: Fail closed on semantic fingerprint, exact run, and artifact set
         env:
@@ -56,20 +73,27 @@ jobs:
           with open(os.environ['GITHUB_OUTPUT'],'a') as f:f.write('run='+str(p['source_run_id'])+'\n')
           PY
       - uses: actions/download-artifact@v4
+        if: ${{ steps.mode.outputs.evaluate == 'true' }}
         with:
           pattern: v74-r15-research-*
           run-id: ${{ steps.source.outputs.run }}
           github-token: ${{ github.token }}
           path: merged
           merge-multiple: true
-      - name: Contract tests and nested research OOF
+      - name: Contract tests
+        run: python3 -m unittest discover -s control/HarmonyBot-V71/tools -p test_v74_r15.py -v
+      - name: Nested research OOF
+        if: ${{ steps.mode.outputs.evaluate == 'true' }}
         env:
           OPENBLAS_NUM_THREADS: '2'
           OMP_NUM_THREADS: '2'
         run: |
           set -euo pipefail
-          python3 -m unittest discover -s control/HarmonyBot-V71/tools -p test_v74_r15.py -v
           python3 control/HarmonyBot-V71/tools/evaluate_v74_r15.py merged research
+      - name: Audit archived research verdict without model refit
+        if: ${{ steps.mode.outputs.evaluate == 'false' }}
+        run: |
+          python3 control/HarmonyBot-V71/tools/finalize_v74_r15.py control/HarmonyBot-V74/r15/latest/V74_R15_RESEARCH_MANIFEST.json research/V74_R15_AUDITED_VERDICT.json control/HarmonyBot-V74/r15/RESULT_SOURCE.json
       - uses: actions/upload-artifact@v4
         if: always()
         with:

@@ -126,4 +126,28 @@ class CausalBoundary(unittest.TestCase):
         with self.assertRaises(ContractError):action_state(s)
         s['row']['failure_continuation_entry_state']={}
         with self.assertRaises(ContractError):action_state(s)
+    def test_research_case_a_requires_both_low_precision_and_small_delta(self):
+        from finalize_v74_r15 import audit
+        def manifest(p,delta,base=.2):
+            item={'precision_at_275':{'n':275,'precision':p,'fdr':1-p},'information':{'regime_log_score_gain_bits':.1,'conditional_winner_log_score_gain_bits':.1}}
+            return {'folds':{y:{'x':item,'summary':{'precision_at_275':{'n':275,'precision':base,'fdr':1-base}},'information_delta_bits':delta} for y in ('Y2018','Y2019','Y2020')}}
+        self.assertTrue(audit(manifest(.4,.001))['promotion_blocker'].startswith('A_'))
+        self.assertTrue(audit(manifest(.4,.1))['promotion_blocker'].startswith('B_'))
+        self.assertFalse(audit(manifest(.8,.1))['burned_authorized'])
+        self.assertTrue(audit(manifest(.3,.001,.4))['experiment_rejected'])
+    def test_archived_verdict_invalidates_on_model_or_manifest_change(self):
+        from finalize_v74_r15 import verify_archived_result
+        import tempfile,pathlib,json,zipfile,hashlib
+        with tempfile.TemporaryDirectory() as root:
+            root=pathlib.Path(root);folder=root/'HarmonyBot-V74/r15';folder.mkdir(parents=True)
+            code=root/'model.py';code.write_text('frozen model')
+            source=folder/'raw.json';source.write_text('{"frozen":true}')
+            archive=folder/'archive.zip'
+            with zipfile.ZipFile(archive,'w') as z:z.write(source,'research/raw.json')
+            pin=folder/'RESULT_SOURCE.json';pin.write_text(json.dumps({'artifact_archive':'archive.zip','artifact_archive_sha256':hashlib.sha256(archive.read_bytes()).hexdigest(),'manifest_member':'research/raw.json','evaluator_hashes':{'model.py':hashlib.sha256(code.read_bytes()).hexdigest()}}))
+            verify_archived_result(source,pin)
+            code.write_text('changed model')
+            with self.assertRaises(ValueError):verify_archived_result(source,pin)
+            code.write_text('frozen model');source.write_text('{"frozen":false}')
+            with self.assertRaises(ValueError):verify_archived_result(source,pin)
 if __name__=='__main__':unittest.main()
