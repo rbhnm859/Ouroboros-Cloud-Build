@@ -115,8 +115,23 @@ def first_passage_prior(native,route_state,rr):
     sigma=max(.015,float(np.std(native[-10:,0]))/risk_atr)
     a=1.0;b=max(2.0,float(rr));s2=sigma*sigma
     if abs(mu)<1e-7: return a/(a+b)
-    x1=max(-50.0,min(50.0,-2.0*mu*a/s2))
-    x2=max(-50.0,min(50.0,-2.0*mu*(a+b)/s2))
-    num=1.0-math.exp(x1);den=1.0-math.exp(x2)
-    p=a/(a+b) if abs(den)<1e-12 else num/den
+    # Stable two-barrier Brownian hitting probability.  Clipping both
+    # positive exponents independently would make strong negative drift
+    # spuriously approach 1.0, so evaluate the negative-drift ratio after
+    # algebraic rescaling instead of exponent clipping.
+    k=2.0*mu/s2
+    if mu>0:
+        num=-math.expm1(-k*a)
+        den=-math.expm1(-k*(a+b))
+        p=a/(a+b) if abs(den)<1e-12 else num/den
+    else:
+        q=-k
+        # (exp(q*a)-1)/(exp(q*(a+b))-1)
+        # = exp(-q*b)*(1-exp(-q*a))/(1-exp(-q*(a+b)))
+        if q*b>745:
+            p=0.0
+        else:
+            num=math.exp(-q*b)*(-math.expm1(-q*a))
+            den=-math.expm1(-q*(a+b))
+            p=a/(a+b) if abs(den)<1e-12 else num/den
     return max(.005,min(.995,float(p)))
