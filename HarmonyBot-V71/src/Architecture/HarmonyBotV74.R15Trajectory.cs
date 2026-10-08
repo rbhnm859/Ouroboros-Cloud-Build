@@ -21,6 +21,8 @@ namespace cAlgo.Robots
                !(o.RiskDistance>0)||!double.IsFinite(o.RiskDistance))
                 throw new InvalidOperationException("R15_TRAJECTORY_CAUSAL_CONTRACT");
             if(o.V74R15Emitted.Contains(i))return;
+            // R17 reads only ticks strictly earlier than this completed decision timestamp.
+            V74R17EmitTickState(o,i);
             // R16 co-freezes new microstructure at this same completed decision bar.
             V74R16EmitMicrostructure(o,i);
             double sign=o.Direction==TradeDirection.Buy?1.0:-1.0,risk=o.RiskDistance;

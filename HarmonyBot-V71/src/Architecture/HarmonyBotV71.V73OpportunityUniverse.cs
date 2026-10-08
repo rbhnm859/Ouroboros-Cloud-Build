@@ -14,6 +14,9 @@ namespace cAlgo.Robots
         [Parameter("Enable V73 Opportunity Universe", DefaultValue = false)]
         public bool EnableV73OpportunityUniverse { get; set; }
 
+        [Parameter("Enable V74 R17 Tick Research", DefaultValue = false)]
+        public bool EnableV74R17TickResearch { get; set; }
+
         [Parameter("Enable V74 External Frozen Policy", DefaultValue = false)]
         public bool EnableV74ExternalPolicy { get; set; }
 
