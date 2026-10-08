@@ -118,4 +118,12 @@ class CausalBoundary(unittest.TestCase):
         with tempfile.TemporaryDirectory() as root:
             p=pathlib.Path(root)/'Y2016.log';p.write_text(self.frame())
             with self.assertRaises(ContractError):load_trajectories(root,['Y2016'])
+    def test_action_local_geometry_required(self):
+        from evaluate_v74_r15 import action_state
+        s={'source':'FAILURE','base':'FAILURE_FC230','row':{'failure_continuation_entry_state':{'FC230':[0.]*80}}}
+        self.assertEqual(len(action_state(s)),80)
+        s['row']['failure_continuation_entry_state']['FC230'][3]=float('nan')
+        with self.assertRaises(ContractError):action_state(s)
+        s['row']['failure_continuation_entry_state']={}
+        with self.assertRaises(ContractError):action_state(s)
 if __name__=='__main__':unittest.main()

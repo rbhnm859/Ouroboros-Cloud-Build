@@ -68,3 +68,12 @@ frozen frame to a relative-path sidecar with AccessRights.None. The END seal
 checks written outcomes against the in-bot closed census and written frames
 against frozen count. The runner extracts the sidecar before container cleanup
 and hashes it. R15 parses only sealed sidecars, never partial stdout.
+
+Final preregistered research inputs additionally include the explicit canonical
+family and the existing 80-coordinate action-local entry state, frozen at the
+legal decision. This prevents geometrically different same-event actions from
+being represented identically merely because source/NetRR match. All entry state
+vectors must exist, have exact length and be finite. These input-completeness
+corrections precede the first successfully executed research model verdict.
+V3 exact five-year generation is pinned to #4 / 37710618410; evaluator-only edits
+use its sealed artifacts after fingerprint/digest/job-success verification.

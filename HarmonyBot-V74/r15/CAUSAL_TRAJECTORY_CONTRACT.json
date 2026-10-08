@@ -136,5 +136,272 @@
   "burned_locked": true,
   "transport": "gzip+base64, raw SHA256, per-event frozen frame count; flush at finalization. Semantic cache changes.",
   "evidence_schema": "V74_R15_EVIDENCE_V3",
-  "custody": "lossless relative-path sidecar with census/END seal and host SHA256; stdout is non-authoritative"
+  "custody": "lossless relative-path sidecar with census/END seal and host SHA256; stdout is non-authoritative",
+  "event_static_field_audit": {
+    "geometry": {
+      "source": "V74ResearchFeatures(o) frozen by V72HcogArm",
+      "available": "at native completed-bar arming before any later route decision",
+      "future_label": false
+    },
+    "prz": {
+      "source": "V74ResearchFeatures(o) frozen by V72HcogArm",
+      "available": "at native completed-bar arming before any later route decision",
+      "future_label": false
+    },
+    "confidence": {
+      "source": "V74ResearchFeatures(o) frozen by V72HcogArm",
+      "available": "at native completed-bar arming before any later route decision",
+      "future_label": false
+    },
+    "time_symmetry": {
+      "source": "V74ResearchFeatures(o) frozen by V72HcogArm",
+      "available": "at native completed-bar arming before any later route decision",
+      "future_label": false
+    },
+    "pivot_quality": {
+      "source": "V74ResearchFeatures(o) frozen by V72HcogArm",
+      "available": "at native completed-bar arming before any later route decision",
+      "future_label": false
+    },
+    "net_rr_scaled": {
+      "source": "V74ResearchFeatures(o) frozen by V72HcogArm",
+      "available": "at native completed-bar arming before any later route decision",
+      "future_label": false
+    },
+    "efficiency": {
+      "source": "V74ResearchFeatures(o) frozen by V72HcogArm",
+      "available": "at native completed-bar arming before any later route decision",
+      "future_label": false
+    },
+    "atr_fit": {
+      "source": "V74ResearchFeatures(o) frozen by V72HcogArm",
+      "available": "at native completed-bar arming before any later route decision",
+      "future_label": false
+    },
+    "extension_scaled": {
+      "source": "V74ResearchFeatures(o) frozen by V72HcogArm",
+      "available": "at native completed-bar arming before any later route decision",
+      "future_label": false
+    },
+    "trend_strength": {
+      "source": "V74ResearchFeatures(o) frozen by V72HcogArm",
+      "available": "at native completed-bar arming before any later route decision",
+      "future_label": false
+    },
+    "adx_slope_norm": {
+      "source": "V74ResearchFeatures(o) frozen by V72HcogArm",
+      "available": "at native completed-bar arming before any later route decision",
+      "future_label": false
+    },
+    "mtf_score": {
+      "source": "V74ResearchFeatures(o) frozen by V72HcogArm",
+      "available": "at native completed-bar arming before any later route decision",
+      "future_label": false
+    },
+    "xab": {
+      "source": "V74ResearchFeatures(o) frozen by V72HcogArm",
+      "available": "at native completed-bar arming before any later route decision",
+      "future_label": false
+    },
+    "abc": {
+      "source": "V74ResearchFeatures(o) frozen by V72HcogArm",
+      "available": "at native completed-bar arming before any later route decision",
+      "future_label": false
+    },
+    "bcd": {
+      "source": "V74ResearchFeatures(o) frozen by V72HcogArm",
+      "available": "at native completed-bar arming before any later route decision",
+      "future_label": false
+    },
+    "xad": {
+      "source": "V74ResearchFeatures(o) frozen by V72HcogArm",
+      "available": "at native completed-bar arming before any later route decision",
+      "future_label": false
+    },
+    "abcd_ratio": {
+      "source": "V74ResearchFeatures(o) frozen by V72HcogArm",
+      "available": "at native completed-bar arming before any later route decision",
+      "future_label": false
+    },
+    "pivot_scale": {
+      "source": "V74ResearchFeatures(o) frozen by V72HcogArm",
+      "available": "at native completed-bar arming before any later route decision",
+      "future_label": false
+    },
+    "prz_width_atr": {
+      "source": "V74ResearchFeatures(o) frozen by V72HcogArm",
+      "available": "at native completed-bar arming before any later route decision",
+      "future_label": false
+    },
+    "risk_atr": {
+      "source": "V74ResearchFeatures(o) frozen by V72HcogArm",
+      "available": "at native completed-bar arming before any later route decision",
+      "future_label": false
+    },
+    "target_atr": {
+      "source": "V74ResearchFeatures(o) frozen by V72HcogArm",
+      "available": "at native completed-bar arming before any later route decision",
+      "future_label": false
+    },
+    "detect_latency": {
+      "source": "V74ResearchFeatures(o) frozen by V72HcogArm",
+      "available": "at native completed-bar arming before any later route decision",
+      "future_label": false
+    },
+    "touch_latency": {
+      "source": "V74ResearchFeatures(o) frozen by V72HcogArm",
+      "available": "at native completed-bar arming before any later route decision",
+      "future_label": false
+    },
+    "liquidity_excursion_r": {
+      "source": "V74ResearchFeatures(o) frozen by V72HcogArm",
+      "available": "at native completed-bar arming before any later route decision",
+      "future_label": false
+    },
+    "bos_retest_r": {
+      "source": "V74ResearchFeatures(o) frozen by V72HcogArm",
+      "available": "at native completed-bar arming before any later route decision",
+      "future_label": false
+    },
+    "atr_ratio": {
+      "source": "V74ResearchFeatures(o) frozen by V72HcogArm",
+      "available": "at native completed-bar arming before any later route decision",
+      "future_label": false
+    },
+    "atr_percentile": {
+      "source": "V74ResearchFeatures(o) frozen by V72HcogArm",
+      "available": "at native completed-bar arming before any later route decision",
+      "future_label": false
+    },
+    "adx_h1": {
+      "source": "V74ResearchFeatures(o) frozen by V72HcogArm",
+      "available": "at native completed-bar arming before any later route decision",
+      "future_label": false
+    },
+    "adx_h4": {
+      "source": "V74ResearchFeatures(o) frozen by V72HcogArm",
+      "available": "at native completed-bar arming before any later route decision",
+      "future_label": false
+    },
+    "transition": {
+      "source": "V74ResearchFeatures(o) frozen by V72HcogArm",
+      "available": "at native completed-bar arming before any later route decision",
+      "future_label": false
+    },
+    "cost_r": {
+      "source": "V74ResearchFeatures(o) frozen by V72HcogArm",
+      "available": "at native completed-bar arming before any later route decision",
+      "future_label": false
+    },
+    "direction_buy": {
+      "source": "V74ResearchFeatures(o) frozen by V72HcogArm",
+      "available": "at native completed-bar arming before any later route decision",
+      "future_label": false
+    },
+    "abcd_confluence": {
+      "source": "V74ResearchFeatures(o) frozen by V72HcogArm",
+      "available": "at native completed-bar arming before any later route decision",
+      "future_label": false
+    },
+    "completion_latency": {
+      "source": "V74ResearchFeatures(o) frozen by V72HcogArm",
+      "available": "at native completed-bar arming before any later route decision",
+      "future_label": false
+    },
+    "proof_body_atr": {
+      "source": "V74ResearchFeatures(o) frozen by V72HcogArm",
+      "available": "at native completed-bar arming before any later route decision",
+      "future_label": false
+    },
+    "proof_rejection_ratio": {
+      "source": "V74ResearchFeatures(o) frozen by V72HcogArm",
+      "available": "at native completed-bar arming before any later route decision",
+      "future_label": false
+    },
+    "proof_sweep_depth_atr": {
+      "source": "V74ResearchFeatures(o) frozen by V72HcogArm",
+      "available": "at native completed-bar arming before any later route decision",
+      "future_label": false
+    },
+    "proof_reclaim_atr": {
+      "source": "V74ResearchFeatures(o) frozen by V72HcogArm",
+      "available": "at native completed-bar arming before any later route decision",
+      "future_label": false
+    },
+    "proof_bos_atr": {
+      "source": "V74ResearchFeatures(o) frozen by V72HcogArm",
+      "available": "at native completed-bar arming before any later route decision",
+      "future_label": false
+    },
+    "proof_retest_atr": {
+      "source": "V74ResearchFeatures(o) frozen by V72HcogArm",
+      "available": "at native completed-bar arming before any later route decision",
+      "future_label": false
+    },
+    "geometry_loss": {
+      "source": "V74ResearchFeatures(o) frozen by V72HcogArm",
+      "available": "at native completed-bar arming before any later route decision",
+      "future_label": false
+    },
+    "xab_residual": {
+      "source": "V74ResearchFeatures(o) frozen by V72HcogArm",
+      "available": "at native completed-bar arming before any later route decision",
+      "future_label": false
+    },
+    "abc_residual": {
+      "source": "V74ResearchFeatures(o) frozen by V72HcogArm",
+      "available": "at native completed-bar arming before any later route decision",
+      "future_label": false
+    },
+    "bcd_residual": {
+      "source": "V74ResearchFeatures(o) frozen by V72HcogArm",
+      "available": "at native completed-bar arming before any later route decision",
+      "future_label": false
+    },
+    "xad_residual": {
+      "source": "V74ResearchFeatures(o) frozen by V72HcogArm",
+      "available": "at native completed-bar arming before any later route decision",
+      "future_label": false
+    },
+    "abcd_residual": {
+      "source": "V74ResearchFeatures(o) frozen by V72HcogArm",
+      "available": "at native completed-bar arming before any later route decision",
+      "future_label": false
+    },
+    "event_hypothesis_count": {
+      "source": "V74ResearchFeatures(o) frozen by V72HcogArm",
+      "available": "at native completed-bar arming before any later route decision",
+      "future_label": false
+    },
+    "event_family_count": {
+      "source": "V74ResearchFeatures(o) frozen by V72HcogArm",
+      "available": "at native completed-bar arming before any later route decision",
+      "future_label": false
+    },
+    "event_parent_family_count": {
+      "source": "V74ResearchFeatures(o) frozen by V72HcogArm",
+      "available": "at native completed-bar arming before any later route decision",
+      "future_label": false
+    },
+    "event_mean_geometry": {
+      "source": "V74ResearchFeatures(o) frozen by V72HcogArm",
+      "available": "at native completed-bar arming before any later route decision",
+      "future_label": false
+    },
+    "event_geometry_range": {
+      "source": "V74ResearchFeatures(o) frozen by V72HcogArm",
+      "available": "at native completed-bar arming before any later route decision",
+      "future_label": false
+    },
+    "event_mean_prz": {
+      "source": "V74ResearchFeatures(o) frozen by V72HcogArm",
+      "available": "at native completed-bar arming before any later route decision",
+      "future_label": false
+    },
+    "event_mean_confidence": {
+      "source": "V74ResearchFeatures(o) frozen by V72HcogArm",
+      "available": "at native completed-bar arming before any later route decision",
+      "future_label": false
+    }
+  }
 }

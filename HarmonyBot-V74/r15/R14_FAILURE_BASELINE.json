@@ -38,6 +38,9 @@
       "pass": false
     }
   },
-  "non_regression": null,
+  "non_regression": {
+    "pass": true,
+    "source": "Fast Replay #233 job 113045545263 logs [V74-NONREGRESSION]"
+  },
   "runtime_seconds": 919.079
 }

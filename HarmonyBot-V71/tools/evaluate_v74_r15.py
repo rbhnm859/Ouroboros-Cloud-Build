@@ -7,7 +7,7 @@ import argparse,hashlib,json,math,pathlib,time
 from collections import defaultdict
 import numpy as np
 from sklearn.metrics import log_loss
-from v74_model_lib import load_rows,load_r15_trajectories,event_identity,metrics
+from v74_model_lib import load_rows,load_r15_trajectories,event_identity,metrics,FAMILIES
 from v74_r15_contract import observation,ContractError,audit_raw_outcomes
 from v74_r15_encoder import encode
 from v74_r15_model import CTRSTA
@@ -27,6 +27,22 @@ def route_rr(s):
     elif src=='REACTION':rk=b[len('REACTION_'):]
     else:rk='FC230'
     return float(r[prefix+'_rr'][rk])
+
+def action_state(s):
+    # Frozen existing V73 action-local entry state, not maturity/outcome state.
+    r=s['row'];src=s['source'];base=s['base']
+    if src in ('EARLY','LATE'):
+        bank='sequential_entry_state' if src=='EARLY' else 'late_auction_entry_state'
+        route=key(s['m'],base,s['fraction'])
+    elif src=='SURVIVAL' and base.startswith('SURVIVAL_PROOF_'):
+        bank='high_conviction_entry_state';route=base[len('SURVIVAL_PROOF_'):]
+    elif src=='SURVIVAL':bank='survival_fresh_entry_state';route=base[len('SURVIVAL_'):]
+    elif src=='REACTION':bank='reaction_commit_entry_state';route=base[len('REACTION_'):]
+    else:bank='failure_continuation_entry_state';route='FC230'
+    values=r.get(bank,{}).get(route)
+    if values is None or len(values)!=80 or not all(math.isfinite(float(x)) for x in values):
+        raise ContractError('missing/nonfinite causal action-local state '+bank+'/'+route)
+    return np.asarray(values,dtype=np.float32)
 
 def prepare(root):
     audit_raw_outcomes(root,RESEARCH)
@@ -49,7 +65,9 @@ def prepare(root):
             obs=observation(z,s['row']['features'])
             encoded[ck]=(encode(obs),encode(obs,False))
         mechanism=1 if s['action']=='CONTINUATION' else 0
-        cats=np.array([int(s['source']==v) for v in ('EARLY','LATE','SURVIVAL','REACTION','FAILURE')]+[mechanism,rr/4,int(s['row']['action']=='CONTINUATION')])
+        cats=np.array([int(s['source']==v) for v in ('EARLY','LATE','SURVIVAL','REACTION','FAILURE')]+
+                      [int(s['family']==f) for f in FAMILIES]+[mechanism,rr/4,int(s['row']['action']=='CONTINUATION')])
+        cats=np.r_[cats,action_state(s)]
         # Summary ablation uses the same event static and legal action metadata.
         result.append({'event':event,'year':s['window'],'family':s['family'],'bar':s['bar'],
                        'decision':z['decision'],'mechanism':mechanism,'source':s['source'],'route':s['route'],

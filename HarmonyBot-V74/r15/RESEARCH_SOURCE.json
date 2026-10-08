@@ -1,9 +1,10 @@
 {
   "schema": 1,
-  "source_run_id": 37709530939,
-  "source_head_sha": "a4ce7b9a289dadd2c036d33ffe084efef7cb8cf2",
+  "source_run_id": 37710618410,
+  "source_head_sha": "c35145b7a9071e7b52ce13d285bb695fd9319e2f",
   "research_only": true,
-  "semantic_fingerprint": "be3f3b7e66cfb4c3a8af45027594b632a17df90129f97b6b5c06670ce6ea8192",
+  "evidence_schema": "V74_R15_EVIDENCE_V3",
+  "semantic_fingerprint": "042e2826d2439dfc2fe8f286d220aaba8a238cf58b07a61df3b7fdf01b2ba407",
   "required_artifacts": [
     "v74-r15-research-Y2016",
     "v74-r15-research-Y2017",
@@ -13,29 +14,29 @@
   ],
   "artifacts": {
     "v74-r15-research-Y2016": {
-      "id": 11521755594,
-      "digest": "sha256:cf0adb48d284508dcf170a18d6c0dcb3f4287114cb70f0520ffaf612c3d45544",
-      "size_in_bytes": 14164809
+      "id": 11521926896,
+      "digest": "sha256:d2d7135849794616e07d0ed407971658f2a86d403b843da8ffe1b7264f79ddd0",
+      "size_in_bytes": 27969164
     },
     "v74-r15-research-Y2017": {
-      "id": 11521740627,
-      "digest": "sha256:fc9a910b3a59b7721157dedcf9c143c248472f8431e446b5fc7f3e37e788f97a",
-      "size_in_bytes": 15102098
+      "id": 11520903769,
+      "digest": "sha256:211c66957eb219e47ecc43e5c896858566b00a4ed98a1f4711bcc2c6b5bc8ec8",
+      "size_in_bytes": 30620675
     },
     "v74-r15-research-Y2018": {
-      "id": 11521555549,
-      "digest": "sha256:c7558fd7b4765eea2ae4779cca440d00f4ac230a823d387a19dcf4f1c88992aa",
-      "size_in_bytes": 15377417
+      "id": 11522120656,
+      "digest": "sha256:bfc7c88c3ecae980b190fda1223bb6aec319fb365362cf45eb2457ddbf355670",
+      "size_in_bytes": 30436189
     },
     "v74-r15-research-Y2019": {
-      "id": 11521192627,
-      "digest": "sha256:0ff8c62e1fdab3844511ecfcba423705a20b3e606b6c7bd43b2ee7d8785329a0",
-      "size_in_bytes": 13234618
+      "id": 11521572107,
+      "digest": "sha256:21b25c94bc0cbfccebe8fc3318f4fddf68d4ef54bbbf35f3b8b791bb91a6d603",
+      "size_in_bytes": 26143351
     },
     "v74-r15-research-Y2020": {
-      "id": 11521291290,
-      "digest": "sha256:dc904203e31bb7d838e8af5fa7ba1f05c0b08108a08927d57d660935c0f601a9",
-      "size_in_bytes": 16216828
+      "id": 11521603216,
+      "digest": "sha256:63eb6f9f45f4aee6b2a7a65bcf1ed6bf030e1db3beabce31817961520ef9ec60",
+      "size_in_bytes": 36729116
     }
   },
   "burned_used": false,
