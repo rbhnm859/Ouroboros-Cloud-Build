@@ -32,8 +32,13 @@ namespace cAlgo.Robots
             public bool Resolved;
         }
 
-        private readonly Dictionary<string,V74R18OutcomeTracker> _v74R18Outcome =
-            new Dictionary<string,V74R18OutcomeTracker>(StringComparer.Ordinal);
+        // Lifetime keys preserve exact once-per-action semantics. Only live actions
+        // stay in the tick hot path (the former ever-growing dictionary was O(history)
+        // for every server tick and could stall a late-year research window).
+        private readonly HashSet<string> _v74R18Seen =
+            new HashSet<string>(StringComparer.Ordinal);
+        private readonly List<V74R18OutcomeTracker> _v74R18Active =
+            new List<V74R18OutcomeTracker>();
         private int _v74R18Registered;
         private int _v74R18Resolved;
         private int _v74R18NoFill;
@@ -108,7 +113,7 @@ namespace cAlgo.Robots
         {
             if(!EnableV74R18OutcomeResearch||o==null||direction==TradeDirection.Neutral)return;
             string key=V74R18OutcomeKey(o.SetupKey,source,route);
-            if(_v74R18Outcome.ContainsKey(key))return;
+            if(!_v74R18Seen.Add(key))return;
 
             DateTime decision=V74R18DecisionUtc(i);
             double spreadPips=Math.Max(0.0,SpreadPips());
@@ -132,7 +137,7 @@ namespace cAlgo.Robots
                 Risk=risk,PlannedNetRr=plannedNetRr,EntrySpreadPips=spreadPips,
                 MinCapitalFeasible=minCapFeasible
             };
-            _v74R18Outcome[key]=t;
+            _v74R18Active.Add(t);
             _v74R18Registered++;
 
             if(!IsInstitutionalSession(decision)){V74R18Emit(t,"NO_FILL_SESSION",fill,decision,false);return;}
@@ -202,20 +207,26 @@ namespace cAlgo.Robots
             if(!EnableV74R18OutcomeResearch||_symbol==null)return;
             DateTime now=Server.Time.ToUniversalTime();
             double bid=_symbol.Bid,ask=_symbol.Ask;
-            foreach(var t in _v74R18Outcome.Values.Where(x=>!x.Resolved).ToList())
+            // Iterate backwards so a terminal action can be removed in-place;
+            // no LINQ snapshots or history-sized allocations on every tick.
+            for(int j=_v74R18Active.Count-1;j>=0;j--)
             {
-                if(now<=t.DecisionUtc)continue;
-                double exitPx=V74R18ExitPrice(t.Direction);
-
-                if(now>=t.DeadlineUtc){V74R18Emit(t,"TIME_EXPIRE",exitPx,now,true);continue;}
-                if(!IsInstitutionalSession(now)){V74R18Emit(t,"SESSION_EXPIRE",exitPx,now,true);continue;}
-
-                bool sl=t.Direction==TradeDirection.Buy?bid<=t.Stop:ask>=t.Stop;
-                bool tp=t.Direction==TradeDirection.Buy?bid>=t.Target:ask<=t.Target;
-                // Chronological ticks remove OHLC ordering ambiguity. If a malformed quote
-                // crosses both boundaries simultaneously, fail closed to the loss side.
-                if(sl){V74R18Emit(t,"SL_FIRST",exitPx,now,true);continue;}
-                if(tp){V74R18Emit(t,"TP_FIRST",exitPx,now,true);continue;}
+                var t=_v74R18Active[j];
+                if(!t.Resolved&&now>t.DecisionUtc)
+                {
+                    double exitPx=t.Direction==TradeDirection.Buy?bid:ask;
+                    if(now>=t.DeadlineUtc)V74R18Emit(t,"TIME_EXPIRE",exitPx,now,true);
+                    else if(!IsInstitutionalSession(now))V74R18Emit(t,"SESSION_EXPIRE",exitPx,now,true);
+                    else
+                    {
+                        bool sl=t.Direction==TradeDirection.Buy?bid<=t.Stop:ask>=t.Stop;
+                        bool tp=t.Direction==TradeDirection.Buy?bid>=t.Target:ask<=t.Target;
+                        // Preserve loss-side tie-break on a malformed quote.
+                        if(sl)V74R18Emit(t,"SL_FIRST",exitPx,now,true);
+                        else if(tp)V74R18Emit(t,"TP_FIRST",exitPx,now,true);
+                    }
+                }
+                if(t.Resolved)_v74R18Active.RemoveAt(j);
             }
         }
 
@@ -224,16 +235,21 @@ namespace cAlgo.Robots
             if(!EnableV74R18OutcomeResearch||o==null)return;
             string prefix=(o.SetupKey??"")+"|";
             DateTime now=Server.Time.ToUniversalTime();
-            foreach(var t in _v74R18Outcome.Values.Where(x=>!x.Resolved&&x.Key.StartsWith(prefix,StringComparison.Ordinal)).ToList())
+            for(int j=_v74R18Active.Count-1;j>=0;j--)
             {
-                string cause;
-                string r=result??"";
-                if(r.Contains("180M")||r.Contains("TIMEOUT"))cause="TIME_EXPIRE";
-                else if(r.Contains("STRUCTURAL_STOP")||r.Contains("AMBIGUOUS_STOP"))cause="STRUCTURAL_INVALIDATION";
-                else if(r.Contains("CANONICAL_TARGET"))cause="PARENT_TARGET_TERMINATION";
-                else if(r.Contains("BACKTEST_END"))cause="CENSORED";
-                else cause="CENSORED";
-                V74R18Emit(t,cause,V74R18ExitPrice(t.Direction),now,true);
+                var t=_v74R18Active[j];
+                if(!t.Resolved&&t.Key.StartsWith(prefix,StringComparison.Ordinal))
+                {
+                    string cause;
+                    string r=result??"";
+                    if(r.Contains("180M")||r.Contains("TIMEOUT"))cause="TIME_EXPIRE";
+                    else if(r.Contains("STRUCTURAL_STOP")||r.Contains("AMBIGUOUS_STOP"))cause="STRUCTURAL_INVALIDATION";
+                    else if(r.Contains("CANONICAL_TARGET"))cause="PARENT_TARGET_TERMINATION";
+                    else if(r.Contains("BACKTEST_END"))cause="CENSORED";
+                    else cause="CENSORED";
+                    V74R18Emit(t,cause,V74R18ExitPrice(t.Direction),now,true);
+                }
+                if(t.Resolved)_v74R18Active.RemoveAt(j);
             }
         }
 
@@ -241,8 +257,12 @@ namespace cAlgo.Robots
         {
             if(!EnableV74R18OutcomeResearch)return;
             DateTime now=Server.Time.ToUniversalTime();
-            foreach(var t in _v74R18Outcome.Values.Where(x=>!x.Resolved).ToList())
-                V74R18Emit(t,"CENSORED",V74R18ExitPrice(t.Direction),now,true);
+            for(int j=_v74R18Active.Count-1;j>=0;j--)
+            {
+                var t=_v74R18Active[j];
+                if(!t.Resolved)V74R18Emit(t,"CENSORED",V74R18ExitPrice(t.Direction),now,true);
+                _v74R18Active.RemoveAt(j);
+            }
             V74R15ResearchPrint(
                 "[V74-R18-SUMMARY] schema=V74_R18_OUTCOME_V1 registered={0} resolved={1} nofill={2} censored={3} divergence={4} burnedUsed=false validationUsed=false freshUsed=false",
                 _v74R18Registered,_v74R18Resolved,_v74R18NoFill,_v74R18Censored,_v74R18Divergence);
