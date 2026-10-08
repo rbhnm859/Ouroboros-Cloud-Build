@@ -9,6 +9,21 @@ class CausalBoundary(unittest.TestCase):
         times=[(decision-dt.timedelta(minutes=31-j)).strftime('%Y-%m-%dT%H:%M:%SZ') for j in range(32)]
         values=';'.join(','.join(str((j+1)*(c+1)/100) for c in range(18)) for j in range(32))
         return f'{MARKER} schema=V74_R15_TRAJECTORY_V1 setup=Buy|2020-01-01T00:00:00|1500|1510|1520|1530|1540 bar=5 anchor=100 index=105 decision={times[-1]} times={",".join(times)} spread=0.01 sin=0 cos=-1 values={values}'
+    def frame(self):
+        import gzip,base64,hashlib
+        raw=self.line().encode();z=parse_trajectory(self.line())
+        return '[V74-R15-FRAME] schema=V74_R15_TRAJECTORY_V2 setup='+z['setup']+' bar=5 sha256='+hashlib.sha256(raw).hexdigest()+' data='+base64.b64encode(gzip.compress(raw)).decode()
+    def test_transport_checksum(self):
+        from v74_r15_contract import parse_frame
+        self.assertEqual(parse_frame(self.frame())['bar'],5)
+        with self.assertRaises(ContractError):parse_frame(self.frame().replace('bar=5','bar=6'))
+        with self.assertRaises(ContractError):parse_frame(self.frame().replace('sha256=','sha256=0'))
+    def test_missing_frame_count_rejected(self):
+        from v74_r15_contract import load_trajectories
+        import tempfile,pathlib
+        with tempfile.TemporaryDirectory() as root:
+            p=pathlib.Path(root)/'Y2016.log';p.write_text(self.frame()+'\n[V74-R15-TRANSPORT] setup='+parse_trajectory(self.line())['setup']+' count=2')
+            with self.assertRaises(ContractError):load_trajectories(root,['Y2016'])
     def test_valid_ordered_contract(self):self.assertEqual(len(parse_trajectory(self.line())['values']),32)
     def test_fail_closed_corruptions(self):
         line=self.line()
@@ -38,6 +53,26 @@ class CausalBoundary(unittest.TestCase):
         import tempfile,pathlib
         from v74_r15_contract import load_trajectories
         with tempfile.TemporaryDirectory() as root:
-            p=pathlib.Path(root);(p/'Y2016.log').write_text(self.line());(p/'Y2021.log').write_bytes(b'\xff')
+            p=pathlib.Path(root);(p/'Y2016.log').write_text(self.frame()+'\n[V74-R15-TRANSPORT] setup='+parse_trajectory(self.line())['setup']+' count=1');(p/'Y2021.log').write_bytes(b'\xff')
             self.assertEqual(len(load_trajectories(root,['Y2016'])),1)
+    def test_trajectory_source_has_no_outcomes(self):
+        from pathlib import Path
+        src=(Path(__file__).parents[1]/'src/Architecture/HarmonyBotV74.R15Trajectory.cs').read_text()
+        for token in ('o.MfeR','o.MaeR','OutcomeR','o.Result','o.V74FailureOutcome'):
+            self.assertNotIn(token,src)
+        self.assertIn('i>LastClosedIndex(_m1Bars)',src)
+        self.assertIn('Atr(_m1Bars,14,j)',src)
+    def test_route_identity_does_not_depend_on_outcome(self):
+        import inspect
+        from v74_r15_supply import all_options
+        src=inspect.getsource(all_options)
+        self.assertIn('sig = (b, f, int(eb))',src)
+        self.assertNotIn('round(float(y)',src)
+    def test_research_workflow_has_no_burned_matrix(self):
+        from pathlib import Path
+        workflow=(Path(__file__).parents[2]/'.github/workflows/harmonybot-v74-r15-research.yml').read_text()
+        for year in ('Y2021','Y2022','Y2023'):
+            self.assertNotIn(year,workflow)
+        self.assertNotIn('evaluate_v74_sequential.py merged',workflow)
+        self.assertNotIn('gh workflow run',workflow)
 if __name__=='__main__':unittest.main()

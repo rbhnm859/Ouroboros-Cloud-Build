@@ -2,6 +2,10 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
+using System.IO;
+using System.IO.Compression;
+using System.Security.Cryptography;
+using System.Text;
 
 namespace cAlgo.Robots
 {
@@ -53,11 +57,30 @@ namespace cAlgo.Robots
             double phase=2*Math.PI*decision.TimeOfDay.TotalMinutes/1440;
             double spread=(_symbol.Ask-_symbol.Bid)/risk;
             if(!double.IsFinite(spread)||spread<0)throw new InvalidOperationException("R15_SPREAD_CONTRACT");
-            Print("[V74-R15-TRAJECTORY] schema=V74_R15_TRAJECTORY_V1 setup={0} bar={1} anchor={2} index={3} decision={4} times={5} spread={6} sin={7} cos={8} values={9}",
+            string frozen=string.Format(CultureInfo.InvariantCulture,"[V74-R15-TRAJECTORY] schema=V74_R15_TRAJECTORY_V1 setup={0} bar={1} anchor={2} index={3} decision={4} times={5} spread={6} sin={7} cos={8} values={9}",
                 o.SetupKey,o.BarsActive,o.V74R15AnchorIndex,i,decision.ToString("yyyy-MM-ddTHH:mm:ssZ",CultureInfo.InvariantCulture),
                 string.Join(",",times),spread.ToString("G9",CultureInfo.InvariantCulture),Math.Sin(phase).ToString("G9",CultureInfo.InvariantCulture),
                 Math.Cos(phase).ToString("G9",CultureInfo.InvariantCulture),string.Join(";",cells));
+            byte[] raw=Encoding.UTF8.GetBytes(frozen);string encoded;
+            using(var output=new MemoryStream())
+            {
+                using(var gzip=new GZipStream(output,CompressionLevel.Fastest,true))gzip.Write(raw,0,raw.Length);
+                encoded=Convert.ToBase64String(output.ToArray());
+            }
+            string digest=Convert.ToHexString(SHA256.HashData(raw)).ToLowerInvariant();
+            string frame="[V74-R15-FRAME] schema=V74_R15_TRAJECTORY_V2 setup="+o.SetupKey+
+                " bar="+o.BarsActive.ToString(CultureInfo.InvariantCulture)+" sha256="+digest+" data="+encoded;
+            if(frame.Length>7000)throw new InvalidOperationException("R15_TRANSPORT_LENGTH");
+            o.V74R15FrozenFrames.Add(frame);
             o.V74R15Emitted.Add(i);
+        }
+        private void V74R15FlushTrajectory(V72HcogOpportunity o)
+        {
+            if(!EnableV73OpportunityUniverse)return;
+            // Only transport is deferred. Every byte was frozen at decision time.
+            foreach(string frame in o.V74R15FrozenFrames)Print(frame);
+            Print("[V74-R15-TRANSPORT] setup={0} count={1}",o.SetupKey,o.V74R15FrozenFrames.Count);
+            o.V74R15FrozenFrames.Clear();
         }
     }
 }

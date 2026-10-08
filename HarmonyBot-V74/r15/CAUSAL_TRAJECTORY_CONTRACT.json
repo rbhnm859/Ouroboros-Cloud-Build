@@ -1,5 +1,5 @@
 {
-  "schema": "V74_R15_TRAJECTORY_V1",
+  "schema": "V74_R15_TRAJECTORY_V2",
   "length": 32,
   "channels": [
     "return_r",
@@ -133,5 +133,6 @@
     2019,
     2020
   ],
-  "burned_locked": true
+  "burned_locked": true,
+  "transport": "gzip+base64, raw SHA256, per-event frozen frame count; flush at finalization. Semantic cache changes."
 }

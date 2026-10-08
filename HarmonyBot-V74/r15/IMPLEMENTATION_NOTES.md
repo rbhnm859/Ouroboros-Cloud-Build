@@ -43,3 +43,11 @@ Alpha/v74 remain false; burned/Validation/Fresh remain NOT_RUN.
 The first experiment can falsify this encoder/head implementation. It cannot
 prove that all observable market information lacks edge. A failure returns to
 causal telemetry/state design, never burned threshold repair.
+
+First engineering run #1 (37708827775): all five research backtests completed;
+the research parser rejected one missing Y2020 FAILURE snapshot among 19,374
+legal action samples. No model evaluation ran. The precise CLI loss mechanism
+was not established; no Alpha conclusion follows. V2 transports frozen payloads
+via gzip/base64 with raw SHA256 and a per-event frame count, and emits them beside
+terminal route telemetry. Missing frames or count/checksum mismatch veto the run.
+This is a telemetry semantic change and requires fresh five-year regeneration.

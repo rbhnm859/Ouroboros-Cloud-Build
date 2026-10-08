@@ -229,6 +229,7 @@ namespace cAlgo.Robots
             public int BarsActive;
             public int V74R15AnchorIndex = -1;
             public HashSet<int> V74R15Emitted = new HashSet<int>();
+            public List<string> V74R15FrozenFrames = new List<string>();
             public int[] V74ProtectionTriggerBar = Enumerable.Repeat(-1, 5).ToArray();
             public double[] V74ProtectionOutcomeR = Enumerable.Repeat(double.NaN, 5).ToArray();
             public string[] V74MilestoneFeatureCsv = new string[5];
@@ -2049,6 +2050,7 @@ namespace cAlgo.Robots
                 o.Id,o.SetupKey,o.Family,o.Lane,o.HasAbcdConfluence,o.CoreOverlapAtEntry,r,o.MfeR,o.MaeR,o.BarsActive,result,
                 o.HcapSelected,o.HcapQ,o.HcapLcb,o.HcapHoldBars,string.IsNullOrWhiteSpace(o.HcapFeatureCsv)?"NONE":o.HcapFeatureCsv,
                 string.IsNullOrWhiteSpace(o.V74FeatureCsv)?"NONE":o.V74FeatureCsv);
+            V74R15FlushTrajectory(o);
             if(!V74ResearchQualificationOnly)
             {
                 Print("[V74-PROTECTION-PATH] setup={0} family={1} lane={2} p025={3:F6} p050={4:F6} p075={5:F6} p100={6:F6} p150={7:F6} m025={8} m050={9} m075={10} m100={11} m150={12} r050010={13} rr050010={14:F6} r075025={15} rr075025={16:F6} r100040={17} rr100040={18:F6} hs20={19:F6} hs30={20:F6} hs40={21:F6} hs50={22:F6} rc075c20={23} rc075c30={24} rc100c20={25} rc100c30={26} hc175h={27} hc175d={28} hc200h={29} hc200d={30}",

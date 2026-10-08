@@ -8,7 +8,7 @@ from collections import defaultdict
 import numpy as np
 from sklearn.metrics import log_loss
 from v74_model_lib import load_rows,load_r15_trajectories,event_identity,metrics
-from v74_r15_contract import observation,ContractError
+from v74_r15_contract import observation,ContractError,audit_raw_outcomes
 from v74_r15_encoder import encode
 from v74_r15_model import CTRSTA
 from v74_r15_supply import make_samples,key
@@ -29,6 +29,7 @@ def route_rr(s):
     return float(r[prefix+'_rr'][rk])
 
 def prepare(root):
+    audit_raw_outcomes(root,RESEARCH)
     bank=load_r15_trajectories(root,RESEARCH);rows=load_rows(root,RESEARCH)
     samples=make_samples(rows)
     if not samples:raise ContractError('no research action supply')
@@ -170,10 +171,17 @@ def main():
             # Baseline entropies use only prior train-year target distribution.
             train_ix=[i for i,s in enumerate(samples) if s['year'] in train]
             prior=np.mean(targets[train_ix,:3],axis=0);prior=np.maximum(prior,1e-9)
-            h0=float(np.mean(-np.sum(targets[ix,:3]*np.log2(prior),axis=1)))
+            event_counts=CounterEvents(samples,ix)
+            iw=np.array([1/event_counts[samples[i]['event']] for i in ix]);iw/=iw.sum()
+            h0=float(np.sum(iw*(-np.sum(targets[ix,:3]*np.log2(prior),axis=1))))
             info['regime_log_score_gain_bits']=h0-info['regime_cross_entropy_bits']
             p0=float(np.mean(targets[train_ix,7]));base=-targets[ix,7]*math.log2(max(1e-9,p0))-(1-targets[ix,7])*math.log2(max(1e-9,1-p0))
-            info['winner_log_score_gain_bits']=float(np.mean(base))-info['winner_conditional_cross_entropy_bits']
+            info['winner_log_score_gain_bits']=float(np.sum(iw*base))-info['winner_conditional_cross_entropy_bits']
+            train_z=targets[train_ix,:3].argmax(1);test_z=targets[ix,:3].argmax(1)
+            conditional_prior={m:float(np.mean(targets[np.array(train_ix)[train_z==m],7])) if (train_z==m).any() else p0 for m in range(3)}
+            cp=np.clip(np.array([conditional_prior[m] for m in test_z]),1e-9,1-1e-9)
+            conditional_base=-targets[ix,7]*np.log2(cp)-(1-targets[ix,7])*np.log2(1-cp)
+            info['conditional_winner_log_score_gain_bits']=float(np.sum(iw*conditional_base))-info['winner_conditional_cross_entropy_bits']
             fold[kind]={'precision_at_275':precision(samples,reps),'chronological':chronological(samples,ix,pred,threshold),
                         'threshold_training_only':threshold,'information':info,'year_dro':model.dro_weights,'training_years':train}
         fold['information_delta_bits']=fold['x']['information']['winner_log_score_gain_bits']-fold['summary']['information']['winner_log_score_gain_bits']
@@ -192,4 +200,17 @@ def main():
     (out/'V74_R15_RESEARCH_MANIFEST.json').write_text(json.dumps(manifest,indent=2,allow_nan=False)+'\n')
     (out/'research_pass.txt').write_text('false\n')
     print(json.dumps({k:v for k,v in manifest.items() if k!='folds'},indent=2),flush=True)
-if __name__=='__main__':main()
+if __name__=='__main__':
+    try:main()
+    except Exception as exc:
+        import sys
+        if len(sys.argv)>2:
+            out=pathlib.Path(sys.argv[2]);out.mkdir(parents=True,exist_ok=True)
+            failure={'architecture':'V74_R15_CTRSTA','research_status':'NOT_RUN_TELEMETRY_OR_ENGINEERING_FAIL',
+                     'physical_status':'NOT_RUN','physical_pass':None,'alpha_gate':False,'alpha_status':'NOT_RUN',
+                     'v74_gate':False,'promotion_blocker':type(exc).__name__+': '+str(exc),
+                     'burned_status':'NOT_RUN','burned_used':False,'validation_used':False,'fresh_used':False,
+                     'non_regression':'NOT_EVALUATED__CHAMPION_UNCHANGED'}
+            (out/'V74_R15_RESEARCH_MANIFEST.json').write_text(json.dumps(failure,indent=2)+'\n')
+            (out/'research_pass.txt').write_text('false\n')
+        raise
