@@ -40,6 +40,13 @@ trap capture_failure ERR
 test -s "$W/seal/logs/$N.log"
 test -s "$W/seal/logs/$N-R15.log"
 test -s "$W/seal/reports/$N.json"
+# Causal truth gate: sealed R17 telemetry must carry the corrected forward-time
+# tick fingerprint; a legacy reversed-order frame is rejected outright.
+grep -q '^\[V74-R17-FRAME\] schema=V74_R17_TICK_V4 ' "$W/seal/logs/$N-R15.log"
+if grep -q 'schema=V74_R17_TICK_V2 ' "$W/seal/logs/$N-R15.log"; then
+  echo "[R17-TICK-TRUTH-FAIL] window=$WIN reason=LEGACY_REVERSED_TICK_FRAME"
+  exit 62
+fi
 
 DATA_FILES=$(find "$W/seal/data" -type f | wc -l | tr -d ' ')
 test "$DATA_FILES" -gt 0 || { echo "[R17-TICK-CUSTODY-FAIL] window=$WIN reason=EMPTY_TICK_CACHE"; exit 61; }
@@ -55,6 +62,7 @@ cat > "$O/R17_TICK_CUSTODY.json" <<JSON
   "source": "ctrader_server_tick_cache",
   "sha256": "$DATA_HASH",
   "file_count": $DATA_FILES,
+  "tick_time_semantics": "FORWARD",
   "validation_used": false,
   "fresh_used": false,
   "burned_used": false
@@ -73,4 +81,4 @@ python3 "$C/HarmonyBot-V71/tools/audit_report.py" \
   --window "$WIN" --variant R_V73_OPPORTUNITY_UNIVERSE \
   --years "$YEARS" --balance 10000 --data-snapshot "$O/DATA_SNAPSHOT_SHA256.txt"
 
-echo "[R17-TICK-CUSTODY] window=$WIN files=$DATA_FILES sha256=$DATA_HASH"
+echo "[R17-TICK-CUSTODY] window=$WIN files=$DATA_FILES sha256=$DATA_HASH tick_time_semantics=FORWARD"

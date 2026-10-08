@@ -43,6 +43,13 @@ test -s "$W/seal/logs/$N-R15.log"
 test -s "$W/seal/reports/$N.json"
 grep -q '^\[V74-R18-SUMMARY\] schema=V74_R18_OUTCOME_V1 ' "$W/seal/logs/$N-R15.log"
 grep -q '^\[V74-R18-OUTCOME\] schema=V74_R18_OUTCOME_V1 ' "$W/seal/logs/$N-R15.log"
+# Causal truth gate: the sealed telemetry must carry the corrected forward-time
+# tick fingerprint. A legacy newest-to-oldest frame is never acceptable here.
+grep -q '^\[V74-R17-FRAME\] schema=V74_R17_TICK_V4 ' "$W/seal/logs/$N-R15.log"
+if grep -q 'schema=V74_R17_TICK_V2 ' "$W/seal/logs/$N-R15.log"; then
+  echo "[R18-TICK-TRUTH-FAIL] window=$WIN reason=LEGACY_REVERSED_TICK_FRAME"
+  exit 72
+fi
 
 DATA_FILES=$(find "$W/seal/data" -type f | wc -l | tr -d ' ')
 test "$DATA_FILES" -gt 0 || { echo "[R18-CUSTODY-FAIL] window=$WIN reason=EMPTY_TICK_CACHE"; exit 71; }
@@ -64,6 +71,7 @@ cat > "$O/R18_SEMANTIC_CUSTODY.json" <<JSON
   "tick_sha256": "$DATA_HASH",
   "evidence_sha256": "$EVIDENCE_HASH",
   "file_count": $DATA_FILES,
+  "tick_time_semantics": "FORWARD",
   "validation_used": false,
   "fresh_used": false,
   "burned_used": false
@@ -77,4 +85,4 @@ python3 "$C/HarmonyBot-V71/tools/audit_report.py" \
   --window "$WIN" --variant R_V73_OPPORTUNITY_UNIVERSE \
   --years "$YEARS" --balance 10000 --data-snapshot "$O/DATA_SNAPSHOT_SHA256.txt"
 
-echo "[R18-SEMANTIC-CUSTODY] window=$WIN files=$DATA_FILES tick_sha256=$DATA_HASH evidence_sha256=$EVIDENCE_HASH"
+echo "[R18-SEMANTIC-CUSTODY] window=$WIN files=$DATA_FILES tick_sha256=$DATA_HASH evidence_sha256=$EVIDENCE_HASH tick_time_semantics=FORWARD"

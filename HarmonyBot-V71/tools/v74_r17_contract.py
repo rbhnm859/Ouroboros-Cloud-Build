@@ -1,4 +1,11 @@
-"""V74-R17 strict tick-state observation and custody boundary."""
+"""V74-R17 strict tick-state observation and custody boundary.
+
+The R17 tick fingerprint is versioned so that the legacy newest-to-oldest
+accumulation order (V74_R17_TICK_V1 / V74_R17_TICK_V2), which collapsed every
+inter-tick interval to zero and inverted the mid-price direction channels, can
+never be silently equated with the corrected forward-time stream
+(V74_R17_TICK_V3 / V74_R17_TICK_V4, tick_order=FORWARD).
+"""
 import base64,datetime as dt,gzip,hashlib,json,math,re
 from pathlib import Path
 import numpy as np
@@ -6,7 +13,15 @@ from v74_r15_contract import validate_sidecar,ContractError
 
 INNER='[V74-R17-TICK]'
 FRAME='[V74-R17-FRAME]'
-SCHEMA='V74_R17_TICK_V1'
+ENVELOPE_LEGACY='V74_R17_TICK_V2'
+ENVELOPE_FORWARD='V74_R17_TICK_V4'
+SCHEMA_LEGACY='V74_R17_TICK_V1'
+SCHEMA_FORWARD='V74_R17_TICK_V3'
+TICK_ORDER_LEGACY='REVERSED_LEGACY'
+TICK_ORDER_FORWARD='FORWARD'
+ORDER_BY_SCHEMA={SCHEMA_LEGACY:TICK_ORDER_LEGACY,SCHEMA_FORWARD:TICK_ORDER_FORWARD}
+ORDER_BY_ENVELOPE={ENVELOPE_LEGACY:TICK_ORDER_LEGACY,ENVELOPE_FORWARD:TICK_ORDER_FORWARD}
+KNOWN_ORDERS=(TICK_ORDER_LEGACY,TICK_ORDER_FORWARD)
 MINUTES=12
 CHANNELS=28
 STATIC=9
@@ -23,9 +38,19 @@ def parse_inner(line):
         payload=line.split(INNER,1)[1].strip()
         parts=[v.split('=',1) for v in payload.split()]
         kv=dict(parts)
-        expected={'schema','setup','bar','decision','minutes','channels','static','values'}
-        if len(kv)!=len(parts) or set(kv)!=expected or kv['schema']!=SCHEMA:
+        base={'schema','setup','bar','decision','minutes','channels','static','values'}
+        schema=kv.get('schema')
+        if schema==SCHEMA_LEGACY:
+            expected=base
+        elif schema==SCHEMA_FORWARD:
+            expected=base|{'tick_order'}
+        else:
+            raise ContractError('R17 unknown inner schema')
+        if len(kv)!=len(parts) or set(kv)!=expected:
             raise ContractError('R17 inner schema/fields')
+        order=ORDER_BY_SCHEMA[schema]
+        if order==TICK_ORDER_FORWARD and kv.get('tick_order')!=TICK_ORDER_FORWARD:
+            raise ContractError('R17 forward inner schema requires tick_order=FORWARD')
         bar=int(kv['bar']);decision=_ts(kv['decision'])
         minutes=int(kv['minutes']);channels=int(kv['channels'])
         if minutes!=MINUTES or channels!=CHANNELS or bar<0:
@@ -40,7 +65,8 @@ def parse_inner(line):
             raise ContractError('R17 matrix nonfinite')
         if static[0]<0 or not (0<=static[1]<=1) or static[2]<0 or static[8]<=0:
             raise ContractError('R17 static range')
-        return {'setup':kv['setup'],'bar':bar,'decision':decision,'static':static,'values':values}
+        return {'setup':kv['setup'],'bar':bar,'decision':decision,'static':static,'values':values,
+                'tick_order':order}
     except ContractError:
         raise
     except Exception as e:
@@ -50,23 +76,32 @@ def parse_frame(line):
     try:
         parts=[x.split('=',1) for x in line.split(FRAME,1)[1].strip().split()]
         kv=dict(parts)
-        if len(kv)!=len(parts) or set(kv)!={'schema','setup','bar','sha256','data'} or kv['schema']!='V74_R17_TICK_V2':
+        if len(kv)!=len(parts) or set(kv)!={'schema','setup','bar','sha256','data'}:
             raise ContractError('R17 envelope fields')
+        envelope=kv['schema']
+        if envelope not in ORDER_BY_ENVELOPE:
+            raise ContractError('R17 unknown envelope schema')
         raw=gzip.decompress(base64.b64decode(kv['data'],validate=True))
         if len(raw)>48000 or hashlib.sha256(raw).hexdigest()!=kv['sha256']:
             raise ContractError('R17 envelope checksum/size')
         z=parse_inner(raw.decode('utf-8',errors='strict'))
         if z['setup']!=kv['setup'] or z['bar']!=int(kv['bar']):
             raise ContractError('R17 envelope identity')
+        if ORDER_BY_ENVELOPE[envelope]!=z['tick_order']:
+            raise ContractError('R17 envelope/inner tick order mismatch')
         return z
     except ContractError:
         raise
     except Exception as e:
         raise ContractError('R17 corrupt frame') from e
 
-def load_tick_frames(root,windows):
+def load_tick_frames(root,windows,require_order=None):
+    if require_order is not None and require_order not in KNOWN_ORDERS:
+        raise ContractError('R17 unknown required tick order')
     result={};stats={}
-    for w in windows: stats[w]={'r15_frames':0,'r17_frames':0,'coverage':0.0}
+    for w in windows:
+        stats[w]={'r15_frames':0,'r17_frames':0,'coverage':0.0,
+                  'tick_order':None,'tick_order_counts':{}}
     for p in sorted(Path(root).rglob('*-R15.log')):
         found=[w for w in windows if w in str(p)]
         if len(found)!=1: continue
@@ -78,6 +113,16 @@ def load_tick_frames(root,windows):
                 if FRAME not in line: continue
                 z=parse_frame(line);key=(w,z['setup'],z['bar'])
                 if key in result: raise ContractError('R17 duplicate tick frame')
+                order=z['tick_order']
+                counts=stats[w]['tick_order_counts']
+                counts[order]=counts.get(order,0)+1
+                if stats[w]['tick_order'] is None:
+                    stats[w]['tick_order']=order
+                elif stats[w]['tick_order']!=order:
+                    raise ContractError('R17 mixed tick time order '+w)
+                if require_order is not None and order!=require_order:
+                    raise ContractError('R17 tick time order '+order+' rejected in '+w+
+                                        '; '+require_order+' required')
                 result[key]=z;stats[w]['r17_frames']+=1
     for w in windows:
         den=stats[w]['r15_frames']

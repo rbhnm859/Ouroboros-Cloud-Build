@@ -54,6 +54,10 @@ namespace cAlgo.Robots
             public readonly double[] BinLastMid = new double[V74R17Bins];
             public readonly bool[] BinSeen = new bool[V74R17Bins];
 
+            // V74-R18 causal truth: this accumulator is only defined for a
+            // strictly oldest-to-newest tick feed. A newest-to-oldest feed made
+            // Math.Max(0, timeUtc - LastTime) collapse every inter-tick interval
+            // to zero and swapped FirstMid/LastMid.
             public void Add(DateTime timeUtc, double bid, double ask, double pip)
             {
                 double mid = (bid + ask) * .5;
@@ -209,8 +213,10 @@ namespace cAlgo.Robots
 
         // Seek only the exact [open, end) tick interval. The tick collection is
         // oldest-first and LoadMoreHistory prepends older ticks (official API).
-        // Preserve the historical reverse-index Add order and all original
-        // feature operations, including repeated timestamps and quote edges.
+        // The slice is then accumulated in ascending time order so that every
+        // inter-tick interval, directional run and per-bin last-mid observation
+        // is computed causally. The legacy newest-to-oldest feed is permanently
+        // separated as fingerprint V74_R17_TICK_V1/V2 and is never produced again.
         private int V74R17LowerBoundTick(DateTime utc)
         {
             int lo = 0, hi = _v74R17Ticks.Count;
@@ -246,12 +252,22 @@ namespace cAlgo.Robots
                 throw new InvalidOperationException("R17_TICK_LOWER_BOUND_CONTRACT");
 
             var z = new V74R17TickMinute { OpenUtc = openUtc };
-            for (int k = pastEnd - 1; k >= first; k--)
+            // V74-R18 causal truth: accumulate the exact slice oldest-to-newest.
+            // The previous descending feed forced every interval through
+            // Math.Max(0,...) to zero and inverted the mid-price direction
+            // channels, so the corrected fingerprint is a new schema.
+            bool havePrev = false;
+            DateTime prevUtc = default(DateTime);
+            for (int k = first; k < pastEnd; k++)
             {
                 Tick tick = _v74R17Ticks[k];
                 DateTime t = tick.Time.ToUniversalTime();
-                if (t >= endUtc) continue;
-                if (t < openUtc) break;
+                if (t < openUtc) continue;
+                if (t >= endUtc) break;
+                if (havePrev && t < prevUtc)
+                    throw new InvalidOperationException("R17_TICK_TIME_DIRECTION");
+                havePrev = true;
+                prevUtc = t;
                 z.Add(t, tick.Bid, tick.Ask, _symbol.PipSize);
             }
             if (z.Count < 2) return null;
@@ -335,7 +351,7 @@ namespace cAlgo.Robots
             if (stat.Any(v => !double.IsFinite(v))) throw new InvalidOperationException("R17_STATIC_CONTRACT");
 
             string frozen = string.Format(CultureInfo.InvariantCulture,
-                "[V74-R17-TICK] schema=V74_R17_TICK_V1 setup={0} bar={1} decision={2} minutes={3} channels={4} static={5} values={6}",
+                "[V74-R17-TICK] schema=V74_R17_TICK_V3 tick_order=FORWARD setup={0} bar={1} decision={2} minutes={3} channels={4} static={5} values={6}",
                 o.SetupKey, o.BarsActive,
                 decision.ToString("yyyy-MM-ddTHH:mm:ssZ", CultureInfo.InvariantCulture),
                 V74R17Minutes, V74R17Channels,
@@ -351,7 +367,7 @@ namespace cAlgo.Robots
                 encoded = Convert.ToBase64String(output.ToArray());
             }
             string digest = Convert.ToHexString(SHA256.HashData(raw)).ToLowerInvariant();
-            string frame = "[V74-R17-FRAME] schema=V74_R17_TICK_V2 setup=" + o.SetupKey +
+            string frame = "[V74-R17-FRAME] schema=V74_R17_TICK_V4 setup=" + o.SetupKey +
                 " bar=" + o.BarsActive.ToString(CultureInfo.InvariantCulture) +
                 " sha256=" + digest + " data=" + encoded;
             if (frame.Length > 16000) throw new InvalidOperationException("R17_TRANSPORT_LENGTH");

@@ -6,6 +6,11 @@ Only the training/evaluation outcome semantics are changed from sign-of-R proxy
 to explicit tick first-passage causes emitted by the C# runtime.
 This experiment can never authorize burned OOF because R17 representatives()
 is still an offline across-stage selector rather than an ENTER/DEFER/REJECT policy.
+
+Tick truth: the R17 native-tick frames consumed here must be the corrected
+forward-time fingerprint (V74_R17_TICK_V3 / envelope V74_R17_TICK_V4,
+tick_order=FORWARD). Legacy newest-to-oldest frames are rejected because their
+inter-tick interval and mid-price direction channels were degenerate.
 """
 import argparse,datetime as dt,hashlib,json,math,pathlib,time,warnings
 from collections import Counter
@@ -15,7 +20,7 @@ from sklearn.exceptions import ConvergenceWarning
 from v74_model_lib import load_rows,event_identity,metrics
 from v74_r15_supply import make_samples,key
 from v74_r15_contract import ContractError
-from v74_r17_contract import load_tick_frames,action_native_encode,tick_quality
+from v74_r17_contract import load_tick_frames,action_native_encode,tick_quality,TICK_ORDER_FORWARD
 from v74_r17_model import TickCompetingRisk
 from evaluate_v74_r17 import feature_blocks
 from v74_r18_outcome import load_outcomes,semantic_class,executable_for_model,cause_distribution
@@ -69,7 +74,7 @@ def load_custody(root):
 
 def prepare(root):
     custody=load_custody(root)
-    frames,frame_stats=load_tick_frames(root,RESEARCH)
+    frames,frame_stats=load_tick_frames(root,RESEARCH,require_order=TICK_ORDER_FORWARD)
     outcomes,outcome_stats=load_outcomes(root,RESEARCH)
     rows=load_rows(root,RESEARCH,strict_r15=True)
     raw=make_samples(rows)
@@ -141,6 +146,9 @@ def prepare(root):
         'min_cap_infeasible_by_year':dict(min_cap_bad),
         'outcome_stats':outcome_stats,'cause_distribution':cause_distribution(outcomes),
         'frame_stats':frame_stats,'tick_quality':tick_quality(frames),
+        'tick_time_order_required':TICK_ORDER_FORWARD,
+        'tick_time_order':{w:frame_stats[w]['tick_order'] for w in RESEARCH},
+        'tick_time_order_counts':{w:frame_stats[w]['tick_order_counts'] for w in RESEARCH},
         'custody':{w:{
             'tick_sha256':custody[w]['tick_sha256'],
             'evidence_sha256':custody[w]['evidence_sha256'],
@@ -346,6 +354,8 @@ def main():
         'burned_authorized':False,'burned_status':'NOT_RUN',
         'physical_pass':None,'alpha_gate':False,'v74_gate':False,
         'execution_semantics_ready':False,'runtime_policy_semantics_parity':False,
+        'tick_time_semantics':'FORWARD_TIME_CORRECTED',
+        'legacy_reversed_tick_frames_rejected':True,
         'promotion_blocker':blocker,
         'folds':folds,'diagnostics':diag,
         'research_years':RESEARCH,
@@ -369,6 +379,8 @@ def main():
     }
     (out/'V74_R18_SEMANTIC_MANIFEST.json').write_text(json.dumps(manifest,indent=2,allow_nan=False)+'\n')
     (out/'research_pass.txt').write_text('false\n')
+    print('[R18-TICK-TRUTH] schema=V74_R17_TICK_V3 tick_order=FORWARD required=true legacy_rejected=true',
+          flush=True)
     print(json.dumps({k:v for k,v in manifest.items() if k!='folds'},indent=2),flush=True)
 
 if __name__=='__main__':
