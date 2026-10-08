@@ -55,15 +55,25 @@ class R18SemanticContract(unittest.TestCase):
         ):
             self.assertIn(invariant,text)
 
-    def test_r18_runs_with_exact_r17_tick_seek(self):
+    def test_r18_consumes_forward_order_r17_tick_truth(self):
         src=(HB/'src/Architecture/HarmonyBotV74.R17TickState.cs').read_text()
         workflow=(REPO/'.github/workflows/harmonybot-v74-r18-semantic.yml').read_text()
         self.assertIn('V74R17LowerBoundTick(openUtc)',src)
         self.assertIn('V74R17LowerBoundTick(endUtc)',src)
-        self.assertIn('for (int k = pastEnd - 1; k >= first; k--)',src)
+        self.assertIn('for (int k = first; k < pastEnd; k++)',src)
+        self.assertNotIn('for (int k = pastEnd - 1; k >= first; k--)',src)
         self.assertNotIn('for (int k = _v74R17Ticks.Count - 1; k >= 0; k--)',src)
+        self.assertIn('R17_TICK_TIME_DIRECTION',src)
+        self.assertIn('schema=V74_R17_TICK_V3 tick_order=FORWARD',src)
         self.assertIn('HarmonyBotV74.R17TickState.cs',workflow)
         self.assertIn('test_v74_r17.py',workflow)
+
+    def test_evaluator_requires_forward_tick_time_order(self):
+        text=(HERE/'evaluate_v74_r18_semantics.py').read_text()
+        self.assertIn('TICK_ORDER_FORWARD',text)
+        self.assertIn('require_order=TICK_ORDER_FORWARD',text)
+        self.assertIn('tick_time_semantics',text)
+        self.assertIn("'legacy_reversed_tick_frames_rejected':True",text)
 
     def test_on_tick_shadow_hook_is_gated(self):
         text=(HB/'src/Architecture/HarmonyBotV71.ProtectedCore.cs').read_text()
