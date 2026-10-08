@@ -34,6 +34,28 @@ class R17Contract(unittest.TestCase):
         for forbidden in ('MfeR','MaeR','OutcomeR'):
             self.assertNotIn(forbidden,text)
 
+    def test_tick_lower_bound_exact_parity(self):
+        from bisect import bisect_left
+        from random import Random
+        rng=Random(17074)
+        text=(HB/'src/Architecture/HarmonyBotV74.R17TickState.cs').read_text()
+        self.assertIn('private int V74R17LowerBoundTick(DateTime utc)',text)
+        self.assertIn('for (int k = pastEnd - 1; k >= first; k--)',text)
+        self.assertIn('R17_TICK_LOWER_BOUND_CONTRACT',text)
+        for case in range(120):
+            ticks=sorted(rng.randrange(-120,86400) for _ in range(rng.randrange(0,3200)))
+            for minute in (-180,0,60,120,900,7200,60000,86520):
+                reference=[i for i in range(len(ticks)-1,-1,-1)
+                           if minute<=ticks[i]<minute+60]
+                selected=list(range(bisect_left(ticks,minute+60)-1,
+                                    bisect_left(ticks,minute)-1,-1))
+                self.assertEqual(reference,selected)
+            older=sorted(rng.randrange(-86400,-121) for _ in range(25))
+            ticks=older+ticks
+            self.assertEqual(
+                [i for i in range(len(ticks)-1,-1,-1) if 0<=ticks[i]<60],
+                list(range(bisect_left(ticks,60)-1,bisect_left(ticks,0)-1,-1)))
+
     def test_r17_does_not_modify_protected_tick_lifecycle(self):
         text=(HB/'src/Architecture/HarmonyBotV71.ProtectedCore.cs').read_text()
         self.assertNotIn('V74R17',text)

@@ -207,6 +207,22 @@ namespace cAlgo.Robots
             }
         }
 
+        // Seek only the exact [open, end) tick interval. The tick collection is
+        // oldest-first and LoadMoreHistory prepends older ticks (official API).
+        // Preserve the historical reverse-index Add order and all original
+        // feature operations, including repeated timestamps and quote edges.
+        private int V74R17LowerBoundTick(DateTime utc)
+        {
+            int lo = 0, hi = _v74R17Ticks.Count;
+            while (lo < hi)
+            {
+                int mid = lo + ((hi - lo) >> 1);
+                if (_v74R17Ticks[mid].Time.ToUniversalTime() < utc) lo = mid + 1;
+                else hi = mid;
+            }
+            return lo;
+        }
+
         private V74R17TickMinute V74R17GetMinute(DateTime openUtc)
         {
             V74R17TickMinute cached;
@@ -216,8 +232,21 @@ namespace cAlgo.Robots
             V74R17EnsureTicks(openUtc);
             if (_v74R17Ticks == null || _v74R17Ticks.Count == 0) return null;
 
+            int n = _v74R17Ticks.Count;
+            if (_v74R17Ticks[0].Time.ToUniversalTime() >
+                _v74R17Ticks[n - 1].Time.ToUniversalTime())
+                throw new InvalidOperationException("R17_TICK_SERIES_ORDER");
+            int first = V74R17LowerBoundTick(openUtc);
+            int pastEnd = V74R17LowerBoundTick(endUtc);
+            if (first > pastEnd ||
+                (first > 0 && _v74R17Ticks[first - 1].Time.ToUniversalTime() >= openUtc) ||
+                (first < n && _v74R17Ticks[first].Time.ToUniversalTime() < openUtc) ||
+                (pastEnd > 0 && _v74R17Ticks[pastEnd - 1].Time.ToUniversalTime() >= endUtc) ||
+                (pastEnd < n && _v74R17Ticks[pastEnd].Time.ToUniversalTime() < endUtc))
+                throw new InvalidOperationException("R17_TICK_LOWER_BOUND_CONTRACT");
+
             var z = new V74R17TickMinute { OpenUtc = openUtc };
-            for (int k = _v74R17Ticks.Count - 1; k >= 0; k--)
+            for (int k = pastEnd - 1; k >= first; k--)
             {
                 Tick tick = _v74R17Ticks[k];
                 DateTime t = tick.Time.ToUniversalTime();
