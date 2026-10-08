@@ -14,13 +14,26 @@ test -s "$A"
 cp "$A" "$W/seal/algo/"
 
 N="V71-R17-TICK-$WIN-B10000"
+
+capture_failure() {
+  rc=$?
+  if [[ "$rc" -ne 0 ]]; then
+    mkdir -p "$O/failure"
+    test ! -s "$W/seal/logs/$N.log" || cp "$W/seal/logs/$N.log" "$O/failure/$N.log"
+    test ! -s "$W/seal/reports/$N.json" || cp "$W/seal/reports/$N.json" "$O/failure/$N.json"
+    printf '%s\n' "$rc" > "$O/failure/exit_code.txt"
+  fi
+  exit "$rc"
+}
+trap capture_failure ERR
+
 (
   cd "$W"
   RUN_NAME="$N" START_DATE="$START" EVAL_DATE="$EVAL" END_DATE="$END" BALANCE=10000 \
   EXPSHADOW=false EXPEXEC=false EXPGRID=false EXPADAPRISK=false EXPRISK=1.0 \
   V72BIFURCATION=false V72FAMILYNATIVE=false V72FAILUREAUCTION=false V72HCOG=false V72HCAP=false \
   V73UNIVERSE=true V74R17TICK=true V74EXTERNAL=false V74EMBEDDED=false \
-  BACKTEST_DATA_MODE=ticks IMMUTABLE_DATA=false BACKTEST_TIMEOUT_SECONDS=3600 \
+  BACKTEST_DATA_MODE=ticks IMMUTABLE_DATA=false BACKTEST_TIMEOUT_SECONDS="${R17_BACKTEST_TIMEOUT_SECONDS:-4500}" \
   "$C/HarmonyBot-V71/tools/run_backtest.sh"
 )
 
