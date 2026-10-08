@@ -6,6 +6,8 @@ on:
     branches: ['harmonybot/v73-opportunity-universe']
     paths:
       - 'HarmonyBot-V71/src/Architecture/HarmonyBotV74.R18OutcomeEngine.cs'
+      - 'HarmonyBot-V71/src/Architecture/HarmonyBotV74.R17TickState.cs'
+      - 'HarmonyBot-V71/tools/test_v74_r17.py'
       - 'HarmonyBot-V71/src/Architecture/HarmonyBotV71.V73OpportunityUniverse.cs'
       - 'HarmonyBot-V71/src/Architecture/HarmonyBotV71.ProtectedCore.cs'
       - 'HarmonyBot-V71/src/Architecture/HarmonyBotV71.HcogResearch.cs'

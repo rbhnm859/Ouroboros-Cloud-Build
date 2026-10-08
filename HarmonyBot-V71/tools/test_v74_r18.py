@@ -55,6 +55,16 @@ class R18SemanticContract(unittest.TestCase):
         ):
             self.assertIn(invariant,text)
 
+    def test_r18_runs_with_exact_r17_tick_seek(self):
+        src=(HB/'src/Architecture/HarmonyBotV74.R17TickState.cs').read_text()
+        workflow=(REPO/'.github/workflows/harmonybot-v74-r18-semantic.yml').read_text()
+        self.assertIn('V74R17LowerBoundTick(openUtc)',src)
+        self.assertIn('V74R17LowerBoundTick(endUtc)',src)
+        self.assertIn('for (int k = pastEnd - 1; k >= first; k--)',src)
+        self.assertNotIn('for (int k = _v74R17Ticks.Count - 1; k >= 0; k--)',src)
+        self.assertIn('HarmonyBotV74.R17TickState.cs',workflow)
+        self.assertIn('test_v74_r17.py',workflow)
+
     def test_on_tick_shadow_hook_is_gated(self):
         text=(HB/'src/Architecture/HarmonyBotV71.ProtectedCore.cs').read_text()
         self.assertIn('if (EnableV74R18OutcomeResearch) V74R18OnTick();',text)
