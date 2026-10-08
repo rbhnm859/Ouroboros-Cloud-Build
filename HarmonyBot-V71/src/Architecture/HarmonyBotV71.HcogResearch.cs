@@ -227,6 +227,8 @@ namespace cAlgo.Robots
             public bool HcapSelected = true;
             public string HcapFeatureCsv = "", V74FeatureCsv = "", V74LiveProtectionKey = "NONE";
             public int BarsActive;
+            public int V74R15AnchorIndex = -1;
+            public HashSet<int> V74R15Emitted = new HashSet<int>();
             public int[] V74ProtectionTriggerBar = Enumerable.Repeat(-1, 5).ToArray();
             public double[] V74ProtectionOutcomeR = Enumerable.Repeat(double.NaN, 5).ToArray();
             public string[] V74MilestoneFeatureCsv = new string[5];
@@ -505,6 +507,7 @@ namespace cAlgo.Robots
                 ? (lane=="HCOG_FAILURE_CONTINUATION"?"HCOG_ABCD_STANDALONE_CONTINUATION_SHADOW":"HCOG_ABCD_STANDALONE_REVERSAL_SHADOW")
                 : lane;
             o.Regime=BuildRegimeSnapshot();
+            o.V74R15AnchorIndex=LastClosedIndex(_m1Bars);
             o.V74FeatureCsv=string.Join(",",V74ResearchFeatures(o).Select(v=>v.ToString("R",System.Globalization.CultureInfo.InvariantCulture)));
             if(EnableV74ExternalPolicy||EnableV74EmbeddedPolicy)V74FrozenPolicyScoreOpportunity(o); else V72HcapScoreOpportunity(o);
             o.CoreOverlapAtEntry=V71CoreHasActiveThesis()||_activeSetupOwners.ContainsKey(o.SetupKey)||_executedSetupKeys.Contains(o.SetupKey);
@@ -959,6 +962,7 @@ namespace cAlgo.Robots
 
         private double[] V74DecisionPathR7(V72HcogOpportunity o,int i,int causalStartBar,double decisionEntry,double decisionRisk,bool invertDirection=false)
         {
+            V74R15EmitTrajectory(o,i);
             // R7 common 32-D causal trajectory signature. Frozen at the completed
             // decision bar for EVERY source. No post-entry bar, outcome, MFE/MAE,
             // Validation/Fresh label or future trigger is referenced.
@@ -1012,6 +1016,7 @@ namespace cAlgo.Robots
         private double[] V74SurvivalPathV2(V72HcogOpportunity o,int i,int reactionBar,int pullbackBar,
             double fibPrice,double impulseExtreme,double pullbackExtreme)
         {
+            V74R15EmitTrajectory(o,i);
             // V74-R7 Path-V4: multiscale causal path signature frozen at the completed
             // fresh-entry decision bar. No post-entry price, MFE/MAE, TP/SL or
             // outcome is referenced. The first 32 coordinates preserve Path-V3;

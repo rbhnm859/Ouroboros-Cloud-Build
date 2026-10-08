@@ -1,0 +1,137 @@
+{
+  "schema": "V74_R15_TRAJECTORY_V1",
+  "length": 32,
+  "channels": [
+    "return_r",
+    "range_atr",
+    "body_atr",
+    "upper_wick_atr",
+    "lower_wick_atr",
+    "distance_d_r",
+    "distance_prz_low_r",
+    "distance_prz_high_r",
+    "causal_favorable_r",
+    "causal_adverse_r",
+    "velocity_r",
+    "acceleration_r",
+    "efficiency",
+    "reclaim_r",
+    "compression",
+    "impulse_r",
+    "pullback_r",
+    "realized_volatility_r"
+  ],
+  "static_fields": [
+    "spread_r",
+    "utc_sin",
+    "utc_cos"
+  ],
+  "clock": "UTC",
+  "decision_time": "M1 open time + 60 seconds; index <= LastClosedIndex(_m1Bars)",
+  "anchor": "native completed entry bar; decision_bar = decision_index - anchor_index",
+  "normalization": "native risk frozen at arming; ATR14 computed separately at each historical completed bar",
+  "missing_policy": "reject entire research run; no padding, imputation or skipped legal actions",
+  "label_custody": "Outcome is training target only. Runtime encoder receives only explicit trajectory and causal static allowlist.",
+  "fields_audit": {
+    "return_r": {
+      "available": "at each bar close <= decision close",
+      "source": "completed OHLC through current historical index",
+      "future_outcome": false
+    },
+    "range_atr": {
+      "available": "at each bar close <= decision close",
+      "source": "completed OHLC through current historical index",
+      "future_outcome": false
+    },
+    "body_atr": {
+      "available": "at each bar close <= decision close",
+      "source": "completed OHLC through current historical index",
+      "future_outcome": false
+    },
+    "upper_wick_atr": {
+      "available": "at each bar close <= decision close",
+      "source": "completed OHLC through current historical index",
+      "future_outcome": false
+    },
+    "lower_wick_atr": {
+      "available": "at each bar close <= decision close",
+      "source": "completed OHLC through current historical index",
+      "future_outcome": false
+    },
+    "distance_d_r": {
+      "available": "at each bar close <= decision close",
+      "source": "completed OHLC through current historical index",
+      "future_outcome": false
+    },
+    "distance_prz_low_r": {
+      "available": "at each bar close <= decision close",
+      "source": "completed OHLC through current historical index",
+      "future_outcome": false
+    },
+    "distance_prz_high_r": {
+      "available": "at each bar close <= decision close",
+      "source": "completed OHLC through current historical index",
+      "future_outcome": false
+    },
+    "causal_favorable_r": {
+      "available": "at each bar close <= decision close",
+      "source": "completed OHLC through current historical index",
+      "future_outcome": false
+    },
+    "causal_adverse_r": {
+      "available": "at each bar close <= decision close",
+      "source": "completed OHLC through current historical index",
+      "future_outcome": false
+    },
+    "velocity_r": {
+      "available": "at each bar close <= decision close",
+      "source": "completed OHLC through current historical index",
+      "future_outcome": false
+    },
+    "acceleration_r": {
+      "available": "at each bar close <= decision close",
+      "source": "completed OHLC through current historical index",
+      "future_outcome": false
+    },
+    "efficiency": {
+      "available": "at each bar close <= decision close",
+      "source": "completed OHLC through current historical index",
+      "future_outcome": false
+    },
+    "reclaim_r": {
+      "available": "at each bar close <= decision close",
+      "source": "completed OHLC through current historical index",
+      "future_outcome": false
+    },
+    "compression": {
+      "available": "at each bar close <= decision close",
+      "source": "completed OHLC through current historical index",
+      "future_outcome": false
+    },
+    "impulse_r": {
+      "available": "at each bar close <= decision close",
+      "source": "completed OHLC through current historical index",
+      "future_outcome": false
+    },
+    "pullback_r": {
+      "available": "at each bar close <= decision close",
+      "source": "completed OHLC through current historical index",
+      "future_outcome": false
+    },
+    "realized_volatility_r": {
+      "available": "at each bar close <= decision close",
+      "source": "completed OHLC through current historical index",
+      "future_outcome": false
+    }
+  },
+  "spread_audit": "current broker spread observed at decision; not retrospectively assigned to earlier bars",
+  "event_identity": "Direction|CompletionTime|D-price",
+  "research_years": [
+    2016,
+    2017,
+    2018,
+    2019,
+    2020
+  ],
+  "burned_locked": true
+}

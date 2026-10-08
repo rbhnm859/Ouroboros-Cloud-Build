@@ -733,3 +733,9 @@ PREDICTORS={"A_HIERARCHICAL_COMPETING_RISK":pred_hier,
 
 def predict(name,model,row):
     return PREDICTORS[name](model,row)
+
+
+def load_r15_trajectories(root, windows):
+    """Fail-closed ordered completed-bar parser; isolated from legacy imputation."""
+    from v74_r15_contract import load_trajectories
+    return load_trajectories(root, windows)

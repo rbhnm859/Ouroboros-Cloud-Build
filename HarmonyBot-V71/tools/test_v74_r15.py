@@ -1,0 +1,43 @@
+import copy,datetime as dt,math,unittest
+import numpy as np
+from v74_r15_contract import parse_trajectory,ContractError,observation,MARKER
+from v74_r15_encoder import encode
+
+class CausalBoundary(unittest.TestCase):
+    def line(self):
+        decision=dt.datetime(2020,1,1,12,0,tzinfo=dt.timezone.utc)
+        times=[(decision-dt.timedelta(minutes=31-j)).strftime('%Y-%m-%dT%H:%M:%SZ') for j in range(32)]
+        values=';'.join(','.join(str((j+1)*(c+1)/100) for c in range(18)) for j in range(32))
+        return f'{MARKER} schema=V74_R15_TRAJECTORY_V1 setup=Buy|2020-01-01T00:00:00|1500|1510|1520|1530|1540 bar=5 anchor=100 index=105 decision={times[-1]} times={",".join(times)} spread=0.01 sin=0 cos=-1 values={values}'
+    def test_valid_ordered_contract(self):self.assertEqual(len(parse_trajectory(self.line())['values']),32)
+    def test_fail_closed_corruptions(self):
+        line=self.line()
+        bad=[line.replace('schema=V74_R15_TRAJECTORY_V1','schema=OLD'),line.replace(' spread=0.01',''),
+             line.replace('bar=5','bar=6'),line.replace('index=105','index=31'),
+             line.replace('spread=0.01','spread=NaN'),line.replace('spread=0.01','spread=-1'),
+             line.replace('sin=0','sin=.1'),line+' outcome=3',line+' bar=5',
+             line.replace('values=0.01','values=NaN',1),line.replace('2020-01-01T11:29:00Z,','',1),
+             line.replace('decision=2020-01-01T12:00:00Z','decision=2020-01-01T12:01:00Z')]
+        for value in bad:
+            with self.subTest(value=value[-80:]),self.assertRaises(ContractError):parse_trajectory(value)
+    def test_temporal_order_changes_encoding(self):
+        z=parse_trajectory(self.line());obs=observation(z,[0]*53);other=copy.deepcopy(obs);other['values']=other['values'][::-1]
+        self.assertFalse(np.array_equal(encode(obs),encode(other)))
+    def test_future_labels_are_ignored(self):
+        z=parse_trajectory(self.line());a=encode(observation(z,[0]*53))
+        z.update({'r':999,'mfe':999,'mae':999,'future_target':999,'label':1})
+        np.testing.assert_array_equal(a,encode(observation(z,[0]*53)))
+    def test_suffix_outcomes_cannot_enter_model(self):
+        from v74_r15_model import CTRSTA
+        self.assertEqual(list(__import__('inspect').signature(CTRSTA.predict).parameters),['self','x','mechanisms','families'])
+    def test_legacy_cache_is_rejected(self):
+        import tempfile
+        from v74_r15_contract import load_trajectories
+        with tempfile.TemporaryDirectory() as root,self.assertRaises(ContractError):load_trajectories(root,['Y2016'])
+    def test_oos_not_opened(self):
+        import tempfile,pathlib
+        from v74_r15_contract import load_trajectories
+        with tempfile.TemporaryDirectory() as root:
+            p=pathlib.Path(root);(p/'Y2016.log').write_text(self.line());(p/'Y2021.log').write_bytes(b'\xff')
+            self.assertEqual(len(load_trajectories(root,['Y2016'])),1)
+if __name__=='__main__':unittest.main()

@@ -45,6 +45,17 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          # R15 research custody veto: legacy pipelines must not load burned years.
+          if python3 - <<'PYLOCK'
+          import json,pathlib,sys
+          p=pathlib.Path("HarmonyBot-V74/r15/RESEARCH_LOCK.json")
+          sys.exit(0 if p.exists() and json.loads(p.read_text()).get("active") else 1)
+          PYLOCK
+          then
+            echo "full=false" >> "$GITHUB_OUTPUT"
+            echo "[V74-R15-CUSTODY] legacy path skipped; research-only pipeline owns this revision"
+            exit 0
+          fi
           # Fingerprint only bytes that can alter the exact cTrader universe.
           # Evaluator/workflow/evidence commits therefore cannot force a rebuild.
           mapfile -t SEMANTIC_FILES < <(
