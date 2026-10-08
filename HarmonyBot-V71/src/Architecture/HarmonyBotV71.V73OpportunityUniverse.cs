@@ -17,6 +17,9 @@ namespace cAlgo.Robots
         [Parameter("Enable V74 R17 Tick Research", DefaultValue = false)]
         public bool EnableV74R17TickResearch { get; set; }
 
+        [Parameter("Enable V74 R18 Outcome Research", DefaultValue = false)]
+        public bool EnableV74R18OutcomeResearch { get; set; }
+
         [Parameter("Enable V74 External Frozen Policy", DefaultValue = false)]
         public bool EnableV74ExternalPolicy { get; set; }
 

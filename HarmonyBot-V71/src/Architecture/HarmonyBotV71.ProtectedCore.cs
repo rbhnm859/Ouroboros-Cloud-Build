@@ -234,6 +234,7 @@ namespace cAlgo.Robots
             {
                 ResetDaily(false);
                 UpdateRiskLocks();
+                if (EnableV74R18OutcomeResearch) V74R18OnTick();
                 ReconcileAndManageBaskets();
             }
             catch (Exception ex)

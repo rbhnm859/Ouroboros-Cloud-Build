@@ -2045,6 +2045,7 @@ namespace cAlgo.Robots
             V74FinalizePostStopFailureContinuation(o,close);
             V74FinalizeCausalSequentialDelayedCommit(o,close);
             V74FinalizeTrueLateEntryAuction(o,close);
+            if(EnableV74R18OutcomeResearch)V74R18FinalizeOpportunity(o,result);
             o.Result=result;o.Active=false;o.State=V72HcogState.CLOSED;_v72HcogClosed++;V72HcogRecord(o,r);
             V74R15ResearchPrint("[V72-HCOG-OUTCOME] id={0} setup={1} family={2} lane={3} abcd={4} coreOverlap={5} r={6:F6} mfeR={7:F6} maeR={8:F6} bars={9} result={10} hcapSelected={11} q={12:F9} lcb={13:F9} hold={14:F3} features={15} v74features={16}",
                 o.Id,o.SetupKey,o.Family,o.Lane,o.HasAbcdConfluence,o.CoreOverlapAtEntry,r,o.MfeR,o.MaeR,o.BarsActive,result,
@@ -2194,6 +2195,7 @@ namespace cAlgo.Robots
             V74UpdateCausalSequentialDelayedCommit(o,i,stop,target);
             V74UpdateTrueLateEntryAuction(o,i,stop,target);
             V74UpdatePostStopFailureContinuation(o,i,stop);
+            if(EnableV74R18OutcomeResearch)V74R18SyncOpportunity(o,i);
 
             // A structural stop still fixes the original reversal payoff at -1R,
             // but qualification research keeps the event alive to observe a distinct
@@ -2232,6 +2234,7 @@ namespace cAlgo.Robots
                 _v72HcogDetected,_v72HcogPrzTouched,_v72HcogProofs,_v72HcogArmed,_v72HcogFailureArmed,_v72HcogClosed,_v72HcogCoreOverlapAtEntry,_v72HcogAbcdPrimitive,_v72HcogCapitalQueued,_v72Hcog.Values.Count(x=>x.Active));
             V72HcapPrintSummary();
             V73PrintUniverseSummary();
+            if(EnableV74R18OutcomeResearch)V74R18Seal();
             V74R15SealEvidence();
         }
     }
