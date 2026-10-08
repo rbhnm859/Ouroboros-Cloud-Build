@@ -30,6 +30,31 @@ class R18SemanticContract(unittest.TestCase):
         self.assertNotIn('MfeR',text)
         self.assertNotIn('MaeR',text)
 
+    def test_tick_work_is_active_only(self):
+        text=(HB/'src/Architecture/HarmonyBotV74.R18OutcomeEngine.cs').read_text()
+        # Keep event+route lifetime deduplication without scanning settled
+        # historical trackers on every server tick.
+        self.assertIn('_v74R18Seen.Add(key)',text)
+        self.assertIn('_v74R18Active.Add(t)',text)
+        self.assertIn('for(int j=_v74R18Active.Count-1;j>=0;j--)',text)
+        self.assertIn('if(t.Resolved)_v74R18Active.RemoveAt(j);',text)
+        self.assertNotIn('_v74R18Outcome',text)
+        self.assertNotIn('.Values.Where(x=>!x.Resolved).ToList()',text)
+
+    def test_tick_exit_semantics_non_regression(self):
+        text=(HB/'src/Architecture/HarmonyBotV74.R18OutcomeEngine.cs').read_text()
+        for invariant in (
+            'if(now>=t.DeadlineUtc)',
+            'else if(!IsInstitutionalSession(now))',
+            'bool sl=t.Direction==TradeDirection.Buy?bid<=t.Stop:ask>=t.Stop;',
+            'bool tp=t.Direction==TradeDirection.Buy?bid>=t.Target:ask<=t.Target;',
+            'if(sl)V74R18Emit(t,"SL_FIRST"',
+            'else if(tp)V74R18Emit(t,"TP_FIRST"',
+            'if(!t.Resolved)V74R18Emit(t,"CENSORED"',
+            '[V74-R18-SUMMARY]',
+        ):
+            self.assertIn(invariant,text)
+
     def test_on_tick_shadow_hook_is_gated(self):
         text=(HB/'src/Architecture/HarmonyBotV71.ProtectedCore.cs').read_text()
         self.assertIn('if (EnableV74R18OutcomeResearch) V74R18OnTick();',text)
