@@ -51,3 +51,11 @@ was not established; no Alpha conclusion follows. V2 transports frozen payloads
 via gzip/base64 with raw SHA256 and a per-event frame count, and emits them beside
 terminal route telemetry. Missing frames or count/checksum mismatch veto the run.
 This is a telemetry semantic change and requires fresh five-year regeneration.
+
+Direction audit on #1 Y2020 identified 119 FAILURE actions whose native action
+was already CONTINUATION. The post-stop C# route explicitly inverts native
+Direction, so those actions are harmonic REVERSAL, whereas the legacy Python
+adapter called every FAILURE action CONTINUATION. R15 corrects mechanism identity
+relative to the native action without changing action supply/payoff mechanics.
+A regression test covers both polarities. Native mechanism is an explicit causal
+input so temporal sign orientation is unambiguous to the mechanism experts.

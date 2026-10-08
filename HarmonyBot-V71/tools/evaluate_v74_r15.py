@@ -49,7 +49,7 @@ def prepare(root):
             obs=observation(z,s['row']['features'])
             encoded[ck]=(encode(obs),encode(obs,False))
         mechanism=1 if s['action']=='CONTINUATION' else 0
-        cats=np.array([int(s['source']==v) for v in ('EARLY','LATE','SURVIVAL','REACTION','FAILURE')]+[mechanism,rr/4])
+        cats=np.array([int(s['source']==v) for v in ('EARLY','LATE','SURVIVAL','REACTION','FAILURE')]+[mechanism,rr/4,int(s['row']['action']=='CONTINUATION')])
         # Summary ablation uses the same event static and legal action metadata.
         result.append({'event':event,'year':s['window'],'family':s['family'],'bar':s['bar'],
                        'decision':z['decision'],'mechanism':mechanism,'source':s['source'],'route':s['route'],

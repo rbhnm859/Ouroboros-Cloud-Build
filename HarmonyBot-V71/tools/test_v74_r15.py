@@ -68,6 +68,15 @@ class CausalBoundary(unittest.TestCase):
         src=inspect.getsource(all_options)
         self.assertIn('sig = (b, f, int(eb))',src)
         self.assertNotIn('round(float(y)',src)
+    def test_failure_direction_is_relative_to_native_action(self):
+        from v74_r15_supply import make_samples
+        for native,expected in [('REVERSAL','CONTINUATION'),('CONTINUATION','REVERSAL')]:
+            r={'window':'Y2016','setup':'Buy|201601010000|1200','family':'ABCD','action':native,
+               'features':[0.]*53,'failure_continuation':{'FC230':2.3},
+               'failure_continuation_rr':{'FC230':2.3},'failure_continuation_entry_bar':{'FC230':5},
+               'failure_continuation_bars':{'FC230':10}}
+            samples=make_samples([r]);self.assertEqual(len(samples),1)
+            self.assertEqual(samples[0]['action'],expected)
     def test_research_workflow_has_no_burned_matrix(self):
         from pathlib import Path
         workflow=(Path(__file__).parents[2]/'.github/workflows/harmonybot-v74-r15-research.yml').read_text()
@@ -75,4 +84,17 @@ class CausalBoundary(unittest.TestCase):
             self.assertNotIn(year,workflow)
         self.assertNotIn('evaluate_v74_sequential.py merged',workflow)
         self.assertNotIn('gh workflow run',workflow)
+    def test_semantic_cache_detects_source_change(self):
+        from verify_v74_r15_source import semantic_fingerprint,verify
+        import tempfile,pathlib,json
+        with tempfile.TemporaryDirectory() as root:
+            p=pathlib.Path(root)
+            files=['HarmonyBot-V71/src/robot.cs','HarmonyBot-V71/HarmonyBotV71.csproj','HarmonyBot-V71/tools/run_window.sh',
+                   'HarmonyBot-V71/tools/run_backtest.sh','HarmonyBot-V71/tools/resolve_window.sh','HarmonyBot-V73/V73_RESEARCH_CUSTODY.json']
+            for path in files:
+                f=p/path;f.parent.mkdir(parents=True,exist_ok=True);f.write_text('fixed')
+            m=p/'pin.json';m.write_text(json.dumps({'research_only':True,'required_artifacts':[f'v74-r15-research-Y{y}' for y in range(2016,2021)],'semantic_fingerprint':semantic_fingerprint(p)}))
+            verify(p,m)
+            (p/files[0]).write_text('semantic change')
+            with self.assertRaises(ValueError):verify(p,m)
 if __name__=='__main__':unittest.main()

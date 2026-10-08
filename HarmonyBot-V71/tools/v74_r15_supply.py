@@ -328,5 +328,5 @@ def make_samples(xs):
             feb = -1
         if fy is not None and frr is not None and (feb >= 0) and (float(frr) + 1e-09 >= LEGAL_MIN_RR):
             fbars = max(1, int(r.get('failure_continuation_bars', {}).get('FC230', r.get('bars', 1)) or 1))
-            out.append({'window': r['window'], 'setup': r['setup'], 'family': r['family'], 'action': 'CONTINUATION', 'source': 'FAILURE', 'base': 'FAILURE_FC230', 'route': 'FAILURE|FC230', 'bar': feb, 'bars': fbars, 'x': failure_xvec(r, feb), 'y': float(fy), 'row': r})
+            out.append({'window': r['window'], 'setup': r['setup'], 'family': r['family'], 'action': ('CONTINUATION' if r['action']=='REVERSAL' else 'REVERSAL'), 'source': 'FAILURE', 'base': 'FAILURE_FC230', 'route': 'FAILURE|FC230', 'bar': feb, 'bars': fbars, 'x': failure_xvec(r, feb), 'y': float(fy), 'row': r})
     return out

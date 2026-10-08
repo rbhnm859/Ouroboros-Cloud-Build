@@ -6,11 +6,11 @@ on:
     branches: ['harmonybot/v73-opportunity-universe']
     paths:
       - 'HarmonyBot-V71/src/**'
-      - 'HarmonyBot-V71/tools/v74_r15*'
-      - 'HarmonyBot-V71/tools/evaluate_v74_r15.py'
-      - 'HarmonyBot-V71/tools/test_v74_r15.py'
-      - 'HarmonyBot-V74/r15/**'
-      - '.github/workflows/harmonybot-v74-r15-research.yml'
+      - 'HarmonyBot-V71/HarmonyBotV71.csproj'
+      - 'HarmonyBot-V71/tools/run_window.sh'
+      - 'HarmonyBot-V71/tools/run_backtest.sh'
+      - 'HarmonyBot-V71/tools/resolve_window.sh'
+      - 'HarmonyBot-V73/V73_RESEARCH_CUSTODY.json'
 concurrency:
   group: harmonybot-v74-r15-research-${{ github.ref }}
   cancel-in-progress: true
