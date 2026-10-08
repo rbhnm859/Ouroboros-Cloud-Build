@@ -69,11 +69,22 @@ test "$DONE" = 1 || { echo "[V71-WATCHDOG-FAIL] run=$RUN_NAME"; tail -400 "seal/
 if [[ "${V73UNIVERSE:-false}" == "true" ]]; then
  # No credentials are inspected: list only the named relative sandbox evidence.
  docker export "$CNAME" | tar -tf - > seal/r15-container-paths.txt
- mapfile -t R15_PATHS < <(rg '(^|/)V74_R15_EVIDENCE\.log$' seal/r15-container-paths.txt)
+ mapfile -t R15_PATHS < <(python3 - <<'PYPATH'
+from pathlib import Path
+for line in Path('seal/r15-container-paths.txt').read_text().splitlines():
+ if line.rsplit('/',1)[-1]=='V74_R15_EVIDENCE.log':print(line)
+PYPATH
+ )
  [[ "${#R15_PATHS[@]}" == 1 ]] || { echo "[R15-SIDECAR-FAIL] count=${#R15_PATHS[@]}"; exit 52; }
  docker cp "$CNAME:/${R15_PATHS[0]}" "seal/logs/$RUN_NAME-R15.log"
  test -s "seal/logs/$RUN_NAME-R15.log"
- rg -q '^\[V74-R15-EVIDENCE-END\] schema=V74_R15_EVIDENCE_V3 ' "seal/logs/$RUN_NAME-R15.log"
+ python3 - "seal/logs/$RUN_NAME-R15.log" <<'PYSEAL'
+from pathlib import Path
+import sys
+with Path(sys.argv[1]).open() as f:
+ valid=any(line.startswith('[V74-R15-EVIDENCE-END] schema=V74_R15_EVIDENCE_V3 ') for line in f)
+if not valid:raise SystemExit('R15 sidecar missing END seal')
+PYSEAL
  sha256sum "seal/logs/$RUN_NAME-R15.log" > "seal/logs/$RUN_NAME-R15.sha256"
  rm seal/r15-container-paths.txt
  echo "[R15-SIDECAR] sealed=true"

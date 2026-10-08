@@ -79,7 +79,7 @@ def load_trajectories(root,windows):
     for p in sorted(Path(root).rglob('*-R15.log')):
         found=[w for w in windows if w in str(p)]
         if len(found)!=1:continue
-        validate_sidecar(p)
+        validate_sidecar(p,require_hash=True)
         window=found[0]
         with p.open(errors='strict') as f:
             for line in f:
@@ -104,7 +104,7 @@ def audit_raw_outcomes(root,windows):
     count=0
     for p in Path(root).rglob('*-R15.log'):
         if sum(w in str(p) for w in windows)!=1:continue
-        validate_sidecar(p)
+        validate_sidecar(p,require_hash=True)
         with p.open(errors='strict') as f:
             for line in f:
                 if '[V72-HCOG-OUTCOME]' not in line:continue
@@ -121,7 +121,7 @@ def audit_raw_outcomes(root,windows):
     return count
 
 
-def validate_sidecar(path):
+def validate_sidecar(path,require_hash=False):
     import hashlib
     path=Path(path);outcomes=0;frames=0;footer=None;tail=None
     with path.open(errors='strict') as f:
@@ -136,4 +136,15 @@ def validate_sidecar(path):
         raise ContractError('missing required lossless sidecar seal')
     if int(footer['outcomes'])!=outcomes or int(footer['frames'])!=frames:raise ContractError('sidecar census/count mismatch')
     if outcomes==0:raise ContractError('empty sidecar outcomes')
+    if require_hash:
+        candidates=list(path.parent.parent.glob('R15_EVIDENCE_SHA256-*.txt'))
+        matches=[]
+        for pin in candidates:
+            fields=pin.read_text().split()
+            if len(fields)==2 and Path(fields[1]).name==path.name:matches.append(fields[0])
+        if len(matches)!=1:raise ContractError('missing/duplicate sidecar SHA256 custody')
+        digest=hashlib.sha256()
+        with path.open('rb') as f:
+            for block in iter(lambda:f.read(1024*1024),b''):digest.update(block)
+        if digest.hexdigest()!=matches[0]:raise ContractError('sidecar SHA256 custody mismatch')
     return {'outcomes':outcomes,'frames':frames}

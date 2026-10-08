@@ -111,7 +111,7 @@ fi
 if [[ "$V73UNIVERSE" == "true" ]]; then
  test -s "$W/seal/logs/$N-R15.log"
  cp "$W/seal/logs/$N-R15.log" "$O/raw-logs/$N-R15.log"
- sha256sum "$O/raw-logs/$N-R15.log" > "$O/R15_EVIDENCE_SHA256.txt"
+ sha256sum "$O/raw-logs/$N-R15.log" > "$O/R15_EVIDENCE_SHA256-$WIN.txt"
 fi
 cp "$W/seal/logs/$N.log" "$O/raw-logs/$N.log"; cp "$W/seal/reports/$N.json" "$O/raw-report.json"
 python3 "$C/HarmonyBot-V71/tools/audit_report.py" --report "$W/seal/reports/$N.json" --log "$W/seal/logs/$N.log"  --out "$O/$VAR-$WIN.json" --window "$WIN" --variant "$VAR" --years "$YEARS" --balance 10000 --data-snapshot "$O/DATA_SNAPSHOT_SHA256.txt"

@@ -53,7 +53,9 @@ class CausalBoundary(unittest.TestCase):
         import tempfile,pathlib
         from v74_r15_contract import load_trajectories
         with tempfile.TemporaryDirectory() as root:
-            p=pathlib.Path(root);(p/'Y2016-R15.log').write_text(self.frame()+'\n[V74-R15-TRANSPORT] setup='+parse_trajectory(self.line())['setup']+' count=1\n[V72-HCOG-OUTCOME] test\n[V74-R15-EVIDENCE-END] schema=V74_R15_EVIDENCE_V3 outcomes=1 frames=1');(p/'Y2021-R15.log').write_bytes(b'\xff')
+            p=pathlib.Path(root)/'raw-logs';p.mkdir();(p/'Y2016-R15.log').write_text(self.frame()+'\n[V74-R15-TRANSPORT] setup='+parse_trajectory(self.line())['setup']+' count=1\n[V72-HCOG-OUTCOME] test\n[V74-R15-EVIDENCE-END] schema=V74_R15_EVIDENCE_V3 outcomes=1 frames=1');(p/'Y2021-R15.log').write_bytes(b'\xff')
+            import hashlib
+            (p.parent/'R15_EVIDENCE_SHA256-Y2016.txt').write_text(hashlib.sha256((p/'Y2016-R15.log').read_bytes()).hexdigest()+' '+str(p/'Y2016-R15.log'))
             self.assertEqual(len(load_trajectories(root,['Y2016'])),1)
     def test_trajectory_source_has_no_outcomes(self):
         from pathlib import Path
@@ -106,4 +108,14 @@ class CausalBoundary(unittest.TestCase):
             with self.assertRaises(ContractError):validate_sidecar(p)
             p.write_text('[V72-HCOG-OUTCOME] record')
             with self.assertRaises(ContractError):validate_sidecar(p)
+    def test_sidecar_export_precedes_container_cleanup(self):
+        from pathlib import Path
+        s=(Path(__file__).parent/'run_backtest.sh').read_text()
+        self.assertLess(s.index('docker export "$CNAME"'),s.index('\ncleanup\ntrap - EXIT'))
+    def test_stdout_cannot_substitute_for_sidecar(self):
+        from v74_r15_contract import load_trajectories
+        import tempfile,pathlib
+        with tempfile.TemporaryDirectory() as root:
+            p=pathlib.Path(root)/'Y2016.log';p.write_text(self.frame())
+            with self.assertRaises(ContractError):load_trajectories(root,['Y2016'])
 if __name__=='__main__':unittest.main()
