@@ -1,0 +1,360 @@
+name: HarmonyBot V74 Fast Replay
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - harmonybot/v73-opportunity-universe
+    paths:
+      - 'HarmonyBot-V71/tools/evaluate_v74_sequential.py'
+      - 'HarmonyBot-V71/tools/diagnose_v74_joint_oracle.py'
+      - 'HarmonyBot-V71/tools/v74_model_lib.py'
+      - 'HarmonyBot-V71/tools/harmonic_precision_contract.py'
+      - 'HarmonyBot-V71/tools/validate_harmonic_precision.py'
+      - 'HarmonyBot-V71/tools/apply_v74_champion.py'
+      - 'HarmonyBot-V71/tools/generate_v74_embedded_cs.py'
+      - 'HarmonyBot-V71/evidence/V74_FAST_REPLAY_SOURCE.json'
+      - '.github/workflows/harmonybot-v74-fast-replay.yml'
+
+concurrency:
+  # R5 generation intentionally differs from legacy runs so a stale pre-R5
+  # tournament cannot block the newest lane-preserving evaluator.
+  group: harmonybot-v74-fast-replay-r5-${{ github.ref_name || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  fast_change_gate:
+    runs-on: ubuntu-24.04
+    outputs:
+      fast: ${{ steps.c.outputs.fast }}
+      model: ${{ steps.c.outputs.model }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - id: c
+        name: Classify current update
+        shell: bash
+        run: |
+          set -euo pipefail
+          # R15 research custody veto: legacy pipelines must not load burned years.
+          if python3 - <<'PYLOCK'
+          import json,pathlib,sys
+          p=pathlib.Path("HarmonyBot-V74/r15/RESEARCH_LOCK.json")
+          sys.exit(0 if p.exists() and json.loads(p.read_text()).get("active") else 1)
+          PYLOCK
+          then
+            echo "fast=false" >> "$GITHUB_OUTPUT"
+            echo "[V74-R15-CUSTODY] legacy path skipped; research-only pipeline owns this revision"
+            exit 0
+          fi
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            echo "fast=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          BEFORE="${{ github.event.before }}"
+          AFTER="${{ github.event.pull_request.head.sha || github.sha }}"
+          if [[ -z "$BEFORE" || "$BEFORE" =~ ^0+$ ]]; then
+            echo "fast=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          git cat-file -e "$BEFORE^{commit}"
+          git cat-file -e "$AFTER^{commit}"
+          FAST=true
+          MODEL=false
+          while IFS= read -r p; do
+            case "$p" in
+              HarmonyBot-V71/tools/evaluate_v74_sequential.py|\
+              HarmonyBot-V71/tools/diagnose_v74_joint_oracle.py|\
+              HarmonyBot-V71/tools/v74_model_lib.py|\
+              HarmonyBot-V71/tools/harmonic_precision_contract.py|\
+              HarmonyBot-V71/tools/validate_harmonic_precision.py|\
+              HarmonyBot-V71/tools/apply_v74_champion.py|\
+              HarmonyBot-V71/tools/generate_v74_embedded_cs.py|\
+              HarmonyBot-V71/evidence/V74_FAST_REPLAY_SOURCE.json)
+                MODEL=true
+                ;;
+              .github/workflows/harmonybot-v74-fast-replay.yml|\
+              .github/workflows/harmonybot-v74-rapid-decision.yml|\
+              .github/workflows/harmonybot-v73-v80-autonomous-evidence-pipeline.yml)
+                ;;
+              HarmonyBot-V71/src/*.cs)
+                if git diff -w --ignore-blank-lines \
+                     -I '^[[:space:]]*//' \
+                     -I '^[[:space:]]*/\*' \
+                     -I '^[[:space:]]*\*' \
+                     --quiet "$BEFORE" "$AFTER" -- "$p"; then
+                  echo "[V74-FAST-CHANGE-GATE] comment/whitespace-only C# change ignored: $p"
+                else
+                  FAST=false
+                fi
+                ;;
+              *)
+                FAST=false
+                ;;
+            esac
+          done < <(git diff --name-only "$BEFORE" "$AFTER")
+          echo "fast=$FAST" >> "$GITHUB_OUTPUT"
+          echo "model=$MODEL" >> "$GITHUB_OUTPUT"
+          echo "[V74-FAST-CHANGE-GATE] fast=$FAST model=$MODEL"
+
+  fast_replay:
+    needs: fast_change_gate
+    if: ${{ needs.fast_change_gate.outputs.fast == 'true' && (github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref_name == 'harmonybot/v73-opportunity-universe' && needs.fast_change_gate.outputs.model == 'true')) }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          path: control
+
+      - name: Resolve pinned universe evidence
+        id: source
+        shell: bash
+        run: |
+          set -euo pipefail
+          M=control/HarmonyBot-V71/evidence/V74_FAST_REPLAY_SOURCE.json
+          test -s "$M"
+          RUN=$(python3 -c 'import json;print(json.load(open("'$M'"))["source_run_id"])')
+          SHA=$(python3 -c 'import json;print(json.load(open("'$M'"))["source_head_sha"])')
+          PATTERN=$(python3 -c 'import json;d=json.load(open("'$M'"));print(d.get("artifact_pattern","v73-universe-*"))')
+          echo "run=$RUN" >> "$GITHUB_OUTPUT"
+          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+          echo "pattern=$PATTERN" >> "$GITHUB_OUTPUT"
+
+      - name: Fail closed on universe semantic drift
+        shell: bash
+        run: |
+          set -euo pipefail
+          SOURCE="${{ steps.source.outputs.sha }}"
+          git -C control cat-file -e "$SOURCE^{commit}"
+          DRIFT=false
+          while IFS= read -r p; do
+            case "$p" in
+              HarmonyBot-V71/src/*.cs)
+                if ! git -C control diff -w --ignore-blank-lines \
+                     -I '^[[:space:]]*//' \
+                     -I '^[[:space:]]*/\*' \
+                     -I '^[[:space:]]*\*' \
+                     --quiet "$SOURCE" HEAD -- "$p"; then
+                  DRIFT=true
+                  echo "[V74-FAST-REPLAY-DRIFT] executable C# change: $p"
+                fi
+                ;;
+              HarmonyBot-V71/HarmonyBotV71.csproj|\
+              HarmonyBot-V71/tools/run_window.sh|\
+              HarmonyBot-V71/tools/run_backtest.sh|\
+              HarmonyBot-V71/tools/resolve_window.sh|\
+              HarmonyBot-V71/tools/run_v51_reference.sh)
+                DRIFT=true
+                echo "[V74-FAST-REPLAY-DRIFT] execution/data support change: $p"
+                ;;
+            esac
+          done < <(git -C control diff --name-only "$SOURCE" HEAD -- \
+            HarmonyBot-V71/src \
+            HarmonyBot-V71/HarmonyBotV71.csproj \
+            HarmonyBot-V71/tools/run_window.sh \
+            HarmonyBot-V71/tools/run_backtest.sh \
+            HarmonyBot-V71/tools/resolve_window.sh \
+            HarmonyBot-V71/tools/run_v51_reference.sh)
+          if [[ "$DRIFT" == "true" ]]; then
+            echo "[V74-FAST-REPLAY-BLOCK] execution/data semantics changed; full evidence pipeline required"
+            exit 91
+          fi
+
+      - name: Compile evaluator before artifact hydration
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m py_compile \
+            control/HarmonyBot-V71/tools/evaluate_v74_sequential.py \
+            control/HarmonyBot-V71/tools/diagnose_v74_joint_oracle.py \
+            control/HarmonyBot-V71/tools/v74_model_lib.py \
+            control/HarmonyBot-V71/tools/harmonic_precision_contract.py \
+            control/HarmonyBot-V71/tools/validate_harmonic_precision.py \
+            control/HarmonyBot-V71/tools/apply_v74_champion.py \
+            control/HarmonyBot-V71/tools/generate_v74_embedded_cs.py
+
+      - name: Validate five-decimal harmonic geometry contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 control/HarmonyBot-V71/tools/validate_harmonic_precision.py \
+            control/HarmonyBot-V71/src/HarmonyBotV71.cs
+          test "$(python3 -c 'import json;print(str(json.load(open("V74_HARMONIC_PRECISION_AUDIT.json"))["pass"]).lower())')" = "true"
+
+      - name: Verify source universe artifact set
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          RUN="${{ steps.source.outputs.run }}"
+          M=control/HarmonyBot-V71/evidence/V74_FAST_REPLAY_SOURCE.json
+          EXPECTED=$(python3 - "$M" <<'PY'
+          import json,sys
+          print("\n".join(sorted(json.load(open(sys.argv[1]))["required_artifacts"])))
+          PY
+          )
+          ACTUAL=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RUN/artifacts?per_page=100" --jq '.artifacts[].name' | sort -u)
+          MISSING=$(comm -23 <(printf '%s\n' "$EXPECTED") <(printf '%s\n' "$ACTUAL"))
+          test -z "$MISSING" || {
+            echo "[V74-FAST-REPLAY-BLOCK] incomplete source universe artifact set"
+            printf 'missing:\n%s\n' "$MISSING"
+            exit 92
+          }
+
+      - name: Restore pinned universe cache
+        id: universe_cache
+        uses: actions/cache@v4
+        with:
+          path: merged
+          key: v74-universe-${{ runner.os }}-${{ steps.source.outputs.run }}-${{ steps.source.outputs.sha }}
+
+      - uses: actions/download-artifact@v4
+        if: steps.universe_cache.outputs.cache-hit != 'true'
+        with:
+          pattern: ${{ steps.source.outputs.pattern }}
+          path: merged
+          merge-multiple: true
+          github-token: ${{ github.token }}
+          run-id: ${{ steps.source.outputs.run }}
+
+      - name: Revalidate V73 gate from reused immutable universe
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p gate
+          python3 control/HarmonyBot-V71/tools/evaluate_v73_universe.py merged gate
+          test "$(cat gate/pass.txt)" = "true"
+
+      - id: oracle
+        name: Joint hard-gate oracle feasibility diagnostic
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p oracle
+          python3 control/HarmonyBot-V71/tools/diagnose_v74_joint_oracle.py merged oracle
+          PHYSICAL=$(cat oracle/oracle_pass.txt)
+          echo "physical_pass=$PHYSICAL" >> "$GITHUB_OUTPUT"
+          echo "[V74-FAST-ORACLE] physical_pass=$PHYSICAL"
+          if [[ "$PHYSICAL" != "true" ]]; then
+            echo "[V74-FAST-FAIL-FAST] physical upper bound fails 3/3; causal tournament skipped with no loss of decision accuracy."
+          fi
+
+      - name: Run cached V74 tournament
+        if: ${{ steps.oracle.outputs.physical_pass == 'true' && (github.event_name == 'workflow_dispatch' || needs.fast_change_gate.outputs.model == 'true') }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p tournament
+          rm -f tournament/superseded.txt
+
+          python3 control/HarmonyBot-V71/tools/evaluate_v74_sequential.py merged tournament &
+          EVAL_PID=$!
+
+          (
+            while kill -0 "$EVAL_PID" 2>/dev/null; do
+              sleep 20
+              LATEST=$(git -C control ls-remote origin "refs/heads/${GITHUB_REF_NAME}" 2>/dev/null | awk '{print $1}' || true)
+              if [[ -n "$LATEST" && "$LATEST" != "$GITHUB_SHA" ]]; then
+                # A Rapid pin job may advance HEAD after producing the exact same
+                # source_run/source_head/fingerprint and only rewrite descriptive
+                # manifest metadata.  Such a note-only evidence commit must not
+                # kill an otherwise valid tournament, especially because commits
+                # made by GITHUB_TOKEN do not trigger a replacement Fast Replay.
+                git -C control fetch --quiet origin "$LATEST" || true
+                mapfile -t CHANGED < <(git -C control diff --name-only "$GITHUB_SHA" "$LATEST" 2>/dev/null || true)
+                BENIGN_PIN=false
+                PIN=HarmonyBot-V71/evidence/V74_FAST_REPLAY_SOURCE.json
+                if [[ "${#CHANGED[@]}" -eq 1 && "${CHANGED[0]}" == "$PIN" ]]; then
+                  CUR_KEY=$(git -C control show "$GITHUB_SHA:$PIN" 2>/dev/null | python3 -c 'import json,sys; d=json.load(sys.stdin); print(json.dumps([d.get("source_run_id"),d.get("source_head_sha"),d.get("semantic_fingerprint"),d.get("required_artifacts"),d.get("semantic_guard_paths"),d.get("validation_used"),d.get("fresh_used")],sort_keys=True,separators=(",",":")))' || true)
+                  NEW_KEY=$(git -C control show "$LATEST:$PIN" 2>/dev/null | python3 -c 'import json,sys; d=json.load(sys.stdin); print(json.dumps([d.get("source_run_id"),d.get("source_head_sha"),d.get("semantic_fingerprint"),d.get("required_artifacts"),d.get("semantic_guard_paths"),d.get("validation_used"),d.get("fresh_used")],sort_keys=True,separators=(",",":")))' || true)
+                  if [[ -n "$CUR_KEY" && "$CUR_KEY" == "$NEW_KEY" ]]; then
+                    BENIGN_PIN=true
+                    echo "[V74-SUPERSESSION-IGNORE] note-only equivalent evidence pin current=$GITHUB_SHA latest=$LATEST"
+                  fi
+                fi
+                if [[ "$BENIGN_PIN" != "true" ]]; then
+                  echo "[V74-SUPERSEDED] current=$GITHUB_SHA latest=$LATEST; terminating stale tournament"
+                  printf '%s\n' "$LATEST" > tournament/superseded.txt
+                  kill -TERM "$EVAL_PID" 2>/dev/null || true
+                  exit 0
+                fi
+              fi
+            done
+          ) &
+          WATCH_PID=$!
+
+          set +e
+          wait "$EVAL_PID"
+          RC=$?
+          set -e
+          kill "$WATCH_PID" 2>/dev/null || true
+          wait "$WATCH_PID" 2>/dev/null || true
+
+          if [[ -s tournament/superseded.txt ]]; then
+            echo "[V74-SUPERSEDED] stale evaluator stopped cleanly"
+            exit 0
+          fi
+          if [[ "$RC" -ne 0 ]]; then
+            exit "$RC"
+          fi
+
+          python3 - <<'PY'
+          import json
+          m=json.load(open("tournament/V74_TOURNAMENT_MANIFEST.json"))
+          print(json.dumps({
+            "alpha_gate":m.get("alpha_gate"),
+            "alpha_champion":m.get("alpha_champion"),
+            "v74_gate":m.get("v74_gate"),
+            "promotion_blocker":m.get("promotion_blocker"),
+            "evaluator_runtime_seconds":m.get("evaluator_runtime_seconds")
+          },indent=2))
+          PY
+
+      - name: Publish fast verdict
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          PHYSICAL="${{ steps.oracle.outputs.physical_pass }}"
+          echo "[V74-FAST-VERDICT] physical_pass=$PHYSICAL"
+          if [[ -s tournament/superseded.txt ]]; then
+            echo "[V74-FAST-VERDICT] alpha_pass=not_run"
+            echo "[V74-FAST-VERDICT] state=SUPERSEDED"
+          elif [[ -s tournament/alpha_pass.txt ]]; then
+            ALPHA=$(cat tournament/alpha_pass.txt)
+            echo "[V74-FAST-VERDICT] alpha_pass=$ALPHA"
+            if [[ "$ALPHA" == "true" ]]; then
+              echo "[V74-FAST-VERDICT] state=PASS"
+            else
+              echo "[V74-FAST-VERDICT] state=ALPHA_FAIL"
+            fi
+          elif [[ "$PHYSICAL" != "true" ]]; then
+            echo "[V74-FAST-VERDICT] alpha_pass=not_run"
+            echo "[V74-FAST-VERDICT] state=PHYSICAL_FAIL"
+          else
+            echo "[V74-FAST-VERDICT] alpha_pass=not_produced"
+            echo "[V74-FAST-VERDICT] state=EVALUATOR_ERROR"
+          fi
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: V74-FAST-REPLAY
+          if-no-files-found: ignore
+          path: |
+            gate
+            oracle
+            tournament
+            V74_HARMONIC_PRECISION_AUDIT.json
+            control/HarmonyBot-V71/evidence/V74_FAST_REPLAY_SOURCE.json
+          retention-days: 30

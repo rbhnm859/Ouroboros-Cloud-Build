@@ -1,0 +1,145 @@
+name: HarmonyBot V74 R18 Outcome Semantic Research Only
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ['harmonybot/v73-opportunity-universe']
+    paths:
+      - 'HarmonyBot-V71/src/Architecture/HarmonyBotV74.R18OutcomeEngine.cs'
+      - 'HarmonyBot-V71/src/Architecture/HarmonyBotV74.R17TickState.cs'
+      - 'HarmonyBot-V71/tools/test_v74_r17.py'
+      - 'HarmonyBot-V71/src/Architecture/HarmonyBotV71.V73OpportunityUniverse.cs'
+      - 'HarmonyBot-V71/src/Architecture/HarmonyBotV71.ProtectedCore.cs'
+      - 'HarmonyBot-V71/src/Architecture/HarmonyBotV71.HcogResearch.cs'
+      - 'HarmonyBot-V71/tools/v74_r18_*'
+      - 'HarmonyBot-V71/tools/evaluate_v74_r18_semantics.py'
+      - 'HarmonyBot-V71/tools/test_v74_r18.py'
+      - 'HarmonyBot-V71/tools/run_r18_semantic_window.sh'
+      - 'HarmonyBot-V71/tools/run_backtest.sh'
+      - '.github/workflows/harmonybot-v74-r18-semantic.yml'
+
+concurrency:
+  group: harmonybot-v74-r18-semantic-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  r18_build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: control
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python3 -m pip install numpy==2.3.5 scipy==1.16.3 scikit-learn==1.8.0
+      - name: Fail-closed R18 semantic contracts and build
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd control
+          python3 -m unittest discover -s HarmonyBot-V71/tools -p test_v74_r18.py -v
+          python3 -m unittest discover -s HarmonyBot-V71/tools -p test_v74_r17.py -v
+          python3 -m unittest discover -s HarmonyBot-V71/tools -p test_v74_r16.py -v
+          python3 -m unittest discover -s HarmonyBot-V71/tools -p test_v74_r15.py -v
+          python3 HarmonyBot-V71/tools/static_contract_audit.py HarmonyBot-V71/src/HarmonyBotV71.cs
+          python3 HarmonyBot-V71/tools/verify_frozen_harmonic_engine.py HarmonyBot-V71/src/HarmonyBotV71.cs
+          python3 -m py_compile HarmonyBot-V71/tools/v74_r18_outcome.py HarmonyBot-V71/tools/evaluate_v74_r18_semantics.py
+          bash -n HarmonyBot-V71/tools/run_r18_semantic_window.sh
+          dotnet restore HarmonyBot-V71/HarmonyBotV71.csproj
+          dotnet build HarmonyBot-V71/HarmonyBotV71.csproj -c Release --no-restore --nologo
+          mkdir -p HarmonyBot-V71/dist
+          A=$(find HarmonyBot-V71/bin/Release -type f -name '*.algo' | head -1)
+          test -s "$A"
+          cp "$A" HarmonyBot-V71/dist/HarmonyBot_V71_Protected_Champion_Core_Incremental_Alpha.algo
+      - uses: actions/upload-artifact@v4
+        with:
+          name: v74-r18-semantic-build
+          path: |
+            control/HarmonyBot-V71/dist
+            control/V71_STATIC_CONTRACT_AUDIT.json
+            control/V71_FROZEN_HARMONIC_ENGINE_GUARD.json
+          retention-days: 30
+
+  r18_semantic_universe:
+    needs: r18_build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 95
+    strategy:
+      fail-fast: false
+      max-parallel: 5
+      matrix:
+        window: [Y2016, Y2017, Y2018, Y2019, Y2020]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: control
+      - uses: actions/download-artifact@v4
+        with:
+          name: v74-r18-semantic-build
+          path: control/HarmonyBot-V71/shared
+      - name: Run exact R18 execution-semantic server-tick universe
+        env:
+          CTRADER_PASSWORD: ${{ secrets.CTRADER_PASSWORD }}
+          CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+          CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          eval "$(bash control/HarmonyBot-V71/tools/resolve_window.sh ${{ matrix.window }})"
+          mkdir -p control/HarmonyBot-V71/dist
+          A=$(find control/HarmonyBot-V71/shared -type f -name 'HarmonyBot_V71_Protected_Champion_Core_Incremental_Alpha.algo' | head -1)
+          test -s "$A"
+          cp "$A" control/HarmonyBot-V71/dist/
+          chmod +x control/HarmonyBot-V71/tools/*.sh
+          control/HarmonyBot-V71/tools/run_r18_semantic_window.sh ${{ matrix.window }} "$START" "$EVAL" "$END" "$YEARS"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: v74-r18-semantic-${{ matrix.window }}
+          path: control/HarmonyBot-V71/output-R18-SEMANTIC-${{ matrix.window }}
+          retention-days: 60
+
+  r18_semantic_gate:
+    needs: r18_semantic_universe
+    runs-on: ubuntu-24.04
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: control
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python3 -m pip install numpy==2.3.5 scipy==1.16.3 scikit-learn==1.8.0
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: v74-r18-semantic-*
+          path: merged
+          merge-multiple: false
+      - name: R18 controlled outcome-semantic expanding OOF
+        env:
+          OPENBLAS_NUM_THREADS: '2'
+          OMP_NUM_THREADS: '2'
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 control/HarmonyBot-V71/tools/evaluate_v74_r18_semantics.py merged research
+          test -s research/V74_R18_SEMANTIC_MANIFEST.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: V74-R18-SEMANTIC-VERDICT
+          path: research
+          retention-days: 90

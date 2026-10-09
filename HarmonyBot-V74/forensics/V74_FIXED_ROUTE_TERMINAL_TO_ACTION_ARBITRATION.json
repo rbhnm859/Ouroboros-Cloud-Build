@@ -1,0 +1,16 @@
+{
+  "version": "V74 fixed-route terminal evidence",
+  "latest_fixed_route_run": 70,
+  "latest_fixed_route_sha": "67577ad33f4e7915164d70a244bc956652f4a390",
+  "v74_gate": false,
+  "conclusion": "Runs 55-70 exhausted fixed global route/threshold architectures. Per-opportunity route/fraction heterogeneity is the remaining falsifiable path.",
+  "run67_action_envelope_top250_mean_r": {
+    "Y2021": 1.2142413077,
+    "Y2022": 1.2374828905,
+    "Y2023": 1.0002721695
+  },
+  "future_label_use": "FEASIBILITY_ONLY_NEVER_ALPHA",
+  "gates_unchanged": true,
+  "validation_used": false,
+  "fresh_used": false
+}

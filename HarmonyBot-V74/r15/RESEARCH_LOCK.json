@@ -1,0 +1,25 @@
+{
+  "active": true,
+  "architecture": "V74_R15_CTRSTA",
+  "allow_burned": false,
+  "allow_validation": false,
+  "allow_fresh": false,
+  "research_years": [
+    "Y2016",
+    "Y2017",
+    "Y2018",
+    "Y2019",
+    "Y2020"
+  ],
+  "forward_outer": [
+    "Y2018",
+    "Y2019",
+    "Y2020"
+  ],
+  "fixed_encoder": "32x18 / kernels 4 / dilation 1,2,4,8",
+  "pre_gate_precision_at_275": 0.75,
+  "pre_gate_max_fdr": 0.25,
+  "minimum_information_delta_bits": 0.01,
+  "semantic_cache": "OLD_PIN_INVALID_FOR_R15",
+  "promotion": "NO_CHAMPION_REPLACEMENT_WITHOUT_FULL_GATES_AND_RUNTIME_PARITY"
+}

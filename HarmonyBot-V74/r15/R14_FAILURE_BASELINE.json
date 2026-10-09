@@ -1,0 +1,46 @@
+{
+  "head": "c54da8c276f354b26edab8f3250c86491923f2c5",
+  "run_id": 37695273401,
+  "run_number": 233,
+  "artifact_id": 11514694739,
+  "artifact_zip_sha256": "7f1aa6e735ed5c908f381fbf2b794e02a9c0e55b4527ed11851b595b47bf2cae",
+  "workflow_status": "success",
+  "physical_pass": true,
+  "alpha_gate": false,
+  "v74_gate": false,
+  "promotion_blocker": "ALPHA_OOF_GATE_FAIL",
+  "folds": {
+    "Y2021": {
+      "n": 182,
+      "mean_r": 0.009589558908180125,
+      "pf_r": 1.0133567340085634,
+      "win_rate": 0.27472527472527475,
+      "average_rr": 2.6752617777826075,
+      "lcb_r": -0.19739378295982085,
+      "pass": false
+    },
+    "Y2022": {
+      "n": 298,
+      "mean_r": 0.12872219373993063,
+      "pf_r": 1.1826629225452348,
+      "win_rate": 0.2953020134228188,
+      "average_rr": 2.8222637924374925,
+      "lcb_r": -0.05164831152802973,
+      "pass": false
+    },
+    "Y2023": {
+      "n": 303,
+      "mean_r": 0.44367080714923923,
+      "pf_r": 1.6615395835579019,
+      "win_rate": 0.32673267326732675,
+      "average_rr": 3.423778535816283,
+      "lcb_r": 0.18347901958314083,
+      "pass": false
+    }
+  },
+  "non_regression": {
+    "pass": true,
+    "source": "Fast Replay #233 job 113045545263 logs [V74-NONREGRESSION]"
+  },
+  "runtime_seconds": 919.079
+}

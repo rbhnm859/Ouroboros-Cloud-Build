@@ -1,0 +1,118 @@
+name: HarmonyBot V74 R17 Gate Replay
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ['harmonybot/v73-opportunity-universe']
+    paths:
+      - 'HarmonyBot-V71/tools/r17_gate_replay.py'
+      - '.github/workflows/harmonybot-v74-r17-gate-replay.yml'
+
+concurrency:
+  group: harmonybot-v74-r17-gate-replay-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  actions: read
+
+env:
+  SOURCE_RUN_ID: '37758209360'
+  SOURCE_HEAD_SHA: '5fb53904f1cb5d8a94b3e6333bad471fa3b1d348'
+
+jobs:
+  r17_gate_replay:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: control
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - run: python3 -m pip install numpy==2.3.5 scipy==1.16.3 scikit-learn==1.8.0
+
+      - name: Verify pinned source run, jobs and artifact digests
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${SOURCE_RUN_ID}" > source-run.json
+          gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${SOURCE_RUN_ID}/jobs?per_page=100" > source-jobs.json
+          gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${SOURCE_RUN_ID}/artifacts?per_page=100" > source-artifacts.json
+          python3 - <<'PY'
+          import json,os,sys
+          run=json.load(open('source-run.json'))
+          if run.get('head_sha')!=os.environ['SOURCE_HEAD_SHA'] or run.get('status')!='completed':
+              raise SystemExit('R17 source run identity/status mismatch')
+          jobs=json.load(open('source-jobs.json')).get('jobs',[])
+          expected_jobs={f'r17_tick_universe (Y{y})' for y in range(2016,2021)}
+          got={j.get('name') for j in jobs if j.get('conclusion')=='success'}
+          if not expected_jobs.issubset(got):
+              raise SystemExit('R17 annual source jobs not all SUCCESS')
+          expected={
+            'v74-r17-tick-Y2016':'sha256:0565cb959334531cd5cd9c22779ec3adada655d73d515a8d9eeebb6fe1ba5547',
+            'v74-r17-tick-Y2017':'sha256:beb071144da9ab057262f913448d409dbb70629a2d752744be9555545f45bbc6',
+            'v74-r17-tick-Y2018':'sha256:a8efee20b1595f42af457825df51160e7ccf42ca173771799a95f7a4f0b1364d',
+            'v74-r17-tick-Y2019':'sha256:72a8c795cb5f78956c161f2156ca99a56e8d0e448a6863696e981e9033c84769',
+            'v74-r17-tick-Y2020':'sha256:91b0ef7d9e47348c093f5c84049eb6ee67c389f79d135a5e8d882d1be050688f',
+          }
+          arts=json.load(open('source-artifacts.json')).get('artifacts',[])
+          seen={a.get('name'):a.get('digest') for a in arts}
+          if any(seen.get(k)!=v for k,v in expected.items()):
+              raise SystemExit('R17 pinned artifact digest mismatch')
+          print('[R17-GATE-REPLAY-SOURCE] verified run/head/jobs/digests')
+          PY
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: v74-r17-tick-*
+          path: merged
+          merge-multiple: false
+          github-token: ${{ github.token }}
+          run-id: ${{ env.SOURCE_RUN_ID }}
+
+      - name: Fail closed on annual artifact layout and R17 custody
+        shell: bash
+        run: |
+          set -euo pipefail
+          for W in Y2016 Y2017 Y2018 Y2019 Y2020; do
+            D="merged/v74-r17-tick-${W}"
+            test -s "$D/R17_TICK_CUSTODY.json"
+            test -s "$D/R17_EVIDENCE_SHA256-${W}.txt"
+            test "$(find "$D/raw-logs" -maxdepth 1 -type f -name '*-R15.log' | wc -l)" -eq 1
+          done
+          python3 -m py_compile control/HarmonyBot-V71/tools/r17_gate_replay.py
+
+      - name: Run pinned R17 expanding OOF research gate
+        env:
+          OPENBLAS_NUM_THREADS: '2'
+          OMP_NUM_THREADS: '2'
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p research
+          cat > research/R17_GATE_REPLAY_SOURCE.json <<JSON
+          {
+            "source_run_id": 37758209360,
+            "source_head_sha": "5fb53904f1cb5d8a94b3e6333bad471fa3b1d348",
+            "artifact_layout": "year_isolated",
+            "burned_used": false,
+            "validation_used": false,
+            "fresh_used": false
+          }
+          JSON
+          python3 control/HarmonyBot-V71/tools/r17_gate_replay.py merged research
+          test -s research/V74_R17_RESEARCH_MANIFEST.json
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: V74-R17-GATE-REPLAY-VERDICT
+          path: research
+          retention-days: 90
