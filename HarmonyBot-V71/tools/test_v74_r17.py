@@ -174,7 +174,9 @@ class R17Contract(unittest.TestCase):
             series=[(s,1500.0+i*0.01,1500.10+i*0.01) for i,s in enumerate(secs)]
             m=accumulate(series,OPEN,rng.choice([0.01,0.001]))
             self.assertLessEqual(m.max_dt,59.9)
-            self.assertAlmostEqual(m.sum_dt,secs[-1]-secs[0],places=6)
+            # datetime.timedelta quantizes to microseconds, so the telescoping
+            # identity sum(dt) == last - first holds up to n * 1e-6 seconds.
+            self.assertAlmostEqual(m.sum_dt,secs[-1]-secs[0],delta=1e-3)
             self.assertGreaterEqual(m.sum_dt,0.0)
             self.assertEqual(m.count,n)
 
