@@ -45,6 +45,17 @@ def contract(doc):
                      for name, job in doc["jobs"].items()}}
 
 
+M3_PATHS = frozenset({
+    ".github/workflows/harmonybot-v74-r17-research.yml",
+    ".github/workflows/harmonybot-v74-r18-semantic.yml",
+})
+M3_CONCURRENCY = {
+    "group": "harmonybot-r17-r18-ctrader-research-account-v1",
+    "cancel-in-progress": False,
+    "queue": "max",
+}
+
+
 def check(root, manifest):
     errors = []
     groups = {}
@@ -63,11 +74,18 @@ def check(root, manifest):
                 raise ValueError("nonempty concurrency.group required")
             if type(concurrency.get("cancel-in-progress")) is not bool:
                 raise ValueError("cancel-in-progress must be boolean")
-            # Identical groups across these independently scoped pipelines require evidence review.
+            if path in M3_PATHS and concurrency != M3_CONCURRENCY:
+                errors.append(f"{path}: M3 account lock must serialize, preserve running work and queue pending work")
+            if concurrency.get("queue", "single") not in ("single", "max"):
+                errors.append(f"{path}: invalid concurrency.queue")
+            if concurrency.get("queue") == "max" and concurrency["cancel-in-progress"]:
+                errors.append(f"{path}: queue:max cannot cancel in-progress work")
             folded = group.casefold()
-            if folded in groups:
-                errors.append(f"{path}: shared group with {groups[folded]}; review resource ownership first")
-            groups[folded] = path
+            owners = groups.setdefault(folded, set())
+            owners.add(path)
+            # Only the evidence-backed R17/R18 pair may intentionally share a group.
+            if len(owners) > 1 and not owners.issubset(M3_PATHS):
+                errors.append(f"{path}: shared group with {sorted(owners - {path})}; review resource ownership first")
         except (OSError, ValueError, TypeError, yaml.YAMLError) as exc:
             errors.append(f"{path}: {exc}")
     return errors
@@ -84,7 +102,7 @@ def main():
     if errors:
         raise SystemExit(1)
     print(f"PASS: {len(manifest['workflows'])} scoped YAML/concurrency/trigger/permission/job contracts")
-    print("M3 identity and live Actions scheduling: NOT_VERIFIED")
+    print("M3 account-lock contract: PASS; broker crash causality and Engineer runtime: NOT_VERIFIED")
 
 
 if __name__ == "__main__":

@@ -1,0 +1,38 @@
+diff --git a/.github/workflows/harmonybot-v74-r17-research.yml b/.github/workflows/harmonybot-v74-r17-research.yml
+index b73ac3f..4d16b4b 100644
+--- a/.github/workflows/harmonybot-v74-r17-research.yml
++++ b/.github/workflows/harmonybot-v74-r17-research.yml
+@@ -17,8 +17,12 @@ on:
+       - '.github/workflows/harmonybot-v74-r17-research.yml'
+ 
+ concurrency:
+-  group: harmonybot-v74-r17-research-${{ github.ref }}
+-  cancel-in-progress: true
++  # R17/R18 use the same cTrader secret tuple. Serialize whole runs across refs;
++  # never cancel one research protocol when the other reaches the shared account.
++  group: harmonybot-r17-r18-ctrader-research-account-v1
++  cancel-in-progress: false
++  # Preserve both protocols and later pending runs instead of replacing one pending run.
++  queue: max
+ 
+ permissions:
+   contents: read
+diff --git a/.github/workflows/harmonybot-v74-r18-semantic.yml b/.github/workflows/harmonybot-v74-r18-semantic.yml
+index 257f3e7..1941128 100644
+--- a/.github/workflows/harmonybot-v74-r18-semantic.yml
++++ b/.github/workflows/harmonybot-v74-r18-semantic.yml
+@@ -19,8 +19,12 @@ on:
+       - '.github/workflows/harmonybot-v74-r18-semantic.yml'
+ 
+ concurrency:
+-  group: harmonybot-v74-r18-semantic-${{ github.ref }}
+-  cancel-in-progress: true
++  # R17/R18 use the same cTrader secret tuple. Serialize whole runs across refs;
++  # never cancel one research protocol when the other reaches the shared account.
++  group: harmonybot-r17-r18-ctrader-research-account-v1
++  cancel-in-progress: false
++  # Preserve both protocols and later pending runs instead of replacing one pending run.
++  queue: max
+ 
+ permissions:
+   contents: read

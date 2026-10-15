@@ -1,3 +1,5 @@
+> Historical initial audit. Superseded by [FINAL_REPAIR_REPORT.md](FINAL_REPAIR_REPORT.md) after the supplied Director export identified the M3 pair. Statements below describe the earlier evidence-blocked state.
+
 # M3 execution stability evidence — 2026-10-15
 
 ## Acceptance

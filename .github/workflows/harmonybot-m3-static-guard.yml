@@ -1,14 +1,9 @@
-name: HarmonyBot M3 Offline Workflow Guard
+name: HarmonyBot M3 Workflow Guard
 on:
   pull_request:
     branches: ['harmonybot/v73-opportunity-universe']
     paths:
       - '.github/workflows/**'
-      - 'engineering/m3/**'
-  push:
-    branches: ['fix/m3-execution-stability-20261015']
-    paths:
-      - '.github/workflows/harmonybot-m3-static-guard.yml'
       - 'engineering/m3/**'
   workflow_dispatch:
 permissions:
@@ -30,3 +25,51 @@ jobs:
       - run: python -m pip install PyYAML==6.0.2
       - run: python engineering/m3/workflow_guard.py
       - run: python -m unittest discover -s engineering/m3 -p 'test_*.py' -v
+
+  mutex_probe:
+    needs: offline_guard
+    runs-on: ubuntu-24.04
+    timeout-minutes: 3
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: r17
+            lock: shared
+          - name: r18
+            lock: shared
+          - name: third-pending
+            lock: shared
+          - name: independent
+            lock: independent
+    # Test the exact queue/cancellation policy in an isolated group, never the broker group.
+    concurrency:
+      group: harmonybot-m3-probe-${{ github.run_id }}-${{ matrix.lock }}
+      cancel-in-progress: false
+      queue: max
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - run: python3 engineering/m3/mutex_probe.py --name '${{ matrix.name }}' --lock '${{ matrix.lock }}'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: m3-probe-${{ matrix.name }}
+          path: probe-receipts/*.json
+          retention-days: 7
+
+  verify_mutex_probe:
+    needs: mutex_probe
+    if: ${{ always() }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: m3-probe-*
+          merge-multiple: true
+          path: probe-receipts
+      - run: python3 engineering/m3/mutex_probe.py --verify probe-receipts

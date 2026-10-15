@@ -1,7 +1,7 @@
 {
   "schema": 1,
   "baseline_head": "7225a8810f8e60eca590eb4ede0dacf54dfdfb82",
-  "scope": "Observed V73/V74 control contracts; NOT identification or repair of Director M3. Existing isolated groups preserved. Changes require evidence-backed contract review.",
+  "scope": "Evidence-backed R17/R18 shared-account exclusion and unrelated workflow isolation; see FINAL_REPAIR_REPORT.md. Baseline blob hashes still identify original source.",
   "workflows": {
     ".github/workflows/harmonybot-v73-v80-autonomous-evidence-pipeline.yml": {
       "baseline_blob_sha": "36004e4b597d2ca1e3403c178e7e2448cf862b3e",
@@ -624,8 +624,9 @@
           }
         },
         "concurrency": {
-          "group": "harmonybot-v74-r17-research-${{ github.ref }}",
-          "cancel-in-progress": true
+          "group": "harmonybot-r17-r18-ctrader-research-account-v1",
+          "cancel-in-progress": false,
+          "queue": "max"
         },
         "permissions": {
           "contents": "read",
@@ -719,8 +720,9 @@
           }
         },
         "concurrency": {
-          "group": "harmonybot-v74-r18-semantic-${{ github.ref }}",
-          "cancel-in-progress": true
+          "group": "harmonybot-r17-r18-ctrader-research-account-v1",
+          "cancel-in-progress": false,
+          "queue": "max"
         },
         "permissions": {
           "contents": "read",
@@ -850,15 +852,6 @@
               "engineering/m3/**"
             ]
           },
-          "push": {
-            "branches": [
-              "fix/m3-execution-stability-20261015"
-            ],
-            "paths": [
-              ".github/workflows/harmonybot-m3-static-guard.yml",
-              "engineering/m3/**"
-            ]
-          },
           "workflow_dispatch": null
         },
         "concurrency": {
@@ -872,6 +865,45 @@
           "offline_guard": {
             "runs-on": "ubuntu-24.04",
             "timeout-minutes": 5
+          },
+          "mutex_probe": {
+            "needs": "offline_guard",
+            "runs-on": "ubuntu-24.04",
+            "concurrency": {
+              "group": "harmonybot-m3-probe-${{ github.run_id }}-${{ matrix.lock }}",
+              "cancel-in-progress": false,
+              "queue": "max"
+            },
+            "strategy": {
+              "fail-fast": false,
+              "matrix": {
+                "include": [
+                  {
+                    "name": "r17",
+                    "lock": "shared"
+                  },
+                  {
+                    "name": "r18",
+                    "lock": "shared"
+                  },
+                  {
+                    "name": "third-pending",
+                    "lock": "shared"
+                  },
+                  {
+                    "name": "independent",
+                    "lock": "independent"
+                  }
+                ]
+              }
+            },
+            "timeout-minutes": 3
+          },
+          "verify_mutex_probe": {
+            "needs": "mutex_probe",
+            "if": "${{ always() }}",
+            "runs-on": "ubuntu-24.04",
+            "timeout-minutes": 3
           }
         }
       }
