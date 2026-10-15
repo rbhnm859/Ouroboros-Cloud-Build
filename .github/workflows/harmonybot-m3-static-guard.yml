@@ -1,0 +1,32 @@
+name: HarmonyBot M3 Offline Workflow Guard
+on:
+  pull_request:
+    branches: ['harmonybot/v73-opportunity-universe']
+    paths:
+      - '.github/workflows/**'
+      - 'engineering/m3/**'
+  push:
+    branches: ['fix/m3-execution-stability-20261015']
+    paths:
+      - '.github/workflows/harmonybot-m3-static-guard.yml'
+      - 'engineering/m3/**'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: harmonybot-m3-static-guard-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+jobs:
+  offline_guard:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install PyYAML==6.0.2
+      - run: python engineering/m3/workflow_guard.py
+      - run: python -m unittest discover -s engineering/m3 -p 'test_*.py' -v

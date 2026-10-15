@@ -1,0 +1,880 @@
+{
+  "schema": 1,
+  "baseline_head": "7225a8810f8e60eca590eb4ede0dacf54dfdfb82",
+  "scope": "Observed V73/V74 control contracts; NOT identification or repair of Director M3. Existing isolated groups preserved. Changes require evidence-backed contract review.",
+  "workflows": {
+    ".github/workflows/harmonybot-v73-v80-autonomous-evidence-pipeline.yml": {
+      "baseline_blob_sha": "36004e4b597d2ca1e3403c178e7e2448cf862b3e",
+      "contract": {
+        "on": {
+          "workflow_dispatch": null,
+          "pull_request": {
+            "branches": [
+              "main"
+            ],
+            "paths": [
+              "HarmonyBot-V71/**",
+              "!HarmonyBot-V71/tools/evaluate_v74_sequential.py",
+              "!HarmonyBot-V71/tools/diagnose_v74_joint_oracle.py",
+              "!HarmonyBot-V71/tools/v74_model_lib.py",
+              "!HarmonyBot-V71/tools/apply_v74_champion.py",
+              "!HarmonyBot-V71/tools/generate_v74_embedded_cs.py",
+              "!HarmonyBot-V71/evidence/V74_FAST_REPLAY_SOURCE.json",
+              "HarmonyBot-V73/**",
+              ".github/workflows/harmonybot-v73-v80-autonomous-evidence-pipeline.yml"
+            ]
+          }
+        },
+        "concurrency": {
+          "group": "harmonybot-v73-v80-autonomous-evidence-g2",
+          "cancel-in-progress": true
+        },
+        "permissions": {
+          "contents": "write",
+          "actions": "read"
+        },
+        "jobs": {
+          "semantic_change_gate": {
+            "runs-on": "ubuntu-24.04"
+          },
+          "build": {
+            "needs": "semantic_change_gate",
+            "if": "${{ needs.semantic_change_gate.outputs.full == 'true' && (github.event_name == 'workflow_dispatch' || github.head_ref == 'harmonybot/v73-opportunity-universe') }}",
+            "runs-on": "ubuntu-24.04",
+            "timeout-minutes": 30
+          },
+          "research_seed": {
+            "needs": "build",
+            "runs-on": "ubuntu-24.04",
+            "strategy": {
+              "fail-fast": false,
+              "max-parallel": 5,
+              "matrix": {
+                "window": [
+                  "Y2016",
+                  "Y2017",
+                  "Y2018",
+                  "Y2019",
+                  "Y2020"
+                ]
+              }
+            },
+            "timeout-minutes": 20
+          },
+          "burned_seed": {
+            "needs": "build",
+            "runs-on": "ubuntu-24.04",
+            "strategy": {
+              "fail-fast": false,
+              "max-parallel": 3,
+              "matrix": {
+                "window": [
+                  "Y2021",
+                  "Y2022",
+                  "Y2023"
+                ]
+              }
+            },
+            "timeout-minutes": 50
+          },
+          "v73_universe": {
+            "needs": [
+              "build",
+              "research_seed",
+              "burned_seed"
+            ],
+            "runs-on": "ubuntu-24.04",
+            "strategy": {
+              "fail-fast": false,
+              "max-parallel": 8,
+              "matrix": {
+                "window": [
+                  "Y2016",
+                  "Y2017",
+                  "Y2018",
+                  "Y2019",
+                  "Y2020",
+                  "Y2021",
+                  "Y2022",
+                  "Y2023"
+                ]
+              }
+            },
+            "timeout-minutes": 50
+          },
+          "v73_gate": {
+            "needs": "v73_universe",
+            "runs-on": "ubuntu-24.04"
+          },
+          "promote_v73": {
+            "needs": "v73_gate",
+            "if": "${{ needs.v73_gate.outputs.pass == 'true' }}",
+            "runs-on": "ubuntu-24.04"
+          },
+          "v74_tournament": {
+            "needs": "v73_gate",
+            "if": "${{ needs.v73_gate.outputs.pass == 'true' }}",
+            "runs-on": "ubuntu-24.04",
+            "timeout-minutes": 20
+          },
+          "promote_v74": {
+            "needs": "v74_tournament",
+            "if": "${{ needs.v74_tournament.outputs.pass == 'true' }}",
+            "runs-on": "ubuntu-24.04"
+          },
+          "v75_policy": {
+            "needs": "v74_tournament",
+            "if": "${{ needs.v74_tournament.outputs.pass == 'true' }}",
+            "runs-on": "ubuntu-24.04",
+            "strategy": {
+              "fail-fast": false,
+              "matrix": {
+                "window": [
+                  "Y2021",
+                  "Y2022",
+                  "Y2023"
+                ]
+              }
+            }
+          },
+          "v75_capital": {
+            "needs": [
+              "build",
+              "burned_seed",
+              "v75_policy"
+            ],
+            "runs-on": "ubuntu-24.04",
+            "strategy": {
+              "fail-fast": false,
+              "max-parallel": 3,
+              "matrix": {
+                "window": [
+                  "Y2021",
+                  "Y2022",
+                  "Y2023"
+                ]
+              }
+            },
+            "timeout-minutes": 50
+          },
+          "v75_gate": {
+            "needs": "v75_capital",
+            "runs-on": "ubuntu-24.04"
+          },
+          "promote_v75": {
+            "needs": "v75_gate",
+            "if": "${{ needs.v75_gate.outputs.pass == 'true' }}",
+            "runs-on": "ubuntu-24.04"
+          },
+          "v76_slot": {
+            "needs": [
+              "build",
+              "burned_seed",
+              "v75_policy",
+              "v75_gate"
+            ],
+            "if": "${{ needs.v75_gate.outputs.pass == 'true' }}",
+            "runs-on": "ubuntu-24.04",
+            "strategy": {
+              "fail-fast": false,
+              "matrix": {
+                "window": [
+                  "Y2021",
+                  "Y2022",
+                  "Y2023"
+                ]
+              }
+            },
+            "timeout-minutes": 50
+          },
+          "v76_gate": {
+            "needs": "v76_slot",
+            "runs-on": "ubuntu-24.04"
+          },
+          "promote_v76": {
+            "needs": "v76_gate",
+            "if": "${{ needs.v76_gate.outputs.pass == 'true' }}",
+            "runs-on": "ubuntu-24.04"
+          },
+          "v77_capacity": {
+            "needs": [
+              "build",
+              "burned_seed",
+              "v75_policy",
+              "v76_gate"
+            ],
+            "if": "${{ needs.v76_gate.outputs.pass == 'true' }}",
+            "runs-on": "ubuntu-24.04",
+            "strategy": {
+              "fail-fast": false,
+              "max-parallel": 6,
+              "matrix": {
+                "mode": [
+                  "SINGLE",
+                  "GRID"
+                ],
+                "risk": [
+                  1,
+                  2,
+                  3,
+                  5
+                ],
+                "window": [
+                  "Y2021",
+                  "Y2022",
+                  "Y2023"
+                ]
+              }
+            },
+            "timeout-minutes": 55
+          },
+          "v77_gate": {
+            "needs": "v77_capacity",
+            "runs-on": "ubuntu-24.04"
+          },
+          "promote_v77": {
+            "needs": "v77_gate",
+            "if": "${{ needs.v77_gate.outputs.pass == 'true' }}",
+            "runs-on": "ubuntu-24.04"
+          },
+          "embedded_build": {
+            "needs": [
+              "v74_tournament",
+              "v77_gate"
+            ],
+            "if": "${{ needs.v77_gate.outputs.pass == 'true' }}",
+            "runs-on": "ubuntu-24.04",
+            "timeout-minutes": 30
+          },
+          "dev_seed": {
+            "needs": [
+              "build",
+              "v77_gate"
+            ],
+            "if": "${{ needs.v77_gate.outputs.pass == 'true' }}",
+            "runs-on": "ubuntu-24.04",
+            "strategy": {
+              "fail-fast": false,
+              "matrix": {
+                "window": [
+                  "H2024H2",
+                  "H2025H1",
+                  "H2025H2"
+                ]
+              }
+            },
+            "timeout-minutes": 50
+          },
+          "dev_candidate": {
+            "needs": [
+              "embedded_build",
+              "dev_seed",
+              "v77_gate"
+            ],
+            "runs-on": "ubuntu-24.04",
+            "strategy": {
+              "fail-fast": false,
+              "matrix": {
+                "window": [
+                  "H2024H2",
+                  "H2025H1",
+                  "H2025H2"
+                ]
+              }
+            },
+            "timeout-minutes": 50
+          },
+          "dev_gate": {
+            "needs": "dev_candidate",
+            "runs-on": "ubuntu-24.04"
+          },
+          "promote_v78": {
+            "needs": "dev_gate",
+            "if": "${{ needs.dev_gate.outputs.pass == 'true' }}",
+            "runs-on": "ubuntu-24.04"
+          },
+          "validation_seed": {
+            "needs": [
+              "build",
+              "dev_gate"
+            ],
+            "if": "${{ needs.dev_gate.outputs.pass == 'true' }}",
+            "runs-on": "ubuntu-24.04",
+            "strategy": {
+              "matrix": {
+                "window": [
+                  "Q12026",
+                  "Q22026"
+                ]
+              }
+            },
+            "timeout-minutes": 50
+          },
+          "validation_candidate": {
+            "needs": [
+              "embedded_build",
+              "validation_seed",
+              "dev_gate"
+            ],
+            "runs-on": "ubuntu-24.04",
+            "strategy": {
+              "matrix": {
+                "window": [
+                  "Q12026",
+                  "Q22026"
+                ]
+              }
+            },
+            "timeout-minutes": 50
+          },
+          "validation_gate": {
+            "needs": "validation_candidate",
+            "runs-on": "ubuntu-24.04"
+          },
+          "fresh_seed": {
+            "needs": [
+              "build",
+              "validation_gate"
+            ],
+            "if": "${{ needs.validation_gate.outputs.pass == 'true' }}",
+            "runs-on": "ubuntu-24.04",
+            "timeout-minutes": 50
+          },
+          "fresh_candidate": {
+            "needs": [
+              "embedded_build",
+              "fresh_seed",
+              "validation_gate"
+            ],
+            "runs-on": "ubuntu-24.04",
+            "timeout-minutes": 50
+          },
+          "fresh_gate": {
+            "needs": "fresh_candidate",
+            "runs-on": "ubuntu-24.04"
+          },
+          "promote_v79": {
+            "needs": "fresh_gate",
+            "if": "${{ needs.fresh_gate.outputs.pass == 'true' }}",
+            "runs-on": "ubuntu-24.04"
+          },
+          "v80_package": {
+            "needs": [
+              "fresh_gate",
+              "embedded_build",
+              "v77_gate"
+            ],
+            "if": "${{ needs.fresh_gate.outputs.pass == 'true' }}",
+            "runs-on": "ubuntu-24.04",
+            "timeout-minutes": 30
+          },
+          "promote_v80": {
+            "needs": "v80_package",
+            "runs-on": "ubuntu-24.04"
+          }
+        }
+      }
+    },
+    ".github/workflows/harmonybot-v74-fast-replay.yml": {
+      "baseline_blob_sha": "6b23a0bd96cabafa0c10affa3e2c74b08c4b2c2a",
+      "contract": {
+        "on": {
+          "workflow_dispatch": null,
+          "push": {
+            "branches": [
+              "harmonybot/v73-opportunity-universe"
+            ],
+            "paths": [
+              "HarmonyBot-V71/tools/evaluate_v74_sequential.py",
+              "HarmonyBot-V71/tools/diagnose_v74_joint_oracle.py",
+              "HarmonyBot-V71/tools/v74_model_lib.py",
+              "HarmonyBot-V71/tools/harmonic_precision_contract.py",
+              "HarmonyBot-V71/tools/validate_harmonic_precision.py",
+              "HarmonyBot-V71/tools/apply_v74_champion.py",
+              "HarmonyBot-V71/tools/generate_v74_embedded_cs.py",
+              "HarmonyBot-V71/evidence/V74_FAST_REPLAY_SOURCE.json",
+              ".github/workflows/harmonybot-v74-fast-replay.yml"
+            ]
+          }
+        },
+        "concurrency": {
+          "group": "harmonybot-v74-fast-replay-r5-${{ github.ref_name || github.ref }}",
+          "cancel-in-progress": true
+        },
+        "permissions": {
+          "contents": "read",
+          "actions": "read"
+        },
+        "jobs": {
+          "fast_change_gate": {
+            "runs-on": "ubuntu-24.04"
+          },
+          "fast_replay": {
+            "needs": "fast_change_gate",
+            "if": "${{ needs.fast_change_gate.outputs.fast == 'true' && (github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref_name == 'harmonybot/v73-opportunity-universe' && needs.fast_change_gate.outputs.model == 'true')) }}",
+            "runs-on": "ubuntu-24.04",
+            "timeout-minutes": 35
+          }
+        }
+      }
+    },
+    ".github/workflows/harmonybot-v74-r15-replay.yml": {
+      "baseline_blob_sha": "1c999c18738058d3e64e3986c2ae2a491f999ec3",
+      "contract": {
+        "on": {
+          "workflow_dispatch": null,
+          "push": {
+            "branches": [
+              "harmonybot/v73-opportunity-universe"
+            ],
+            "paths": [
+              "HarmonyBot-V71/tools/v74_r15*",
+              "HarmonyBot-V71/tools/evaluate_v74_r15.py",
+              "HarmonyBot-V71/tools/test_v74_r15.py",
+              "HarmonyBot-V71/tools/verify_v74_r15_source.py",
+              "HarmonyBot-V74/r15/RESEARCH_SOURCE.json",
+              ".github/workflows/harmonybot-v74-r15-replay.yml"
+            ]
+          }
+        },
+        "concurrency": {
+          "group": "harmonybot-v74-r15-replay-${{ github.ref }}",
+          "cancel-in-progress": true
+        },
+        "permissions": {
+          "contents": "read",
+          "actions": "read"
+        },
+        "jobs": {
+          "r15_replay": {
+            "runs-on": "ubuntu-24.04",
+            "timeout-minutes": 45
+          }
+        }
+      }
+    },
+    ".github/workflows/harmonybot-v74-r15-research.yml": {
+      "baseline_blob_sha": "41176588808a337cb610f252fa7db2cd4c2b9d3e",
+      "contract": {
+        "on": {
+          "workflow_dispatch": null,
+          "push": {
+            "branches": [
+              "harmonybot/v73-opportunity-universe"
+            ],
+            "paths": [
+              "HarmonyBot-V71/src/**",
+              "HarmonyBot-V71/HarmonyBotV71.csproj",
+              "HarmonyBot-V71/tools/run_window.sh",
+              "HarmonyBot-V71/tools/run_backtest.sh",
+              "HarmonyBot-V71/tools/resolve_window.sh",
+              "HarmonyBot-V73/V73_RESEARCH_CUSTODY.json"
+            ]
+          }
+        },
+        "concurrency": {
+          "group": "harmonybot-v74-r15-research-${{ github.ref }}",
+          "cancel-in-progress": true
+        },
+        "permissions": {
+          "contents": "read",
+          "actions": "read"
+        },
+        "jobs": {
+          "r15_build": {
+            "runs-on": "ubuntu-24.04",
+            "timeout-minutes": 20
+          },
+          "r15_research_universe": {
+            "needs": "r15_build",
+            "runs-on": "ubuntu-24.04",
+            "strategy": {
+              "fail-fast": false,
+              "max-parallel": 8,
+              "matrix": {
+                "window": [
+                  "Y2016",
+                  "Y2017",
+                  "Y2018",
+                  "Y2019",
+                  "Y2020"
+                ]
+              }
+            },
+            "timeout-minutes": 50
+          },
+          "r15_research_gate": {
+            "needs": "r15_research_universe",
+            "runs-on": "ubuntu-24.04",
+            "timeout-minutes": 45
+          }
+        }
+      }
+    },
+    ".github/workflows/harmonybot-v74-r16-research.yml": {
+      "baseline_blob_sha": "02b46affd8db8f627ffdde2b581d3898e4544881",
+      "contract": {
+        "on": {
+          "workflow_dispatch": null,
+          "push": {
+            "branches": [
+              "harmonybot/v73-opportunity-universe"
+            ],
+            "paths": [
+              "HarmonyBot-V71/src/Architecture/HarmonyBotV74.R16FirstPassage.cs",
+              "HarmonyBot-V71/src/Architecture/HarmonyBotV74.R15Trajectory.cs",
+              "HarmonyBot-V71/tools/v74_r16_*",
+              "HarmonyBot-V71/tools/evaluate_v74_r16.py",
+              "HarmonyBot-V74/r16/**",
+              ".github/workflows/harmonybot-v74-r16-research.yml"
+            ]
+          }
+        },
+        "concurrency": {
+          "group": "harmonybot-v74-r16-research-${{ github.ref }}",
+          "cancel-in-progress": true
+        },
+        "permissions": {
+          "contents": "read",
+          "actions": "read"
+        },
+        "jobs": {
+          "r16_build": {
+            "runs-on": "ubuntu-24.04",
+            "timeout-minutes": 20
+          },
+          "r16_research_universe": {
+            "needs": "r16_build",
+            "runs-on": "ubuntu-24.04",
+            "strategy": {
+              "fail-fast": false,
+              "max-parallel": 5,
+              "matrix": {
+                "window": [
+                  "Y2016",
+                  "Y2017",
+                  "Y2018",
+                  "Y2019",
+                  "Y2020"
+                ]
+              }
+            },
+            "timeout-minutes": 55
+          },
+          "r16_research_gate": {
+            "needs": "r16_research_universe",
+            "runs-on": "ubuntu-24.04",
+            "timeout-minutes": 45
+          }
+        }
+      }
+    },
+    ".github/workflows/harmonybot-v74-r17-gate-replay.yml": {
+      "baseline_blob_sha": "23394b72d30266fe5345f9e4e13b5ac69022ff62",
+      "contract": {
+        "on": {
+          "workflow_dispatch": null,
+          "push": {
+            "branches": [
+              "harmonybot/v73-opportunity-universe"
+            ],
+            "paths": [
+              "HarmonyBot-V71/tools/r17_gate_replay.py",
+              ".github/workflows/harmonybot-v74-r17-gate-replay.yml"
+            ]
+          }
+        },
+        "concurrency": {
+          "group": "harmonybot-v74-r17-gate-replay-${{ github.ref }}",
+          "cancel-in-progress": true
+        },
+        "permissions": {
+          "contents": "read",
+          "actions": "read"
+        },
+        "jobs": {
+          "r17_gate_replay": {
+            "runs-on": "ubuntu-24.04",
+            "timeout-minutes": 50
+          }
+        }
+      }
+    },
+    ".github/workflows/harmonybot-v74-r17-research.yml": {
+      "baseline_blob_sha": "b73ac3fba2e8af7c63a0cffd09b7b740ae9a6730",
+      "contract": {
+        "on": {
+          "workflow_dispatch": null,
+          "push": {
+            "branches": [
+              "harmonybot/v73-opportunity-universe"
+            ],
+            "paths": [
+              "HarmonyBot-V71/src/Architecture/HarmonyBotV74.R17TickState.cs",
+              "HarmonyBot-V71/src/Architecture/HarmonyBotV74.R15Trajectory.cs",
+              "HarmonyBot-V71/src/Architecture/HarmonyBotV71.V73OpportunityUniverse.cs",
+              "HarmonyBot-V71/tools/v74_r17_*",
+              "HarmonyBot-V71/tools/evaluate_v74_r17.py",
+              "HarmonyBot-V71/tools/test_v74_r17.py",
+              "HarmonyBot-V71/tools/run_r17_tick_window.sh",
+              "HarmonyBot-V71/tools/run_backtest.sh",
+              "HarmonyBot-V74/r17/**",
+              ".github/workflows/harmonybot-v74-r17-research.yml"
+            ]
+          }
+        },
+        "concurrency": {
+          "group": "harmonybot-v74-r17-research-${{ github.ref }}",
+          "cancel-in-progress": true
+        },
+        "permissions": {
+          "contents": "read",
+          "actions": "read"
+        },
+        "jobs": {
+          "r17_build": {
+            "runs-on": "ubuntu-24.04",
+            "timeout-minutes": 20
+          },
+          "r17_tick_universe": {
+            "needs": "r17_build",
+            "runs-on": "ubuntu-24.04",
+            "strategy": {
+              "fail-fast": false,
+              "max-parallel": 5,
+              "matrix": {
+                "window": [
+                  "Y2016",
+                  "Y2017",
+                  "Y2018",
+                  "Y2019",
+                  "Y2020"
+                ]
+              }
+            },
+            "timeout-minutes": 95
+          },
+          "r17_research_gate": {
+            "needs": "r17_tick_universe",
+            "runs-on": "ubuntu-24.04",
+            "timeout-minutes": 50
+          }
+        }
+      }
+    },
+    ".github/workflows/harmonybot-v74-r18-oracle-bound.yml": {
+      "baseline_blob_sha": "4321fa43c680827ea65d328554b54a60b942ff9c",
+      "contract": {
+        "on": {
+          "workflow_dispatch": null,
+          "push": {
+            "branches": [
+              "harmonybot/v73-opportunity-universe"
+            ],
+            "paths": [
+              "HarmonyBot-V71/tools/v74_r18_oracle_bound.py",
+              ".github/workflows/harmonybot-v74-r18-oracle-bound.yml"
+            ]
+          }
+        },
+        "concurrency": {
+          "group": "harmonybot-v74-r18-oracle-bound-${{ github.ref }}",
+          "cancel-in-progress": false
+        },
+        "permissions": {
+          "contents": "read",
+          "actions": "read"
+        },
+        "jobs": {
+          "oracle_bound": {
+            "runs-on": "ubuntu-24.04",
+            "timeout-minutes": 20
+          }
+        }
+      }
+    },
+    ".github/workflows/harmonybot-v74-r18-semantic.yml": {
+      "baseline_blob_sha": "257f3e7420b3870351bf543676da79d50f98b3cc",
+      "contract": {
+        "on": {
+          "workflow_dispatch": null,
+          "push": {
+            "branches": [
+              "harmonybot/v73-opportunity-universe"
+            ],
+            "paths": [
+              "HarmonyBot-V71/src/Architecture/HarmonyBotV74.R18OutcomeEngine.cs",
+              "HarmonyBot-V71/src/Architecture/HarmonyBotV74.R17TickState.cs",
+              "HarmonyBot-V71/tools/test_v74_r17.py",
+              "HarmonyBot-V71/src/Architecture/HarmonyBotV71.V73OpportunityUniverse.cs",
+              "HarmonyBot-V71/src/Architecture/HarmonyBotV71.ProtectedCore.cs",
+              "HarmonyBot-V71/src/Architecture/HarmonyBotV71.HcogResearch.cs",
+              "HarmonyBot-V71/tools/v74_r18_*",
+              "HarmonyBot-V71/tools/evaluate_v74_r18_semantics.py",
+              "HarmonyBot-V71/tools/test_v74_r18.py",
+              "HarmonyBot-V71/tools/run_r18_semantic_window.sh",
+              "HarmonyBot-V71/tools/run_backtest.sh",
+              ".github/workflows/harmonybot-v74-r18-semantic.yml"
+            ]
+          }
+        },
+        "concurrency": {
+          "group": "harmonybot-v74-r18-semantic-${{ github.ref }}",
+          "cancel-in-progress": true
+        },
+        "permissions": {
+          "contents": "read",
+          "actions": "read"
+        },
+        "jobs": {
+          "r18_build": {
+            "runs-on": "ubuntu-24.04",
+            "timeout-minutes": 20
+          },
+          "r18_semantic_universe": {
+            "needs": "r18_build",
+            "runs-on": "ubuntu-24.04",
+            "strategy": {
+              "fail-fast": false,
+              "max-parallel": 5,
+              "matrix": {
+                "window": [
+                  "Y2016",
+                  "Y2017",
+                  "Y2018",
+                  "Y2019",
+                  "Y2020"
+                ]
+              }
+            },
+            "timeout-minutes": 95
+          },
+          "r18_semantic_gate": {
+            "needs": "r18_semantic_universe",
+            "runs-on": "ubuntu-24.04",
+            "timeout-minutes": 50
+          }
+        }
+      }
+    },
+    ".github/workflows/harmonybot-v74-rapid-decision.yml": {
+      "baseline_blob_sha": "f9a54036142c687b4cb373e6b6b5038834a8bda9",
+      "contract": {
+        "on": {
+          "workflow_dispatch": null,
+          "push": {
+            "branches": [
+              "harmonybot/v73-opportunity-universe"
+            ],
+            "paths": [
+              "HarmonyBot-V71/src/**",
+              "HarmonyBot-V71/HarmonyBotV71.csproj",
+              "HarmonyBot-V71/tools/run_window.sh",
+              "HarmonyBot-V71/tools/run_backtest.sh",
+              "HarmonyBot-V71/tools/resolve_window.sh",
+              "HarmonyBot-V71/final/V71_BURNED_CALIBRATION_CUSTODY.json",
+              "HarmonyBot-V73/V73_RESEARCH_CUSTODY.json"
+            ]
+          }
+        },
+        "concurrency": {
+          "group": "harmonybot-v74-rapid-decision-v2-${{ github.head_ref || github.ref }}",
+          "cancel-in-progress": true
+        },
+        "permissions": {
+          "contents": "write",
+          "actions": "write"
+        },
+        "jobs": {
+          "rapid_change_gate": {
+            "runs-on": "ubuntu-24.04"
+          },
+          "rapid_build": {
+            "needs": "rapid_change_gate",
+            "if": "${{ needs.rapid_change_gate.outputs.full == 'true' && (github.event_name == 'workflow_dispatch' || github.ref_name == 'harmonybot/v73-opportunity-universe') }}",
+            "runs-on": "ubuntu-24.04",
+            "timeout-minutes": 20
+          },
+          "rapid_universe": {
+            "needs": "rapid_build",
+            "runs-on": "ubuntu-24.04",
+            "strategy": {
+              "fail-fast": false,
+              "max-parallel": 8,
+              "matrix": {
+                "window": [
+                  "Y2016",
+                  "Y2017",
+                  "Y2018",
+                  "Y2019",
+                  "Y2020",
+                  "Y2021",
+                  "Y2022",
+                  "Y2023"
+                ]
+              }
+            },
+            "timeout-minutes": 50
+          },
+          "rapid_decision": {
+            "needs": "rapid_universe",
+            "runs-on": "ubuntu-24.04",
+            "timeout-minutes": 20
+          },
+          "full_verification": {
+            "needs": "rapid_decision",
+            "if": "${{ needs.rapid_decision.outputs.alpha_pass == 'true' }}",
+            "runs-on": "ubuntu-24.04"
+          },
+          "pin_exact_replay_source": {
+            "needs": [
+              "rapid_change_gate",
+              "rapid_decision"
+            ],
+            "if": "${{ always() && needs.rapid_decision.result == 'success' }}",
+            "runs-on": "ubuntu-24.04"
+          }
+        }
+      }
+    },
+    ".github/workflows/harmonybot-m3-static-guard.yml": {
+      "baseline_blob_sha": "0888a84710acb737fa672b19cdb14b51d8cdd3fd",
+      "contract": {
+        "on": {
+          "pull_request": {
+            "branches": [
+              "harmonybot/v73-opportunity-universe"
+            ],
+            "paths": [
+              ".github/workflows/**",
+              "engineering/m3/**"
+            ]
+          },
+          "push": {
+            "branches": [
+              "fix/m3-execution-stability-20261015"
+            ],
+            "paths": [
+              ".github/workflows/harmonybot-m3-static-guard.yml",
+              "engineering/m3/**"
+            ]
+          },
+          "workflow_dispatch": null
+        },
+        "concurrency": {
+          "group": "harmonybot-m3-static-guard-${{ github.event.pull_request.number || github.ref }}",
+          "cancel-in-progress": true
+        },
+        "permissions": {
+          "contents": "read"
+        },
+        "jobs": {
+          "offline_guard": {
+            "runs-on": "ubuntu-24.04",
+            "timeout-minutes": 5
+          }
+        }
+      }
+    }
+  }
+}
