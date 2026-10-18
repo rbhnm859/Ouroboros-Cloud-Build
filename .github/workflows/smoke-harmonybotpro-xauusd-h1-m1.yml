@@ -2,6 +2,12 @@ name: HarmonyBotPro XAUUSD H1 M1 Smoke
 
 on:
   workflow_dispatch:
+  pull_request:
+    branches: ['harmonybot/v73-opportunity-universe']
+    types: [opened, synchronize, reopened]
+    paths:
+      - '.github/workflows/smoke-harmonybotpro-xauusd-h1-m1.yml'
+      - 'HarmonyBot-V71/HarmonyBotV71.csproj'
   push:
     branches: [main]
     paths:
@@ -12,7 +18,57 @@ permissions:
   actions: read
 
 jobs:
+  cli_preflight:
+    # No account/password, trading command, model call or Production data access.
+    if: >-
+      github.event_name == 'pull_request' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.head.ref == 'fix/m3-execution-stability-20261015'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Record official CLI version and immutable image identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p preflight
+          docker pull ghcr.io/spotware/ctrader-console:5.9.11
+          docker image inspect ghcr.io/spotware/ctrader-console:5.9.11 --format '{{json .RepoDigests}}' > preflight/image-digests.json
+          timeout 60s docker run --rm --network none --cap-drop ALL --security-opt no-new-privileges ghcr.io/spotware/ctrader-console:5.9.11 --version > preflight/cli-version.txt 2>&1
+          test -s preflight/cli-version.txt
+          cat preflight/cli-version.txt
+          git rev-parse HEAD > preflight/source-commit.txt
+          date -u +%FT%TZ > preflight/executed-at-utc.txt
+          dotnet --info > preflight/dotnet-version.txt
+      - name: Compile existing protected cBot without account credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          dotnet build HarmonyBot-V71/HarmonyBotV71.csproj -c Release --nologo 2>&1 | tee preflight/build.log
+          mapfile -t algos < <(find HarmonyBot-V71/bin/Release -type f -name 'HarmonyBot_V71_Protected_Champion_Core_Incremental_Alpha.algo')
+          test "${#algos[@]}" -eq 1
+          test -s "${algos[0]}"
+          cp "${algos[0]}" preflight/compiled.algo
+          (cd preflight && sha256sum compiled.algo > compiled.sha256)
+      - name: Preserve actual preflight output, including failures
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cTrader-CLI-credentialless-preflight
+          path: preflight/
+          if-no-files-found: error
+          retention-days: 7
+
   smoke:
+    # Existing account-backed smoke remains manual/main-only.
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
