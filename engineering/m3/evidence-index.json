@@ -1,0 +1,17 @@
+{
+  "schema": 1,
+  "attachment_name": "\u8ae7\u6ce2\u4ea4\u6613\u7cfb\u7d71.json",
+  "attachment_sha256": "1a94c7e8a51a7d17905fee38a7483d4004d61593698060c34cd13ba3baa62db8",
+  "director_report_message_id": "99aa5de5-f585-4a12-adfa-d09c46ea8c3d",
+  "source_head": "7225a8810f8e60eca590eb4ede0dacf54dfdfb82",
+  "workflow_blobs": {
+    "harmonybot-v74-r18-semantic.yml": "257f3e7420b3870351bf543676da79d50f98b3cc",
+    "harmonybot-v74-r17-research.yml": "b73ac3fba2e8af7c63a0cffd09b7b740ae9a6730"
+  },
+  "unique_outer_tool_calls": 104,
+  "subagent_calls_without_output_field": 10,
+  "outer_search_code_calls": 5,
+  "inner_engineer_trace": "NOT_PRESENT",
+  "recursion_error_in_tool_outputs": 0,
+  "redaction": "No conversation body, hidden reasoning, credentials, user IDs, or private messages copied into repository."
+}

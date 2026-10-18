@@ -1,0 +1,82 @@
+{
+  "schema": 1,
+  "parent_pr_head": "e7eb4f7fa52430eb2a082789fa9eef20ff50b22a",
+  "note": "Excludes this self-referential index and runtime bytecode; commit/tree contains the canonical SHA for every file.",
+  "files": [
+    {
+      "path": ".github/workflows/harmonybot-m3-static-guard.yml",
+      "git_blob_sha": "67a60b3ccab860b5f5295bf37708457cfefc698b",
+      "sha256": "03cd308697c37bb4e26b09cc58d9d2964ab56f72c0479f802e277432da797bd6"
+    },
+    {
+      "path": ".github/workflows/harmonybot-v74-r17-research.yml",
+      "git_blob_sha": "4d16b4b3245ae05645a35a0af3632dc10d83c774",
+      "sha256": "3a0d3498f24551ec1d2099f24a0889429c0945e217d54e8d1eb9793c402a1515"
+    },
+    {
+      "path": ".github/workflows/harmonybot-v74-r18-semantic.yml",
+      "git_blob_sha": "19411287c04106fe64cf9f381d7ee972212e42f1",
+      "sha256": "422b2721a9a06a17e7ced3b78028d514dc3bd7eb6151e73b135cd74b76b5a235"
+    },
+    {
+      "path": "engineering/m3/FINAL_REPAIR_REPORT.md",
+      "git_blob_sha": "253efd38cd74b32a520f365bbc67d971a02b3e04",
+      "sha256": "6d6eb221516738aed7a052461ecf3e3127057412e61591b103af2fc21d05088c"
+    },
+    {
+      "path": "engineering/m3/REPAIR_STATUS.md",
+      "git_blob_sha": "355207ea00358516f1a06762147f0d9470d753de",
+      "sha256": "53301793642adf7694430f48c1a4caef542d9f491ed6428d7cf6cb490901b495"
+    },
+    {
+      "path": "engineering/m3/baseline/harmonybot-v74-r17-research.yml",
+      "git_blob_sha": "b73ac3fba2e8af7c63a0cffd09b7b740ae9a6730",
+      "sha256": "510ca97f3291511e8c6073ef3803fa13b00461e5080ae7968376cc9bbb07682e"
+    },
+    {
+      "path": "engineering/m3/baseline/harmonybot-v74-r18-semantic.yml",
+      "git_blob_sha": "257f3e7420b3870351bf543676da79d50f98b3cc",
+      "sha256": "6c1eb6e2a42d99fe02dc63667d6de028ffb10f79a5b40dc1c26e91fc203d5ca3"
+    },
+    {
+      "path": "engineering/m3/evidence-index.json",
+      "git_blob_sha": "b7e9f74ffe766093111be28e4cbf675580617d0d",
+      "sha256": "4f796fc6bcc19d42d4911ef30c841d6bea1789fa2f5ead36104f9340a123fb63"
+    },
+    {
+      "path": "engineering/m3/legacy-diagnostics.json",
+      "git_blob_sha": "a20c69738d3c7588128950927bc37e7145d1d43a",
+      "sha256": "3bdf7eba86aaec81631954752c849af1c6cd09ca4459eb56be62bd45aac03725"
+    },
+    {
+      "path": "engineering/m3/mutex_probe.py",
+      "git_blob_sha": "30802485a363d4860f40a9d0e36141ca7428f9f6",
+      "sha256": "78c804a7a2d32e210181fd1eb0803b4f2c924ee72cb4cb1fcf1dd17aacfaa866"
+    },
+    {
+      "path": "engineering/m3/test_mutex_probe.py",
+      "git_blob_sha": "552f1362f49c76f6b4a37fa75da70353d055ddec",
+      "sha256": "a77afc50d306389681c9fc0c25756965b44ed0a53d2b72d3e58b078c5b021037"
+    },
+    {
+      "path": "engineering/m3/test_workflow_guard.py",
+      "git_blob_sha": "ce8d087c3d452211250c98e35336be1149003681",
+      "sha256": "a293c08fe8aab4c126b58d16ac438c5423bab7565e2228d89649b23d5f19017a"
+    },
+    {
+      "path": "engineering/m3/workflow-change.patch",
+      "git_blob_sha": "526575513fedafd9c65bb9fd3c724ddcb865a9f4",
+      "sha256": "3d5c98370bab8f902a3c7f322911e8f5c3acd239674f5d5e7a8447215f839e96"
+    },
+    {
+      "path": "engineering/m3/workflow-contract.json",
+      "git_blob_sha": "1d139d993b5c98220c8cff351e01ed97cbed3086",
+      "sha256": "df4e8ad2e40f2c307ade54382cf672eb646275881ede0f7c1155ecff69f71243"
+    },
+    {
+      "path": "engineering/m3/workflow_guard.py",
+      "git_blob_sha": "4804db781bd499f379393703d99cf290bf88271e",
+      "sha256": "3f8dd93698c69ea1da4aa132336c395a2b1b65158f162a66cfb2d433ca5de5c7"
+    }
+  ]
+}

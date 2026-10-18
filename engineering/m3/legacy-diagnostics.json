@@ -1,0 +1,54 @@
+{
+  "schema": 1,
+  "note": "Source blockers reproduced offline. GitHub exact failure annotations unavailable; observed zero-job failures are consistent with these load errors, not job cancellation/skipping. No reruns.",
+  "runs": [
+    {
+      "run_id": 38703364446,
+      "head_sha": "e7eb4f7fa52430eb2a082789fa9eef20ff50b22a",
+      "status": "completed",
+      "conclusion": "failure",
+      "jobs_count": 0,
+      "path": ".github/workflows/build-ctrader-cumulative-delta-scalper.yml",
+      "blob_sha": "e93cf2ef44f636bcfa1f74bb134b8d22cc88442e",
+      "classification": "workflow-validation",
+      "source_blocker": "jobs.backtest.if directly references secrets; context unsupported at job if",
+      "source_line": 36,
+      "workflow_changed": false,
+      "run_reason_annotation": "NOT_AVAILABLE: connector rejects check-suites endpoint",
+      "yaml": "PASS",
+      "invalid_job_if": "${{ secrets.CTRADER_CTID != '' && secrets.CTRADER_ACCOUNT != '' && secrets.CTRADER_PASSWORD != '' }}"
+    },
+    {
+      "run_id": 38703363162,
+      "head_sha": "e7eb4f7fa52430eb2a082789fa9eef20ff50b22a",
+      "status": "completed",
+      "conclusion": "failure",
+      "jobs_count": 0,
+      "path": ".github/workflows/harmonybot-commercial-convergence-abc.yml",
+      "blob_sha": "6ef000ecd36ab00d40eef52303f4d98f12145ec1",
+      "classification": "yaml-parse",
+      "source_blocker": "unquoted GitHub expression inside a YAML flow mapping",
+      "source_line": 24,
+      "workflow_changed": false,
+      "run_reason_annotation": "NOT_AVAILABLE: connector rejects check-suites endpoint",
+      "yaml": "FAIL",
+      "parser_error": "while parsing a flow mapping\n  in \"<unicode string>\", line 24, column 15:\n            with: { ref: ${{ env.BASE_COMMIT }} }\n                  ^\nexpected ',' or '}', but got '{'\n  in \"<unicode string>\", line 24, column 23:\n            with: { ref: ${{ env.BASE_COMMIT }} }\n                          ^"
+    },
+    {
+      "run_id": 38703361961,
+      "head_sha": "e7eb4f7fa52430eb2a082789fa9eef20ff50b22a",
+      "status": "completed",
+      "conclusion": "failure",
+      "jobs_count": 0,
+      "path": ".github/workflows/cdscalper-eurusd-v1-build-from-main.yml",
+      "blob_sha": "1232f9dced941ff292ba6382692e25a43951d621",
+      "classification": "yaml-parse",
+      "source_blocker": "unindented heredoc text escapes the run block; parser stops at line 56",
+      "source_line": 56,
+      "workflow_changed": false,
+      "run_reason_annotation": "NOT_AVAILABLE: connector rejects check-suites endpoint",
+      "yaml": "FAIL",
+      "parser_error": "while parsing a block mapping\n  in \"<unicode string>\", line 1, column 1:\n    name: Build CDScalper EURUSD v1\n    ^\nexpected <block end>, but found '-'\n  in \"<unicode string>\", line 56, column 1:\n    - Status: success\n    ^"
+    }
+  ]
+}
