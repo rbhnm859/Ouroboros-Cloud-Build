@@ -52,11 +52,11 @@ jobs:
         run: |
           set -euo pipefail
           dotnet build HarmonyBot-V71/HarmonyBotV71.csproj -c Release --nologo 2>&1 | tee preflight/build.log
-          mapfile -t algos < <(find HarmonyBot-V71/bin/Release -type f -name 'HarmonyBot_V71_Protected_Champion_Core_Incremental_Alpha.algo')
+          mapfile -t algos < <(find HarmonyBot-V71/bin/Release -type f -name '*.algo')
           test "${#algos[@]}" -eq 1
           test -s "${algos[0]}"
           cp "${algos[0]}" preflight/compiled.algo
-          (cd preflight && sha256sum compiled.algo > compiled.sha256)
+          (cd preflight && sha256sum compiled.algo | tee compiled.sha256)
       - name: Preserve actual preflight output, including failures
         if: always()
         uses: actions/upload-artifact@v4
