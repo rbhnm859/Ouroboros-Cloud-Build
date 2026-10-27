@@ -1,10 +1,8 @@
 name: HarmonyBot Commercial Convergence A-B-C One-Pass
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - '.github/workflows/harmonybot-commercial-convergence-abc.yml'
+  # Historical build/backtest is deliberately manual-only during V74 R15/R18
+  # research custody. No automatic pushes; preserve original job specifications.
   workflow_dispatch:
 
 permissions:
