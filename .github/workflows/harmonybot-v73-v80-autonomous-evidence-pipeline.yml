@@ -1,19 +1,10 @@
 name: HarmonyBot V73-V80 Autonomous Evidence Pipeline
 
 on:
+  # V74 R15 research custody lock is active: legacy automatic heavy pipelines
+  # are deliberately manual-only. Preserve job bodies and all historical evidence.
+  # Re-enable automatic admission only after a reviewed R15/R18 unlock decision.
   workflow_dispatch:
-  pull_request:
-    branches: [main]
-    paths:
-      - 'HarmonyBot-V71/**'
-      - '!HarmonyBot-V71/tools/evaluate_v74_sequential.py'
-      - '!HarmonyBot-V71/tools/diagnose_v74_joint_oracle.py'
-      - '!HarmonyBot-V71/tools/v74_model_lib.py'
-      - '!HarmonyBot-V71/tools/apply_v74_champion.py'
-      - '!HarmonyBot-V71/tools/generate_v74_embedded_cs.py'
-      - '!HarmonyBot-V71/evidence/V74_FAST_REPLAY_SOURCE.json'
-      - 'HarmonyBot-V73/**'
-      - '.github/workflows/harmonybot-v73-v80-autonomous-evidence-pipeline.yml'
 
 concurrency:
   # Generation suffix intentionally rolls the concurrency lease after the pre-fix
