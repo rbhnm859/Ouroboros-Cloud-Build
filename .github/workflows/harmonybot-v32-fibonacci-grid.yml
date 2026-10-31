@@ -1,0 +1,46 @@
+name: HarmonyBot V32.0 Fibonacci Harmonic Grid Engine
+
+on:
+  push:
+    branches:
+      - harmonybot/v32-fibonacci-harmonic-grid-engine
+    paths:
+      - '.github/workflows/harmonybot-v32-fibonacci-grid.yml'
+      - 'HarmonyBot-V32/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: harmonybot-v32-fibonacci-grid
+  cancel-in-progress: true
+
+jobs:
+  one_pass:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    env:
+      CTRADER_PASSWORD: ${{ secrets.CTRADER_PASSWORD }}
+      CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+      CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: harmonybot/v32-fibonacci-harmonic-grid-engine
+          path: control
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+      - name: Execute V32 one-pass
+        run: |
+          chmod +x control/HarmonyBot-V32/tools/run_backtest.sh
+          chmod +x control/HarmonyBot-V32/tools/orchestrate_onepass.sh
+          control/HarmonyBot-V32/tools/orchestrate_onepass.sh
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: HARMONYBOT-V32-FIBONACCI-GRID
+          path: control/HarmonyBot-V32/output
+          if-no-files-found: warn
+          retention-days: 30

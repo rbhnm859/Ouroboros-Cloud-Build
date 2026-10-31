@@ -1,0 +1,49 @@
+name: HarmonyBot V36 High-Frequency Harmonic Portfolio Development
+
+on:
+  push:
+    branches:
+      - harmonybot/v36-high-frequency-harmonic-portfolio
+    paths:
+      - 'HarmonyBot-V36/**'
+      - '.github/workflows/harmonybot-v36-high-frequency-portfolio.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  v36_frequency_frontier:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    env:
+      CTRADER_PASSWORD: ${{ secrets.CTRADER_PASSWORD }}
+      CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+      CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+    steps:
+      - name: Checkout V36 branch
+        uses: actions/checkout@v4
+        with:
+          ref: harmonybot/v36-high-frequency-harmonic-portfolio
+          path: control
+          fetch-depth: 1
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Execute V36 major frequency architecture ablation
+        shell: bash
+        run: |
+          chmod +x control/HarmonyBot-V36/tools/*.sh
+          control/HarmonyBot-V36/tools/orchestrate_development.sh
+
+      - name: Upload V36 development evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: HARMONYBOT-V36-HIGH-FREQUENCY-PORTFOLIO
+          path: control/HarmonyBot-V36/output
+          retention-days: 30
+          if-no-files-found: warn

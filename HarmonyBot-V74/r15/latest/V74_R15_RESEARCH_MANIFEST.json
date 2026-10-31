@@ -1,0 +1,373 @@
+{
+  "architecture": "V74_R15_CTRSTA",
+  "research_information_pass": false,
+  "research_pre_gate": false,
+  "burned_authorized": false,
+  "burned_status": "NOT_RUN",
+  "physical_pass": null,
+  "alpha_gate": false,
+  "v74_gate": false,
+  "execution_semantics_ready": false,
+  "promotion_blocker": "A_TELEMETRY_INFORMATION_INSUFFICIENT",
+  "folds": {
+    "Y2018": {
+      "summary": {
+        "precision_at_275": {
+          "n": 275,
+          "precision": 0.2909090909090909,
+          "fdr": 0.7090909090909091,
+          "metrics": {
+            "n": 275,
+            "mean_r": -0.022201930716627898,
+            "pf_r": 0.9683335893842775,
+            "lcb_r": -0.1803249536311588,
+            "win_rate": 0.2909090909090909,
+            "average_rr": 2.3361047843895695,
+            "median_hold_bars": 7.0
+          }
+        },
+        "chronological": {
+          "metrics": {
+            "n": 64,
+            "mean_r": -0.23073855379309197,
+            "pf_r": 0.6986271950457574,
+            "lcb_r": -0.5406816075656088,
+            "win_rate": 0.21875,
+            "average_rr": 2.445195182660151,
+            "median_hold_bars": 6.0
+          },
+          "decisions": {
+            "REJECT": 15763,
+            "DEFER": 939,
+            "ENTER": 64
+          },
+          "occupancy_semantics": "CONSERVATIVE_FIXED_180_MINUTES__RUNTIME_PARITY_UNVERIFIED"
+        },
+        "threshold_training_only": 0.48470643684268,
+        "information": {
+          "regime_cross_entropy_bits": 1.2830326238843859,
+          "winner_conditional_cross_entropy_bits": 1.4576747725440797,
+          "label_distribution": {
+            "REVERSAL": 8680,
+            "CONTINUATION": 1372,
+            "NOEDGE": 7479
+          },
+          "regime_log_score_gain_bits": 0.15707963053567964,
+          "winner_log_score_gain_bits": -0.6073464240315285,
+          "conditional_winner_log_score_gain_bits": -1.0315982874270024
+        },
+        "year_dro": {
+          "Y2017": 0.9489067424177536,
+          "Y2016": 1.0510932575822465
+        },
+        "training_years": [
+          "Y2016",
+          "Y2017"
+        ]
+      },
+      "x": {
+        "precision_at_275": {
+          "n": 275,
+          "precision": 0.2690909090909091,
+          "fdr": 0.730909090909091,
+          "metrics": {
+            "n": 275,
+            "mean_r": -0.10584036539755935,
+            "pf_r": 0.8516726921791278,
+            "lcb_r": -0.25560858232445277,
+            "win_rate": 0.2690909090909091,
+            "average_rr": 2.267290815666056,
+            "median_hold_bars": 7.0
+          }
+        },
+        "chronological": {
+          "metrics": {
+            "n": 126,
+            "mean_r": -0.032388742876553855,
+            "pf_r": 0.9537455092351595,
+            "lcb_r": -0.2622399397355356,
+            "win_rate": 0.2777777777777778,
+            "average_rr": 2.4252385806265484,
+            "median_hold_bars": 7.0
+          },
+          "decisions": {
+            "REJECT": 13126,
+            "DEFER": 1228,
+            "ENTER": 126
+          },
+          "occupancy_semantics": "CONSERVATIVE_FIXED_180_MINUTES__RUNTIME_PARITY_UNVERIFIED"
+        },
+        "threshold_training_only": 0.6257954400032759,
+        "information": {
+          "regime_cross_entropy_bits": 1.536796985051461,
+          "winner_conditional_cross_entropy_bits": 3.202917070511374,
+          "label_distribution": {
+            "REVERSAL": 8680,
+            "CONTINUATION": 1372,
+            "NOEDGE": 7479
+          },
+          "regime_log_score_gain_bits": -0.09668473063139538,
+          "winner_log_score_gain_bits": -2.3525887219988224,
+          "conditional_winner_log_score_gain_bits": -2.7768405853942966
+        },
+        "year_dro": {
+          "Y2017": 0.9971436519337331,
+          "Y2016": 1.0028563480662671
+        },
+        "training_years": [
+          "Y2016",
+          "Y2017"
+        ]
+      },
+      "information_delta_bits": -1.745242297967294
+    },
+    "Y2019": {
+      "summary": {
+        "precision_at_275": {
+          "n": 275,
+          "precision": 0.31272727272727274,
+          "fdr": 0.6872727272727273,
+          "metrics": {
+            "n": 275,
+            "mean_r": 0.08997344943897842,
+            "pf_r": 1.1319403887775796,
+            "lcb_r": -0.07669011906751419,
+            "win_rate": 0.31272727272727274,
+            "average_rr": 2.4876364358018908,
+            "median_hold_bars": 6.0
+          }
+        },
+        "chronological": {
+          "metrics": {
+            "n": 53,
+            "mean_r": -0.12408515738768429,
+            "pf_r": 0.8395972355720178,
+            "lcb_r": -0.5068868261653494,
+            "win_rate": 0.22641509433962265,
+            "average_rr": 2.8686238882043944,
+            "median_hold_bars": 5.0
+          },
+          "decisions": {
+            "ENTER": 53,
+            "REJECT": 13715,
+            "DEFER": 235
+          },
+          "occupancy_semantics": "CONSERVATIVE_FIXED_180_MINUTES__RUNTIME_PARITY_UNVERIFIED"
+        },
+        "threshold_training_only": 0.4930942963808775,
+        "information": {
+          "regime_cross_entropy_bits": 1.2597195891202062,
+          "winner_conditional_cross_entropy_bits": 1.4721446142362136,
+          "label_distribution": {
+            "REVERSAL": 7118,
+            "CONTINUATION": 1269,
+            "NOEDGE": 6226
+          },
+          "regime_log_score_gain_bits": 0.22042946326517243,
+          "winner_log_score_gain_bits": -0.6165139898927791,
+          "conditional_winner_log_score_gain_bits": -1.02734789866687
+        },
+        "year_dro": {
+          "Y2017": 0.9651852281242156,
+          "Y2018": 0.9597832847121164,
+          "Y2016": 1.0750314871636684
+        },
+        "training_years": [
+          "Y2016",
+          "Y2017",
+          "Y2018"
+        ]
+      },
+      "x": {
+        "precision_at_275": {
+          "n": 275,
+          "precision": 0.3018181818181818,
+          "fdr": 0.6981818181818182,
+          "metrics": {
+            "n": 275,
+            "mean_r": 0.033321406991088605,
+            "pf_r": 1.0490912812453452,
+            "lcb_r": -0.12412916840702706,
+            "win_rate": 0.3018181818181818,
+            "average_rr": 2.401534258272477,
+            "median_hold_bars": 9.0
+          }
+        },
+        "chronological": {
+          "metrics": {
+            "n": 106,
+            "mean_r": -0.1934660321396624,
+            "pf_r": 0.739842203569864,
+            "lcb_r": -0.4272366098706647,
+            "win_rate": 0.22641509433962265,
+            "average_rr": 2.4969674370482906,
+            "median_hold_bars": 5.5
+          },
+          "decisions": {
+            "ENTER": 106,
+            "REJECT": 11896,
+            "DEFER": 657
+          },
+          "occupancy_semantics": "CONSERVATIVE_FIXED_180_MINUTES__RUNTIME_PARITY_UNVERIFIED"
+        },
+        "threshold_training_only": 0.6398137780372053,
+        "information": {
+          "regime_cross_entropy_bits": 1.407140426326298,
+          "winner_conditional_cross_entropy_bits": 3.13879598289565,
+          "label_distribution": {
+            "REVERSAL": 7118,
+            "CONTINUATION": 1269,
+            "NOEDGE": 6226
+          },
+          "regime_log_score_gain_bits": 0.07300862605908054,
+          "winner_log_score_gain_bits": -2.283165358552216,
+          "conditional_winner_log_score_gain_bits": -2.6939992673263067
+        },
+        "year_dro": {
+          "Y2017": 1.018838985985709,
+          "Y2018": 0.9643113100481108,
+          "Y2016": 1.0168497039661801
+        },
+        "training_years": [
+          "Y2016",
+          "Y2017",
+          "Y2018"
+        ]
+      },
+      "information_delta_bits": -1.6666513686594366
+    },
+    "Y2020": {
+      "summary": {
+        "precision_at_275": {
+          "n": 275,
+          "precision": 0.28363636363636363,
+          "fdr": 0.7163636363636363,
+          "metrics": {
+            "n": 275,
+            "mean_r": -0.022635248332814238,
+            "pf_r": 0.9684025721242441,
+            "lcb_r": -0.18180357523009702,
+            "win_rate": 0.28363636363636363,
+            "average_rr": 2.445837265493283,
+            "median_hold_bars": 5.0
+          }
+        },
+        "chronological": {
+          "metrics": {
+            "n": 41,
+            "mean_r": 0.306534535204703,
+            "pf_r": 1.4833813824381854,
+            "lcb_r": -0.1453420205716595,
+            "win_rate": 0.36585365853658536,
+            "average_rr": 2.571194396226188,
+            "median_hold_bars": 11.0
+          },
+          "decisions": {
+            "REJECT": 18969,
+            "ENTER": 41,
+            "DEFER": 568
+          },
+          "occupancy_semantics": "CONSERVATIVE_FIXED_180_MINUTES__RUNTIME_PARITY_UNVERIFIED"
+        },
+        "threshold_training_only": 0.4767205692827702,
+        "information": {
+          "regime_cross_entropy_bits": 1.286874496388203,
+          "winner_conditional_cross_entropy_bits": 1.3940402885803795,
+          "label_distribution": {
+            "REVERSAL": 10161,
+            "CONTINUATION": 1138,
+            "NOEDGE": 8578
+          },
+          "regime_log_score_gain_bits": 0.13473017543172805,
+          "winner_log_score_gain_bits": -0.5416489351643654,
+          "conditional_winner_log_score_gain_bits": -0.9503015338251528
+        },
+        "year_dro": {
+          "Y2019": 0.9434408916492355,
+          "Y2017": 0.9649031403772039,
+          "Y2018": 0.9877782109572814,
+          "Y2016": 1.103877757016279
+        },
+        "training_years": [
+          "Y2016",
+          "Y2017",
+          "Y2018",
+          "Y2019"
+        ]
+      },
+      "x": {
+        "precision_at_275": {
+          "n": 275,
+          "precision": 0.2909090909090909,
+          "fdr": 0.7090909090909091,
+          "metrics": {
+            "n": 275,
+            "mean_r": 0.05959969872495317,
+            "pf_r": 1.0844841090173305,
+            "lcb_r": -0.11228376570017622,
+            "win_rate": 0.2909090909090909,
+            "average_rr": 2.6298739643670266,
+            "median_hold_bars": 5.0
+          }
+        },
+        "chronological": {
+          "metrics": {
+            "n": 128,
+            "mean_r": 0.19131190783109772,
+            "pf_r": 1.288093225910359,
+            "lcb_r": -0.06468830556845986,
+            "win_rate": 0.328125,
+            "average_rr": 2.606855338151917,
+            "median_hold_bars": 4.5
+          },
+          "decisions": {
+            "REJECT": 16725,
+            "ENTER": 128,
+            "DEFER": 827
+          },
+          "occupancy_semantics": "CONSERVATIVE_FIXED_180_MINUTES__RUNTIME_PARITY_UNVERIFIED"
+        },
+        "threshold_training_only": 0.6090469911694527,
+        "information": {
+          "regime_cross_entropy_bits": 1.396350014247532,
+          "winner_conditional_cross_entropy_bits": 3.2741299655166753,
+          "label_distribution": {
+            "REVERSAL": 10161,
+            "CONTINUATION": 1138,
+            "NOEDGE": 8578
+          },
+          "regime_log_score_gain_bits": 0.025254657572399086,
+          "winner_log_score_gain_bits": -2.421738612100661,
+          "conditional_winner_log_score_gain_bits": -2.830391210761449
+        },
+        "year_dro": {
+          "Y2019": 0.9059895846677979,
+          "Y2017": 1.0298088128468783,
+          "Y2018": 1.0040851899735828,
+          "Y2016": 1.060116412511741
+        },
+        "training_years": [
+          "Y2016",
+          "Y2017",
+          "Y2018",
+          "Y2019"
+        ]
+      },
+      "information_delta_bits": -1.8800896769362958
+    }
+  },
+  "research_years": [
+    "Y2016",
+    "Y2017",
+    "Y2018",
+    "Y2019",
+    "Y2020"
+  ],
+  "validation_used": false,
+  "fresh_used": false,
+  "burned_used": false,
+  "runtime_seconds": 1096.384,
+  "legal_actions": 84906,
+  "non_regression": "NOT_EVALUATED__CHAMPION_UNCHANGED",
+  "information_estimator": "CROSS_FITTED_LOG_SCORE_GAIN_PROXY__NOT_TRUE_MI_BOUND"
+}

@@ -1,0 +1,89 @@
+name: HarmonyBot V48 Pattern Family Native Study
+on:
+  push:
+    branches: [harmonybot/v48-pattern-family-native-conversion]
+    paths: ['HarmonyBot-V48/**','.github/workflows/harmonybot-v48-run.yml']
+  workflow_dispatch:
+concurrency:
+  group: harmonybot-v48-pattern-family-native-study
+  cancel-in-progress: true
+permissions:
+  contents: read
+env:
+  CTRADER_PASSWORD: ${{ secrets.CTRADER_PASSWORD }}
+  CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+  CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with: {ref: harmonybot/v48-pattern-family-native-conversion, path: control, fetch-depth: 1}
+      - uses: actions/setup-dotnet@v4
+        with: {dotnet-version: 8.0.x}
+      - name: Build once
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd control
+          python3 HarmonyBot-V48/tools/static_audit.py HarmonyBot-V48/src/HarmonyBotV48.cs
+          python3 HarmonyBot-V48/tools/geometry_contract_test.py HarmonyBot-V48/src/HarmonyBotV48.cs
+          dotnet restore HarmonyBot-V48/HarmonyBotV48.csproj
+          dotnet build HarmonyBot-V48/HarmonyBotV48.csproj -c Release --no-restore --nologo
+          mkdir -p HarmonyBot-V48/dist
+          A=$(find HarmonyBot-V48/bin/Release -type f -name '*.algo' | head -1); test -s "$A"
+          cp "$A" HarmonyBot-V48/dist/HarmonyBot_V48_Pattern_Family_Native_Conversion_RC.algo
+      - uses: actions/upload-artifact@v4
+        with: {name: v48-build, path: control/HarmonyBot-V48/dist, retention-days: 30}
+  dev:
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      max-parallel: 12
+      matrix:
+        family: [V46_SCALE_CONTROL,FAMILY_NATIVE_OBSERVATION,FAMILY_NATIVE_CONVERSION,FULL_V48_COMMERCIAL]
+        window: [A,B,C]
+    steps:
+      - uses: actions/checkout@v4
+        with: {ref: harmonybot/v48-pattern-family-native-conversion, path: control, fetch-depth: 1}
+      - uses: actions/download-artifact@v4
+        with: {name: v48-build, path: control/HarmonyBot-V48/dist}
+      - name: Resolve dates
+        id: d
+        shell: bash
+        run: |
+          case "${{ matrix.window }}" in
+            A) echo "start=04/01/2021" >> "$GITHUB_OUTPUT"; echo "eval=2021-01-11T00:00:00Z" >> "$GITHUB_OUTPUT"; echo "end=30/06/2021" >> "$GITHUB_OUTPUT";;
+            B) echo "start=01/07/2021" >> "$GITHUB_OUTPUT"; echo "eval=2021-07-08T00:00:00Z" >> "$GITHUB_OUTPUT"; echo "end=31/12/2021" >> "$GITHUB_OUTPUT";;
+            C) echo "start=03/01/2022" >> "$GITHUB_OUTPUT"; echo "eval=2022-01-10T00:00:00Z" >> "$GITHUB_OUTPUT"; echo "end=30/06/2022" >> "$GITHUB_OUTPUT";;
+          esac
+      - name: Run fixed DEV
+        shell: bash
+        run: |
+          chmod +x control/HarmonyBot-V48/tools/*.sh
+          control/HarmonyBot-V48/tools/run_window.sh "${{ matrix.family }}" "${{ matrix.window }}" "${{ steps.d.outputs.start }}" "${{ steps.d.outputs.eval }}" "${{ steps.d.outputs.end }}"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: v48-dev-${{ matrix.family }}-${{ matrix.window }}
+          path: control/HarmonyBot-V48/output-${{ matrix.family }}-${{ matrix.window }}
+          retention-days: 30
+          if-no-files-found: error
+  analyze:
+    needs: dev
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with: {ref: harmonybot/v48-pattern-family-native-conversion, path: control, fetch-depth: 1}
+      - uses: actions/download-artifact@v4
+        with: {pattern: 'v48-dev-*', path: control/HarmonyBot-V48/merged, merge-multiple: true}
+      - name: Analyze
+        shell: bash
+        run: |
+          mkdir -p control/HarmonyBot-V48/final
+          python3 control/HarmonyBot-V48/tools/analyze_parallel_dev.py control/HarmonyBot-V48/merged control/HarmonyBot-V48/final
+      - uses: actions/upload-artifact@v4
+        with: {name: HARMONYBOT-V48-PATTERN-FAMILY-FRONTIER, path: control/HarmonyBot-V48/final, retention-days: 30}

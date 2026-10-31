@@ -1,0 +1,79 @@
+R15 CTRSTA research revision
+
+The authoritative R14 failure baseline is frozen in R14_FAILURE_BASELINE.json.
+R12/R13/R14 artifact ZIP bytes were downloaded and hashed; the ledger records the
+original GitHub IDs. No prior failure has become a promotion champion.
+
+This revision changes telemetry semantics. The old pinned exact universe remains
+historical evidence only and is invalid for R15. A separate workflow rebuilds
+2016–2020 from custody-verified bytes. Legacy Rapid/Fast/Full entry points return
+SKIPPED while RESEARCH_LOCK is active. The Rapid pin/explicit Fast dispatch repair
+is preserved behind that lock.
+
+The fixed 32x18 temporal contract retains bar order with completed-minute UTC
+closes. Historical ATR is computed at each bar; native risk is frozen at arming.
+Spread is a separate current decision observation. Event identity groups all
+geometry hypotheses; action enumeration preserves V73 mechanics and RR >=2.
+Future labels never determine deduplication. The encoder observes an allowlist,
+not an outcome row. Kernels, dilation, head regularization and fold boundaries
+are frozen before any research evaluation.
+
+Implemented research learner: soft reversal/continuation/noedge targets,
+competing commit heads, explicit trailing duration features, two shared mechanism
+experts, event-relative winner regret utility, bounded year-DRO and shrunken family
+intercepts. This is a small-data linear temporal experiment, not a production
+HSMM or an exact differentiable Precision@K optimizer. The top-tail utility is a
+surrogate. Ambiguous regimes receive soft targets and lower training weight.
+
+Outer folds are 2018/2019/2020 because prior training is required. Nested folds
+start in 2017; no holdout selects architecture, route, features or threshold.
+Precision@275 uses one prediction-selected route per event and is a retrospective
+information diagnostic, not a causal live policy. ENTER/DEFER/REJECT is separately
+simulated chronologically with one slot and a conservative fixed 180-minute lock.
+No R/hour objective is used.
+
+Information output is cross-fitted log-score gain, an estimator diagnostic, not
+a proof of true I(H;Z), I(H;Y|Z), or a universal information ceiling. The matched
+summary ablation uses exactly the same event/action supply. Predictive lower-tail
+proxies are explicitly not calibrated LCBs on mean value or win precision.
+Research information PASS therefore remains insufficient to authorize burned
+OOF until calibrated uncertainty and exact runtime stopping parity are validated.
+Alpha/v74 remain false; burned/Validation/Fresh remain NOT_RUN.
+
+The first experiment can falsify this encoder/head implementation. It cannot
+prove that all observable market information lacks edge. A failure returns to
+causal telemetry/state design, never burned threshold repair.
+
+First engineering run #1 (37708827775): all five research backtests completed;
+the research parser rejected one missing Y2020 FAILURE snapshot among 19,374
+legal action samples. No model evaluation ran. The precise CLI loss mechanism
+was not established; no Alpha conclusion follows. V2 transports frozen payloads
+via gzip/base64 with raw SHA256 and a per-event frame count, and emits them beside
+terminal route telemetry. Missing frames or count/checksum mismatch veto the run.
+This is a telemetry semantic change and requires fresh five-year regeneration.
+
+Direction audit on #1 Y2020 identified 119 FAILURE actions whose native action
+was already CONTINUATION. The post-stop C# route explicitly inverts native
+Direction, so those actions are harmonic REVERSAL, whereas the legacy Python
+adapter called every FAILURE action CONTINUATION. R15 corrects mechanism identity
+relative to the native action without changing action supply/payoff mechanics.
+A regression test covers both polarities. Native mechanism is an explicit causal
+input so temporal sign orientation is unambiguous to the mechanism experts.
+
+V2 #2 failed transport count audit. The in-bot census is unchanged at 897 closed
+Y2020 outcomes, while stdout contains only 797 outcome records (V1 had 871).
+This demonstrates lossy stdout capture; it does not establish the platform's
+internal logging limit. V3 therefore records every terminal outcome, route and
+frozen frame to a relative-path sidecar with AccessRights.None. The END seal
+checks written outcomes against the in-bot closed census and written frames
+against frozen count. The runner extracts the sidecar before container cleanup
+and hashes it. R15 parses only sealed sidecars, never partial stdout.
+
+Final preregistered research inputs additionally include the explicit canonical
+family and the existing 80-coordinate action-local entry state, frozen at the
+legal decision. This prevents geometrically different same-event actions from
+being represented identically merely because source/NetRR match. All entry state
+vectors must exist, have exact length and be finite. These input-completeness
+corrections precede the first successfully executed research model verdict.
+V3 exact five-year generation is pinned to #4 / 37710618410; evaluator-only edits
+use its sealed artifacts after fingerprint/digest/job-success verification.

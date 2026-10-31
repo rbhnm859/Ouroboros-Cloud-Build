@@ -1,0 +1,67 @@
+{
+  "version": "HarmonyBot V74 Run64 Barbell Result",
+  "source_run_id": 36876206286,
+  "source_run_number": 64,
+  "source_sha": "5329c60b07a6965f2a5b4c39c429908bf6430295",
+  "v74_gate": false,
+  "champion": null,
+  "validation_used": false,
+  "fresh_used": false,
+  "official_oof": {
+    "S_BARBELL_KEEP100": {
+      "Y2021": {
+        "n": 457,
+        "mean_r": 0.10311894313269808,
+        "pf_r": 1.230821360986324,
+        "win_rate": 0.3916849015317287,
+        "average_rr": 1.9115549628726154,
+        "lcb_r": -0.09095976602739823
+      },
+      "Y2022": {
+        "n": 574,
+        "mean_r": 0.5240728221982919,
+        "pf_r": 2.2096768595700973,
+        "win_rate": 0.4547038327526132,
+        "average_rr": 2.649918992511266,
+        "lcb_r": 0.14143132480083914
+      },
+      "Y2023": {
+        "n": 388,
+        "mean_r": -0.043750388935708075,
+        "pf_r": 0.9007758809860387,
+        "win_rate": 0.4329896907216495,
+        "average_rr": 1.179587463196003,
+        "lcb_r": -0.19078621873127505
+      }
+    },
+    "T_BARBELL_KEEP90": {
+      "Y2021": {
+        "n": 399,
+        "mean_r": 0.07865981748365751,
+        "pf_r": 1.1803570965474455,
+        "win_rate": 0.39097744360902253,
+        "average_rr": 1.8386331696219826,
+        "lcb_r": -0.12360834059951657
+      },
+      "Y2022": {
+        "n": 510,
+        "mean_r": 0.6472362541069441,
+        "pf_r": 2.531401893988169,
+        "win_rate": 0.4588235294117647,
+        "average_rr": 2.9857560800886094,
+        "lcb_r": 0.21767187293258394
+      },
+      "Y2023": {
+        "n": 333,
+        "mean_r": -0.12177357725681866,
+        "pf_r": 0.7269698891178951,
+        "win_rate": 0.42042042042042044,
+        "average_rr": 1.0021799185696696,
+        "lcb_r": -0.2672406165992571
+      }
+    }
+  },
+  "diagnosis": "Runner-preserving exit reconstruction improves 2022 payoff and RR but cannot convert 2023 reactions. The next necessary change is to delay actual capital until a second causal shadow first-passage and later persistence confirmation.",
+  "next_architecture": "TWO_STAGE_SHADOW_TO_CAPITAL_CAUSAL_SEQUENCE",
+  "gates_unchanged": true
+}

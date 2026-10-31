@@ -1,0 +1,41 @@
+{
+  "version": "V74-R16-MNFPA",
+  "status": "RESEARCH_ONLY",
+  "parent_rejected": "V74-R15-CTRSTA",
+  "parent_head": "4a6c345fe1bf491c34cbf43d4de3360f7dc65840",
+  "research_years": [
+    "Y2016",
+    "Y2017",
+    "Y2018",
+    "Y2019",
+    "Y2020"
+  ],
+  "burned_years": [
+    "Y2021",
+    "Y2022",
+    "Y2023"
+  ],
+  "validation_used": false,
+  "fresh_used": false,
+  "burned_used": false,
+  "architecture": "Mechanism-Native First-Passage Microstructure Admission",
+  "telemetry": [
+    "existing_80d_action_local_route_state",
+    "tick_volume_surprise",
+    "range_shock",
+    "decision_spread",
+    "completed_bar_micro_path"
+  ],
+  "pre_gate": {
+    "n": 275,
+    "precision": 0.72,
+    "fdr_max": 0.28,
+    "precision_lcb90": 0.66,
+    "mean_r": 0.9,
+    "pf_r": 3.3,
+    "avg_rr": 2.3,
+    "lcb_r_positive": true,
+    "ablation_lift": 0.02,
+    "permutation_precision_max": 0.45
+  }
+}

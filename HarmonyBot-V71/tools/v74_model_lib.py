@@ -1,0 +1,742 @@
+#!/usr/bin/env python3
+import json,math,pathlib,re,statistics
+
+FAMILIES=["Gartley","Bat","AltBat","Butterfly","Crab","DeepCrab","DeepGartley","Rat","Cypher","Shark","FiveZero","ABCD"]
+ACTIONS=["REVERSAL","CONTINUATION"]
+FEATURE_NAMES=["geometry","prz","confidence","time_symmetry","pivot_quality","net_rr_scaled",
+               "efficiency","atr_fit","extension_scaled","trend_strength","adx_slope_norm","mtf_score",
+               "xab","abc","bcd","xad","abcd_ratio","pivot_scale","prz_width_atr","risk_atr",
+               "target_atr","detect_latency","touch_latency","liquidity_excursion_r","bos_retest_r",
+               "atr_ratio","atr_percentile","adx_h1","adx_h4","transition","cost_r","direction_buy",
+               "abcd_confluence","completion_latency","proof_body_atr","proof_rejection_ratio",
+               "proof_sweep_depth_atr","proof_reclaim_atr","proof_bos_atr","proof_retest_atr",
+               "geometry_loss","xab_residual","abc_residual","bcd_residual","xad_residual","abcd_residual",
+               "event_hypothesis_count","event_family_count","event_parent_family_count",
+               "event_mean_geometry","event_geometry_range","event_mean_prz","event_mean_confidence"]
+STATE_IDXS=[0,6,9,34,38]
+PROTECTION_KEYS=["025","050","075","100","150"]
+MILESTONE_FEATURE_COUNT=12
+SEQUENTIAL_STATE_FEATURE_COUNT=80
+SURVIVAL_MORPH_FEATURE_COUNT=8
+SURVIVAL_PATH_V2_FEATURE_COUNT=48
+R7_COMMON_PATH_FEATURE_COUNT=32
+Z=1.645
+
+RX=re.compile(
+ r"\[V72-HCOG-OUTCOME\]\s+id=(\S+)\s+setup=(\S+)\s+family=(\S+)\s+lane=(\S+)\s+"
+ r"abcd=(True|False)\s+coreOverlap=(True|False)\s+r=([-0-9.]+)\s+mfeR=([-0-9.]+)\s+"
+ r"maeR=([-0-9.]+)\s+bars=(\d+)\s+result=(\S+)\s+hcapSelected=(True|False)\s+"
+ r"q=([-0-9.]+)\s+lcb=([-0-9.]+)\s+hold=([-0-9.]+)\s+features=(\S+)(?:\s+v74features=(\S+))?"
+)
+PATH_RX=re.compile(
+ r"\[V74-PROTECTION-PATH\]\s+setup=(\S+)\s+family=(\S+)\s+lane=(\S+)\s+"
+ r"p025=([-0-9.]+)\s+p050=([-0-9.]+)\s+p075=([-0-9.]+)\s+p100=([-0-9.]+)\s+p150=([-0-9.]+)\s+"
+ r"m025=(\S+)\s+m050=(\S+)\s+m075=(\S+)\s+m100=(\S+)\s+m150=(\S+)"
+ r"(?:\s+r050010=(\S+)\s+rr050010=([-0-9.]+)\s+r075025=(\S+)\s+rr075025=([-0-9.]+)\s+"
+ r"r100040=(\S+)\s+rr100040=([-0-9.]+))?"
+ r"(?:\s+hs20=([-0-9.]+)\s+hs30=([-0-9.]+)\s+hs40=([-0-9.]+)\s+hs50=([-0-9.]+))?"
+ r"(?:\s+rc075c20=(\S+)\s+rc075c30=(\S+)\s+rc100c20=(\S+)\s+rc100c30=(\S+))?"
+ r"(?:\s+hc175h=(\S+)\s+hc175d=(\S+)\s+hc200h=(\S+)\s+hc200d=(\S+))?"
+)
+RCR_KEYS=["R050_010","R075_025","R100_040"]
+HYBRID_KEYS=["HS20","HS30","HS40","HS50"]
+REACTION_COMMIT_KEYS=["RC075_C20","RC075_C30","RC100_C20","RC100_C30"]
+HIGH_CONVICTION_KEYS=["HC175_HOLD","HC175_DIR","HC200_HOLD","HC200_DIR"]
+def _build_route_keys(fracs):
+    return [f"M{m}_R{r}_{h}_RR{rr}_F{f}"
+            for m in ("05","10","15")
+            for rr in ("35","40")
+            for r in ("025","050")
+            for h in ("H","D")
+            for f in fracs]
+
+SEQUENTIAL_KEYS=_build_route_keys(("00","10","20","30"))
+LATE_AUCTION_KEYS=_build_route_keys(("20","30"))
+SURVIVAL_FRESH_KEYS=[
+    f"R{r}_F{f}_RR{rr}{suffix}"
+    for r in ("025","050","075","100")
+    for f in ("236","382","500","618","786")
+    for rr in ("23","25")
+    for suffix in ("","_C1")
+]
+
+def event_identity(setup):
+    """Canonical V73/V74 capital-thesis identity: Direction|CompletionTime|D."""
+    p=(setup or "").split("|")
+    return "|".join((p[0],p[1],p[-1])) if len(p)>=3 else (setup or "")
+
+def window_of(path,windows):
+    s=str(path)
+    for w in windows:
+        if w in s:return w
+    return None
+
+def load_rows(root,windows,strict_r15=False):
+    root=pathlib.Path(root); rows=[]
+    for p in root.rglob("*.log"):
+        if strict_r15 and not p.name.endswith("-R15.log"):continue
+        w=window_of(p,windows)
+        if not w: continue
+        txt=p.read_text(errors="ignore")
+        paths={}
+        for pm in PATH_RX.finditer(txt):
+            protect={k:float(pm.group(4+i)) for i,k in enumerate(PROTECTION_KEYS)}
+            miles={}
+            for i,k in enumerate(PROTECTION_KEYS):
+                rawm=pm.group(9+i)
+                if rawm=="NONE": continue
+                fv=[float(x) for x in rawm.split(",")]
+                if len(fv)==MILESTONE_FEATURE_COUNT and all(math.isfinite(x) for x in fv): miles[k]=fv
+            rcr={}
+            for key,gi in zip(RCR_KEYS,(14,16,18)):
+                raw=pm.group(gi)
+                if raw not in (None,"NA","NaN","nan"):
+                    try:
+                        v=float(raw)
+                        if math.isfinite(v):rcr[key]=v
+                    except Exception:pass
+            hybrid={}
+            for key,gi in zip(HYBRID_KEYS,(20,21,22,23)):
+                raw=pm.group(gi)
+                if raw not in (None,"NA","NaN","nan"):
+                    try:
+                        v=float(raw)
+                        if math.isfinite(v):hybrid[key]=v
+                    except Exception:pass
+            reaction_commit={}
+            for key,gi in zip(REACTION_COMMIT_KEYS,(24,25,26,27)):
+                raw=pm.group(gi)
+                if raw not in (None,"NA","NaN","nan"):
+                    try:
+                        v=float(raw)
+                        if math.isfinite(v):reaction_commit[key]=v
+                    except Exception:pass
+            high_conviction={}
+            for key,gi in zip(HIGH_CONVICTION_KEYS,(28,29,30,31)):
+                raw=pm.group(gi)
+                if raw not in (None,"NA","NaN","nan"):
+                    try:
+                        v=float(raw)
+                        if math.isfinite(v):high_conviction[key]=v
+                    except Exception:pass
+            paths[pm.group(1)]={"protect_r":protect,"milestones":miles,"rcr":rcr,"hybrid":hybrid,
+                                "reaction_commit":reaction_commit,"high_conviction":high_conviction,
+                                "sequential":{},"sequential_rr":{},"sequential_bars":{},"sequential_reaction_bar":{},"sequential_entry_bar":{},"sequential_trigger_bar":{},"sequential_decision_bar":{},"sequential_state":{},"sequential_entry_state":{},"sequential_trigger_state":{},"sequential_decision_state":{}}
+        for line in txt.splitlines():
+
+            if "[V74-FAILURE-CONTINUATION-PATH]" in line:
+                payload=line.split("[V74-FAILURE-CONTINUATION-PATH]",1)[1].strip();kv={}
+                for tok in payload.split():
+                    if "=" in tok:
+                        a,b=tok.split("=",1);kv[a]=b
+                setup=kv.get("setup")
+                if not setup:continue
+                p=paths.setdefault(setup,{"protect_r":{},"milestones":{},"rcr":{},"hybrid":{},"reaction_commit":{},"high_conviction":{},
+                                          "sequential":{},"sequential_rr":{},"sequential_bars":{},"sequential_state":{},"sequential_entry_state":{},
+                                          "sequential_trigger_state":{},"sequential_decision_state":{}})
+                def _vec(name):
+                    raw=kv.get(name)
+                    if raw in (None,"NONE","NA","NaN","nan"):return None
+                    try:
+                        vv=[float(x) for x in raw.split(",")]
+                        return vv if len(vv)==SEQUENTIAL_STATE_FEATURE_COUNT and all(math.isfinite(x) for x in vv) else None
+                    except Exception:return None
+                try:val=float(kv.get("b","nan"))
+                except:val=float("nan")
+                try:rr=float(kv.get("rr","nan"))
+                except:rr=float("nan")
+                p["failure_continuation"]={"FC230":val} if math.isfinite(val) else {}
+                p["failure_continuation_rr"]={"FC230":rr} if math.isfinite(rr) else {}
+                p["failure_continuation_maturity_state"]={"FC230":_vec("m")} if _vec("m") is not None else {}
+                p["failure_continuation_entry_state"]={"FC230":_vec("e")} if _vec("e") is not None else {}
+                rawp=kv.get("p");fp=None
+                if rawp not in (None,"NONE","NA","NaN","nan"):
+                    try:
+                        vv=[float(x) for x in rawp.split(",")]
+                        if len(vv)==R7_COMMON_PATH_FEATURE_COUNT and all(math.isfinite(x) for x in vv):fp=vv
+                    except Exception:pass
+                p["failure_continuation_path_r7"]={"FC230":fp} if fp is not None else {}
+                for src,dst in (("bb","failure_continuation_break_bar"),("rb","failure_continuation_retest_bar"),("eb","failure_continuation_entry_bar"),("bars","failure_continuation_bars")):
+                    try:p[dst]={"FC230":int(kv.get(src,"-1"))}
+                    except:p[dst]={}
+                continue
+
+            if "[V74-REACTION-COMMIT-PATH]" in line:
+                payload=line.split("[V74-REACTION-COMMIT-PATH]",1)[1].strip();kv={}
+                for tok in payload.split():
+                    if "=" in tok:
+                        a,b=tok.split("=",1);kv[a]=b
+                setup=kv.get("setup")
+                if not setup:continue
+                p=paths.setdefault(setup,{"protect_r":{},"milestones":{},"rcr":{},"hybrid":{},"reaction_commit":{},"high_conviction":{},
+                                          "sequential":{},"sequential_rr":{},"sequential_bars":{},"sequential_state":{},"sequential_entry_state":{},
+                                          "sequential_trigger_state":{},"sequential_decision_state":{}})
+                outcomes={};rrs={};maturity={};entries={};path_r7={};reaction_bars={};entry_bars={};bars={}
+                for ridx,key in enumerate(REACTION_COMMIT_KEYS):
+                    for prefix,dst in (("m",maturity),("e",entries)):
+                        raw=kv.get(prefix+str(ridx))
+                        if raw not in (None,"NONE","NA","NaN","nan"):
+                            try:
+                                vv=[float(x) for x in raw.split(",")]
+                                if len(vv)==SEQUENTIAL_STATE_FEATURE_COUNT and all(math.isfinite(x) for x in vv):dst[key]=vv
+                            except Exception:pass
+                    rawp=kv.get("p"+str(ridx))
+                    if rawp not in (None,"NONE","NA","NaN","nan"):
+                        try:
+                            vv=[float(x) for x in rawp.split(",")]
+                            if len(vv)==R7_COMMON_PATH_FEATURE_COUNT and all(math.isfinite(x) for x in vv):path_r7[key]=vv
+                        except Exception:pass
+                    raw=kv.get("b"+str(ridx));rawrr=kv.get("rr"+str(ridx))
+                    if raw not in (None,"NA","NaN","nan"):
+                        try:
+                            v=float(raw)
+                            if math.isfinite(v):outcomes[key]=v
+                        except Exception:pass
+                    if rawrr not in (None,"NA","NaN","nan"):
+                        try:
+                            v=float(rawrr)
+                            if math.isfinite(v):rrs[key]=v
+                        except Exception:pass
+                    for prefix,dst in (("re",reaction_bars),("eb",entry_bars),("rb",bars)):
+                        try:dst[key]=int(kv.get(prefix+str(ridx),"-1"))
+                        except Exception:pass
+                p["reaction_commit"]=outcomes;p["reaction_commit_rr"]=rrs
+                p["reaction_commit_maturity_state"]=maturity;p["reaction_commit_entry_state"]=entries
+                p["reaction_commit_path_r7"]=path_r7;p["reaction_commit_reaction_bar"]=reaction_bars
+                p["reaction_commit_entry_bar"]=entry_bars;p["reaction_commit_bars"]=bars
+                continue
+
+            if "[V74-HIGH-CONVICTION-PATH]" in line:
+                payload=line.split("[V74-HIGH-CONVICTION-PATH]",1)[1].strip();kv={}
+                for tok in payload.split():
+                    if "=" in tok:
+                        a,b=tok.split("=",1);kv[a]=b
+                setup=kv.get("setup")
+                if not setup:continue
+                p=paths.setdefault(setup,{"protect_r":{},"milestones":{},"rcr":{},"hybrid":{},"reaction_commit":{},"high_conviction":{},
+                                          "sequential":{},"sequential_rr":{},"sequential_bars":{},"sequential_state":{},"sequential_entry_state":{},
+                                          "sequential_trigger_state":{},"sequential_decision_state":{}})
+                outcomes={};rrs={};maturity={};entries={};path_r7={};reaction_bars={};entry_bars={};bars={}
+                for idx,key in enumerate(HIGH_CONVICTION_KEYS):
+                    for prefix,dst in (("m",maturity),("e",entries)):
+                        raw=kv.get(prefix+str(idx))
+                        if raw not in (None,"NONE","NA","NaN","nan"):
+                            try:
+                                vv=[float(x) for x in raw.split(",")]
+                                if len(vv)==SEQUENTIAL_STATE_FEATURE_COUNT and all(math.isfinite(x) for x in vv):dst[key]=vv
+                            except Exception:pass
+                    rawp=kv.get("p"+str(idx))
+                    if rawp not in (None,"NONE","NA","NaN","nan"):
+                        try:
+                            vv=[float(x) for x in rawp.split(",")]
+                            if len(vv)==R7_COMMON_PATH_FEATURE_COUNT and all(math.isfinite(x) for x in vv):path_r7[key]=vv
+                        except Exception:pass
+                    raw=kv.get("b"+str(idx));rawrr=kv.get("rr"+str(idx))
+                    if raw not in (None,"NA","NaN","nan"):
+                        try:
+                            v=float(raw)
+                            if math.isfinite(v):outcomes[key]=v
+                        except Exception:pass
+                    if rawrr not in (None,"NA","NaN","nan"):
+                        try:
+                            v=float(rawrr)
+                            if math.isfinite(v):rrs[key]=v
+                        except Exception:pass
+                    for prefix,dst in (("re",reaction_bars),("eb",entry_bars),("rb",bars)):
+                        try:dst[key]=int(kv.get(prefix+str(idx),"-1"))
+                        except Exception:pass
+                p["high_conviction"]=outcomes;p["high_conviction_rr"]=rrs
+                p["high_conviction_maturity_state"]=maturity;p["high_conviction_entry_state"]=entries
+                p["high_conviction_path_r7"]=path_r7;p["high_conviction_reaction_bar"]=reaction_bars
+                p["high_conviction_entry_bar"]=entry_bars;p["high_conviction_bars"]=bars
+                continue
+
+            if "[V74-SURVIVAL-FRESH-PATH]" in line:
+                payload=line.split("[V74-SURVIVAL-FRESH-PATH]",1)[1].strip();kv={}
+                for tok in payload.split():
+                    if "=" in tok:
+                        a,b=tok.split("=",1);kv[a]=b
+                setup=kv.get("setup")
+                if not setup:continue
+                p=paths.setdefault(setup,{"protect_r":{},"milestones":{},"rcr":{},"hybrid":{},"reaction_commit":{},"high_conviction":{},
+                                          "sequential":{},"sequential_rr":{},"sequential_bars":{},"sequential_state":{},"sequential_entry_state":{},
+                                          "sequential_trigger_state":{},"sequential_decision_state":{}})
+                outcomes={};rrs={};maturities={};entries={};morphology={};path_v2={};reaction_bars={};pullback_bars={};trigger_bars={};entry_bars={};bars={}
+                for idx,key in enumerate(SURVIVAL_FRESH_KEYS):
+                    raw=kv.get("m"+str(idx))
+                    if raw not in (None,"NONE","NA","NaN","nan"):
+                        try:
+                            vv=[float(x) for x in raw.split(",")]
+                            if len(vv)==SEQUENTIAL_STATE_FEATURE_COUNT and all(math.isfinite(x) for x in vv):maturities[key]=vv
+                        except Exception:pass
+                    raw=kv.get("e"+str(idx))
+                    if raw not in (None,"NONE","NA","NaN","nan"):
+                        try:
+                            vv=[float(x) for x in raw.split(",")]
+                            if len(vv)==SEQUENTIAL_STATE_FEATURE_COUNT and all(math.isfinite(x) for x in vv):entries[key]=vv
+                        except Exception:pass
+                    raw=kv.get("q"+str(idx))
+                    if raw not in (None,"NONE","NA","NaN","nan"):
+                        try:
+                            vv=[float(x) for x in raw.split(",")]
+                            if len(vv)==SURVIVAL_MORPH_FEATURE_COUNT and all(math.isfinite(x) for x in vv):morphology[key]=vv
+                        except Exception:pass
+                    raw=kv.get("p"+str(idx))
+                    if raw not in (None,"NONE","NA","NaN","nan"):
+                        try:
+                            vv=[float(x) for x in raw.split(",")]
+                            if len(vv)==SURVIVAL_PATH_V2_FEATURE_COUNT and all(math.isfinite(x) for x in vv):path_v2[key]=vv
+                        except Exception:pass
+                    raw=kv.get("b"+str(idx));rawrr=kv.get("rr"+str(idx))
+                    if raw not in (None,"NA","NaN","nan"):
+                        try:
+                            v=float(raw)
+                            if math.isfinite(v):outcomes[key]=v
+                        except Exception:pass
+                    if rawrr not in (None,"NA","NaN","nan"):
+                        try:
+                            v=float(rawrr)
+                            if math.isfinite(v):rrs[key]=v
+                        except Exception:pass
+                    for prefix,dst in (("re",reaction_bars),("pb",pullback_bars),("tb",trigger_bars),("eb",entry_bars),("rb",bars)):
+                        try:dst[key]=int(kv.get(prefix+str(idx),"-1"))
+                        except Exception:pass
+                p["survival_fresh"]=outcomes;p["survival_fresh_rr"]=rrs
+                p["survival_fresh_maturity_state"]=maturities;p["survival_fresh_entry_state"]=entries
+                p["survival_fresh_morphology"]=morphology;p["survival_fresh_path_v2"]=path_v2
+                p["survival_fresh_reaction_bar"]=reaction_bars;p["survival_fresh_pullback_bar"]=pullback_bars
+                p["survival_fresh_trigger_bar"]=trigger_bars;p["survival_fresh_entry_bar"]=entry_bars;p["survival_fresh_bars"]=bars
+                continue
+
+            if "[V74-LATE-AUCTION-PATH]" in line:
+                payload=line.split("[V74-LATE-AUCTION-PATH]",1)[1].strip();kv={}
+                for tok in payload.split():
+                    if "=" in tok:
+                        a,b=tok.split("=",1);kv[a]=b
+                setup=kv.get("setup")
+                if not setup:continue
+                p=paths.setdefault(setup,{"protect_r":{},"milestones":{},"rcr":{},"hybrid":{},"reaction_commit":{},"high_conviction":{},
+                                          "sequential":{},"sequential_rr":{},"sequential_bars":{},"sequential_state":{},"sequential_entry_state":{},
+                                          "sequential_trigger_state":{},"sequential_decision_state":{}})
+                outcomes={};rrs={};maturity={};entries={};path_r7={};bars={};reaction_bars={};anchor_bars={};trigger_bars={};entry_bars={};post_trigger_bars={};lock_bars={}
+                for idx,key in enumerate(LATE_AUCTION_KEYS):
+                    for prefix,dst in (("m",maturity),("e",entries)):
+                        raw=kv.get(prefix+str(idx))
+                        if raw not in (None,"NONE","NA","NaN","nan"):
+                            try:
+                                vv=[float(x) for x in raw.split(",")]
+                                if len(vv)==SEQUENTIAL_STATE_FEATURE_COUNT and all(math.isfinite(x) for x in vv):dst[key]=vv
+                            except Exception:pass
+                    rawp=kv.get("p"+str(idx))
+                    if rawp not in (None,"NONE","NA","NaN","nan"):
+                        try:
+                            vv=[float(x) for x in rawp.split(",")]
+                            if len(vv)==R7_COMMON_PATH_FEATURE_COUNT and all(math.isfinite(x) for x in vv):path_r7[key]=vv
+                        except Exception:pass
+                    raw=kv.get("b"+str(idx));rawrr=kv.get("rr"+str(idx))
+                    if raw not in (None,"NA","NaN","nan"):
+                        try:
+                            v=float(raw)
+                            if math.isfinite(v):outcomes[key]=v
+                        except Exception:pass
+                    if rawrr not in (None,"NA","NaN","nan"):
+                        try:
+                            v=float(rawrr)
+                            if math.isfinite(v):rrs[key]=v
+                        except Exception:pass
+                    for prefix,dst in (("rb",bars),("rx",reaction_bars),("ab",anchor_bars),("tb",trigger_bars),("eb",entry_bars),("pt",post_trigger_bars),("lb",lock_bars)):
+                        try:dst[key]=int(kv.get(prefix+str(idx),"-1"))
+                        except Exception:pass
+                p["late_auction"]=outcomes;p["late_auction_rr"]=rrs
+                p["late_auction_maturity_state"]=maturity;p["late_auction_entry_state"]=entries;p["late_auction_path_r7"]=path_r7
+                p["late_auction_bars"]=bars;p["late_auction_reaction_bars"]=reaction_bars
+                p["late_auction_anchor_bars"]=anchor_bars;p["late_auction_trigger_bars"]=trigger_bars;p["late_auction_entry_bars"]=entry_bars
+                p["late_auction_post_trigger_bars"]=post_trigger_bars;p["late_auction_lock_bars"]=lock_bars
+                continue
+
+            if "[V74-SEQUENTIAL-PATH]" not in line:continue
+            payload=line.split("[V74-SEQUENTIAL-PATH]",1)[1].strip();kv={}
+            for tok in payload.split():
+                if "=" in tok:
+                    a,b=tok.split("=",1);kv[a]=b
+            setup=kv.get("setup")
+            if not setup:continue
+            p=paths.setdefault(setup,{"protect_r":{},"milestones":{},"rcr":{},"hybrid":{},"reaction_commit":{},"high_conviction":{},
+                                      "sequential":{},"sequential_rr":{},"sequential_bars":{},"sequential_reaction_bar":{},"sequential_entry_bar":{},"sequential_trigger_bar":{},"sequential_decision_bar":{},"sequential_state":{},"sequential_entry_state":{},
+                                      "sequential_trigger_state":{},"sequential_decision_state":{}})
+            states={}
+            for label,field in (("025","m025"),("050","m050")):
+                raw=kv.get(field)
+                if raw not in (None,"NONE","NA","NaN","nan"):
+                    try:
+                        vv=[float(x) for x in raw.split(",")]
+                        if len(vv)==SEQUENTIAL_STATE_FEATURE_COUNT and all(math.isfinite(x) for x in vv):states[label]=vv
+                    except Exception:pass
+            seq={};seq_rr={};seq_bars={};reaction_bars={};entry_bars={};trigger_bars={};decision_bars={};entry_states={};path_r7={};trigger_states={};decision_states={}
+            for idx,key in enumerate(SEQUENTIAL_KEYS):
+                for prefix,dst in (("e",entry_states),("t",trigger_states),("d",decision_states)):
+                    raw=kv.get(prefix+str(idx))
+                    if raw not in (None,"NONE","NA","NaN","nan"):
+                        try:
+                            vv=[float(x) for x in raw.split(",")]
+                            if len(vv)==SEQUENTIAL_STATE_FEATURE_COUNT and all(math.isfinite(x) for x in vv):dst[key]=vv
+                        except Exception:pass
+                rawp=kv.get("p"+str(idx))
+                if rawp not in (None,"NONE","NA","NaN","nan"):
+                    try:
+                        vv=[float(x) for x in rawp.split(",")]
+                        if len(vv)==R7_COMMON_PATH_FEATURE_COUNT and all(math.isfinite(x) for x in vv):path_r7[key]=vv
+                    except Exception:pass
+                raw=kv.get("b"+str(idx));rawrr=kv.get("rr"+str(idx));rawbars=kv.get("rb"+str(idx))
+                if raw not in (None,"NA","NaN","nan"):
+                    try:
+                        v=float(raw)
+                        if math.isfinite(v):seq[key]=v
+                    except Exception:pass
+                if rawrr not in (None,"NA","NaN","nan"):
+                    try:
+                        rv=float(rawrr)
+                        if math.isfinite(rv):seq_rr[key]=rv
+                    except Exception:pass
+                try:seq_bars[key]=max(1,int(rawbars))
+                except Exception:pass
+                for prefix,dst in (("re",reaction_bars),("eb",entry_bars),("tb",trigger_bars),("lb",decision_bars)):
+                    try:
+                        vv=int(kv.get(prefix+str(idx),"-1"))
+                        if vv>=0:dst[key]=vv
+                    except Exception:pass
+            p["sequential"]=seq;p["sequential_rr"]=seq_rr;p["sequential_bars"]=seq_bars
+            p["sequential_reaction_bar"]=reaction_bars;p["sequential_entry_bar"]=entry_bars
+            p["sequential_trigger_bar"]=trigger_bars;p["sequential_decision_bar"]=decision_bars
+            p["sequential_state"]=states;p["sequential_entry_state"]=entry_states;p["sequential_path_r7"]=path_r7;p["sequential_trigger_state"]=trigger_states;p["sequential_decision_state"]=decision_states
+        for m in RX.finditer(txt):
+            fam=m.group(3); lane=m.group(4); raw=m.group(17) if m.group(17) not in (None,"NONE") else m.group(16)
+            if fam not in FAMILIES or lane not in (
+                "HCOG_REVERSAL","HCOG_FAILURE_CONTINUATION",
+                "HCOG_ABCD_STANDALONE_REVERSAL_SHADOW",
+                "HCOG_ABCD_STANDALONE_CONTINUATION_SHADOW") or raw=="NONE":
+                continue
+            fv=[float(x) for x in raw.split(",")]
+            if len(fv)==12: fv=fv+[0.0]*(len(FEATURE_NAMES)-12)
+            if len(fv)!=len(FEATURE_NAMES) or not all(math.isfinite(x) for x in fv): continue
+            action="CONTINUATION" if lane in ("HCOG_FAILURE_CONTINUATION","HCOG_ABCD_STANDALONE_CONTINUATION_SHADOW") else "REVERSAL"
+            path=paths.get(m.group(2),{"protect_r":{},"milestones":{},"rcr":{},"hybrid":{},"reaction_commit":{},"high_conviction":{},"sequential":{},"sequential_rr":{},"sequential_bars":{},"sequential_reaction_bar":{},"sequential_entry_bar":{},"sequential_trigger_bar":{},"sequential_decision_bar":{},"sequential_state":{},"sequential_entry_state":{},"sequential_trigger_state":{},"sequential_decision_state":{}})
+            rows.append({"window":w,"id":m.group(1),"setup":m.group(2),"family":fam,
+                         "action":action,
+                         "r":float(m.group(7)),"mfe":float(m.group(8)),"mae":float(m.group(9)),
+                         "bars":int(m.group(10)),"result":m.group(11),"features":fv,
+                         "protect_r":path.get("protect_r",{}),"milestones":path.get("milestones",{}),
+                         "rcr":path.get("rcr",{}),"hybrid":path.get("hybrid",{}),
+                         "reaction_commit":path.get("reaction_commit",{}),
+                         "reaction_commit_rr":path.get("reaction_commit_rr",{}),
+                         "reaction_commit_maturity_state":path.get("reaction_commit_maturity_state",{}),
+                         "reaction_commit_entry_state":path.get("reaction_commit_entry_state",{}),
+                         "reaction_commit_path_r7":path.get("reaction_commit_path_r7",{}),
+                         "reaction_commit_reaction_bar":path.get("reaction_commit_reaction_bar",{}),
+                         "reaction_commit_entry_bar":path.get("reaction_commit_entry_bar",{}),
+                         "reaction_commit_bars":path.get("reaction_commit_bars",{}),
+                         "high_conviction":path.get("high_conviction",{}),
+                         "high_conviction_rr":path.get("high_conviction_rr",{}),
+                         "high_conviction_maturity_state":path.get("high_conviction_maturity_state",{}),
+                         "high_conviction_entry_state":path.get("high_conviction_entry_state",{}),
+                         "high_conviction_path_r7":path.get("high_conviction_path_r7",{}),
+                         "high_conviction_reaction_bar":path.get("high_conviction_reaction_bar",{}),
+                         "high_conviction_entry_bar":path.get("high_conviction_entry_bar",{}),
+                         "high_conviction_bars":path.get("high_conviction_bars",{}),
+                         "survival_fresh":path.get("survival_fresh",{}),
+                         "survival_fresh_rr":path.get("survival_fresh_rr",{}),
+                         "survival_fresh_maturity_state":path.get("survival_fresh_maturity_state",{}),
+                         "survival_fresh_entry_state":path.get("survival_fresh_entry_state",{}),
+                         "survival_fresh_morphology":path.get("survival_fresh_morphology",{}),
+                         "survival_fresh_path_v2":path.get("survival_fresh_path_v2",{}),
+                         "survival_fresh_reaction_bar":path.get("survival_fresh_reaction_bar",{}),
+                         "survival_fresh_pullback_bar":path.get("survival_fresh_pullback_bar",{}),
+                         "survival_fresh_trigger_bar":path.get("survival_fresh_trigger_bar",{}),
+                         "survival_fresh_entry_bar":path.get("survival_fresh_entry_bar",{}),
+                         "survival_fresh_bars":path.get("survival_fresh_bars",{}),
+                         "failure_continuation":path.get("failure_continuation",{}),
+                         "failure_continuation_rr":path.get("failure_continuation_rr",{}),
+                         "failure_continuation_maturity_state":path.get("failure_continuation_maturity_state",{}),
+                         "failure_continuation_entry_state":path.get("failure_continuation_entry_state",{}),
+                          "failure_continuation_path_r7":path.get("failure_continuation_path_r7",{}),
+                         "failure_continuation_break_bar":path.get("failure_continuation_break_bar",{}),
+                         "failure_continuation_retest_bar":path.get("failure_continuation_retest_bar",{}),
+                         "failure_continuation_entry_bar":path.get("failure_continuation_entry_bar",{}),
+                         "failure_continuation_bars":path.get("failure_continuation_bars",{}),
+
+                         "late_auction":path.get("late_auction",{}),
+                         "late_auction_rr":path.get("late_auction_rr",{}),
+                         "late_auction_maturity_state":path.get("late_auction_maturity_state",{}),
+                         "late_auction_entry_state":path.get("late_auction_entry_state",{}),
+                          "late_auction_path_r7":path.get("late_auction_path_r7",{}),
+                         "late_auction_bars":path.get("late_auction_bars",{}),
+                         "late_auction_reaction_bars":path.get("late_auction_reaction_bars",{}),
+                         "late_auction_anchor_bars":path.get("late_auction_anchor_bars",{}),
+                         "late_auction_trigger_bars":path.get("late_auction_trigger_bars",{}),
+                         "late_auction_entry_bars":path.get("late_auction_entry_bars",{}),
+                         "late_auction_post_trigger_bars":path.get("late_auction_post_trigger_bars",{}),
+                         "late_auction_lock_bars":path.get("late_auction_lock_bars",{}),
+                         "sequential":path.get("sequential",{}),
+                         "sequential_rr":path.get("sequential_rr",{}),
+                         "sequential_bars":path.get("sequential_bars",{}),
+                         "sequential_reaction_bar":path.get("sequential_reaction_bar",{}),
+                         "sequential_entry_bar":path.get("sequential_entry_bar",{}),
+                         "sequential_trigger_bar":path.get("sequential_trigger_bar",{}),
+                         "sequential_decision_bar":path.get("sequential_decision_bar",{}),
+                         "sequential_state":path.get("sequential_state",{}),
+                         "sequential_entry_state":path.get("sequential_entry_state",{}),
+                          "sequential_path_r7":path.get("sequential_path_r7",{}),
+                         "sequential_trigger_state":path.get("sequential_trigger_state",{}),
+                         "sequential_decision_state":path.get("sequential_decision_state",{})})
+    # HCOG setup identity is the anti-duplicate truth. Last copy is equivalent if repeated artifact paths exist.
+    d={}
+    for r in rows:d[(r["window"],r["setup"])]=r
+    return list(d.values())
+
+def metrics(rows):
+    v=[r["r"] for r in rows]; n=len(v)
+    if not n:return {"n":0,"mean_r":0.0,"pf_r":0.0,"lcb_r":-999.0,"win_rate":0.0,"average_rr":0.0,"median_hold_bars":0.0}
+    mean=sum(v)/n; gp=sum(x for x in v if x>0); gl=-sum(x for x in v if x<0)
+    pf=gp/gl if gl else (999.0 if gp else 0.0)
+    wr=sum(x>0 for x in v)/n
+    sd=statistics.stdev(v) if n>1 else 999.0
+    lcb=mean-Z*sd/math.sqrt(n) if n>1 else -999.0
+    wins=[x for x in v if x>0]; losses=[-x for x in v if x<0]
+    aw=sum(wins)/len(wins) if wins else 0.0; al=sum(losses)/len(losses) if losses else 0.0
+    rr=aw/al if al>0 else (999.0 if aw>0 else 0.0)
+    return {"n":n,"mean_r":mean,"pf_r":pf,"lcb_r":lcb,"win_rate":wr,"average_rr":rr,
+            "median_hold_bars":float(statistics.median([max(1,r["bars"]) for r in rows]))}
+
+def fnv64_utf16(s):
+    h=14695981039346656037
+    for c in (s or ""):
+        o=ord(c)
+        h^=o&255; h=(h*1099511628211)&0xffffffffffffffff
+        h^=(o>>8)&255; h=(h*1099511628211)&0xffffffffffffffff
+    return f"{h:016X}"
+
+def _acc(rows):
+    if not rows:return {"n":0,"sum":0.0,"sumsq":0.0,"wins":0,"hold":[]}
+    return {"n":len(rows),"sum":sum(r["r"] for r in rows),"sumsq":sum(r["r"]**2 for r in rows),
+            "wins":sum(r["r"]>0 for r in rows),"hold":[max(1,r["bars"]) for r in rows]}
+
+def _summary(a):
+    n=a["n"]
+    if not n:return {"n":0,"mean":0.0,"win":0.0,"sigma":10.0,"hold":180.0}
+    mean=a["sum"]/n; var=max(0.0,(a["sumsq"]-n*mean*mean)/max(1,n-1))
+    return {"n":n,"mean":mean,"win":a["wins"]/n,"sigma":math.sqrt(var),"hold":float(statistics.median(a["hold"]))}
+
+# Model A: hierarchical competing-risk proxy. It estimates positive-outcome probability and
+# Net-R on family/state cells with fixed shrinkage toward action/global parents.
+def train_hier(rows):
+    model={"type":"HIERARCHICAL_COMPETING_RISK","actions":{}}
+    for action in ACTIONS:
+        rr=[r for r in rows if r["action"]==action]
+        med=[statistics.median([r["features"][j] for r in rr]) if rr else 0.0 for j in range(len(FEATURE_NAMES))]
+        def state(r):
+            return "".join("1" if r["features"][j]>=med[j] else "0" for j in STATE_IDXS)
+        glob=_summary(_acc(rr)); fam={}; st={}; fs={}
+        for f in FAMILIES:fam[f]=_summary(_acc([r for r in rr if r["family"]==f]))
+        states=sorted({state(r) for r in rr})
+        for z in states:st[z]=_summary(_acc([r for r in rr if state(r)==z]))
+        for f in FAMILIES:
+            for z in states:
+                q=[r for r in rr if r["family"]==f and state(r)==z]
+                if q:fs[f+"|"+z]=_summary(_acc(q))
+        model["actions"][action]={"medians":med,"global":glob,"family":fam,"state":st,"family_state":fs}
+    return model
+
+def pred_hier(model,r):
+    m=model["actions"][r["action"]]; med=m["medians"]
+    state="".join("1" if r["features"][j]>=med[j] else "0" for j in STATE_IDXS)
+    g=m["global"]; f=m["family"].get(r["family"],{"n":0,"mean":g["mean"],"win":g["win"],"sigma":g["sigma"],"hold":g["hold"]})
+    st=m["state"].get(state,{"n":0,"mean":g["mean"],"win":g["win"],"sigma":g["sigma"],"hold":g["hold"]})
+    cell=m["family_state"].get(r["family"]+"|"+state)
+    def shrink(z,parent_mean,parent_win,k):
+        n=z["n"]
+        return ((z["mean"]*n+parent_mean*k)/(n+k),(z["win"]*n+parent_win*k)/(n+k),n,z["hold"])
+    fm,fw,fn,fh=shrink(f,g["mean"],g["win"],30.0)
+    sm,sw,sn,sh=shrink(st,g["mean"],g["win"],30.0)
+    prior_m=(fm+sm)/2; prior_w=(fw+sw)/2
+    if cell:
+        mean,win,n,hold=shrink(cell,prior_m,prior_w,40.0); support=cell["n"]
+    else:
+        mean,win,n,hold=prior_m,prior_w,min(fn,sn),statistics.median([fh,sh])
+        support=min(fn,sn)
+    se=max(.05,g["sigma"])/math.sqrt(max(1,support))
+    lcb=mean-Z*se
+    base_eligible=support>=12
+    z={"mean":mean,"win":win,"lcb":lcb,"hold":hold,"support":support,"base_eligible":base_eligible}
+    score=selection_score(z); threshold=float(model.get("selection_threshold",math.inf))
+    z.update({"score":score,"selected":bool(base_eligible and score>=threshold)})
+    return z
+
+def _quantile(vals,q):
+    if not vals:return 0.0
+    xs=sorted(vals); i=(len(xs)-1)*q; lo=int(math.floor(i)); hi=int(math.ceil(i))
+    if lo==hi:return xs[lo]
+    return xs[lo]*(hi-i)+xs[hi]*(i-lo)
+
+def _stump_train(X,y,rounds=24,lr=.06):
+    n=len(y)
+    if not n:return {"base":0.0,"stumps":[],"sigma":10.0}
+    pred=[sum(y)/n]*n; stumps=[]
+    thresholds=[[_quantile([x[j] for x in X],q) for q in (.20,.40,.60,.80)] for j in range(len(X[0]))]
+    for _ in range(rounds):
+        res=[y[i]-pred[i] for i in range(n)]
+        best=None
+        for j in range(len(X[0])):
+            for t in thresholds[j]:
+                li=[i for i,x in enumerate(X) if x[j]<=t]; ri=[i for i,x in enumerate(X) if x[j]>t]
+                if len(li)<12 or len(ri)<12: continue
+                lv=sum(res[i] for i in li)/len(li); rv=sum(res[i] for i in ri)/len(ri)
+                sse=sum((res[i]-(lv if X[i][j]<=t else rv))**2 for i in range(n))
+                cand=(sse,j,t,lv,rv,len(li),len(ri))
+                if best is None or cand[0]<best[0]:best=cand
+        if best is None:break
+        _,j,t,lv,rv,ln,rn=best; lv*=lr; rv*=lr
+        stumps.append({"j":j,"t":t,"l":lv,"r":rv,"ln":ln,"rn":rn})
+        for i in range(n):pred[i]+=lv if X[i][j]<=t else rv
+    residual=[y[i]-pred[i] for i in range(n)]
+    sigma=statistics.stdev(residual) if len(residual)>1 else 10.0
+    return {"base":sum(y)/n,"stumps":stumps,"sigma":sigma}
+
+def _stump_pred(m,x):
+    v=m["base"]; support=10**9
+    for z in m["stumps"]:
+        left=x[z["j"]]<=z["t"]; v+=z["l"] if left else z["r"]; support=min(support,z["ln"] if left else z["rn"])
+    return v,(0 if support==10**9 else support)
+
+# Model B: fixed shallow boosted stumps + family residual shrinkage.
+def train_boost(rows):
+    model={"type":"BOUNDED_GRADIENT_STUMPS","actions":{}}
+    for action in ACTIONS:
+        rr=[r for r in rows if r["action"]==action]; X=[r["features"] for r in rr]
+        rmod=_stump_train(X,[r["r"] for r in rr])
+        wmod=_stump_train(X,[1.0 if r["r"]>0 else 0.0 for r in rr])
+        fam={}
+        for f in FAMILIES:
+            q=[r for r in rr if r["family"]==f]
+            if not q:continue
+            residual=[]
+            for r in q:
+                p,_=_stump_pred(rmod,r["features"]); residual.append(r["r"]-p)
+            fam[f]={"n":len(q),"delta":sum(residual)/(len(q)+24.0),
+                    "hold":float(statistics.median([max(1,r["bars"]) for r in q]))}
+        model["actions"][action]={"r":rmod,"w":wmod,"family":fam,
+                                  "hold":float(statistics.median([max(1,r["bars"]) for r in rr])) if rr else 180.0}
+    return model
+
+def pred_boost(model,r):
+    m=model["actions"][r["action"]]; mean,s1=_stump_pred(m["r"],r["features"]); win,s2=_stump_pred(m["w"],r["features"])
+    f=m["family"].get(r["family"])
+    if f:mean+=f["delta"]; hold=f["hold"]; fs=f["n"]
+    else:hold=m["hold"]; fs=0
+    win=min(1.0,max(0.0,win)); support=max(1,min(s1 or 1,s2 or 1,fs or 10**9))
+    se=max(.05,m["r"]["sigma"])/math.sqrt(support); lcb=mean-Z*se
+    base_eligible=support>=15
+    z={"mean":mean,"win":win,"lcb":lcb,"hold":hold,"support":support,"base_eligible":base_eligible}
+    score=selection_score(z); threshold=float(model.get("selection_threshold",math.inf))
+    z.update({"score":score,"selected":bool(base_eligible and score>=threshold)})
+    return z
+
+# Model C: family-first conformal nearest-neighbour manifold.
+def train_knn(rows):
+    means=[]; scales=[]
+    for j in range(len(FEATURE_NAMES)):
+        col=[r["features"][j] for r in rows]; mu=sum(col)/len(col) if col else 0.0
+        sd=statistics.stdev(col) if len(col)>1 else 1.0
+        means.append(mu); scales.append(sd if sd>1e-9 else 1.0)
+    pts=[]
+    for r in rows:
+        pts.append({"f":r["family"],"a":r["action"],"x":[(r["features"][j]-means[j])/scales[j] for j in range(len(FEATURE_NAMES))],
+                    "r":r["r"],"bars":max(1,r["bars"])})
+    return {"type":"CONFORMAL_STATE_MANIFOLD","means":means,"scales":scales,"points":pts,"k":31}
+
+def pred_knn(model,r):
+    x=[(r["features"][j]-model["means"][j])/model["scales"][j] for j in range(len(FEATURE_NAMES))]
+    same=[p for p in model["points"] if p["a"]==r["action"] and p["f"]==r["family"]]
+    pool=same if len(same)>=model["k"] else [p for p in model["points"] if p["a"]==r["action"]]
+    ds=[]
+    for p in pool:
+        d=sum((x[j]-p["x"][j])**2 for j in range(len(x)))
+        if p["f"]!=r["family"]:d+=.75
+        ds.append((d,p))
+    ds.sort(key=lambda z:z[0]); q=[p for _,p in ds[:model["k"]]]
+    if len(q)<12:return {"mean":0.0,"win":0.0,"lcb":-999.0,"hold":180.0,"support":len(q),"base_eligible":False,"score":-999.0,"selected":False}
+    v=[p["r"] for p in q]; mean=sum(v)/len(v); wr=sum(z>0 for z in v)/len(v)
+    sd=statistics.stdev(v) if len(v)>1 else 10.0; lcb=mean-Z*sd/math.sqrt(len(v))
+    gp=sum(z for z in v if z>0); gl=-sum(z for z in v if z<0); pf=gp/gl if gl else 999.0
+    wins=[z for z in v if z>0]; losses=[-z for z in v if z<0]
+    rr=(sum(wins)/len(wins))/(sum(losses)/len(losses)) if wins and losses else 0.0
+    hold=float(statistics.median([p["bars"] for p in q]))
+    base_eligible=True
+    z={"mean":mean,"win":wr,"lcb":lcb,"hold":hold,"support":len(q),"base_eligible":base_eligible,
+       "neighbor_pf":pf,"neighbor_rr":rr}
+    score=selection_score(z); threshold=float(model.get("selection_threshold",math.inf))
+    z.update({"score":score,"selected":bool(score>=threshold)})
+    return z
+
+def selection_score(z):
+    mean=float(z.get("mean",0.0)); win=float(z.get("win",0.0)); lcb=float(z.get("lcb",-999.0))
+    hold=max(1.0,float(z.get("hold",180.0)))
+    return mean+2.0*win+0.5*lcb-0.05*math.log1p(hold)
+
+def protection_vector(r,key):
+    m=r.get("milestones",{}).get(key)
+    if m is None or len(m)!=MILESTONE_FEATURE_COUNT:return None
+    return list(r["features"])+list(m)
+
+def train_protection(rows,key):
+    q=[]
+    for r in rows:
+        x=protection_vector(r,key)
+        pr=r.get("protect_r",{}).get(key)
+        if x is None or pr is None or not math.isfinite(float(pr)):continue
+        q.append((x,float(pr)-float(r["r"])))
+    if len(q)<40:
+        return {"key":key,"base":0.0,"stumps":[],"sigma":10.0,"n":len(q),"min_support":20}
+    m=_stump_train([x for x,_ in q],[y for _,y in q],rounds=18,lr=.06)
+    m.update({"key":key,"n":len(q),"min_support":20})
+    return m
+
+def pred_protection(model,r):
+    key=model.get("key")
+    x=protection_vector(r,key)
+    if x is None:return {"delta":0.0,"lcb":-999.0,"support":0,"protect":False}
+    delta,support=_stump_pred(model,x)
+    se=max(.05,float(model.get("sigma",10.0)))/math.sqrt(max(1,support))
+    lcb=delta-Z*se
+    return {"delta":delta,"lcb":lcb,"support":support,
+            "protect":bool(support>=int(model.get("min_support",20)) and lcb>0.0)}
+
+def apply_protection(models,r):
+    for key in PROTECTION_KEYS:
+        if key not in r.get("milestones",{}):continue
+        m=models.get(key)
+        if not m:continue
+        z=pred_protection(m,r)
+        if z.get("protect"):
+            pr=r.get("protect_r",{}).get(key)
+            if pr is not None:
+                q=dict(r); q["native_r"]=r["r"]; q["r"]=float(pr); q["protection_key"]=key
+                q["protection_pred_delta"]=z.get("delta",0.0); q["protection_lcb_delta"]=z.get("lcb",-999.0)
+                return q
+    q=dict(r); q["native_r"]=r["r"]; q["protection_key"]="NONE"; q["protection_pred_delta"]=0.0; q["protection_lcb_delta"]=0.0
+    return q
+
+TRAINERS={"A_HIERARCHICAL_COMPETING_RISK":train_hier,
+          "B_BOUNDED_GRADIENT_STUMPS":train_boost,
+          "C_CONFORMAL_STATE_MANIFOLD":train_knn}
+PREDICTORS={"A_HIERARCHICAL_COMPETING_RISK":pred_hier,
+            "B_BOUNDED_GRADIENT_STUMPS":pred_boost,
+            "C_CONFORMAL_STATE_MANIFOLD":pred_knn}
+
+def predict(name,model,row):
+    return PREDICTORS[name](model,row)
+
+
+def load_r15_trajectories(root, windows):
+    """Fail-closed ordered completed-bar parser; isolated from legacy imputation."""
+    from v74_r15_contract import load_trajectories
+    return load_trajectories(root, windows)

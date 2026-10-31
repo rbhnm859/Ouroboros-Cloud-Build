@@ -1,0 +1,44 @@
+{
+  "version": "HarmonyBot V74 Run63 Early First-Passage Result",
+  "source_run_id": 36873141009,
+  "source_run_number": 63,
+  "source_sha": "e85ca175fb20494986781d8877e07433c4c70ba1",
+  "v74_gate": false,
+  "champion": null,
+  "validation_used": false,
+  "fresh_used": false,
+  "best_observed_model": "Q_EARLY_SEQ_HAZARD_KEEP85",
+  "oof": {
+    "Y2021": {
+      "n": 404,
+      "mean_r": 0.44847536120741277,
+      "pf_r": 2.2390973157496803,
+      "win_rate": 0.5297029702970297,
+      "average_rr": 1.9879835980955105,
+      "lcb_r": 0.2243242364188386
+    },
+    "Y2022": {
+      "n": 460,
+      "mean_r": 0.09632124189896006,
+      "pf_r": 1.2422921328646763,
+      "win_rate": 0.4956521739130435,
+      "average_rr": 1.2640867316868636,
+      "lcb_r": -0.004777974804680327
+    },
+    "Y2023": {
+      "n": 387,
+      "mean_r": -0.0300538519011566,
+      "pf_r": 0.930271518726616,
+      "win_rate": 0.4573643410852713,
+      "average_rr": 1.1037119713705614,
+      "lcb_r": -0.12212304317510572
+    }
+  },
+  "diagnosis": "Early 0.25R/0.50R observation removes the N ceiling but old frontier cannot jointly preserve winner size and convert enough reactions into wins. Threshold/classifier tuning is not the primary fix.",
+  "label_only_forensic": {
+    "rule": "Future outcomes used only to test feasibility, never selection.",
+    "result": "A runner-preserving positive-floor barbell has oracle top-250 solutions satisfying all fixed V74 metrics in each burned year, so payoff support exists and exit/payoff reconstruction remains falsifiable."
+  },
+  "next_architecture": "CAUSAL_BARBELL_SURVIVAL_RUNNER_RECONSTRUCTION",
+  "gates_unchanged": true
+}

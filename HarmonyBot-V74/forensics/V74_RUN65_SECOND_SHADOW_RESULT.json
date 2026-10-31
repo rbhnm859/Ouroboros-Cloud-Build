@@ -1,0 +1,46 @@
+{
+  "version": "HarmonyBot V74 Run65 Second Shadow Result",
+  "source_run_id": 36877930018,
+  "source_run_number": 65,
+  "source_sha": "f8aa3d61c55bbc56b1f11b49992672cc440356a6",
+  "workflow_conclusion": "success",
+  "v74_gate": false,
+  "champion": null,
+  "validation_used": false,
+  "fresh_used": false,
+  "oof": {
+    "V_SHADOW_KEEP100": {
+      "Y2021": {
+        "n": 231,
+        "mean_r": 0.148907998003156,
+        "pf_r": 1.4179605487394802,
+        "win_rate": 0.5324675324675324,
+        "average_rr": 1.2450385306005192,
+        "lcb_r": -0.14939461444663352,
+        "median_planned_rr": 12.886532258062369
+      },
+      "Y2022": {
+        "n": 228,
+        "mean_r": 0.12569358034388245,
+        "pf_r": 1.291470286127109,
+        "win_rate": 0.4473684210526316,
+        "average_rr": 1.5953456475687817,
+        "lcb_r": -0.17564321836447633,
+        "median_planned_rr": 12.525029848457173
+      },
+      "Y2023": {
+        "n": 191,
+        "mean_r": 0.15125652335302392,
+        "pf_r": 1.4467556432259765,
+        "win_rate": 0.4869109947643979,
+        "average_rr": 1.5245382046897387,
+        "lcb_r": -0.10678813969945766,
+        "median_planned_rr": 8.818100558654391
+      }
+    }
+  },
+  "necessary_condition": "Second-shadow delay cannot satisfy N>=250 because even KEEP100 is below 250 in all burned years.",
+  "root_cause": "Capital stop geometry remains excessively tight; delayed capital did not solve the 9-13R planned-RR whipsaw problem.",
+  "next_architecture": "CAUSAL_RISK_GEOMETRY_NORMALIZED_EARLY_COMMIT",
+  "gates_unchanged": true
+}
