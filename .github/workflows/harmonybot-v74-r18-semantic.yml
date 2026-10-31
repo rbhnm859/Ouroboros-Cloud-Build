@@ -19,8 +19,8 @@ on:
       - '.github/workflows/harmonybot-v74-r18-semantic.yml'
 
 concurrency:
-  group: harmonybot-v74-r18-semantic-${{ github.ref }}
-  cancel-in-progress: true
+  group: harmonybot-v74-ctrader-history-${{ github.ref }}
+  cancel-in-progress: false
 
 permissions:
   contents: read
@@ -76,7 +76,7 @@ jobs:
     timeout-minutes: 95
     strategy:
       fail-fast: false
-      max-parallel: 5
+      max-parallel: 2
       matrix:
         window: [Y2016, Y2017, Y2018, Y2019, Y2020]
     steps:
