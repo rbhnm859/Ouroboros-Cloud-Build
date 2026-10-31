@@ -16,7 +16,8 @@ on:
       - 'HarmonyBot-V71/tools/test_v74_r18.py'
       - 'HarmonyBot-V71/tools/run_r18_semantic_window.sh'
       - 'HarmonyBot-V71/tools/run_backtest.sh'
-      - '.github/workflows/harmonybot-v74-r18-semantic.yml'
+      # Workflow-only control-plane edits must not start a costly cTrader run.
+      # Operator may use manual workflow_dispatch after checking the exact HEAD.
 
 concurrency:
   group: harmonybot-v74-ctrader-history-${{ github.ref }}
@@ -78,7 +79,10 @@ jobs:
     timeout-minutes: 95
     strategy:
       fail-fast: false
-      max-parallel: 2
+      # Five independent year jobs already completed successfully in source run 37824462498.
+      # Keep all windows/costs/custody intact; use 5-way concurrency for shorter wall time.
+      # No risk/OOF gate or tick sample reduction. Revisit on observed API throttling.
+      max-parallel: 5
       matrix:
         window: [Y2016, Y2017, Y2018, Y2019, Y2020]
     steps:

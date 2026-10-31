@@ -47,6 +47,35 @@ jobs:
           SRC_STATUS=$(gh api "repos/${{ github.repository }}/actions/runs/$SRC_RUN" --jq '.status')
           echo "[REPLAY] source_run=$SRC_RUN source_sha=$SRC_SHA status=$SRC_STATUS current_sha=${{ github.sha }} $(TZ=Asia/Taipei date '+%Y-%m-%d %H:%M:%S') Taipei GMT+8"
           test "$SRC_STATUS" = "completed" || { echo "[REPLAY-REFUSED] source run not completed"; exit 1; }
+          # Seal before hydration: five successful source windows AND their GitHub
+          # artifact digests are required. A green job without artifacts is not proof.
+          gh api "repos/${{ github.repository }}/actions/runs/$SRC_RUN" > /tmp/r18-source-run.json
+          gh api "repos/${{ github.repository }}/actions/runs/$SRC_RUN/jobs?per_page=100" > /tmp/r18-source-jobs.json
+          gh api "repos/${{ github.repository }}/actions/runs/$SRC_RUN/artifacts?per_page=100" > /tmp/r18-source-artifacts.json
+          python3 - <<'PY_CUSTODY'
+          import json,re
+          run=json.load(open('/tmp/r18-source-run.json'))
+          jobs=json.load(open('/tmp/r18-source-jobs.json')).get('jobs',[])
+          artifacts=json.load(open('/tmp/r18-source-artifacts.json')).get('artifacts',[])
+          needed={f'r18_semantic_universe (Y{y})' for y in range(2016,2021)}
+          needed.add('r18_build')
+          good={j['name'] for j in jobs if j.get('conclusion')=='success'}
+          arts={a['name']:a for a in artifacts}
+          expected={f'v74-r18-semantic-Y{y}' for y in range(2016,2021)}
+          if (run.get('status'),run.get('conclusion'))!=('completed','success') or (
+              run.get('path')!='.github/workflows/harmonybot-v74-r18-semantic.yml' or
+              run.get('head_branch')!='harmonybot/v73-opportunity-universe'):
+              raise SystemExit('[REPLAY-REFUSED] wrong source workflow/branch or failed run')
+          if not needed<=good:
+              raise SystemExit('[REPLAY-REFUSED] unsuccessful source jobs: '+repr(sorted(needed-good)))
+          if not expected<=set(arts):
+              raise SystemExit('[REPLAY-REFUSED] missing annual artifacts: '+repr(sorted(expected-set(arts))))
+          for name in sorted(expected):
+              a=arts[name]
+              if a.get('expired') or not re.fullmatch(r'sha256:[a-f0-9]{64}',str(a.get('digest',''))):
+                  raise SystemExit('[REPLAY-REFUSED] expired/unverifiable artifact: '+name)
+          print('[REPLAY-CUSTODY] five successful windows and five unexpired digest-addressed artifacts verified')
+          PY_CUSTODY
           cd control
           git cat-file -e "$SRC_SHA^{commit}" || { echo "[REPLAY-REFUSED] source commit not reachable"; exit 1; }
           CHANGED=$(git diff --name-only "$SRC_SHA" "${{ github.sha }}" -- \
@@ -70,6 +99,27 @@ jobs:
           run-id: ${{ inputs.source_run_id }}
           github-token: ${{ github.token }}
           repository: ${{ github.repository }}
+      - name: Verify downloaded annual log custody before evaluator
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY_SEALED'
+          import hashlib,json,pathlib,re
+          for y in range(2016,2021):
+              w=f'Y{y}'
+              root=pathlib.Path('merged')/f'v74-r18-semantic-{w}'
+              custody=root/'R18_SEMANTIC_CUSTODY.json'
+              if not custody.is_file(): raise SystemExit('[REPLAY-REFUSED] missing '+str(custody))
+              d=json.loads(custody.read_text())
+              if d.get('schema')!='V74_R18_SEMANTIC_CUSTODY_V1' or d.get('window')!=w or d.get('data_mode')!='ticks' or d.get('tick_time_semantics')!='FORWARD' or any(d.get(k) is not False for k in ('burned_used','validation_used','fresh_used')):
+                  raise SystemExit('[REPLAY-REFUSED] annual semantic custody mismatch: '+w)
+              logs=list((root/'raw-logs').glob('*-R15.log'))
+              if len(logs)!=1: raise SystemExit('[REPLAY-REFUSED] annual log missing/ambiguous: '+w)
+              actual=hashlib.sha256(logs[0].read_bytes()).hexdigest()
+              if actual!=d.get('evidence_sha256') or not re.fullmatch(r'[a-f0-9]{64}',str(d.get('tick_sha256',''))):
+                  raise SystemExit('[REPLAY-REFUSED] SHA256 custody mismatch: '+w)
+          print('[REPLAY-CUSTODY] five sealed annual evidence SHA256 values match source logs')
+          PY_SEALED
       - name: Evaluate sealed windows
         shell: bash
         env:
