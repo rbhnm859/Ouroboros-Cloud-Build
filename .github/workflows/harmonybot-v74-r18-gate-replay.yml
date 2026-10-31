@@ -1,0 +1,95 @@
+name: HarmonyBot V74 R18 Gate Replay From Sealed Artifacts
+
+# Manual only. Re-runs ONLY the Python evaluator on window artifacts that an
+# earlier R18 run already sealed. It never touches cTrader, never uses secrets
+# and never changes a gate threshold. It refuses to run when any runtime-semantic
+# file differs between the source run commit and this commit.
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_run_id:
+        description: 'Run id of a completed R18 run whose window artifacts are reused'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: harmonybot-v74-gate-replay-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  replay:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          path: control
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python3 -m pip install numpy==2.3.5 scipy==1.16.3 scikit-learn==1.8.0
+      - name: Fingerprint guard (fail closed when runtime semantics changed)
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SRC_RUN: ${{ inputs.source_run_id }}
+        run: |
+          set -euo pipefail
+          case "$SRC_RUN" in ''|*[!0-9]*) echo "[REPLAY-REFUSED] source_run_id must be numeric"; exit 1;; esac
+          SRC_SHA=$(gh api "repos/${{ github.repository }}/actions/runs/$SRC_RUN" --jq '.head_sha')
+          SRC_STATUS=$(gh api "repos/${{ github.repository }}/actions/runs/$SRC_RUN" --jq '.status')
+          echo "[REPLAY] source_run=$SRC_RUN source_sha=$SRC_SHA status=$SRC_STATUS current_sha=${{ github.sha }} $(TZ=Asia/Taipei date '+%Y-%m-%d %H:%M:%S') Taipei GMT+8"
+          test "$SRC_STATUS" = "completed" || { echo "[REPLAY-REFUSED] source run not completed"; exit 1; }
+          cd control
+          git cat-file -e "$SRC_SHA^{commit}" || { echo "[REPLAY-REFUSED] source commit not reachable"; exit 1; }
+          CHANGED=$(git diff --name-only "$SRC_SHA" "${{ github.sha }}" -- \
+            HarmonyBot-V71/src \
+            HarmonyBot-V71/HarmonyBotV71.csproj \
+            HarmonyBot-V71/tools/run_r18_semantic_window.sh \
+            HarmonyBot-V71/tools/run_backtest.sh \
+            HarmonyBot-V71/tools/resolve_window.sh \
+            HarmonyBot-V71/tools/v74_r18_outcome.py || true)
+          if [ -n "$CHANGED" ]; then
+            echo "[REPLAY-REFUSED] runtime-semantic files changed since source run; a full cTrader re-run is required:"
+            echo "$CHANGED"
+            exit 1
+          fi
+          echo "[REPLAY-OK] runtime-semantic fingerprint unchanged"
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: v74-r18-semantic-Y*
+          path: merged
+          merge-multiple: false
+          run-id: ${{ inputs.source_run_id }}
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+      - name: Evaluate sealed windows
+        shell: bash
+        env:
+          OPENBLAS_NUM_THREADS: '2'
+          OMP_NUM_THREADS: '2'
+        run: |
+          set -euo pipefail
+          echo "[REPLAY-GATE-START] $(TZ=Asia/Taipei date '+%Y-%m-%d %H:%M:%S') Taipei GMT+8"
+          python3 control/HarmonyBot-V71/tools/evaluate_v74_r18_semantics.py merged research
+          test -s research/V74_R18_SEMANTIC_MANIFEST.json
+          echo "[REPLAY-GATE-END] $(TZ=Asia/Taipei date '+%Y-%m-%d %H:%M:%S') Taipei GMT+8"
+      - name: Gate summary (observability only)
+        if: always()
+        continue-on-error: true
+        shell: bash
+        run: |
+          python3 control/HarmonyBot-V71/tools/r18_report.py gate research/V74_R18_SEMANTIC_MANIFEST.json "${{ job.status }}" | tee -a "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: V74-R18-GATE-REPLAY-${{ inputs.source_run_id }}
+          path: research
+          retention-days: 90
