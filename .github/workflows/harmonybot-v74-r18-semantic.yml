@@ -149,4 +149,24 @@ jobs:
         run: |
           set -euo pipefail
           echo "[GATE-START] $(TZ=Asia/Taipei date '+%Y-%m-%d %H:%M:%S') Taipei GMT+8"
-          python3 control/Harmon
+          python3 control/HarmonyBot-V71/tools/evaluate_v74_r18_semantics.py merged research
+          test -s research/V74_R18_SEMANTIC_MANIFEST.json
+          echo "[GATE-END] $(TZ=Asia/Taipei date '+%Y-%m-%d %H:%M:%S') Taipei GMT+8"
+      - name: Gate summary (observability only, never edits the manifest)
+        if: always()
+        continue-on-error: true
+        shell: bash
+        run: |
+          python3 control/HarmonyBot-V71/tools/r18_report.py gate research/V74_R18_SEMANTIC_MANIFEST.json "${{ needs.r18_semantic_universe.result }}" | tee -a "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: V74-R18-SEMANTIC-VERDICT
+          path: research
+          retention-days: 90
+      - name: Fail closed when any window did not succeed
+        if: ${{ needs.r18_semantic_universe.result != 'success' }}
+        shell: bash
+        run: |
+          echo "[GATE-FAIL-CLOSED] universe result=${{ needs.r18_semantic_universe.result }}; gate NOT_RUN, no PASS"
+          exit 1
