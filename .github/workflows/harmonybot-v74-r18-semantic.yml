@@ -46,6 +46,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          echo "[BUILD-START] $(TZ=Asia/Taipei date '+%Y-%m-%d %H:%M:%S') Taipei GMT+8"
           cd control
           python3 -m unittest discover -s HarmonyBot-V71/tools -p test_v74_r18.py -v
           python3 -m unittest discover -s HarmonyBot-V71/tools -p test_v74_r17.py -v
@@ -61,6 +62,7 @@ jobs:
           A=$(find HarmonyBot-V71/bin/Release -type f -name '*.algo' | head -1)
           test -s "$A"
           cp "$A" HarmonyBot-V71/dist/HarmonyBot_V71_Protected_Champion_Core_Incremental_Alpha.algo
+          echo "[BUILD-END] $(TZ=Asia/Taipei date '+%Y-%m-%d %H:%M:%S') Taipei GMT+8"
       - uses: actions/upload-artifact@v4
         with:
           name: v74-r18-semantic-build
@@ -96,6 +98,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          echo "[WINDOW-START] ${{ matrix.window }} $(TZ=Asia/Taipei date '+%Y-%m-%d %H:%M:%S') Taipei GMT+8"
           eval "$(bash control/HarmonyBot-V71/tools/resolve_window.sh ${{ matrix.window }})"
           mkdir -p control/HarmonyBot-V71/dist
           A=$(find control/HarmonyBot-V71/shared -type f -name 'HarmonyBot_V71_Protected_Champion_Core_Incremental_Alpha.algo' | head -1)
@@ -103,6 +106,13 @@ jobs:
           cp "$A" control/HarmonyBot-V71/dist/
           chmod +x control/HarmonyBot-V71/tools/*.sh
           control/HarmonyBot-V71/tools/run_r18_semantic_window.sh ${{ matrix.window }} "$START" "$EVAL" "$END" "$YEARS"
+          echo "[WINDOW-END] ${{ matrix.window }} $(TZ=Asia/Taipei date '+%Y-%m-%d %H:%M:%S') Taipei GMT+8"
+      - name: Window report (observability only, never changes the result)
+        if: always()
+        continue-on-error: true
+        shell: bash
+        run: |
+          python3 control/HarmonyBot-V71/tools/r18_report.py window ${{ matrix.window }} control/HarmonyBot-V71/output-R18-SEMANTIC-${{ matrix.window }} | tee -a "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -112,6 +122,7 @@ jobs:
 
   r18_semantic_gate:
     needs: r18_semantic_universe
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-24.04
     timeout-minutes: 50
     steps:
@@ -124,22 +135,18 @@ jobs:
           python-version: '3.12'
       - run: python3 -m pip install numpy==2.3.5 scipy==1.16.3 scikit-learn==1.8.0
       - uses: actions/download-artifact@v4
+        continue-on-error: true
         with:
           pattern: v74-r18-semantic-*
           path: merged
           merge-multiple: false
-      - name: R18 controlled outcome-semantic expanding OOF
+      - name: R18 controlled outcome-semantic expanding OOF (only when every window succeeded)
+        if: ${{ needs.r18_semantic_universe.result == 'success' }}
         env:
           OPENBLAS_NUM_THREADS: '2'
           OMP_NUM_THREADS: '2'
         shell: bash
         run: |
           set -euo pipefail
-          python3 control/HarmonyBot-V71/tools/evaluate_v74_r18_semantics.py merged research
-          test -s research/V74_R18_SEMANTIC_MANIFEST.json
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: V74-R18-SEMANTIC-VERDICT
-          path: research
-          retention-days: 90
+          echo "[GATE-START] $(TZ=Asia/Taipei date '+%Y-%m-%d %H:%M:%S') Taipei GMT+8"
+          python3 control/Harmon
