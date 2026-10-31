@@ -1,0 +1,41 @@
+{
+  "version": "V74-R17-CTSCR",
+  "status": "RESEARCH_ONLY",
+  "parent_rejected": "V74-R16-MNFPA",
+  "parent_head": "563fe9479f5e26809f9df77f7546910b27129619",
+  "research_years": [
+    "Y2016",
+    "Y2017",
+    "Y2018",
+    "Y2019",
+    "Y2020"
+  ],
+  "burned_years": [
+    "Y2021",
+    "Y2022",
+    "Y2023"
+  ],
+  "validation_used": false,
+  "fresh_used": false,
+  "burned_used": false,
+  "architecture": "Causal Tick-State and Competing-Risk Reconstruction",
+  "data_mode": "ticks",
+  "data_source": "ctrader_server_tick_cache",
+  "protected_core_modified": false,
+  "decision_clock": "completed M1 only",
+  "pre_gate": {
+    "n": 275,
+    "precision": 0.72,
+    "fdr_max": 0.28,
+    "precision_lcb90": 0.66,
+    "mean_r": 0.9,
+    "pf_r": 3.3,
+    "avg_rr": 2.3,
+    "lcb_r_positive": true,
+    "tick_frame_coverage": 0.98,
+    "tick_precision_lift": 0.05,
+    "tick_logloss_delta_positive": true,
+    "permutation_precision_max": 0.45
+  },
+  "burned_policy": "FORBIDDEN_UNTIL_RESEARCH_PASS_AND_TICK_BYTES_PINNED"
+}

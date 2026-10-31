@@ -1,0 +1,35 @@
+name: HarmonyBot V35.0 Regime-Aware Alpha Development
+on:
+  push:
+    branches: [harmonybot/v35-regime-aware-harmonic-alpha]
+    paths:
+      - '.github/workflows/harmonybot-v35-alpha-development.yml'
+      - 'HarmonyBot-V35/**'
+  workflow_dispatch:
+permissions: {contents: read}
+concurrency:
+  group: harmonybot-v35-alpha-development
+  cancel-in-progress: true
+jobs:
+  alpha_development:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    env:
+      CTRADER_PASSWORD: ${{ secrets.CTRADER_PASSWORD }}
+      CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+      CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+    steps:
+      - uses: actions/checkout@v4
+        with: {ref: harmonybot/v35-regime-aware-harmonic-alpha, path: control}
+      - uses: actions/setup-dotnet@v4
+        with: {dotnet-version: 8.0.x}
+      - name: Execute one-pass V35 architecture ablation
+        run: |
+          chmod +x control/HarmonyBot-V35/tools/*.sh
+          control/HarmonyBot-V35/tools/orchestrate_development.sh
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: HARMONYBOT-V35-ALPHA-DEVELOPMENT
+          path: control/HarmonyBot-V35/output
+          retention-days: 30

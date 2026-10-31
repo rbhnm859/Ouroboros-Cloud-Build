@@ -1,0 +1,42 @@
+{
+  "version": "HarmonyBot V73 Research-Train Custody",
+  "policy": "IMMUTABLE_RESEARCH_TRAIN_CUSTODY_NO_REHYDRATION_AFTER_SUPPLY_RECONSTRUCTION",
+  "source_run_id": 36820229028,
+  "source_run_number": 5,
+  "source_branch": "harmonybot/v73-opportunity-universe",
+  "source_commit": "7964920741a095caa97f62c50b740269bdf8e17e",
+  "windows": {
+    "Y2016": {
+      "artifact": "v73-data-seed-Y2016",
+      "sha256": "abb9afd353d2289151cce594336496ccc9f0737b90ceb4728af336099650b2a6",
+      "file_count": 417
+    },
+    "Y2017": {
+      "artifact": "v73-data-seed-Y2017",
+      "sha256": "7b5f19e586890e543ad0e9f2cb6616ae776bbc95bd25a2457f92f94fe171e392",
+      "file_count": 416
+    },
+    "Y2018": {
+      "artifact": "v73-data-seed-Y2018",
+      "sha256": "2f66f9d359430043191dd5c04e8f89d80eae1051109fe2125df8fc52bded5415",
+      "file_count": 419
+    },
+    "Y2019": {
+      "artifact": "v73-data-seed-Y2019",
+      "sha256": "9cbba3cd9244067bb5c363354b6a9d37d097d9175c308020b9ec75130291fe41",
+      "file_count": 419
+    },
+    "Y2020": {
+      "artifact": "v73-data-seed-Y2020",
+      "sha256": "86fcbd87422dc8c67c9d119cf3651c77d9e5a6fcbf41a200fa63eb3d7b49d349",
+      "file_count": 420
+    }
+  },
+  "governance": {
+    "research_rehydration_forbidden_after_pin": true,
+    "same_bytes_required": true,
+    "no_validation_data": true,
+    "no_fresh_data": true,
+    "no_pnl_based_selection": true
+  }
+}

@@ -1,0 +1,263 @@
+name: HarmonyBot V68 Truth-Gated Causal DEV
+
+on:
+  push:
+    branches:
+      - harmonybot/v68-evidence-preserving-family-alpha-reconstruction
+    paths:
+      - 'HarmonyBot-V68/**'
+      - '.github/workflows/harmonybot-v68-evidence-preserving-family-alpha-reconstruction.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: harmonybot-v68-evidence-preserving-family-alpha-reconstruction
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: control
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Audit and build
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd control
+          python3 HarmonyBot-V68/tools/static_contract_audit.py HarmonyBot-V68/src/HarmonyBotV68.cs
+          dotnet restore HarmonyBot-V68/HarmonyBotV68.csproj
+          dotnet build HarmonyBot-V68/HarmonyBotV68.csproj -c Release --no-restore --nologo
+          mkdir -p HarmonyBot-V68/dist
+          A=$(find HarmonyBot-V68/bin/Release -type f -name '*.algo' | head -1)
+          test -s "$A"
+          cp "$A" HarmonyBot-V68/dist/HarmonyBot_V68_Evidence_Preserving_Family_Alpha_Reconstruction.algo
+      - uses: actions/upload-artifact@v4
+        with:
+          name: v68-build
+          path: control/HarmonyBot-V68/dist
+          retention-days: 30
+
+  truth_dev:
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      max-parallel: 12
+      matrix:
+        variant: [A_SUPPLY_CONTROL, B_TRUTH_ONLY]
+        window: [Y2021, Y2022, Y2023, H2024H2, H2025H1, H2025H2]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: control
+      - uses: actions/download-artifact@v4
+        with:
+          name: v68-build
+          path: control/HarmonyBot-V68/shared
+      - name: Prepare algo
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p control/HarmonyBot-V68/dist
+          A=$(find control/HarmonyBot-V68/shared -type f -name '*.algo' | head -1)
+          test -s "$A"
+          cp "$A" control/HarmonyBot-V68/dist/HarmonyBot_V68_Evidence_Preserving_Family_Alpha_Reconstruction.algo
+      - name: Resolve window
+        id: d
+        shell: bash
+        run: |
+          case "${{ matrix.window }}" in
+            Y2021) echo "start=04/01/2021" >> "$GITHUB_OUTPUT"; echo "eval=2021-01-11T00:00:00Z" >> "$GITHUB_OUTPUT"; echo "end=31/12/2021" >> "$GITHUB_OUTPUT"; echo "years=1.0" >> "$GITHUB_OUTPUT";;
+            Y2022) echo "start=03/01/2022" >> "$GITHUB_OUTPUT"; echo "eval=2022-01-10T00:00:00Z" >> "$GITHUB_OUTPUT"; echo "end=30/12/2022" >> "$GITHUB_OUTPUT"; echo "years=1.0" >> "$GITHUB_OUTPUT";;
+            Y2023) echo "start=02/01/2023" >> "$GITHUB_OUTPUT"; echo "eval=2023-01-09T00:00:00Z" >> "$GITHUB_OUTPUT"; echo "end=29/12/2023" >> "$GITHUB_OUTPUT"; echo "years=1.0" >> "$GITHUB_OUTPUT";;
+            H2024H2) echo "start=01/07/2024" >> "$GITHUB_OUTPUT"; echo "eval=2024-07-08T00:00:00Z" >> "$GITHUB_OUTPUT"; echo "end=31/12/2024" >> "$GITHUB_OUTPUT"; echo "years=.5" >> "$GITHUB_OUTPUT";;
+            H2025H1) echo "start=02/01/2025" >> "$GITHUB_OUTPUT"; echo "eval=2025-01-09T00:00:00Z" >> "$GITHUB_OUTPUT"; echo "end=30/06/2025" >> "$GITHUB_OUTPUT"; echo "years=.5" >> "$GITHUB_OUTPUT";;
+            H2025H2) echo "start=01/07/2025" >> "$GITHUB_OUTPUT"; echo "eval=2025-07-08T00:00:00Z" >> "$GITHUB_OUTPUT"; echo "end=31/12/2025" >> "$GITHUB_OUTPUT"; echo "years=.5" >> "$GITHUB_OUTPUT";;
+          esac
+      - name: Run cTrader truth backtest
+        shell: bash
+        env:
+          CTRADER_PASSWORD: ${{ secrets.CTRADER_PASSWORD }}
+          CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+          CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+        run: |
+          chmod +x control/HarmonyBot-V68/tools/*.sh
+          control/HarmonyBot-V68/tools/run_window.sh "${{ matrix.variant }}" "${{ matrix.window }}" "${{ steps.d.outputs.start }}" "${{ steps.d.outputs.eval }}" "${{ steps.d.outputs.end }}" "${{ steps.d.outputs.years }}"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: v68-truth-${{ matrix.variant }}-${{ matrix.window }}
+          path: control/HarmonyBot-V68/output-${{ matrix.variant }}-${{ matrix.window }}
+          retention-days: 30
+          if-no-files-found: error
+
+
+  truth_gate:
+    needs: truth_dev
+    runs-on: ubuntu-24.04
+    outputs:
+      truthok: ${{ steps.g.outputs.truthok }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: 'v68-truth-*'
+          path: truth
+          merge-multiple: true
+      - name: Gate A/B exact execution equivalence and canonical identity
+        id: g
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json,pathlib
+          root=pathlib.Path("truth")
+          windows=["Y2021","Y2022","Y2023","H2024H2","H2025H1","H2025H2"]
+          anchor={
+            "Y2021":(164,1561.19),
+            "Y2022":(144,530.86),
+            "Y2023":(58,-777.03),
+            "H2024H2":(65,355.52),
+            "H2025H1":(70,-121.39),
+            "H2025H2":(15,-884.85)
+          }
+          def load(v,w):
+              xs=list(root.rglob(f"{v}-{w}.json"))
+              if len(xs)!=1: raise SystemExit(f"missing-or-duplicate {v}-{w}: {len(xs)}")
+              return json.load(open(xs[0]))
+          def sig(d):
+              return [(r.get("direction",""),int(r.get("entry_time") or 0),int(r.get("close_time") or 0),
+                       round(float(r.get("net",0)),2),int(r.get("fragments",0))) for r in d.get("basket_outcomes",[])]
+          detail={}; all_ok=True
+          for w in windows:
+              a=load("A_SUPPLY_CONTROL",w); b=load("B_TRUTH_ONLY",w)
+              ab,an=anchor[w]
+              checks={
+                "a_anchor_baskets":a["baskets"]==ab,
+                "a_anchor_net":abs(a["net"]-an)<=.15,
+                "ab_baskets":a["baskets"]==b["baskets"],
+                "ab_fragments":a["report_history_fragments"]==b["report_history_fragments"],
+                "ab_net":abs(a["net"]-b["net"])<=.05,
+                "ab_pf":abs(a["pf"]-b["pf"])<=.0005,
+                "ab_expectancy":abs(a["expectancy"]-b["expectancy"])<=.01,
+                "ab_win_rate":abs(a["win_rate"]-b["win_rate"])<=.0001,
+                "ab_max_dd":abs(a["max_dd_pct"]-b["max_dd_pct"])<=.0005,
+                "ab_sequence":sig(a)==sig(b),
+                "engineering_clean":bool(a.get("engineering_clean")) and bool(b.get("engineering_clean")),
+                "b_identity_clean":bool(b.get("identity_clean")),
+                "b_canonical_coverage":abs(float(b.get("canonical_family_coverage",0))-1.0)<=1e-12,
+                "b_family_violations":int(b.get("canonical_family_violations",0))==0
+              }
+              ok=all(checks.values()); all_ok &= ok
+              detail[w]={"pass":ok,"checks":checks,
+                         "a":{"baskets":a["baskets"],"net":a["net"]},
+                         "b":{"baskets":b["baskets"],"net":b["net"],"coverage":b.get("canonical_family_coverage")}}
+          out={"version":"HarmonyBot V68","gate":"A_B_TRUTH_EQUIVALENCE","pass":all_ok,"windows":detail}
+          pathlib.Path("V68_TRUTH_GATE.json").write_text(json.dumps(out,indent=2))
+          pathlib.Path("truth.out").write_text("true" if all_ok else "false")
+          print(json.dumps(out,indent=2))
+          PY
+          echo "truthok=$(cat truth.out)" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: v68-truth-gate
+          path: V68_TRUTH_GATE.json
+          retention-days: 30
+
+  causal_dev:
+    needs: truth_gate
+    if: needs.truth_gate.outputs.truthok == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      max-parallel: 6
+      matrix:
+        variant: [C_EVIDENCE_PRESERVING, D_GRID_CHALLENGER]
+        window: [Y2021, Y2022, Y2023, H2024H2, H2025H1, H2025H2]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: control
+      - uses: actions/download-artifact@v4
+        with:
+          name: v68-build
+          path: control/HarmonyBot-V68/shared
+      - name: Prepare algo
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p control/HarmonyBot-V68/dist
+          A=$(find control/HarmonyBot-V68/shared -type f -name '*.algo' | head -1)
+          test -s "$A"
+          cp "$A" control/HarmonyBot-V68/dist/HarmonyBot_V68_Evidence_Preserving_Family_Alpha_Reconstruction.algo
+      - name: Resolve window
+        id: d
+        shell: bash
+        run: |
+          case "${{ matrix.window }}" in
+            Y2021) echo "start=04/01/2021" >> "$GITHUB_OUTPUT"; echo "eval=2021-01-11T00:00:00Z" >> "$GITHUB_OUTPUT"; echo "end=31/12/2021" >> "$GITHUB_OUTPUT"; echo "years=1.0" >> "$GITHUB_OUTPUT";;
+            Y2022) echo "start=03/01/2022" >> "$GITHUB_OUTPUT"; echo "eval=2022-01-10T00:00:00Z" >> "$GITHUB_OUTPUT"; echo "end=30/12/2022" >> "$GITHUB_OUTPUT"; echo "years=1.0" >> "$GITHUB_OUTPUT";;
+            Y2023) echo "start=02/01/2023" >> "$GITHUB_OUTPUT"; echo "eval=2023-01-09T00:00:00Z" >> "$GITHUB_OUTPUT"; echo "end=29/12/2023" >> "$GITHUB_OUTPUT"; echo "years=1.0" >> "$GITHUB_OUTPUT";;
+            H2024H2) echo "start=01/07/2024" >> "$GITHUB_OUTPUT"; echo "eval=2024-07-08T00:00:00Z" >> "$GITHUB_OUTPUT"; echo "end=31/12/2024" >> "$GITHUB_OUTPUT"; echo "years=.5" >> "$GITHUB_OUTPUT";;
+            H2025H1) echo "start=02/01/2025" >> "$GITHUB_OUTPUT"; echo "eval=2025-01-09T00:00:00Z" >> "$GITHUB_OUTPUT"; echo "end=30/06/2025" >> "$GITHUB_OUTPUT"; echo "years=.5" >> "$GITHUB_OUTPUT";;
+            H2025H2) echo "start=01/07/2025" >> "$GITHUB_OUTPUT"; echo "eval=2025-07-08T00:00:00Z" >> "$GITHUB_OUTPUT"; echo "end=31/12/2025" >> "$GITHUB_OUTPUT"; echo "years=.5" >> "$GITHUB_OUTPUT";;
+          esac
+      - name: Run cTrader causal DEV
+        shell: bash
+        env:
+          CTRADER_PASSWORD: ${{ secrets.CTRADER_PASSWORD }}
+          CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+          CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+        run: |
+          chmod +x control/HarmonyBot-V68/tools/*.sh
+          control/HarmonyBot-V68/tools/run_window.sh "${{ matrix.variant }}" "${{ matrix.window }}" "${{ steps.d.outputs.start }}" "${{ steps.d.outputs.eval }}" "${{ steps.d.outputs.end }}" "${{ steps.d.outputs.years }}"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: v68-causal-${{ matrix.variant }}-${{ matrix.window }}
+          path: control/HarmonyBot-V68/output-${{ matrix.variant }}-${{ matrix.window }}
+          retention-days: 30
+          if-no-files-found: error
+
+  analyze:
+    needs: [truth_gate, causal_dev]
+    if: always() && needs.truth_gate.outputs.truthok == 'true' && needs.causal_dev.result == 'success'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: control
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: 'v68-truth-*'
+          path: merged
+          merge-multiple: true
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: 'v68-causal-*'
+          path: merged
+          merge-multiple: true
+      - name: Build V68 causal performance frontier
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p final
+          python3 control/HarmonyBot-V68/tools/analyze_v68.py merged final
+      - uses: actions/upload-artifact@v4
+        with:
+          name: HARMONYBOT-V68-DEV-FRONTIER
+          path: final
+          retention-days: 30

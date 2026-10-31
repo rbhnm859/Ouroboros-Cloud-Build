@@ -1,0 +1,452 @@
+name: HarmonyBot V74 Rapid Decision
+
+on:
+  workflow_dispatch:
+  # PR path filters are cumulative against the base branch. Once this long-lived
+  # PR contains a C# change, evaluator-only commits also satisfy the filter and
+  # can repeatedly supersede an in-flight semantic universe. Use push semantics
+  # on the formal development branch so only the files in the actual push decide
+  # whether Rapid is started.
+  push:
+    branches:
+      - 'harmonybot/v73-opportunity-universe'
+    paths:
+      - 'HarmonyBot-V71/src/**'
+      - 'HarmonyBot-V71/HarmonyBotV71.csproj'
+      - 'HarmonyBot-V71/tools/run_window.sh'
+      - 'HarmonyBot-V71/tools/run_backtest.sh'
+      - 'HarmonyBot-V71/tools/resolve_window.sh'
+      - 'HarmonyBot-V71/final/V71_BURNED_CALIBRATION_CUSTODY.json'
+      - 'HarmonyBot-V73/V73_RESEARCH_CUSTODY.json'
+
+concurrency:
+  group: harmonybot-v74-rapid-decision-v2-${{ github.head_ref || github.ref }}
+  # Push path filtering is per-push here, so cancellation is now safe: only a
+  # newer execution/data-semantic push can supersede an older Rapid run.
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+  actions: write
+
+jobs:
+  rapid_change_gate:
+    runs-on: ubuntu-24.04
+    outputs:
+      full: ${{ steps.c.outputs.full }}
+      semantic_fingerprint: ${{ steps.c.outputs.semantic_fingerprint }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - id: c
+        name: Content-addressed telemetry semantic gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          # R15 research custody veto: legacy pipelines must not load burned years.
+          if python3 - <<'PYLOCK'
+          import json,pathlib,sys
+          p=pathlib.Path("HarmonyBot-V74/r15/RESEARCH_LOCK.json")
+          sys.exit(0 if p.exists() and json.loads(p.read_text()).get("active") else 1)
+          PYLOCK
+          then
+            echo "full=false" >> "$GITHUB_OUTPUT"
+            echo "[V74-R15-CUSTODY] legacy path skipped; research-only pipeline owns this revision"
+            exit 0
+          fi
+          # Fingerprint only bytes that can alter the exact cTrader universe.
+          # Evaluator/workflow/evidence commits therefore cannot force a rebuild.
+          mapfile -t SEMANTIC_FILES < <(
+            {
+              find HarmonyBot-V71/src -type f -name '*.cs' -print
+              printf '%s\n' \
+                HarmonyBot-V71/HarmonyBotV71.csproj \
+                HarmonyBot-V71/tools/run_window.sh \
+                HarmonyBot-V71/tools/run_backtest.sh \
+                HarmonyBot-V71/tools/resolve_window.sh \
+                HarmonyBot-V71/final/V71_BURNED_CALIBRATION_CUSTODY.json \
+                HarmonyBot-V73/V73_RESEARCH_CUSTODY.json
+            } | LC_ALL=C sort -u
+          )
+          FP=$(
+            for p in "${SEMANTIC_FILES[@]}"; do
+              test -f "$p"
+              printf '%s  ' "$p"
+              sha256sum "$p" | cut -d' ' -f1
+            done | sha256sum | cut -d' ' -f1
+          )
+          echo "semantic_fingerprint=$FP" >> "$GITHUB_OUTPUT"
+
+          PIN=HarmonyBot-V71/evidence/V74_FAST_REPLAY_SOURCE.json
+          OLD=""
+          if [[ -s "$PIN" ]]; then
+            OLD=$(python3 - "$PIN" <<'PY'
+          import json,sys
+          print(json.load(open(sys.argv[1])).get("semantic_fingerprint",""))
+          PY
+            )
+          fi
+          if [[ -n "$OLD" && "$OLD" == "$FP" ]]; then
+            echo "full=false" >> "$GITHUB_OUTPUT"
+            echo "[V74-RAPID-CONTENT-CACHE] HIT fingerprint=$FP"
+            exit 0
+          fi
+
+          # A missing fingerprint on an older pin is fail-closed: rebuild once,
+          # then future identical semantics become exact cache hits.
+          echo "full=true" >> "$GITHUB_OUTPUT"
+          echo "[V74-RAPID-CONTENT-CACHE] MISS old=$OLD new=$FP"
+
+
+  rapid_build:
+    needs: rapid_change_gate
+    if: ${{ needs.rapid_change_gate.outputs.full == 'true' && (github.event_name == 'workflow_dispatch' || github.ref_name == 'harmonybot/v73-opportunity-universe') }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          path: control
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Fail-closed static audit and candidate build
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd control
+          python3 HarmonyBot-V71/tools/static_contract_audit.py HarmonyBot-V71/src/HarmonyBotV71.cs
+          python3 HarmonyBot-V71/tools/verify_frozen_harmonic_engine.py HarmonyBot-V71/src/HarmonyBotV71.cs
+          python3 -m py_compile \
+            HarmonyBot-V71/tools/evaluate_v73_universe.py \
+            HarmonyBot-V71/tools/diagnose_v74_joint_oracle.py \
+            HarmonyBot-V71/tools/evaluate_v74_sequential.py \
+            HarmonyBot-V71/tools/v74_model_lib.py
+          dotnet restore HarmonyBot-V71/HarmonyBotV71.csproj
+          dotnet build HarmonyBot-V71/HarmonyBotV71.csproj -c Release --no-restore --nologo
+          mkdir -p HarmonyBot-V71/dist
+          A=$(find HarmonyBot-V71/bin/Release -type f -name '*.algo' | head -1)
+          test -s "$A"
+          cp "$A" HarmonyBot-V71/dist/HarmonyBot_V71_Protected_Champion_Core_Incremental_Alpha.algo
+      - uses: actions/upload-artifact@v4
+        with:
+          name: v74-rapid-build
+          path: |
+            control/HarmonyBot-V71/dist
+            control/V71_STATIC_CONTRACT_AUDIT.json
+            control/V71_FROZEN_HARMONIC_ENGINE_GUARD.json
+          retention-days: 7
+
+  rapid_universe:
+    needs: rapid_build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 50
+    strategy:
+      fail-fast: false
+      max-parallel: 8
+      matrix:
+        window: [Y2016, Y2017, Y2018, Y2019, Y2020, Y2021, Y2022, Y2023]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          path: control
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: v74-rapid-build
+          path: control/HarmonyBot-V71/shared
+
+      - id: custody
+        name: Resolve immutable annual custody without V51 replay barrier
+        shell: bash
+        run: |
+          set -euo pipefail
+          W="${{ matrix.window }}"
+          if [[ "$W" =~ ^Y20(16|17|18|19|20)$ ]]; then
+            M=control/HarmonyBot-V73/V73_RESEARCH_CUSTODY.json
+          else
+            M=control/HarmonyBot-V71/final/V71_BURNED_CALIBRATION_CUSTODY.json
+          fi
+          test -s "$M"
+          RUN=$(python3 - "$M" <<'PY'
+          import json,sys
+          print(json.load(open(sys.argv[1]))["source_run_id"])
+          PY
+          )
+          ART=$(python3 - "$M" "$W" <<'PY'
+          import json,sys
+          print(json.load(open(sys.argv[1]))["windows"][sys.argv[2]]["artifact"])
+          PY
+          )
+          SHA=$(python3 - "$M" "$W" <<'PY'
+          import json,sys
+          print(json.load(open(sys.argv[1]))["windows"][sys.argv[2]]["sha256"])
+          PY
+          )
+          echo "run=$RUN" >> "$GITHUB_OUTPUT"
+          echo "artifact=$ART" >> "$GITHUB_OUTPUT"
+          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+          echo "[V74-RAPID-CUSTODY] window=$W run=$RUN artifact=$ART sha256=$SHA"
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: ${{ steps.custody.outputs.artifact }}
+          path: control/HarmonyBot-V71/data-seed
+          github-token: ${{ github.token }}
+          run-id: ${{ steps.custody.outputs.run }}
+
+      - name: Verify immutable bytes
+        shell: bash
+        run: |
+          set -euo pipefail
+          H=$(cd control/HarmonyBot-V71/data-seed && find . -type f -print0 | LC_ALL=C sort -z | xargs -0 sha256sum | sha256sum | cut -d' ' -f1)
+          test "$H" = "${{ steps.custody.outputs.sha }}" || {
+            echo "[V74-RAPID-CUSTODY-FAIL] window=${{ matrix.window }} expected=${{ steps.custody.outputs.sha }} actual=$H"
+            exit 48
+          }
+
+      - name: Run exact V74 telemetry universe
+        env:
+          CTRADER_PASSWORD: ${{ secrets.CTRADER_PASSWORD }}
+          CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+          CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+          V71_DATA_SEED_DIR: ${{ github.workspace }}/control/HarmonyBot-V71/data-seed
+          V71_EXPECTED_DATA_SHA256: ${{ steps.custody.outputs.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          eval "$(bash control/HarmonyBot-V71/tools/resolve_window.sh ${{ matrix.window }})"
+          mkdir -p control/HarmonyBot-V71/dist
+          A=$(find control/HarmonyBot-V71/shared -type f -name 'HarmonyBot_V71_Protected_Champion_Core_Incremental_Alpha.algo' | head -1)
+          test -s "$A"
+          cp "$A" control/HarmonyBot-V71/dist/
+          chmod +x control/HarmonyBot-V71/tools/*.sh
+          control/HarmonyBot-V71/tools/run_window.sh R_V73_OPPORTUNITY_UNIVERSE ${{ matrix.window }} "$START" "$EVAL" "$END" "$YEARS"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: v74-rapid-universe-${{ matrix.window }}
+          path: control/HarmonyBot-V71/output-R_V73_OPPORTUNITY_UNIVERSE-${{ matrix.window }}
+          retention-days: 7
+
+  rapid_decision:
+    needs: rapid_universe
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    outputs:
+      alpha_pass: ${{ steps.result.outputs.alpha_pass }}
+      physical_pass: ${{ steps.oracle.outputs.physical_pass }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          path: control
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: v74-rapid-universe-*
+          path: merged
+          merge-multiple: true
+
+      - name: Revalidate V73 supply/custody contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p gate
+          python3 control/HarmonyBot-V71/tools/evaluate_v73_universe.py merged gate
+          test "$(cat gate/pass.txt)" = "true"
+
+      - id: oracle
+        name: Exact physical feasibility gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p oracle
+          python3 control/HarmonyBot-V71/tools/diagnose_v74_joint_oracle.py merged oracle
+          PHYSICAL=$(cat oracle/oracle_pass.txt)
+          echo "physical_pass=$PHYSICAL" >> "$GITHUB_OUTPUT"
+          echo "[V74-RAPID-ORACLE] physical_pass=$PHYSICAL"
+          if [[ "$PHYSICAL" != "true" ]]; then
+            echo "[V74-RAPID-FAIL-FAST] Exact event-native action space cannot satisfy 3/3 hard gate; causal tournament is mathematically unable to pass and is skipped."
+          fi
+
+      - id: v74
+        if: ${{ steps.oracle.outputs.physical_pass == 'true' }}
+        name: Run exact V74 burned OOF decision
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p tournament
+          python3 control/HarmonyBot-V71/tools/evaluate_v74_sequential.py merged tournament
+          python3 - <<'PY'
+          import json
+          m=json.load(open("tournament/V74_TOURNAMENT_MANIFEST.json"))
+          print("[V74-RAPID-DECISION]")
+          print(json.dumps({
+            "alpha_gate":m.get("alpha_gate"),
+            "alpha_champion":m.get("alpha_champion"),
+            "execution_semantics_ready":m.get("execution_semantics_ready"),
+            "v74_gate":m.get("v74_gate"),
+            "promotion_blocker":m.get("promotion_blocker"),
+            "evaluator_runtime_seconds":m.get("evaluator_runtime_seconds"),
+            "folds":{k:{x:v.get(x) for x in ("n","mean_r","pf_r","win_rate","average_rr","lcb_r","pass")} for k,v in m.get("folds",{}).items()}
+          },indent=2))
+          PY
+
+      - id: result
+        if: always()
+        name: Publish exact rapid verdict
+        shell: bash
+        run: |
+          set -euo pipefail
+          ALPHA=false
+          if [[ "${{ steps.oracle.outputs.physical_pass }}" == "true" && -s tournament/alpha_pass.txt ]]; then
+            ALPHA=$(cat tournament/alpha_pass.txt)
+          fi
+          echo "alpha_pass=$ALPHA" >> "$GITHUB_OUTPUT"
+          echo "[V74-RAPID-VERDICT] physical_pass=${{ steps.oracle.outputs.physical_pass }} alpha_pass=$ALPHA"
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: V74-RAPID-DECISION
+          if-no-files-found: ignore
+          path: |
+            gate
+            oracle
+            tournament
+          retention-days: 30
+
+  full_verification:
+    needs: rapid_decision
+    if: ${{ needs.rapid_decision.outputs.alpha_pass == 'true' }}
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Dispatch full promotion/parity pipeline only after exact Alpha PASS
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          REF="${{ github.head_ref || github.ref_name }}"
+          gh workflow run harmonybot-v73-v80-autonomous-evidence-pipeline.yml --repo "$GITHUB_REPOSITORY" --ref "$REF"
+          echo "[V74-RAPID->FULL] Alpha PASS; dispatched Full pipeline for V51 replay, runtime parity and downstream promotion."
+
+
+  pin_exact_replay_source:
+    needs: [rapid_change_gate, rapid_decision]
+    if: ${{ always() && needs.rapid_decision.result == 'success' }}
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Pin exact rapid universe for zero-rebuild evaluator replay
+        env:
+          SOURCE_RUN: ${{ github.run_id }}
+          SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          SEMANTIC_FP: ${{ needs.rapid_change_gate.outputs.semantic_fingerprint }}
+          REF_NAME: ${{ github.head_ref || github.ref_name }}
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          dispatch_fast_replay() {
+            echo "[V74-RAPID-DISPATCH] workflow=harmonybot-v74-fast-replay.yml ref=$REF_NAME"
+            curl --fail-with-body -sS -L \
+              -X POST \
+              -H "Accept: application/vnd.github+json" \
+              -H "Authorization: Bearer $GH_TOKEN" \
+              -H "X-GitHub-Api-Version: 2022-11-28" \
+              "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/workflows/harmonybot-v74-fast-replay.yml/dispatches" \
+              -d "{\"ref\":\"$REF_NAME\"}"
+          }
+          M=HarmonyBot-V71/evidence/V74_FAST_REPLAY_SOURCE.json
+          python3 - "$M" "$SOURCE_RUN" "$SOURCE_SHA" "$SEMANTIC_FP" <<'PY'
+          import json,sys
+          p,run,sha,semantic_fp=sys.argv[1],int(sys.argv[2]),sys.argv[3],sys.argv[4]
+          years=range(2016,2024)
+          d={
+            "version":2,
+            "source_run_id":run,
+            "source_head_sha":sha,
+            "semantic_fingerprint":semantic_fp,
+            "branch":"harmonybot/v73-opportunity-universe",
+            "artifact_pattern":"v74-rapid-universe-*",
+            "evidence_origin":"rapid_exact_2016_2023",
+            "required_artifacts":[f"v74-rapid-universe-Y{y}" for y in years],
+            "semantic_guard_paths":[
+              "HarmonyBot-V71/src",
+              "HarmonyBot-V71/HarmonyBotV71.csproj",
+              "HarmonyBot-V71/tools/run_window.sh",
+              "HarmonyBot-V71/tools/run_backtest.sh",
+              "HarmonyBot-V71/tools/resolve_window.sh",
+              "HarmonyBot-V71/tools/run_v51_reference.sh"
+            ],
+            "validation_used":False,
+            "fresh_used":False,
+            "note":"Exact Rapid Decision universe: immutable 2016-2023 custody bytes were hash-verified, all eight windows used the same candidate .algo and run_window R_V73_OPPORTUNITY_UNIVERSE semantics, and V73 was revalidated before decision. Safe for evaluator/oracle-only replay; any guarded semantic drift remains fail-closed."
+          }
+          open(p,"w").write(json.dumps(d,indent=2)+"\n")
+          PY
+          cp "$M" /tmp/v74-pin.json
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          # Transactional pin: branch automation may advance while this job runs.
+          # Rebase the manifest onto the latest branch only when the exact telemetry
+          # semantic fingerprint is still identical. Never let stale evidence win.
+          for attempt in 1 2 3 4; do
+            git fetch origin "$REF_NAME"
+            git reset --hard "origin/$REF_NAME"
+
+            mapfile -t SEMANTIC_FILES < <(
+              {
+                find HarmonyBot-V71/src -type f -name '*.cs' -print
+                printf '%s\n' \
+                  HarmonyBot-V71/HarmonyBotV71.csproj \
+                  HarmonyBot-V71/tools/run_window.sh \
+                  HarmonyBot-V71/tools/run_backtest.sh \
+                  HarmonyBot-V71/tools/resolve_window.sh \
+                  HarmonyBot-V71/final/V71_BURNED_CALIBRATION_CUSTODY.json \
+                  HarmonyBot-V73/V73_RESEARCH_CUSTODY.json
+              } | LC_ALL=C sort -u
+            )
+            CURRENT_FP=$(
+              for p in "${SEMANTIC_FILES[@]}"; do
+                test -f "$p"
+                printf '%s  ' "$p"
+                sha256sum "$p" | cut -d' ' -f1
+              done | sha256sum | cut -d' ' -f1
+            )
+            if [[ "$CURRENT_FP" != "$SEMANTIC_FP" ]]; then
+              echo "[V74-RAPID-PIN-STALE] run=$SOURCE_RUN source_fp=$SEMANTIC_FP current_fp=$CURRENT_FP"
+              exit 0
+            fi
+
+            cp /tmp/v74-pin.json "$M"
+            if git diff --quiet -- "$M"; then
+              echo "[V74-RAPID-PIN] unchanged run=$SOURCE_RUN fingerprint=$SEMANTIC_FP"
+              dispatch_fast_replay
+              exit 0
+            fi
+            git add "$M"
+            git commit -m "ci(v74): pin exact rapid universe $SOURCE_RUN"
+            if git push origin "HEAD:$REF_NAME"; then
+              echo "[V74-RAPID-PIN] run=$SOURCE_RUN semantic_sha=$SOURCE_SHA fingerprint=$SEMANTIC_FP attempt=$attempt"
+              # GITHUB_TOKEN-authored pushes do not reliably start a second
+              # workflow. workflow_dispatch is an explicit GitHub-supported
+              # exception, so continue the evidence chain deterministically.
+              dispatch_fast_replay
+              exit 0
+            fi
+            echo "[V74-RAPID-PIN-RETRY] attempt=$attempt"
+            sleep 2
+          done
+          echo "[V74-RAPID-PIN-FAIL] exhausted non-fast-forward retries"
+          exit 73

@@ -1,0 +1,102 @@
+name: HarmonyBot V74 R18 Oracle Bound Audit (evaluator only)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ['harmonybot/v73-opportunity-universe']
+    paths:
+      - 'HarmonyBot-V71/tools/v74_r18_oracle_bound.py'
+      - '.github/workflows/harmonybot-v74-r18-oracle-bound.yml'
+
+concurrency:
+  group: harmonybot-v74-r18-oracle-bound-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  actions: read
+
+env:
+  SOURCE_RUN_ID: '37824462498'
+  SOURCE_HEAD_SHA: '61a164b453ca3e65b1670050ea2dd30ec7b5592d'
+
+jobs:
+  oracle_bound:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: control
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python3 -m pip install numpy==2.3.5 scipy==1.16.3 scikit-learn==1.8.0
+
+      - name: Verify pinned R18 source run identity
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${SOURCE_RUN_ID}" > source-run.json
+          gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${SOURCE_RUN_ID}/jobs?per_page=100" > source-jobs.json
+          gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${SOURCE_RUN_ID}/artifacts?per_page=100" > source-artifacts.json
+          python3 - <<'PY'
+          import json,os
+          run=json.load(open('source-run.json'))
+          if run.get('head_sha')!=os.environ['SOURCE_HEAD_SHA'] or run.get('status')!='completed':
+              raise SystemExit('R18 source run identity/status mismatch')
+          jobs=json.load(open('source-jobs.json')).get('jobs',[])
+          expected={f'r18_semantic_universe (Y{y})' for y in range(2016,2021)}|{'r18_build','r18_semantic_gate'}
+          got={j.get('name') for j in jobs if j.get('conclusion')=='success'}
+          missing=expected-got
+          if missing:
+              raise SystemExit('R18 source jobs not SUCCESS: '+','.join(sorted(missing)))
+          arts={a.get('name'):a.get('digest') for a in json.load(open('source-artifacts.json')).get('artifacts',[])}
+          need={f'v74-r18-semantic-Y{y}' for y in range(2016,2021)}
+          have=set(arts)
+          if not need<=have:
+              raise SystemExit('R18 annual artifacts missing: '+','.join(sorted(need-have)))
+          json.dump({k:arts[k] for k in sorted(need)},open('source-artifact-digests.json','w'),indent=2)
+          print('[R18-ORACLE-SOURCE] verified run/head/jobs/artifacts')
+          PY
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: v74-r18-semantic-*
+          path: merged
+          merge-multiple: false
+          github-token: ${{ github.token }}
+          run-id: ${{ env.SOURCE_RUN_ID }}
+
+      - name: Fail closed on annual layout
+        shell: bash
+        run: |
+          set -euo pipefail
+          for W in Y2016 Y2017 Y2018 Y2019 Y2020; do
+            D="merged/v74-r18-semantic-${W}"
+            test -s "$D/R18_SEMANTIC_CUSTODY.json"
+            test "$(find "$D/raw-logs" -maxdepth 1 -type f -name '*-R15.log' | wc -l)" -eq 1
+          done
+          python3 -m py_compile control/HarmonyBot-V71/tools/v74_r18_oracle_bound.py
+
+      - name: Label and geometry ceiling audit
+        env:
+          OPENBLAS_NUM_THREADS: '2'
+          OMP_NUM_THREADS: '2'
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p oracle
+          python3 control/HarmonyBot-V71/tools/v74_r18_oracle_bound.py merged oracle
+          test -s oracle/V74_R18_ORACLE_BOUND.json
+          cp source-artifact-digests.json oracle/SOURCE_ARTIFACT_DIGESTS.json
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: V74-R18-ORACLE-BOUND
+          path: oracle
+          retention-days: 90

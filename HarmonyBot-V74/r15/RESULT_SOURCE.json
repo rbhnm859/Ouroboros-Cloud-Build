@@ -1,0 +1,18 @@
+{
+  "run_id": 37711068946,
+  "run_number": 4,
+  "head_sha": "fbcebe0be2796dbbd71c04802d5983ad416c58df",
+  "artifact_id": 11522940350,
+  "artifact_digest": "sha256:8c1ca97af1db0d967a24038ccb4ae6242fb664dabdb807df4b0d481874ec47af",
+  "artifact_archive": "research-artifacts/R15-Replay4.zip",
+  "artifact_archive_sha256": "8c1ca97af1db0d967a24038ccb4ae6242fb664dabdb807df4b0d481874ec47af",
+  "manifest_member": "research/V74_R15_RESEARCH_MANIFEST.json",
+  "evaluator_hashes": {
+    "HarmonyBot-V71/tools/evaluate_v74_r15.py": "2804833df79d9c84d3634c6d7d3b3a789585e6b6e733c3713826d6278e0aabd6",
+    "HarmonyBot-V71/tools/v74_r15_model.py": "893e4b7cd2aaaf1d5abd79f47132ae791840f9a1647c27357b4ad026404c53a7",
+    "HarmonyBot-V71/tools/v74_r15_encoder.py": "fa3a8c9835600a88db8069fb2d47e1cd30113e8fcb23790f31a11753d5195e66",
+    "HarmonyBot-V71/tools/v74_r15_supply.py": "00afa18d9c1e3b14930015ac7b674bd7270e3414b1723089c4c6704edce128c9",
+    "HarmonyBot-V71/tools/v74_r15_contract.py": "c72d48a30d4c70e791195efc2f7687bf3cccae9ba92112a464804e9f36ff34d8",
+    "HarmonyBot-V71/tools/v74_model_lib.py": "cb376240a8a5435f201d656c440435104d7159caf3ec5fb498be897845ab9159"
+  }
+}

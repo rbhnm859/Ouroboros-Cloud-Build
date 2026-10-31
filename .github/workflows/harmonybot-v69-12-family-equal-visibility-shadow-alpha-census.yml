@@ -1,0 +1,145 @@
+name: HarmonyBot V69 12-Family Equal Visibility Shadow Census
+
+on:
+  push:
+    branches:
+      - harmonybot/v69-12-family-equal-visibility-shadow-alpha-census
+    paths:
+      - 'HarmonyBot-V69/**'
+      - '.github/workflows/harmonybot-v69-12-family-equal-visibility-shadow-alpha-census.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: harmonybot-v69-12-family-equal-visibility-shadow-alpha-census
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: control
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Static audit and immutable build
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd control
+          python3 HarmonyBot-V69/tools/static_contract_audit.py HarmonyBot-V69/src/HarmonyBotV69.cs
+          dotnet restore HarmonyBot-V69/HarmonyBotV69.csproj
+          dotnet build HarmonyBot-V69/HarmonyBotV69.csproj -c Release --no-restore --nologo
+          mkdir -p HarmonyBot-V69/dist HarmonyBot-V69/final
+          A=$(find HarmonyBot-V69/bin/Release -type f -name '*.algo' | head -1)
+          test -s "$A"
+          cp "$A" HarmonyBot-V69/dist/HarmonyBot_V69_12_Family_Equal_Visibility_Shadow_Alpha_Census.algo
+          sha256sum HarmonyBot-V69/src/HarmonyBotV69.cs "$A" > HarmonyBot-V69/final/SHA256SUMS
+          printf '%s\n' "$GITHUB_SHA" > HarmonyBot-V69/final/SOURCE_COMMIT.txt
+          python3 - <<'PY'
+          import hashlib,json,pathlib,os
+          s=pathlib.Path("HarmonyBot-V69/src/HarmonyBotV69.cs"); a=pathlib.Path("HarmonyBot-V69/dist/HarmonyBot_V69_12_Family_Equal_Visibility_Shadow_Alpha_Census.algo")
+          pathlib.Path("HarmonyBot-V69/final/V69_PREREGISTERED_FREEZE_MANIFEST.json").write_text(json.dumps({
+            "version":"HarmonyBot V69","source_commit":os.environ["GITHUB_SHA"],
+            "source_sha256":hashlib.sha256(s.read_bytes()).hexdigest(),"algo_sha256":hashlib.sha256(a.read_bytes()).hexdigest(),
+            "variants":["A_V68_TRUTH_CONTROL","B_EQUAL_VISIBILITY_SHADOW"],
+            "capital_behavior_change_allowed":False,"shadow_may_feed_trading":False,
+            "validation_locked":True,"fresh_locked":True
+          },indent=2))
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: v69-build
+          path: |
+            control/HarmonyBot-V69/dist
+            control/HarmonyBot-V69/final
+            control/V69_STATIC_CONTRACT_AUDIT.json
+          retention-days: 30
+
+  census_dev:
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      max-parallel: 6
+      matrix:
+        variant: [A_V68_TRUTH_CONTROL, B_EQUAL_VISIBILITY_SHADOW]
+        window: [Y2021, Y2022, Y2023, H2024H2, H2025H1, H2025H2]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: control
+      - uses: actions/download-artifact@v4
+        with:
+          name: v69-build
+          path: control/HarmonyBot-V69/shared
+      - name: Prepare immutable algo
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p control/HarmonyBot-V69/dist
+          A=$(find control/HarmonyBot-V69/shared -type f -name '*.algo' | head -1)
+          test -s "$A"
+          cp "$A" control/HarmonyBot-V69/dist/HarmonyBot_V69_12_Family_Equal_Visibility_Shadow_Alpha_Census.algo
+      - name: Resolve fixed DEV window
+        id: d
+        shell: bash
+        run: |
+          case "${{ matrix.window }}" in
+            Y2021) echo "start=04/01/2021" >> "$GITHUB_OUTPUT"; echo "eval=2021-01-11T00:00:00Z" >> "$GITHUB_OUTPUT"; echo "end=31/12/2021" >> "$GITHUB_OUTPUT"; echo "years=1.0" >> "$GITHUB_OUTPUT";;
+            Y2022) echo "start=03/01/2022" >> "$GITHUB_OUTPUT"; echo "eval=2022-01-10T00:00:00Z" >> "$GITHUB_OUTPUT"; echo "end=30/12/2022" >> "$GITHUB_OUTPUT"; echo "years=1.0" >> "$GITHUB_OUTPUT";;
+            Y2023) echo "start=02/01/2023" >> "$GITHUB_OUTPUT"; echo "eval=2023-01-09T00:00:00Z" >> "$GITHUB_OUTPUT"; echo "end=29/12/2023" >> "$GITHUB_OUTPUT"; echo "years=1.0" >> "$GITHUB_OUTPUT";;
+            H2024H2) echo "start=01/07/2024" >> "$GITHUB_OUTPUT"; echo "eval=2024-07-08T00:00:00Z" >> "$GITHUB_OUTPUT"; echo "end=31/12/2024" >> "$GITHUB_OUTPUT"; echo "years=.5" >> "$GITHUB_OUTPUT";;
+            H2025H1) echo "start=02/01/2025" >> "$GITHUB_OUTPUT"; echo "eval=2025-01-09T00:00:00Z" >> "$GITHUB_OUTPUT"; echo "end=30/06/2025" >> "$GITHUB_OUTPUT"; echo "years=.5" >> "$GITHUB_OUTPUT";;
+            H2025H2) echo "start=01/07/2025" >> "$GITHUB_OUTPUT"; echo "eval=2025-07-08T00:00:00Z" >> "$GITHUB_OUTPUT"; echo "end=31/12/2025" >> "$GITHUB_OUTPUT"; echo "years=.5" >> "$GITHUB_OUTPUT";;
+          esac
+      - name: Run frozen census DEV
+        shell: bash
+        env:
+          CTRADER_PASSWORD: ${{ secrets.CTRADER_PASSWORD }}
+          CTRADER_CTID: ${{ secrets.CTRADER_CTID }}
+          CTRADER_ACCOUNT: ${{ secrets.CTRADER_ACCOUNT }}
+        run: |
+          chmod +x control/HarmonyBot-V69/tools/*.sh
+          control/HarmonyBot-V69/tools/run_window.sh "${{ matrix.variant }}" "${{ matrix.window }}" "${{ steps.d.outputs.start }}" "${{ steps.d.outputs.eval }}" "${{ steps.d.outputs.end }}" "${{ steps.d.outputs.years }}"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: v69-census-${{ matrix.variant }}-${{ matrix.window }}
+          path: control/HarmonyBot-V69/output-${{ matrix.variant }}-${{ matrix.window }}
+          retention-days: 30
+          if-no-files-found: error
+
+  analyze:
+    needs: census_dev
+    if: always() && needs.census_dev.result == 'success'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: control
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: 'v69-census-*'
+          path: census
+          merge-multiple: true
+      - name: Build family starvation and shadow alpha census
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p final
+          python3 control/HarmonyBot-V69/tools/analyze_v69.py census final
+      - uses: actions/upload-artifact@v4
+        with:
+          name: HARMONYBOT-V69-FAMILY-CENSUS
+          path: final
+          retention-days: 30
