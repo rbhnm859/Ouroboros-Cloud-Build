@@ -93,3 +93,73 @@ jobs:
           path: custody/
           retention-days: 60
           if-no-files-found: error
+
+  official-ctrader-tooling-readonly:
+    name: Official cTrader Skill + CLI read-only verification
+    needs: core-tests-and-algo-build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    permissions:
+      contents: read
+    env:
+      DISABLE_TELEMETRY: '1'
+      CTRADER_CLI_IMAGE: ghcr.io/spotware/ctrader-console:5.9.11
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.20.0'
+      - name: Check official cTrader Skill agent bootstrap
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          mkdir -p custody
+          bash -n HarmonyBot-XAUUSD-V1/tools/bootstrap_ctrader_cli_skill.sh
+          bash HarmonyBot-XAUUSD-V1/tools/bootstrap_ctrader_cli_skill.sh | tee custody/HBXAU_SKILL_INSTALL.txt
+          grep -Fq 'PASS: official ctrader-cli agent skill installed' custody/HBXAU_SKILL_INSTALL.txt
+          npx --yes skills@1.7.6 ls -g --json > custody/HBXAU_SKILLS.json
+          grep -Fq 'ctrader-cli' custody/HBXAU_SKILLS.json
+      - name: Probe official version-pinned CLI in isolated container
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          docker pull "$CTRADER_CLI_IMAGE"
+          docker image inspect "$CTRADER_CLI_IMAGE" --format '{{index .RepoDigests 0}}' | tee custody/HBXAU_CLI_IMAGE_DIGEST.txt
+          docker run --rm --network none --cap-drop ALL --security-opt no-new-privileges \
+            "$CTRADER_CLI_IMAGE" --version | tee custody/HBXAU_CLI_VERSION.txt
+          test -s custody/HBXAU_CLI_VERSION.txt
+      - name: Seal tooling receipt (no credentials, no trading)
+        shell: bash
+        env:
+          SOURCE_COMMIT: ${{ github.sha }}
+          WORKFLOW_RUN: ${{ github.run_id }}
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY_TOOLING'
+          import hashlib,json,os,pathlib
+          p=pathlib.Path('custody')
+          files=['HBXAU_SKILL_INSTALL.txt','HBXAU_SKILLS.json','HBXAU_CLI_IMAGE_DIGEST.txt','HBXAU_CLI_VERSION.txt']
+          for name in files:
+              if not (p/name).read_bytes():
+                  raise SystemExit('EMPTY_TOOL_RECEIPT:'+name)
+          record={'schema':'HBXAU_OFFICIAL_TOOLING_READONLY_1',
+                  'commit':os.environ['SOURCE_COMMIT'],
+                  'run_id':os.environ['WORKFLOW_RUN'],
+                  'skill_install':'PASS',
+                  'official_cli_version':(p/'HBXAU_CLI_VERSION.txt').read_text().strip(),
+                  'image_ref':'ghcr.io/spotware/ctrader-console:5.9.11',
+                  'image_digest':(p/'HBXAU_CLI_IMAGE_DIGEST.txt').read_text().strip(),
+                  'sha256':{name:hashlib.sha256((p/name).read_bytes()).hexdigest() for name in files},
+                  'broker_login':False,'trades_executed':False,'historical_backtest':'NOT_RUN',
+                  'persistence':'CI_RUNNER_ONLY'}
+          (p/'HBXAU_TOOLING_RECEIPT.json').write_text(json.dumps(record,indent=2,sort_keys=True)+'\n')
+          print('[HBXAU-TOOLING] PASS skill, CLI version and image digest captured')
+          PY_TOOLING
+      - uses: actions/upload-artifact@v4
+        with:
+          name: HBXAU-V1-TOOLING-READONLY-${{ github.sha }}
+          path: custody/
+          retention-days: 60
+          if-no-files-found: error
