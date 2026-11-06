@@ -41,3 +41,8 @@ dotnet build HarmonyBot-XAUUSD-V1/src/HarmonyBot.XauUsd.cBot/HarmonyBot.XauUsd.c
 - P5: four independent vetoes (Risk, Model Validation, Red Team, Data Governance). Until all pass, trading remains hard-disabled.
 
 Rollback: delete the isolated feature branch only **after** explicit approval, or simply leave it idle. No original source files modified.
+
+## Phase 1 extension
+- `CausalPatternAssembler` receives confirmed pivots and emits research-only completed-D events after five alternating pivots. Broker orders remain impossible.
+- `CommercialResearchGate` implements the new V1 annual threshold checklist but is not independent validation; synthetic test inputs never count as measured results.
+- `WholeTradeAccounting` records partial-close cash flows as one completed lifecycle, maintaining the original initial-risk denominator.

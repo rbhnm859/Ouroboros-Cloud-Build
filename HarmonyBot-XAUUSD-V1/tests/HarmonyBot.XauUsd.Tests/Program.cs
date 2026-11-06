@@ -210,6 +210,57 @@ Test("missing causal proof cannot ENTER", () => {
     Equal("NON_CAUSAL_FEATURE",StrategyDecision.Evaluate(o,false,true).Reason);
 });
 
+
+Test("five-pivot assembler emits research only at confirmed D", () => {
+    var a=new CausalPatternAssembler(); var p=Pivots();
+    for(int i=0;i<4;i++) True(a.Observe(p[i],time.AddHours(2),.01m) is null,"premature D");
+    var o=a.Observe(p[4],time.AddHours(2),.01m);
+    True(o is not null && !o.ReadyForTrading,"research only");
+});
+Test("assembler rejects duplicate confirmed source", () => {
+    var a=new CausalPatternAssembler(); var p=Pivots();
+    a.Observe(p[0],time.AddHours(2),.01m);
+    Fails(()=>a.Observe(p[0],time.AddHours(2),.01m));
+});
+Test("assembler same-side pivots cannot fake alternating D", () => {
+    var a=new CausalPatternAssembler();var p=Pivots();
+    a.Observe(p[0],time.AddHours(2),.01m);
+    var extra=p[0] with { SourceBarIndex=20, ConfirmationBarIndex=22, Price=99m };
+    True(a.Observe(extra,time.AddHours(2),.01m) is null,"same-side pivot");
+});
+Test("partial closes remain exactly one trade", () => {
+    var ledger=new WholeTradeAccounting("THESIS",5m,25m);
+    ledger.RecordNetClose(2m,20m);
+    Equal(0,ledger.WholeTradeCount);
+    Fails(()=>{ var x=ledger.FinalNetR(); });
+    ledger.RecordNetClose(3m,30m);
+    Equal(1,ledger.WholeTradeCount);
+    Equal(2,ledger.PartialCloseCount);
+    Equal(2m,ledger.FinalNetR());
+    Fails(()=>ledger.RecordNetClose(1m,1m));
+});
+Test("annual gate does not accept missing lineage", () => {
+    var e=new AnnualOosEvidence(2025,true,true,false,true,
+        new string('a',64),new string('b',64),new string('c',64),
+        500,.9m,3.3m,.6m,2.3m,.01m);
+    True(!CommercialResearchGate.Check(e).Passed,"lineage");
+});
+Test("annual gate checks lower bound separately", () => {
+    var e=new AnnualOosEvidence(2025,true,true,true,true,
+        new string('a',64),new string('b',64),new string('c',64),
+        500,.9m,3.3m,.6m,2.3m,0m);
+    Equal("LCB95_NONPOSITIVE",CommercialResearchGate.Check(e).Reason);
+});
+Test("annual gate cannot merge away failed years", () => {
+    var e=new AnnualOosEvidence(2025,true,true,true,true,
+        new string('a',64),new string('b',64),new string('c',64),
+        500,.9m,3.3m,.6m,2.3m,.1m);
+    True(CommercialResearchGate.Check(e).Passed,"synthetic contract should pass");
+    True(!CommercialResearchGate.CheckAll(new[]{e,e with {Year=2026,WholeTrades=499}}),
+        "year-2 must fail");
+    True(!CommercialResearchGate.CheckAll(new[]{e,e}),"duplicate year");
+});
+
 int passed=0;
 foreach(var (name,action) in cases)
 {

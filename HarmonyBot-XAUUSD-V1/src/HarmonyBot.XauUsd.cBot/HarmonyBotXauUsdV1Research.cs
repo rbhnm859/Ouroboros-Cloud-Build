@@ -16,6 +16,7 @@ namespace cAlgo.Robots
         public int PivotRightBars { get; set; }
 
         private CausalPivotDetector? _pivots;
+        private CausalPatternAssembler? _assembler;
 
         protected override void OnStart()
         {
@@ -26,6 +27,7 @@ namespace cAlgo.Robots
                 return;
             }
             _pivots = new CausalPivotDetector(PivotLeftBars, PivotRightBars);
+            _assembler = new CausalPatternAssembler();
             Print("[HBXAU-V1] RESEARCH_ONLY; orders permanently disabled in this build; symbol={0}", SymbolName);
             Print("[HBXAU-V1] Broker contract and original harmonic specifications NOT VERIFIED.");
         }
@@ -50,6 +52,17 @@ namespace cAlgo.Robots
                     Print("[HBXAU-V1-PIVOT] source={0} confirm={1} kind={2} price={3} available={4:o}",
                         pivot.SourceBarIndex, pivot.ConfirmationBarIndex,
                         pivot.Kind, pivot.Price, pivot.AvailableAtUtc.UtcDateTime);
+                    // Research event after five alternating CONFIRMED pivots.
+                    // The decision remains locked REJECT; NO trade API is invoked.
+                    var observation = _assembler!.Observe(pivot,end,(decimal)Symbol.TickSize);
+                    if (observation != null)
+                    {
+                        var verdict = StrategyDecision.Evaluate(observation,true,false);
+                        Print("[HBXAU-V1-CANDIDATE] event={0} matched={1} verdict={2} blocker={3}",
+                            observation.EventId,
+                            string.Join(",",observation.ResearchMatches),
+                            verdict.Action,verdict.Reason);
+                    }
                 }
             }
             catch (Exception ex)
