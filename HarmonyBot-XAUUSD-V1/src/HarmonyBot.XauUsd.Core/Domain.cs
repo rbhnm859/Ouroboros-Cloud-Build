@@ -75,17 +75,29 @@ public sealed class CausalPivotDetector
     private readonly int _right;
     private readonly System.Collections.Generic.List<CompletedBar> _bars = new();
     private long _offset;
+    private DateTimeOffset? _lastObservedAtUtc;
     public CausalPivotDetector(int leftBars = 3, int rightBars = 3)
     {
         if (leftBars < 1 || rightBars < 1) throw new ArgumentOutOfRangeException(nameof(leftBars));
         _left = leftBars; _right = rightBars;
     }
 
+    // Legacy fixture compatibility; production must pass the true observation
+    // time explicitly, which may be delayed until the next tick (e.g. Monday).
     public System.Collections.Generic.IReadOnlyList<ConfirmedPivot> AppendCompleted(CompletedBar closedBar)
+        => AppendCompleted(closedBar, closedBar.CloseUtc);
+
+    public System.Collections.Generic.IReadOnlyList<ConfirmedPivot> AppendCompleted(
+        CompletedBar closedBar, DateTimeOffset observedAtUtc)
     {
         closedBar.Validate();
+        Contract.Utc(observedAtUtc, nameof(observedAtUtc));
+        if (observedAtUtc < closedBar.CloseUtc ||
+            (_lastObservedAtUtc.HasValue && observedAtUtc < _lastObservedAtUtc.Value))
+            throw new ArgumentException("Bar observation timestamp is non-causal");
         if (_bars.Count > 0 && closedBar.OpenUtc < _bars[^1].CloseUtc)
             throw new InvalidOperationException("Overlapping or out-of-order bars");
+        _lastObservedAtUtc = observedAtUtc;
         _bars.Add(closedBar);
         var result = new System.Collections.Generic.List<ConfirmedPivot>(2);
         int center = _bars.Count - 1 - _right;
@@ -100,7 +112,7 @@ public sealed class CausalPivotDetector
             }
             long source = _offset + center;
             long confirmation = _offset + _bars.Count - 1;
-            DateTimeOffset availableAt = _bars[^1].CloseUtc;
+            DateTimeOffset availableAt = observedAtUtc;
             if (isHigh) result.Add(new ConfirmedPivot(source, confirmation,
                 PivotKind.High, _bars[center].High, _bars[center].CloseUtc, availableAt));
             if (isLow) result.Add(new ConfirmedPivot(source, confirmation,

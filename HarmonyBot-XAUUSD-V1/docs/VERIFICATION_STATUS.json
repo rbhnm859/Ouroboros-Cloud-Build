@@ -7,7 +7,7 @@
   "independent_repo_created": false,
   "historical_v1_ci_run": 42153957669,
   "historical_v1_ci_status": "PASS",
-  "cleanroom_ci_status": "NOT VERIFIED",
+  "cleanroom_ci_status": "PASS",
   "legacy_v74_mutated": false,
   "mode": "RESEARCH_ONLY_NO_ORDER_API",
   "phases": {
@@ -24,5 +24,13 @@
   },
   "v74_gate_unchanged": true,
   "cost_policy": "FREE_CI_ONLY_NO_BACKTEST",
-  "plan_version": "1.1"
+  "plan_version": "1.2",
+  "cleanroom_ci_run": 42156660260,
+  "cleanroom_ci_source_sha": "bddaba12bb8b2a601f4730c38bccc43684e112dd",
+  "cleanroom_ci_result": "54/54 contracts, compiled research .algo, source isolation",
+  "pending_change_ci": "NOT VERIFIED",
+  "phase1_time_contract": "IN_REVIEW",
+  "phase1_runtime_parity": "NOT VERIFIED",
+  "phase1_actual_broker_runtime": "NOT VERIFIED",
+  "next_step": "HBX-P1-TIME-001: independent source contract CI + cTrader runtime parity"
 }

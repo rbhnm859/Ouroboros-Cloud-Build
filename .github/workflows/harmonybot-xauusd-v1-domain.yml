@@ -43,6 +43,21 @@ jobs:
           mkdir -p custody
           dotnet run --project HarmonyBot-XAUUSD-V1/tests/HarmonyBot.XauUsd.Tests/HarmonyBot.XauUsd.Tests.csproj -c Release | tee custody/HBXAU_TEST_RESULT.txt
           grep -E '^SUMMARY passed=[0-9]+ total=[0-9]+$' custody/HBXAU_TEST_RESULT.txt
+      - name: Guard the documented OnBar closed-candle contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          F=HarmonyBot-XAUUSD-V1/src/HarmonyBot.XauUsd.cBot/HarmonyBotXauUsdV1Research.cs
+          grep -Fq 'protected override void OnBar()' "$F"
+          if grep -Fq 'protected override void OnBarClosed()' "$F"; then
+            echo '[HBXAU-V1] FAIL: legacy ambiguous OnBarClosed indexing' >&2
+            exit 1
+          fi
+          grep -Fq 'var closed = Bars.Last(1);' "$F"
+          grep -Fq 'var newlyOpened = Bars.Last(0);' "$F"
+          grep -Fq 'DateTime.SpecifyKind(Server.Time, DateTimeKind.Utc)' "$F"
+          grep -Fq 'receipt.AvailableAtUtc' "$F"
+          echo '[HBXAU-V1] PASS OnBar causal source and receipt contract'
       - name: cTrader Research-Only adapter compile
         shell: bash
         run: |

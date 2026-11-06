@@ -273,6 +273,68 @@ Test("non-monotone pivot event time rejected", () => {
     Fails(()=>HarmonicAnalyzer.Analyze(p,time.AddHours(2),.01m));
 });
 
+
+Test("bar receipt separates next-open boundary from observed tick", () => {
+    var opened = time.AddMinutes(1);
+    var observed = opened.AddSeconds(7);
+    var receipt = CausalBarReceipt.CaptureOnBarOpened(time,opened,observed,
+        10m,11m,9m,10m);
+    Equal(opened,receipt.ClosedBar.CloseUtc);
+    Equal(observed,receipt.AvailableAtUtc);
+    Equal(observed,receipt.ObservedAtUtc);
+});
+Test("Friday last bar remains unavailable until Monday tick", () => {
+    var friday = new DateTimeOffset(2026,11,6,21,59,0,TimeSpan.Zero);
+    var monday = new DateTimeOffset(2026,11,9,0,0,0,TimeSpan.Zero);
+    var firstTick = monday.AddSeconds(3);
+    var receipt=CausalBarReceipt.CaptureOnBarOpened(friday,monday,firstTick,
+        4000m,4002m,3998m,4001m);
+    True(receipt.AvailableAtUtc>friday.AddDays(1),"weekend leak");
+    Equal(firstTick,receipt.AvailableAtUtc);
+});
+Test("bar observation before next-open fails closed", () => Fails(() =>
+    CausalBarReceipt.CaptureOnBarOpened(time,time.AddMinutes(1),
+        time.AddSeconds(50),10m,11m,9m,10m)));
+Test("non-UTC observation rejected", () => Fails(() =>
+    CausalBarReceipt.CaptureOnBarOpened(time,time.AddMinutes(1),
+        time.AddMinutes(2).ToOffset(TimeSpan.FromHours(8)),10m,11m,9m,10m)));
+Test("bar observation must not predate completed boundary", () => {
+    var d=new CausalPivotDetector(1,1);
+    var bar=new CompletedBar(time,time.AddMinutes(1),10m,11m,9m,10m);
+    Fails(()=>d.AppendCompleted(bar,time.AddSeconds(30)));
+});
+Test("pivot availability follows observed tick not nominal boundary", () => {
+    var d=new CausalPivotDetector(1,1);
+    decimal[] h={11m,15m,12m};
+    for (int i=0;i<3;i++) {
+        var bar=new CompletedBar(time.AddMinutes(i),time.AddMinutes(i+1),
+            h[i]-1m,h[i],h[i]-2m,h[i]-1m);
+        var pivots=d.AppendCompleted(bar,time.AddMinutes(i+1).AddSeconds(3));
+        if(i==2) {
+            Equal(1,pivots.Count);
+            Equal(time.AddMinutes(3).AddSeconds(3),pivots[0].AvailableAtUtc);
+            True(pivots[0].AvailableAtUtc > pivots[0].EventAtUtc,
+                 "confirmation requires right-bar observation");
+        }
+    }
+});
+Test("time regression fails closed even for later bar open", () => {
+    var d=new CausalPivotDetector(1,1);
+    d.AppendCompleted(new CompletedBar(time,time.AddMinutes(1),10m,11m,9m,10m),
+                      time.AddMinutes(5));
+    Fails(()=>d.AppendCompleted(
+        new CompletedBar(time.AddMinutes(1),time.AddMinutes(2),10m,11m,9m,10m),
+        time.AddMinutes(4)));
+});
+Test("weekly bar boundaries cannot be mistaken for exact last tick", () => {
+    var friday=new DateTimeOffset(2026,11,6,20,0,0,TimeSpan.Zero);
+    var monday=new DateTimeOffset(2026,11,9,0,0,0,TimeSpan.Zero);
+    var r=CausalBarReceipt.CaptureOnBarOpened(friday,monday,monday.AddMinutes(1),
+        3000m,3003m,2998m,3001m);
+    Equal(monday,r.NextBarOpenUtc);
+    True(r.AvailableAtUtc>r.NextBarOpenUtc,"must model delayed observation");
+});
+
 int passed=0;
 foreach(var (name,action) in cases)
 {

@@ -32,21 +32,31 @@ namespace cAlgo.Robots
             Print("[HBXAU-V1] Broker contract and original harmonic specifications NOT VERIFIED.");
         }
 
-        protected override void OnBarClosed()
+        // OnBar(): Bars.Last(0) is the newly FORMING bar and is used ONLY
+        // for its open boundary. Bars.Last(1) is the just-completed bar.
+        // Avoid the documented OnBarClosed()/Last(1) ambiguity.
+        protected override void OnBar()
         {
             if (_pivots == null || Bars.Count < PivotLeftBars + PivotRightBars + 3)
                 return;
             try
             {
-                // Bars.Last(1) is the previous completed bar in the official
-                // cTrader OnBarClosed examples. Last(0).OpenTime is its end.
                 var closed = Bars.Last(1);
-                var next = Bars.Last(0);
-                var start = new DateTimeOffset(DateTime.SpecifyKind(closed.OpenTime, DateTimeKind.Utc));
-                var end = new DateTimeOffset(DateTime.SpecifyKind(next.OpenTime, DateTimeKind.Utc));
-                var bar = new CompletedBar(start, end, (decimal)closed.Open,
-                    (decimal)closed.High, (decimal)closed.Low, (decimal)closed.Close);
-                var events = _pivots.AppendCompleted(bar);
+                var newlyOpened = Bars.Last(0);
+                var sourceOpenUtc = new DateTimeOffset(
+                    DateTime.SpecifyKind(closed.OpenTime, DateTimeKind.Utc));
+                var nextOpenUtc = new DateTimeOffset(
+                    DateTime.SpecifyKind(newlyOpened.OpenTime, DateTimeKind.Utc));
+                // The new bar only opens when a tick arrives. Friday close
+                // can therefore become available on Monday, not Friday.
+                var tickObservedUtc = new DateTimeOffset(
+                    DateTime.SpecifyKind(Server.Time, DateTimeKind.Utc));
+                var receipt = CausalBarReceipt.CaptureOnBarOpened(
+                    sourceOpenUtc, nextOpenUtc, tickObservedUtc,
+                    (decimal)closed.Open, (decimal)closed.High,
+                    (decimal)closed.Low, (decimal)closed.Close);
+                var events = _pivots.AppendCompleted(
+                    receipt.ClosedBar, receipt.AvailableAtUtc);
                 foreach (var pivot in events)
                 {
                     Print("[HBXAU-V1-PIVOT] source={0} confirm={1} kind={2} price={3} available={4:o}",
@@ -54,7 +64,7 @@ namespace cAlgo.Robots
                         pivot.Kind, pivot.Price, pivot.AvailableAtUtc.UtcDateTime);
                     // Research event after five alternating CONFIRMED pivots.
                     // The decision remains locked REJECT; NO trade API is invoked.
-                    var observation = _assembler!.Observe(pivot,end,(decimal)Symbol.TickSize);
+                    var observation = _assembler!.Observe(pivot,receipt.AvailableAtUtc,(decimal)Symbol.TickSize);
                     if (observation != null)
                     {
                         var verdict = StrategyDecision.Evaluate(observation,true,false);
