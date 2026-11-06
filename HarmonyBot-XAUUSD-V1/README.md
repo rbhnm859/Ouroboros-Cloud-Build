@@ -46,3 +46,8 @@ Rollback: delete the isolated feature branch only **after** explicit approval, o
 - `CausalPatternAssembler` receives confirmed pivots and emits research-only completed-D events after five alternating pivots. Broker orders remain impossible.
 - `CommercialResearchGate` implements the new V1 annual threshold checklist but is not independent validation; synthetic test inputs never count as measured results.
 - `WholeTradeAccounting` records partial-close cash flows as one completed lifecycle, maintaining the original initial-risk denominator.
+
+## Strict branch isolation — 2026-11-06
+The V1 branch is logically separated from V74/R18; it remains within the same GitHub repository and consequently shares account-level settings, other workflows and billing. CI now verifies the exact fork baseline, protected path non-mutation, branch identity, cross-project reference boundaries and read-only permissions before compiling. The result is sealed in `custody/HBXAU_ISOLATION_AUDIT.json`.
+
+See [Isolation Charter](docs/ISOLATION_CHARTER_V1.md), [Engineering Plan](docs/ENGINEERING_PLAN_V1.md), and [Baseline Evidence](docs/BASELINE_AND_EVIDENCE_20261106.md).

@@ -21,6 +21,15 @@ jobs:
     timeout-minutes: 12
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Verify isolated branch and unchanged protected project
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p custody
+          python3 -m unittest discover -s HarmonyBot-XAUUSD-V1/tools -p test_isolation.py -v
+          python3 HarmonyBot-XAUUSD-V1/tools/audit_isolation.py --base c3283e6f61741a5a9a3d2fc7ea31a066b64f7806 --branch feat/harmonybot-xauusd-core-v1-20261106 --output custody/HBXAU_ISOLATION_AUDIT.json
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '8.0.x'
@@ -61,11 +70,17 @@ jobs:
           python3 - <<'PY_CUSTODY'
           import json,hashlib,os,pathlib
           p=pathlib.Path('custody/HBXAU_V1_RESEARCH_ONLY.algo')
+          isolation=pathlib.Path('custody/HBXAU_ISOLATION_AUDIT.json')
+          audit=json.loads(isolation.read_text())
+          if audit.get('status')!='PASS':
+              raise SystemExit('ISOLATION_NOT_PASSED')
           result={'schema':'HBXAU_V1_RESEARCH_CUSTODY_1',
                   'commit':os.environ['SOURCE_COMMIT'],
                   'run_id':os.environ['WORKFLOW_RUN'],
                   'algo_sha256':hashlib.sha256(p.read_bytes()).hexdigest(),
                   'test_output_sha256':hashlib.sha256(pathlib.Path('custody/HBXAU_TEST_RESULT.txt').read_bytes()).hexdigest(),
+                  'isolation_audit_sha256':hashlib.sha256(isolation.read_bytes()).hexdigest(),
+                  'isolation_status':'PASS',
                   'trading_allowed':False,'research_only':True,
                   'broker_compatibility':'NOT_VERIFIED',
                   'independent_oos':'NOT_RUN'}
