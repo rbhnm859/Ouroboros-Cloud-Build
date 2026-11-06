@@ -17,6 +17,7 @@ namespace cAlgo.Robots
 
         private CausalPivotDetector? _pivots;
         private CausalPatternAssembler? _assembler;
+        private long _reportedAmbiguousBarCount;
 
         protected override void OnStart()
         {
@@ -57,6 +58,12 @@ namespace cAlgo.Robots
                     (decimal)closed.Low, (decimal)closed.Close);
                 var events = _pivots.AppendCompleted(
                     receipt.ClosedBar, receipt.AvailableAtUtc);
+                if (_pivots.AmbiguousOutsideBarCount != _reportedAmbiguousBarCount)
+                {
+                    _reportedAmbiguousBarCount = _pivots.AmbiguousOutsideBarCount;
+                    Print("[HBXAU-V1] AMBIGUOUS_OUTSIDE_BAR_REJECTED count={0}",
+                        _reportedAmbiguousBarCount);
+                }
                 foreach (var pivot in events)
                 {
                     Print("[HBXAU-V1-PIVOT] source={0} confirm={1} kind={2} price={3} available={4:o}",

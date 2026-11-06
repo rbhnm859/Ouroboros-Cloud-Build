@@ -42,6 +42,8 @@ public static class RiskGate
             return RiskDecision.Reject("STALE_BROKER_SNAPSHOT");
         if (!p.ReconciliationComplete || !p.ExclusiveExecutionLeaseHeld || p.UnknownOrderOutcome)
             return RiskDecision.Reject("EXECUTION_CUSTODY_UNVERIFIED");
+        if (p.OpenXauPositions < 0 || p.PendingXauOrders < 0)
+            return RiskDecision.Reject("INVALID_EXPOSURE_COUNT");
         if (p.OpenXauPositions != 0 || p.PendingXauOrders != 0)
             return RiskDecision.Reject("XAUUSD_EXPOSURE_ALREADY_EXISTS");
         if (p.EquityUsd < 100 || p.FreeMarginUsd <= 0
@@ -55,10 +57,15 @@ public static class RiskGate
             || b.TickSize <= 0 || b.PipSize <= 0 || b.MarginPerVolumeUnit <= 0
             || b.MoneyPerPriceUnitPerVolumeUnit <= 0 || b.MinStopDistancePrice < 0)
             return RiskDecision.Reject("INVALID_BROKER_NUMERICS");
+        if (t.Direction != Side.Buy && t.Direction != Side.Sell)
+            return RiskDecision.Reject("INVALID_SIDE");
         if (t.Entry <= 0 || t.Stop <= 0 || t.Target <= 0
             || t.SpreadPrice < 0 || t.RoundTripFeesPerVolumeUnit < 0
             || t.StressedSlippagePerVolumeUnit < 0)
             return RiskDecision.Reject("INVALID_TRADE_NUMERICS");
+        if (t.Entry % b.TickSize != 0 || t.Stop % b.TickSize != 0
+            || t.Target % b.TickSize != 0)
+            return RiskDecision.Reject("PRICE_OFF_TICK_GRID");
         bool correctOrder = t.Direction == Side.Buy
             ? t.Stop < t.Entry && t.Entry < t.Target
             : t.Target < t.Entry && t.Entry < t.Stop;
@@ -73,7 +80,14 @@ public static class RiskGate
             * b.MoneyPerPriceUnitPerVolumeUnit - cost;
         if (perUnitRisk <= 0 || perUnitReward <= 0 || perUnitReward / perUnitRisk < 2)
             return RiskDecision.Reject("NET_RR_BELOW_2");
-        decimal allowedUsd = p.EquityUsd * t.RequestedRiskPercent / 100m;
+        // Conservative planned-loss budget: do not size an intended stop
+        // that would already exceed the 10% peak-equity DD lock.
+        // Gaps/slippage may STILL breach it; no live execution guarantee.
+        decimal drawdownRoomUsd = p.EquityUsd - 0.90m * p.PeakEquityUsd;
+        decimal allowedUsd = Math.Min(
+            p.EquityUsd * t.RequestedRiskPercent / 100m, drawdownRoomUsd);
+        if (allowedUsd <= 0m)
+            return RiskDecision.Reject("DRAWDOWN_ROOM_EXHAUSTED");
         decimal maxAffordable = Math.Min(allowedUsd / perUnitRisk,
             p.FreeMarginUsd / b.MarginPerVolumeUnit);
         if (maxAffordable < b.VolumeMin)
@@ -100,11 +114,33 @@ public sealed class ResearchIntentLedger
 {
     private readonly HashSet<string> _seen = new(StringComparer.Ordinal);
     private readonly object _mutex = new();
+    private readonly int _capacity;
+    private bool _saturated;
+
+    // Bounded memory with NO eviction: if the capacity is reached, new
+    // candidates stop, rather than forgetting past IDs and re-emitting them.
+    // This is NOT a durable/distributed idempotency or execution ledger.
+    public ResearchIntentLedger(int capacity = 8192)
+    {
+        if (capacity < 1) throw new ArgumentOutOfRangeException(nameof(capacity));
+        _capacity = capacity;
+    }
+    public bool Saturated { get { lock (_mutex) return _saturated; } }
+    public int Count { get { lock (_mutex) return _seen.Count; } }
 
     public bool TryReserve(string thesisId)
     {
-        if (string.IsNullOrWhiteSpace(thesisId)) return false;
-        lock (_mutex) return _seen.Add(thesisId);
+        if (string.IsNullOrWhiteSpace(thesisId) || thesisId.Length > 256) return false;
+        lock (_mutex)
+        {
+            if (_seen.Contains(thesisId)) return false;
+            if (_seen.Count >= _capacity)
+            {
+                _saturated = true;
+                return false;
+            }
+            return _seen.Add(thesisId);
+        }
     }
     public bool Contains(string thesisId)
     {

@@ -24,13 +24,15 @@
   },
   "v74_gate_unchanged": true,
   "cost_policy": "FREE_CI_ONLY_NO_BACKTEST",
-  "plan_version": "1.2",
-  "cleanroom_ci_run": 42156660260,
-  "cleanroom_ci_source_sha": "bddaba12bb8b2a601f4730c38bccc43684e112dd",
-  "cleanroom_ci_result": "54/54 contracts, compiled research .algo, source isolation",
+  "plan_version": "1.3-core-hardening",
+  "cleanroom_ci_run": 42231525111,
+  "cleanroom_ci_source_sha": "7566a6a682acb3e7a13d8baedbc985555287e16a",
+  "cleanroom_ci_result": "62/62, source timing contract, research .algo compiled, no order APIs",
   "pending_change_ci": "NOT VERIFIED",
-  "phase1_time_contract": "IN_REVIEW",
+  "phase1_time_contract": "PASS at source 7566a6a682acb3e7a13d8baedbc985555287e16a",
   "phase1_runtime_parity": "NOT VERIFIED",
   "phase1_actual_broker_runtime": "NOT VERIFIED",
-  "next_step": "HBX-P1-TIME-001: independent source contract CI + cTrader runtime parity"
+  "next_step": "Run CI on new single refactor commit; obtain true .algo and test SHA256. Broker runtime / Carney source still pending.",
+  "phase2_causal_prz_projection": "NOT VERIFIED until new CI",
+  "authority_note": "Snapshot of PREVIOUS successful CI only. Use GitHub Actions latest run, not this committed file, for new HEAD acceptance."
 }

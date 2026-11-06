@@ -21,7 +21,18 @@ public static class TemporalGate
                f.AvailableAtUtc <= decisionAtUtc;
     }
     public static bool CanUseAll(IEnumerable<TimeStampedFeature> features,
-        DateTimeOffset decisionAtUtc) => features.All(f => CanUse(f, decisionAtUtc));
+        DateTimeOffset decisionAtUtc)
+    {
+        if (features == null) return false;
+        bool observedAny = false;
+        foreach (var feature in features)
+        {
+            observedAny = true;
+            if (feature == null || !CanUse(feature, decisionAtUtc)) return false;
+        }
+        // Empty evidence cannot be proof that *all required* features exist.
+        return observedAny;
+    }
 }
 
 public static class InstitutionalSession

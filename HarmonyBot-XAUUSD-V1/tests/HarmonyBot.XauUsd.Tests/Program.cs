@@ -335,6 +335,136 @@ Test("weekly bar boundaries cannot be mistaken for exact last tick", () => {
     True(r.AvailableAtUtc>r.NextBarOpenUtc,"must model delayed observation");
 });
 
+
+Test("same candle double extreme is ambiguous and omitted", () => {
+    var d=new CausalPivotDetector(1,1);
+    d.AppendCompleted(new CompletedBar(time,time.AddMinutes(1),9.5m,10m,9m,9.5m));
+    d.AppendCompleted(new CompletedBar(time.AddMinutes(1),time.AddMinutes(2),
+        10m,16m,3m,10m));
+    var result=d.AppendCompleted(new CompletedBar(time.AddMinutes(2),time.AddMinutes(3),
+        10.5m,11m,10m,10.5m));
+    Equal(0,result.Count);
+    Equal(1L,d.AmbiguousOutsideBarCount);
+});
+Test("outside bar ambiguity cannot repeat when next candle arrives", () => {
+    var d=new CausalPivotDetector(1,1);
+    d.AppendCompleted(new CompletedBar(time,time.AddMinutes(1),9.5m,10m,9m,9.5m));
+    d.AppendCompleted(new CompletedBar(time.AddMinutes(1),time.AddMinutes(2),
+        10m,16m,3m,10m));
+    d.AppendCompleted(new CompletedBar(time.AddMinutes(2),time.AddMinutes(3),
+        10.5m,11m,10m,10.5m));
+    d.AppendCompleted(new CompletedBar(time.AddMinutes(3),time.AddMinutes(4),
+        10.5m,11m,10m,10.5m));
+    Equal(1L,d.AmbiguousOutsideBarCount);
+});
+Test("negative pivot index cannot pass causal contract", () => {
+    var p=Pivots()[0] with {SourceBarIndex=-1};
+    Fails(()=>p.Validate(time.AddHours(2)));
+});
+Test("event ledger bounded with no eviction and no re-emission", () => {
+    var l=new ResearchIntentLedger(2);
+    True(l.TryReserve("A"),"A");
+    True(l.TryReserve("B"),"B");
+    True(!l.TryReserve("C"),"limit");
+    True(l.Saturated,"saturated");
+    Equal(2,l.Count);
+    True(l.Contains("A"),"A retained");
+    True(!l.TryReserve("A"),"reemit A forbidden");
+});
+Test("event ledger invalid capacity fails closed", () =>
+    Fails(()=>{ var unused=new ResearchIntentLedger(0); }));
+Test("event ledger oversize identifier rejected", () =>
+    True(!new ResearchIntentLedger(1).TryReserve(new string('X',257)),
+        "oversize thesis"));
+Test("R allocator obeys remaining peak drawdown cushion", () => {
+    var p=Portfolio() with {EquityUsd=925m,PeakEquityUsd=1000m};
+    var r=RiskGate.Evaluate(Trade(),Broker(),p);
+    True(r.Approved,"cushion permit: "+r.Reason);
+    True(r.Allocation!.InitialRiskUsd<=25m,"risk would breach DD 10%");
+});
+Test("R allocator rejects trade when minimum size exceeds DD cushion", () => {
+    var p=Portfolio() with {EquityUsd=910m,PeakEquityUsd=1000m};
+    var r=RiskGate.Evaluate(Trade(),Broker(),p);
+    Equal("MINIMUM_VOLUME_UNAFFORDABLE",r.Reason);
+});
+Test("negative broker exposure is unverified, not zero", () =>
+    Equal("INVALID_EXPOSURE_COUNT",RiskGate.Evaluate(
+        Trade(),Broker(),Portfolio() with {OpenXauPositions=-1}).Reason));
+Test("invalid directional enum rejected", () =>
+    Equal("INVALID_SIDE",RiskGate.Evaluate(
+        Trade() with {Direction=(Side)250},Broker(),Portfolio()).Reason));
+Test("off-grid stop rejected, never auto-rounded into looser risk", () =>
+    Equal("PRICE_OFF_TICK_GRID",RiskGate.Evaluate(
+        Trade() with {Stop=1990.005m},Broker(),Portfolio()).Reason));
+Test("empty causal feature set is not proof of causality", () =>
+    True(!TemporalGate.CanUseAll(Array.Empty<TimeStampedFeature>(),time),
+        "empty temporal proof"));
+Test("valid causal feature set accepted", () =>
+    True(TemporalGate.CanUseAll(new[]{
+        new TimeStampedFeature("ATR",1m,time.AddMinutes(-3),
+            time.AddMinutes(-2),time.AddMinutes(-1))},time),"feature"));
+Test("research PRZ projected from XABC contains confirmed Gartley D", () => {
+    var p=Pivots(); var zones=CausalPrzProjector.Project(p.Take(4).ToArray(),
+        time.AddHours(1),.01m);
+    var g=zones.Single(z=>z.Family==PatternFamily.Gartley);
+    Equal(Side.Buy,g.Direction);
+    True(g.TickAlignedZone.Low<=p[4].Price &&
+         p[4].Price<=g.TickAlignedZone.High,"Gartley projection");
+    True(!g.SourceVerified,"never certified");
+});
+Test("research PRZ does not use D input", () => {
+    var p=Pivots();var z=CausalPrzProjector.Project(p.Take(4).ToArray(),
+        time.AddHours(1),.01m);
+    var changed=Pivots();changed[4]=changed[4] with {Price=115m};
+    var z2=CausalPrzProjector.Project(changed.Take(4).ToArray(),
+        time.AddHours(1),.01m);
+    Equal(z.Count,z2.Count);
+    for(int i=0;i<z.Count;i++) Equal(z[i],z2[i]);
+});
+Test("unavailable C pivot cannot project a past PRZ", () => {
+    var p=Pivots().Take(4).ToArray();
+    Fails(()=>CausalPrzProjector.Project(p,time.AddMinutes(30),.01m));
+});
+Test("inverted XABC price path fails projection", () => {
+    var p=Pivots().Take(4).ToArray();
+    p[3]=p[3] with {Price=120m};
+    Fails(()=>CausalPrzProjector.Project(p,time.AddHours(1),.01m));
+});
+Test("specialized Shark and 5-0 never projected using generic XABCD", () => {
+    var z=CausalPrzProjector.Project(Pivots().Take(4).ToArray(),
+        time.AddHours(1),.01m);
+    True(z.All(x=>x.Family!=PatternFamily.Shark &&
+                   x.Family!=PatternFamily.FiveZero),"special grammar");
+});
+Test("research mirror projection handles bearish geometry", () => {
+    var p=Pivots().Take(4).Select(x=>x with {
+        Kind=x.Kind==PivotKind.Low?PivotKind.High:PivotKind.Low,
+        Price=300m-x.Price}).ToArray();
+    var zones=CausalPrzProjector.Project(p,time.AddHours(1),.01m);
+    var g=zones.Single(x=>x.Family==PatternFamily.Gartley);
+    Equal(Side.Sell,g.Direction);
+    True(g.TickAlignedZone.Low<=178.6m && g.TickAlignedZone.High>=178.6m,
+        "mirrored D");
+});
+Test("retrospective projected D is flagged when C unavailable beforehand", () => {
+    var p=Pivots();
+    p[3]=p[3] with {AvailableAtUtc=time.AddMinutes(41)};
+    var o=HarmonicAnalyzer.Analyze(p,time.AddHours(2),.01m);
+    True(!o.PrzProjectedBeforeD,"C was not known at D event");
+    True(!o.ReadyForTrading,"retro fit cannot trade");
+});
+Test("causally projected D flag true only when C known first", () => {
+    var o=HarmonicAnalyzer.Analyze(Pivots(),time.AddHours(2),.01m);
+    True(o.PrzProjectedBeforeD,"C confirmation precedes D");
+});
+Test("off-grid PRZ intersection cannot invent a legal tick", () => {
+    var p=Pivots().Take(4).ToArray();
+    var zones=CausalPrzProjector.Project(p,time.AddHours(1),1000m);
+    Equal(0,zones.Count);
+});
+Test("no D or future data can satisfy project signature", () =>
+    Fails(()=>CausalPrzProjector.Project(Pivots(),time.AddHours(1),.01m)));
+
 int passed=0;
 foreach(var (name,action) in cases)
 {

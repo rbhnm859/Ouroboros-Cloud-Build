@@ -32,6 +32,10 @@ public sealed class CausalPatternAssembler
         if (_recent.Count > 5) _recent.RemoveAt(0);
         if (_recent.Count < 5) return null;
         HarmonicObservation candidate = HarmonicAnalyzer.Analyze(_recent,decisionAtUtc,tickSize);
-        return _emitted.TryReserve(candidate.EventId) ? candidate : null;
+        if (_emitted.TryReserve(candidate.EventId)) return candidate;
+        if (_emitted.Saturated)
+            throw new InvalidOperationException(
+                "Research event ledger saturated; cannot safely deduplicate");
+        return null;
     }
 }

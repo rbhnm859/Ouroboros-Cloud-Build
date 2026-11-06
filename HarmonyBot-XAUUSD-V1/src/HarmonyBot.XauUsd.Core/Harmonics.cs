@@ -79,7 +79,12 @@ public static class PatternCatalog
 public sealed record HarmonicObservation(
     string EventId, Side Direction, DateTimeOffset AvailableAtUtc,
     HarmonicRatios Ratios, IReadOnlyList<PatternFamily> ResearchMatches,
-    bool ReadyForTrading, string Blocker);
+    bool ReadyForTrading, string Blocker)
+{
+    // A retrospective geometric fit is not a tradable signal when C was
+    // confirmed only after D began forming.
+    public bool PrzProjectedBeforeD { get; init; }
+}
 
 public static class HarmonicAnalyzer
 {
@@ -112,11 +117,21 @@ public static class HarmonicAnalyzer
             if (pivots[i].EventAtUtc <= pivots[i - 1].EventAtUtc)
                 throw new ArgumentException("Non-monotone pivot event time");
         var ratios = HarmonicRatios.Calculate(pivots);
-        var matches = PatternCatalog.ResearchOnly.Where(p => p.ResearchMatches(ratios))
-            .Select(p => p.Family).ToArray();
+        // Project FIRST, using exactly X/A/B/C; D cannot be used to fit PRZ.
+        var projected = CausalPrzProjector.Project(pivots.Take(4).ToArray(),
+            decisionAtUtc, tickSize);
+        var matches = projected.Where(z =>
+                z.Direction == direction &&
+                z.TickAlignedZone.Low <= pivots[4].Price &&
+                pivots[4].Price <= z.TickAlignedZone.High &&
+                PatternCatalog.ResearchOnly.Any(r =>
+                    r.Family == z.Family && r.ResearchMatches(ratios)))
+            .Select(z => z.Family).Distinct().ToArray();
+        bool projectedBeforeD = pivots[3].AvailableAtUtc <= pivots[4].EventAtUtc;
         return new HarmonicObservation(EventIdentity.Create(direction, pivots[4], tickSize),
             direction, pivots[4].AvailableAtUtc, ratios, matches,
-            false, "PRIMARY_RULES_AND_EXECUTION_PARITY_NOT_APPROVED");
+            false, "PRIMARY_RULES_AND_EXECUTION_PARITY_NOT_APPROVED")
+        { PrzProjectedBeforeD = projectedBeforeD };
     }
 }
 

@@ -52,3 +52,9 @@ Rollback: delete the isolated feature branch only **after** explicit approval, o
 This checked-out branch is an isolated **source tree** with no V74/R18 source folders or legacy workflow files. The prior V1 evidence branch remains immutable. The GitHub repository and account-level Action quotas remain shared. See `docs/ISOLATION_CONTRACT.md`, `docs/IMPLEMENTATION_ROADMAP.md` and `docs/PHASE2_BACKLOG.md`.
 
 The V1 CI must pass anew on this branch before reusing its build artifacts. Existing historical V1 test results never establish OOS or trading readiness.
+
+## V1.3 core hardening (2026-11-06)
+
+The research-only engine now rejects ambiguous same-bar high/low pivots, bounds the in-memory research dedup ledger without eviction, checks remaining peak-equity drawdown cushion, fails closed on invalid side/exposure and off-tick order geometry, and adds causal research PRZ projection from exactly four X/A/B/C pivots before testing confirmed D.
+
+**Not a certified Harmonic Trading implementation:** The ten profiles still contain provisional internal research envelopes; Shark/5-0 remain UNIMPLEMENTED. Projected PRZ is research geometry, NOT trading readiness, native tick parity or FXPro runtime evidence. The fifth D pivot never enters the projector; `PrzProjectedBeforeD` is tracked independently. No live orders, no paid optimization, no broker connections.
