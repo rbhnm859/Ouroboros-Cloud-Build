@@ -261,6 +261,18 @@ Test("annual gate cannot merge away failed years", () => {
     True(!CommercialResearchGate.CheckAll(new[]{e,e}),"duplicate year");
 });
 
+
+Test("false directional harmonic price path rejected", () => {
+    var p=Pivots();
+    p[3]=p[3] with { Price=120m };
+    Fails(()=>HarmonicAnalyzer.Analyze(p,time.AddHours(2),.01m));
+});
+Test("non-monotone pivot event time rejected", () => {
+    var p=Pivots();
+    p[4]=p[4] with { EventAtUtc=p[3].EventAtUtc };
+    Fails(()=>HarmonicAnalyzer.Analyze(p,time.AddHours(2),.01m));
+});
+
 int passed=0;
 foreach(var (name,action) in cases)
 {

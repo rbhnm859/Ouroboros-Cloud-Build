@@ -20,9 +20,9 @@ namespace cAlgo.Robots
 
         protected override void OnStart()
         {
-            if (SymbolName.IndexOf("XAU", StringComparison.OrdinalIgnoreCase) < 0)
+            if (!string.Equals(SymbolName, "XAUUSD", StringComparison.OrdinalIgnoreCase))
             {
-                Print("[HBXAU-V1] REFUSED: selected symbol does not resemble XAUUSD");
+                Print("[HBXAU-V1] REFUSED: unverified symbol identity; only exact XAUUSD allowed until broker adapter verification");
                 Stop();
                 return;
             }

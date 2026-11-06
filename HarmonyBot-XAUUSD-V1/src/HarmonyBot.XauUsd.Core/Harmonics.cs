@@ -96,6 +96,21 @@ public static class HarmonicAnalyzer
                 throw new ArgumentException("Non-causal or non-alternating pivot sequence");
         }
         Side direction = pivots[4].Kind == PivotKind.Low ? Side.Buy : Side.Sell;
+        // Alternating High/Low flags alone do not establish harmonic leg
+        // orientation: reject contradictory price paths before ratio matching.
+        bool oriented = direction == Side.Buy
+            ? pivots[1].Price > pivots[0].Price &&
+              pivots[2].Price < pivots[1].Price &&
+              pivots[3].Price > pivots[2].Price &&
+              pivots[4].Price < pivots[3].Price
+            : pivots[1].Price < pivots[0].Price &&
+              pivots[2].Price > pivots[1].Price &&
+              pivots[3].Price < pivots[2].Price &&
+              pivots[4].Price > pivots[3].Price;
+        if (!oriented) throw new ArgumentException("Directional harmonic geometry invalid");
+        for (int i = 1; i < pivots.Count; i++)
+            if (pivots[i].EventAtUtc <= pivots[i - 1].EventAtUtc)
+                throw new ArgumentException("Non-monotone pivot event time");
         var ratios = HarmonicRatios.Calculate(pivots);
         var matches = PatternCatalog.ResearchOnly.Where(p => p.ResearchMatches(ratios))
             .Select(p => p.Family).ToArray();
