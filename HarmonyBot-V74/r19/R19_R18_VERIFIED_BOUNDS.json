@@ -1,0 +1,89 @@
+{
+  "schema": "V74_R19_R18_READONLY_EVIDENCE_CERT_V1",
+  "research_only": true,
+  "source_run": 37824462498,
+  "source_head": "61a164b453ca3e65b1670050ea2dd30ec7b5592d",
+  "artifact_zip_sha256": {
+    "2016": "9a26b45dac0a5bc22b4a43eedf0952ed2da532924ba1674dd9582a7a0d0cfb67",
+    "2017": "000b71c1daecf71a9b2553152ab6a41cb653a548e9112a77b9e885cc3468d8aa",
+    "2018": "578c95a7066c5167b0fe73aff5155125ec4346773ba7e0eb85cc836f5b29091e",
+    "2019": "a6ee2899e43eb1a098645e21a5ec5259816426b722bcdd84d1caa1fd60e9fdba",
+    "2020": "4e2610491a0ee0826ef0dfc3051d551156463c908f735e12f4a25d99d08c4efa"
+  },
+  "method": "strict R18 execution/min_cap/net_target_rr>=2 filters; canonical-event optimistic winning oracle; relaxed interval scheduling upper bound; no burned",
+  "years": [
+    {
+      "year": 2016,
+      "artifact_id": 11571298606,
+      "eligible_actions": 2780,
+      "unique_eligible_events": 196,
+      "unique_positive_oracle_events": 44,
+      "relaxed_nonoverlap_actions": 412,
+      "relaxed_nonoverlap_positive_actions": 43,
+      "nonoverlap_event_upper_bound": 196,
+      "nonoverlap_positive_upper_bound": 43,
+      "necessary_count_conditions_pass": false
+    },
+    {
+      "year": 2017,
+      "artifact_id": 11571736424,
+      "eligible_actions": 4223,
+      "unique_eligible_events": 247,
+      "unique_positive_oracle_events": 50,
+      "relaxed_nonoverlap_actions": 629,
+      "relaxed_nonoverlap_positive_actions": 50,
+      "nonoverlap_event_upper_bound": 247,
+      "nonoverlap_positive_upper_bound": 50,
+      "necessary_count_conditions_pass": false
+    },
+    {
+      "year": 2018,
+      "artifact_id": 11571966291,
+      "eligible_actions": 5255,
+      "unique_eligible_events": 273,
+      "unique_positive_oracle_events": 57,
+      "relaxed_nonoverlap_actions": 669,
+      "relaxed_nonoverlap_positive_actions": 58,
+      "nonoverlap_event_upper_bound": 273,
+      "nonoverlap_positive_upper_bound": 57,
+      "necessary_count_conditions_pass": false
+    },
+    {
+      "year": 2019,
+      "artifact_id": 11572251297,
+      "eligible_actions": 4361,
+      "unique_eligible_events": 273,
+      "unique_positive_oracle_events": 49,
+      "relaxed_nonoverlap_actions": 604,
+      "relaxed_nonoverlap_positive_actions": 52,
+      "nonoverlap_event_upper_bound": 273,
+      "nonoverlap_positive_upper_bound": 49,
+      "necessary_count_conditions_pass": false
+    },
+    {
+      "year": 2020,
+      "artifact_id": 11571608035,
+      "eligible_actions": 2355,
+      "unique_eligible_events": 188,
+      "unique_positive_oracle_events": 34,
+      "relaxed_nonoverlap_actions": 434,
+      "relaxed_nonoverlap_positive_actions": 34,
+      "nonoverlap_event_upper_bound": 188,
+      "nonoverlap_positive_upper_bound": 34,
+      "necessary_count_conditions_pass": false
+    }
+  ],
+  "all_years_pass_necessary_counts": false,
+  "alpha_gate": false,
+  "v74_gate": false,
+  "commercial_gate": false,
+  "promotion_authorized": false,
+  "limitations": [
+    "source year data 2016-2020 only",
+    "strict upper bound limited to original R18 action set",
+    "hindsight oracle is not causal",
+    "interval DP relaxes event uniqueness",
+    "broker real fills/margin not verified",
+    "candidate R19 actions untested"
+  ]
+}

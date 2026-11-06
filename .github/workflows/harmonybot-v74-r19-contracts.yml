@@ -1,0 +1,44 @@
+name: HarmonyBot V74 R19 Research Contracts (No Broker)
+
+on:
+  push:
+    branches: ['research/v74-r19-causal-architecture-20261107']
+    paths:
+      - 'HarmonyBot-V74/r19/**'
+      - '.github/workflows/harmonybot-v74-r19-contracts.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  read_only_contracts:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: R19 contract tests only (no cTrader, no API secrets)
+        run: python3 -m unittest discover -s HarmonyBot-V74/r19 -p 'test_r19_*.py' -v
+      - name: Fail-closed frozen research contract
+        run: |
+          python3 - <<'PY'
+          import json, pathlib
+          p=pathlib.Path('HarmonyBot-V74/r19')
+          lock=json.loads((p/'RESEARCH_LOCK.json').read_text())
+          lattice=json.loads((p/'R19_ACTION_LATTICE.json').read_text())
+          cert=json.loads((p/'R19_R18_VERIFIED_BOUNDS.json').read_text())
+          assert lock['status']=='RESEARCH_ONLY'
+          assert lock['burned_years']==[2021,2022,2023]
+          assert not any(lock[x] for x in ('burned_used','validation_used','fresh_used','promotion_authorized','live_trading_authorized'))
+          assert lock['frozen_v74_annual_gate']==dict(N=250,MeanR=0.9,PF_R=3.3,WR=0.7,AvgRR=2.3,LCB95_strictly_positive=True,years_required=3)
+          assert lattice['status']=='DESIGN_ONLY_NOT_EXECUTABLE'
+          assert len(lattice['action_templates'])==4
+          assert not cert['all_years_pass_necessary_counts']
+          assert all(not x['necessary_count_conditions_pass'] for x in cert['years'])
+          assert [x['year'] for x in cert['years']]==[2016,2017,2018,2019,2020]
+          assert not any(cert[x] for x in ('alpha_gate','v74_gate','commercial_gate','promotion_authorized'))
+          print('R19 source-lock, no-OOS, no-trade and research-only contract PASS')
+          PY
