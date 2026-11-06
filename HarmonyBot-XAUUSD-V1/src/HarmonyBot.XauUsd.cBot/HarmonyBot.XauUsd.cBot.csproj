@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net6.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AlgoName>HarmonyBot_XAUUSD_V1_Research_Only</AlgoName>
+    <AlgoBuild>true</AlgoBuild>
+    <AlgoPublish>false</AlgoPublish>
+    <IncludeSource>false</IncludeSource>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="cTrader.Automate" Version="1.0.19" />
+    <ProjectReference Include="../HarmonyBot.XauUsd.Core/HarmonyBot.XauUsd.Core.csproj" />
+  </ItemGroup>
+</Project>

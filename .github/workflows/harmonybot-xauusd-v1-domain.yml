@@ -1,0 +1,40 @@
+name: HarmonyBot XAUUSD V1 safe core CI
+on:
+  push:
+    branches:
+      - feat/harmonybot-xauusd-core-v1-20261106
+    paths:
+      - 'HarmonyBot-XAUUSD-V1/**'
+      - '.github/workflows/harmonybot-xauusd-v1-domain.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: hb-xauusd-v1-domain-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  core-tests-and-algo-build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Domain and adversarial contract suite
+        run: dotnet run --project HarmonyBot-XAUUSD-V1/tests/HarmonyBot.XauUsd.Tests/HarmonyBot.XauUsd.Tests.csproj -c Release
+      - name: cTrader Research-Only adapter compile
+        run: dotnet build HarmonyBot-XAUUSD-V1/src/HarmonyBot.XauUsd.cBot/HarmonyBot.XauUsd.cBot.csproj -c Release -p:AlgoPublish=false
+      - name: Refuse any order call in the research adapter
+        shell: bash
+        run: |
+          set -euo pipefail
+          F=HarmonyBot-XAUUSD-V1/src/HarmonyBot.XauUsd.cBot/HarmonyBotXauUsdV1Research.cs
+          if grep -nE 'ExecuteMarketOrder\\s*\\(|Place(Limit|Stop|StopLimit)Order\\s*\\(|ModifyPosition\\s*\\(' "$F"; then
+            echo "FAIL: trading API present in read-only bot" >&2
+            exit 1
+          fi
+          echo "Research adapter contains no order creation/position modification methods"
