@@ -2,7 +2,7 @@ name: HarmonyBot XAUUSD V1 safe core CI
 on:
   push:
     branches:
-      - feat/harmonybot-xauusd-core-v1-20261106
+      - feat/hbxau-v1-cleanroom-20261106
     paths:
       - 'HarmonyBot-XAUUSD-V1/**'
       - '.github/workflows/harmonybot-xauusd-v1-domain.yml'
@@ -21,6 +21,18 @@ jobs:
     timeout-minutes: 12
     steps:
       - uses: actions/checkout@v4
+      - name: Enforce V1 cleanroom source and workflow boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -d HarmonyBot-XAUUSD-V1/src
+          test ! -e HarmonyBot-V71
+          test ! -e HarmonyBot-V74
+          test ! -e HarmonyBot-V73
+          test ! -e LibreChat
+          test "$(find .github/workflows -maxdepth 1 -type f | wc -l)" -eq 1
+          test -f .github/workflows/harmonybot-xauusd-v1-domain.yml
+          echo "[HBXAU-CLEANROOM] PASS — no legacy source trees or workflows"
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '8.0.x'

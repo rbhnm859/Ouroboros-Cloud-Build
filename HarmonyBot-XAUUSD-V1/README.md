@@ -46,3 +46,9 @@ Rollback: delete the isolated feature branch only **after** explicit approval, o
 - `CausalPatternAssembler` receives confirmed pivots and emits research-only completed-D events after five alternating pivots. Broker orders remain impossible.
 - `CommercialResearchGate` implements the new V1 annual threshold checklist but is not independent validation; synthetic test inputs never count as measured results.
 - `WholeTradeAccounting` records partial-close cash flows as one completed lifecycle, maintaining the original initial-risk denominator.
+
+## Cleanroom isolation (2026-11-06)
+
+This checked-out branch is an isolated **source tree** with no V74/R18 source folders or legacy workflow files. The prior V1 evidence branch remains immutable. The GitHub repository and account-level Action quotas remain shared. See `docs/ISOLATION_CONTRACT.md`, `docs/IMPLEMENTATION_ROADMAP.md` and `docs/PHASE2_BACKLOG.md`.
+
+The V1 CI must pass anew on this branch before reusing its build artifacts. Existing historical V1 test results never establish OOS or trading readiness.

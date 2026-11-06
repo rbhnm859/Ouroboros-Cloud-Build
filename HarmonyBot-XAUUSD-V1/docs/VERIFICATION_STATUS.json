@@ -1,0 +1,28 @@
+{
+  "schema": "HBXAU_V1_CLEANROOM_STATUS_1",
+  "base_source_commit": "1ca32dbd51ecb84d35fee38b9bb5ddcf684af99d",
+  "legacy_v74_head_at_plan": "c3283e6f61741a5a9a3d2fc7ea31a066b64f7806",
+  "cleanroom_branch": "feat/hbxau-v1-cleanroom-20261106",
+  "repository": "rbhnm859/Ouroboros-Cloud-Build",
+  "independent_repo_created": false,
+  "historical_v1_ci_run": 42153957669,
+  "historical_v1_ci_status": "PASS",
+  "cleanroom_ci_status": "NOT VERIFIED",
+  "legacy_v74_mutated": false,
+  "mode": "RESEARCH_ONLY_NO_ORDER_API",
+  "phases": {
+    "P0": "PASS",
+    "P1": "NOT VERIFIED",
+    "P2": "NOT VERIFIED",
+    "P3": "NOT VERIFIED",
+    "P4": "NOT VERIFIED",
+    "P5": "BLOCKED",
+    "P6": "NOT VERIFIED",
+    "P7": "NOT VERIFIED",
+    "P8": "NOT VERIFIED",
+    "P9": "BLOCKED"
+  },
+  "v74_gate_unchanged": true,
+  "cost_policy": "FREE_CI_ONLY_NO_BACKTEST",
+  "plan_version": "1.1"
+}
