@@ -25,16 +25,56 @@ jobs:
         with:
           dotnet-version: '8.0.x'
       - name: Domain and adversarial contract suite
-        run: dotnet run --project HarmonyBot-XAUUSD-V1/tests/HarmonyBot.XauUsd.Tests/HarmonyBot.XauUsd.Tests.csproj -c Release
-      - name: cTrader Research-Only adapter compile
-        run: dotnet build HarmonyBot-XAUUSD-V1/src/HarmonyBot.XauUsd.cBot/HarmonyBot.XauUsd.cBot.csproj -c Release -p:AlgoPublish=false
-      - name: Refuse any order call in the research adapter
         shell: bash
         run: |
           set -euo pipefail
-          F=HarmonyBot-XAUUSD-V1/src/HarmonyBot.XauUsd.cBot/HarmonyBotXauUsdV1Research.cs
-          if grep -nE 'ExecuteMarketOrder\\s*\\(|Place(Limit|Stop|StopLimit)Order\\s*\\(|ModifyPosition\\s*\\(' "$F"; then
-            echo "FAIL: trading API present in read-only bot" >&2
+          mkdir -p custody
+          dotnet run --project HarmonyBot-XAUUSD-V1/tests/HarmonyBot.XauUsd.Tests/HarmonyBot.XauUsd.Tests.csproj -c Release | tee custody/HBXAU_TEST_RESULT.txt
+          grep -E '^SUMMARY passed=[0-9]+ total=[0-9]+$' custody/HBXAU_TEST_RESULT.txt
+      - name: cTrader Research-Only adapter compile
+        shell: bash
+        run: |
+          set -euo pipefail
+          dotnet build HarmonyBot-XAUUSD-V1/src/HarmonyBot.XauUsd.cBot/HarmonyBot.XauUsd.cBot.csproj -c Release -p:AlgoPublish=false
+      - name: Refuse trading API calls anywhere in V1 source
+        shell: bash
+        run: |
+          set -euo pipefail
+          if grep -rnE --include='*.cs' 'ExecuteMarketOrder[[:space:]]*\(|Place(Limit|Stop|StopLimit)Order[[:space:]]*\(|CancelPendingOrder[[:space:]]*\(|ClosePosition[[:space:]]*\(|ModifyPosition[[:space:]]*\(' HarmonyBot-XAUUSD-V1/src; then
+            echo '[HBXAU-V1] BLOCKED: trading API call found' >&2
             exit 1
           fi
-          echo "Research adapter contains no order creation/position modification methods"
+          echo '[HBXAU-V1] PASS read-only API boundary'
+      - name: Build immutable source and binary custody
+        shell: bash
+        env:
+          SOURCE_COMMIT: ${{ github.sha }}
+          WORKFLOW_RUN: ${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          find HarmonyBot-XAUUSD-V1/src/HarmonyBot.XauUsd.cBot/bin/Release -type f -name '*.algo' -print
+          A=$(find HarmonyBot-XAUUSD-V1/src/HarmonyBot.XauUsd.cBot/bin/Release -type f -name '*.algo' | head -1)
+          test -n "$A" && test -s "$A"
+          cp "$A" custody/HBXAU_V1_RESEARCH_ONLY.algo
+          sha256sum custody/HBXAU_V1_RESEARCH_ONLY.algo > custody/HBXAU_ALGO_SHA256.txt
+          git ls-files 'HarmonyBot-XAUUSD-V1/src/**' 'HarmonyBot-XAUUSD-V1/tests/**' | grep -E '\.(cs|csproj)$' | while IFS= read -r F; do sha256sum "$F"; done > custody/HBXAU_SOURCE_SHA256.txt
+          python3 - <<'PY_CUSTODY'
+          import json,hashlib,os,pathlib
+          p=pathlib.Path('custody/HBXAU_V1_RESEARCH_ONLY.algo')
+          result={'schema':'HBXAU_V1_RESEARCH_CUSTODY_1',
+                  'commit':os.environ['SOURCE_COMMIT'],
+                  'run_id':os.environ['WORKFLOW_RUN'],
+                  'algo_sha256':hashlib.sha256(p.read_bytes()).hexdigest(),
+                  'test_output_sha256':hashlib.sha256(pathlib.Path('custody/HBXAU_TEST_RESULT.txt').read_bytes()).hexdigest(),
+                  'trading_allowed':False,'research_only':True,
+                  'broker_compatibility':'NOT_VERIFIED',
+                  'independent_oos':'NOT_RUN'}
+          pathlib.Path('custody/HBXAU_CUSTODY.json').write_text(json.dumps(result,sort_keys=True,indent=2)+'\n')
+          print('[HBXAU-V1-CUSTODY]',result['algo_sha256'],result['commit'])
+          PY_CUSTODY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: HBXAU-V1-RESEARCH-ONLY-${{ github.sha }}
+          path: custody/
+          retention-days: 60
+          if-no-files-found: error
