@@ -1,10 +1,8 @@
 name: Build CDScalper EURUSD v1
 
 on:
-  push:
-    branches: [ main ]
-    paths:
-      - '.github/workflows/cdscalper-eurusd-v1-build-from-main.yml'
+  # Historical build/backtest is deliberately manual-only during V74 R15/R18
+  # research custody. No automatic pushes; preserve original job specifications.
   workflow_dispatch:
 
 permissions:

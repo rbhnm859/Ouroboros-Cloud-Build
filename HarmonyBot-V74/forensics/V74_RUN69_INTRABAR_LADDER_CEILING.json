@@ -1,0 +1,78 @@
+{
+  "version": "HarmonyBot V74 Run69 Intrabar Ladder Ceiling",
+  "source_run_id": 36910430560,
+  "source_run_number": 69,
+  "source_sha": "e4d36a4578b1a19e5109b02ab78e8b2bab97977c",
+  "workflow_conclusion": "success",
+  "v74_gate": false,
+  "champion": null,
+  "validation_used": false,
+  "fresh_used": false,
+  "best_frequency_feasible": {
+    "model": "AJ_LADDER_KEEP80",
+    "Y2021": {
+      "n": 432,
+      "mean_r": -0.0071300844,
+      "pf_r": 0.972462836,
+      "win_rate": 0.3703703704,
+      "average_rr": 1.6531868211,
+      "lcb_r": -0.0752709112
+    },
+    "Y2022": {
+      "n": 464,
+      "mean_r": 0.0463435852,
+      "pf_r": 1.1750149783,
+      "win_rate": 0.4418103448,
+      "average_rr": 1.4845311189,
+      "lcb_r": -0.0273336047
+    },
+    "Y2023": {
+      "n": 359,
+      "mean_r": 0.06166759445,
+      "pf_r": 1.26153602845,
+      "win_rate": 0.46796657382,
+      "average_rr": 1.43424631806,
+      "lcb_r": -0.01568596588
+    }
+  },
+  "label_only_oracle": {
+    "warning": "Future outcomes used only for feasibility, never Alpha or selection.",
+    "current_ladder_best_route_per_setup_top250": {
+      "Y2021": {
+        "mean_r": 1.0576492525,
+        "win_rate": 1,
+        "lcb_r": 0.9287775856
+      },
+      "Y2022": {
+        "mean_r": 1.0097867596,
+        "win_rate": 1,
+        "lcb_r": 0.8763713763
+      },
+      "Y2023": {
+        "mean_r": 0.7794262763,
+        "win_rate": 1,
+        "lcb_r": 0.6673009905
+      }
+    },
+    "run66_sparse_floor_best_route_per_setup_top250": {
+      "Y2021": {
+        "mean_r": 1.0368612493,
+        "win_rate": 1,
+        "lcb_r": 0.8558952326
+      },
+      "Y2022": {
+        "mean_r": 0.8181810991,
+        "win_rate": 1,
+        "lcb_r": 0.6577321796
+      },
+      "Y2023": {
+        "mean_r": 0.893581367,
+        "win_rate": 1,
+        "lcb_r": 0.7288582649
+      }
+    }
+  },
+  "diagnosis": "Intrabar frontier resolution destroys right-tail payoff. The evidence favors preserving the same causal arm logic while converting protection into completed-close soft exits.",
+  "next_architecture": "CAUSAL_CLOSE_ONLY_PROFIT_FRONTIER",
+  "gates_unchanged": true
+}

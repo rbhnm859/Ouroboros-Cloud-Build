@@ -1,0 +1,34 @@
+{
+  "version": 2,
+  "source_run_id": 37663336143,
+  "source_head_sha": "e9567ccda40bd72aa92c80d2fb1db2a7689efeae",
+  "semantic_fingerprint": "d96b7ab21484c56d3b5c7143c3b60e8257772532a76380256c3d90baf50131c1",
+  "branch": "harmonybot/v73-opportunity-universe",
+  "artifact_pattern": "v74-rapid-universe-*",
+  "evidence_origin": "rapid_exact_2016_2023",
+  "required_artifacts": [
+    "v74-rapid-universe-Y2016",
+    "v74-rapid-universe-Y2017",
+    "v74-rapid-universe-Y2018",
+    "v74-rapid-universe-Y2019",
+    "v74-rapid-universe-Y2020",
+    "v74-rapid-universe-Y2021",
+    "v74-rapid-universe-Y2022",
+    "v74-rapid-universe-Y2023"
+  ],
+  "semantic_guard_paths": [
+    "HarmonyBot-V71/src",
+    "HarmonyBot-V71/HarmonyBotV71.csproj",
+    "HarmonyBot-V71/tools/run_window.sh",
+    "HarmonyBot-V71/tools/run_backtest.sh",
+    "HarmonyBot-V71/tools/resolve_window.sh",
+    "HarmonyBot-V71/tools/run_v51_reference.sh"
+  ],
+  "validation_used": false,
+  "fresh_used": false,
+  "note": "Exact Rapid Decision universe: immutable 2016-2023 custody bytes were hash-verified, all eight windows used the same candidate .algo and run_window R_V73_OPPORTUNITY_UNIVERSE semantics, and V73 was revalidated before decision. Safe for evaluator/oracle-only replay; any guarded semantic drift remains fail-closed.",
+  "replay_chain_repair": "explicit_workflow_dispatch_v1",
+  "replay_chain_repair_commit": "8097efcb0237d2ba670e2ce9068f09bc85cfe309",
+  "research_handoff": "V74_R14_SELECTIVE_PRECISION_CONSENSUS__DEEP_RESEARCH_EXECUTION",
+  "research_handoff_note": "Evaluator-only replay trigger: test precision-constrained selective consensus, risk-coverage/FDR diagnostics, and information ceiling on the immutable exact 2016-2023 universe. No execution semantic change; Validation/Fresh remain locked."
+}

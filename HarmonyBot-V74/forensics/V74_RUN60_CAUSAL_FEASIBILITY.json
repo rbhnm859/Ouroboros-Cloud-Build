@@ -1,0 +1,154 @@
+{
+  "version": "HarmonyBot V74 Causal Feasibility Forensic",
+  "source": {
+    "repository": "rbhnm859/Ouroboros-Cloud-Build",
+    "branch": "harmonybot/v73-opportunity-universe",
+    "source_run_id": 36870479524,
+    "source_run_number": 60,
+    "source_sha": "29917e3590d085d9b4b53e39a81137a64ae81bb5",
+    "v74_gate": false,
+    "champion": null,
+    "validation_used": false,
+    "fresh_used": false
+  },
+  "hard_gate_unchanged": {
+    "n_per_year": 250,
+    "mean_r": 0.9,
+    "pf_r": 3.3,
+    "win_rate": 0.7,
+    "average_rr": 2.3,
+    "lcb95_gt": 0
+  },
+  "causal_first_passage_supply": {
+    "Y2021": {
+      "r025": 732,
+      "r050": 619,
+      "r075": 544,
+      "r100": 468,
+      "r125": 214,
+      "r150": 165
+    },
+    "Y2022": {
+      "r025": 782,
+      "r050": 662,
+      "r075": 557,
+      "r100": 510,
+      "r125": 219,
+      "r150": 168
+    },
+    "Y2023": {
+      "r025": 644,
+      "r050": 530,
+      "r075": 459,
+      "r100": 408,
+      "r125": 200,
+      "r150": 157
+    }
+  },
+  "necessary_condition": {
+    "result": "FAIL_FOR_DELAYED_COMMIT_AT_OR_ABOVE_1P25R",
+    "reason": "The raw route cardinality before any model/filter is below N=250 in every burned OOF year at 1.25R and 1.50R. No classifier or threshold can repair this without violating the fixed frequency gate.",
+    "implication": "Do not spend another run tuning the 1.25R/1.50R delayed-commit hazard model."
+  },
+  "only_supply_feasible_existing_delayed_route": {
+    "route": "R050_010",
+    "raw_n": {
+      "Y2021": 323,
+      "Y2022": 332,
+      "Y2023": 257
+    },
+    "metrics": {
+      "Y2021": {
+        "mean_r": 0.0973855725,
+        "pf_r": 1.1182539095,
+        "win_rate": 0.1764705882,
+        "average_rr": 5.2185182444,
+        "lcb_r": -0.1423438526
+      },
+      "Y2022": {
+        "mean_r": -0.3709770627,
+        "pf_r": 0.5908159973,
+        "win_rate": 0.093373494,
+        "average_rr": 5.7366327477,
+        "lcb_r": -0.5653359455
+      },
+      "Y2023": {
+        "mean_r": 0.2827294592,
+        "pf_r": 1.3273039235,
+        "win_rate": 0.1361867704,
+        "average_rr": 8.4188991721,
+        "lcb_r": -0.1408613391
+      }
+    },
+    "result": "SUPPLY_PASS_BUT_REACTION_TO_REVERSAL_CONVERSION_FAIL"
+  },
+  "win_rate_vs_runner_forensic": {
+    "route": "P025_FULL_PROTECTION",
+    "full_population_metrics": {
+      "Y2021": {
+        "n": 986,
+        "mean_r": 0.0163810781,
+        "pf_r": 1.0635895394,
+        "win_rate": 0.7423935091,
+        "average_rr": 0.3690597582,
+        "lcb_r": -0.0333785339
+      },
+      "Y2022": {
+        "n": 1099,
+        "mean_r": 0.0186553139,
+        "pf_r": 1.0646756782,
+        "win_rate": 0.71155596,
+        "average_rr": 0.4315884783,
+        "lcb_r": -0.0398349347
+      },
+      "Y2023": {
+        "n": 840,
+        "mean_r": 0.0740515976,
+        "pf_r": 1.3173639898,
+        "win_rate": 0.7666666667,
+        "average_rr": 0.4009368665,
+        "lcb_r": 0.0085100574
+      }
+    },
+    "result": "WR_CAN_BE_RAISED_ABOVE_70PCT_BY_EARLY_PROTECTION_BUT_AVG_RR_COLLAPSES_FAR_BELOW_2P30",
+    "implication": "The next policy must preserve a runner and cannot use blanket small-profit floors."
+  },
+  "label_only_upper_bound": {
+    "use": "FORENSIC_ONLY_NEVER_ALPHA",
+    "native_future_top250": {
+      "Y2021": {
+        "mean_r": 2.766028288,
+        "win_rate": 1,
+        "lcb_r": 2.5867910667
+      },
+      "Y2022": {
+        "mean_r": 2.631517376,
+        "win_rate": 1,
+        "lcb_r": 2.4794664033
+      },
+      "Y2023": {
+        "mean_r": 2.57074432,
+        "win_rate": 0.864,
+        "lcb_r": 2.2766762753
+      }
+    },
+    "interpretation": "The burned payoff distribution contains enough favorable outcomes in principle; the demonstrated bottleneck is causal winner identification / regime generalization / exit coupling, not absence of payoff support."
+  },
+  "next_preregistered_reconstruction": {
+    "name": "EARLY_FIRST_PASSAGE_CAUSAL_COMMIT",
+    "observation_levels_r": [
+      0.25,
+      0.5
+    ],
+    "semantics": [
+      "No capital decision uses future MFE/MAE/final outcome.",
+      "First-passage bar is observation only; no same-bar capital.",
+      "Commit only on a later completed M1 hold/directional hold.",
+      "Use completed confirmation-bar micro-structure stop with no widening.",
+      "Canonical target remains unchanged and planned NetRR must be >=2.30.",
+      "Keep runner variants; any protective frontier must be next-bar armed and conservative on same-bar ambiguity.",
+      "Route/model/threshold selection is training-only for every OOF fold."
+    ],
+    "reason": "0.25R/0.50R are the latest observed reaction states that retain a large raw supply buffer above N=250 in all burned years."
+  }
+}

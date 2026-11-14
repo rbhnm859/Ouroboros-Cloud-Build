@@ -1,0 +1,31 @@
+{
+  "version": "HarmonyBot V71",
+  "policy": "IMMUTABLE_BURNED_CALIBRATION_CUSTODY_FAIL_CLOSED",
+  "source_run_id": 36588724101,
+  "source_run_number": 114,
+  "source_commit": "b6b0a4812e0f3acf7792e7f36628a10f0931c624",
+  "windows": {
+    "Y2021": {
+      "artifact": "v71-data-seed-Y2021",
+      "sha256": "a395524804bbde2e6a27bf4b334583a4c9c22340554ff104d052def1b0c19136"
+    },
+    "Y2022": {
+      "artifact": "v71-data-seed-Y2022",
+      "sha256": "9e2cda9f01655d9788db0535bd1036397e853be48a07c31a18d992e9227b001e"
+    },
+    "Y2023": {
+      "artifact": "v71-data-seed-Y2023",
+      "sha256": "e158288d14a0aef0c5bfa1de02ccd9dbbfaf66ab9ca581f42b062be3adfc1ae2"
+    }
+  },
+  "governance": {
+    "calibration_rehydration_forbidden": true,
+    "pre_run_hash_required": true,
+    "post_run_hash_required": true,
+    "replay_same_bytes_required": true,
+    "shadow_same_bytes_required": true,
+    "capital_same_bytes_required": true,
+    "validation_locked": true,
+    "fresh_locked": true
+  }
+}

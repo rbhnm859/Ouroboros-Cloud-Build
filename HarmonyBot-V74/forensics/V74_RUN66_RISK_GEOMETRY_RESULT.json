@@ -1,0 +1,54 @@
+{
+  "version": "HarmonyBot V74 Run66 Risk Geometry Result",
+  "source_run_id": 36879436103,
+  "source_run_number": 66,
+  "source_sha": "a0cbb44b0805540d939a37e75f75f748244941e4",
+  "workflow_conclusion": "success",
+  "v74_gate": false,
+  "champion": null,
+  "validation_used": false,
+  "fresh_used": false,
+  "oof": {
+    "Y_GEOMETRY_KEEP100": {
+      "Y2021": {
+        "n": 194,
+        "mean_r": 0.08094504543414018,
+        "pf_r": 1.3666728581517713,
+        "win_rate": 0.4793814432989691,
+        "average_rr": 1.4842361147669776,
+        "lcb_r": -0.05744481734033298,
+        "route": "G_R025_H_RR40"
+      },
+      "Y2022": {
+        "n": 615,
+        "mean_r": -0.045714456226789976,
+        "pf_r": 0.8430466535174597,
+        "win_rate": 0.5008130081300813,
+        "average_rr": 0.8403094890579873,
+        "lcb_r": -0.1125399705776868,
+        "route": "G_R025_H_RR35"
+      },
+      "Y2023": {
+        "n": 185,
+        "mean_r": -0.13636778031299654,
+        "pf_r": 0.5751016360303561,
+        "win_rate": 0.4594594594594595,
+        "average_rr": 0.676590160035713,
+        "lcb_r": -0.248878978263969,
+        "route": "G_R025_H_RR40"
+      }
+    }
+  },
+  "future_label_forensic_only": {
+    "semantics": "Never used for alpha or threshold selection.",
+    "oracle_best_route_per_setup_top250_mean_r": {
+      "Y2021": 1.0369,
+      "Y2022": 0.8182,
+      "Y2023": 0.8936
+    },
+    "necessary_condition": "Current full-floor risk-normalized payoff family cannot satisfy MeanR>=0.90 in 2022/2023 even with illegal perfect hindsight route choice."
+  },
+  "root_cause": "The full-basket positive floor raises nominal wins by killing the right tail. Runner preservation must be literal, not a full exit at the floor.",
+  "next_architecture": "CAUSAL_PARTIAL_CRYSTALLIZATION_BREAK_EVEN_RUNNER",
+  "gates_unchanged": true
+}

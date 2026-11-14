@@ -1,0 +1,45 @@
+{
+  "schema": 1,
+  "source_run_id": 37710618410,
+  "source_head_sha": "c35145b7a9071e7b52ce13d285bb695fd9319e2f",
+  "research_only": true,
+  "evidence_schema": "V74_R15_EVIDENCE_V3",
+  "semantic_fingerprint": "042e2826d2439dfc2fe8f286d220aaba8a238cf58b07a61df3b7fdf01b2ba407",
+  "required_artifacts": [
+    "v74-r15-research-Y2016",
+    "v74-r15-research-Y2017",
+    "v74-r15-research-Y2018",
+    "v74-r15-research-Y2019",
+    "v74-r15-research-Y2020"
+  ],
+  "artifacts": {
+    "v74-r15-research-Y2016": {
+      "id": 11521926896,
+      "digest": "sha256:d2d7135849794616e07d0ed407971658f2a86d403b843da8ffe1b7264f79ddd0",
+      "size_in_bytes": 27969164
+    },
+    "v74-r15-research-Y2017": {
+      "id": 11520903769,
+      "digest": "sha256:211c66957eb219e47ecc43e5c896858566b00a4ed98a1f4711bcc2c6b5bc8ec8",
+      "size_in_bytes": 30620675
+    },
+    "v74-r15-research-Y2018": {
+      "id": 11522120656,
+      "digest": "sha256:bfc7c88c3ecae980b190fda1223bb6aec319fb365362cf45eb2457ddbf355670",
+      "size_in_bytes": 30436189
+    },
+    "v74-r15-research-Y2019": {
+      "id": 11521572107,
+      "digest": "sha256:21b25c94bc0cbfccebe8fc3318f4fddf68d4ef54bbbf35f3b8b791bb91a6d603",
+      "size_in_bytes": 26143351
+    },
+    "v74-r15-research-Y2020": {
+      "id": 11521603216,
+      "digest": "sha256:63eb6f9f45f4aee6b2a7a65bcf1ed6bf030e1db3beabce31817961520ef9ec60",
+      "size_in_bytes": 36729116
+    }
+  },
+  "burned_used": false,
+  "validation_used": false,
+  "fresh_used": false
+}
