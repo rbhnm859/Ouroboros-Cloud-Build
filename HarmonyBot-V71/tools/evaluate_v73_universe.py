@@ -77,6 +77,13 @@ for w in WINDOWS:
  parent=sum(1 for z in by_event.values() if any(x["family"]!="ABCD" for x in z))
  abcd=sum(1 for z in by_event.values() if all(x["family"]=="ABCD" for x in z))
  fams=sorted({x["family"] for x in xs})
+ fam_rows={}
+ for x in xs:fam_rows[x["family"]]=fam_rows.get(x["family"],0)+1
+ fam_events={}
+ for z in by_event.values():
+  for f in {x["family"] for x in z}:fam_events[f]=fam_events.get(f,0)+1
+ family_event_share={f:round(fam_events[f]/events,6) for f in sorted(fam_events)} if events else {}
+ family_row_share={f:round(fam_rows[f]/len(xs),6) for f in sorted(fam_rows)} if xs else {}
  snap=str(audit.get(w,{}).get("data_snapshot_sha256",""));summary=summaries.get(w,{})
  valid_snapshot=bool(re.fullmatch(r"[0-9a-f]{64}",snap))
  exact_census=bool(summary) and summary.get("closed_outcomes",-1)==total and summary.get("causal_proofs",0)>=total
@@ -85,15 +92,28 @@ for w in WINDOWS:
  compression=(total/events) if events else 999.0
  gate=(events>=MIN_CAUSAL and parent>=MIN_PARENT_CAUSAL and len(fams)>=MIN_FAMILIES and
        dup==0 and valid_snapshot and exact_census and complete_event_log and event_native_engine)
+ sample_deficiency=bool(events<MIN_CAUSAL or parent<MIN_PARENT_CAUSAL or len(fams)<MIN_FAMILIES)
+ logging_incomplete=bool((not complete_event_log) or (not exact_census) or dup>0)
  manifest["windows"][w]={"independent_causal_opportunities":events,"raw_engine_outcomes":total,
    "event_hypothesis_compression":compression,"parent_family_causal_opportunities":parent,
    "standalone_abcd_causal_opportunities":abcd,"visible_families":len(fams),"families":fams,
    "duplicate_setup_rows":dup,"logged_outcome_rows":len(xs),"log_throttled":len(xs)<total,
    "event_native_engine_contract":event_native_engine,"census_exact_closed_outcomes":exact_census,
-   "data_snapshot_sha256":snap,"data_snapshot_valid":valid_snapshot,"summary":summary,"pass":gate}
+   "data_snapshot_sha256":snap,"data_snapshot_valid":valid_snapshot,"summary":summary,
+   "family_outcome_rows":fam_rows,"family_event_counts":fam_events,
+   "family_event_share":family_event_share,"family_row_share":family_row_share,
+   "stage_funnel":{"independent_detected":summary.get("detected"),
+     "prz_touched":summary.get("prz_touched"),"causal_proofs":summary.get("causal_proofs"),
+     "closed_outcomes":summary.get("closed_outcomes"),"logged_outcome_rows":len(xs),
+     "independent_events":events,"parent_events":parent,"standalone_abcd_events":abcd},
+   "sample_deficiency":sample_deficiency,"logging_incomplete":logging_incomplete,
+   "deficiency_class":("SAMPLE_DEFICIENCY" if sample_deficiency else
+     ("LOGGING_INCOMPLETE" if logging_incomplete else "NONE")),
+   "pass":gate}
  all_pass=all_pass and gate
 manifest["v73_gate"]=all_pass
 manifest["gate_semantics"]="EACH_2016_2023_YEAR_EVENT_NATIVE_GE500__GE150_PARENT__GE8_FAMILIES__ONE_OUTCOME_PER_DIRECTION_TIME_D_EVENT__EXACT_LOG_AND_CENSUS__ZERO_DUPLICATE__VALID_CUSTODY"
+manifest["family_funnel_semantics"]="PER_FAMILY_FUNNEL_AND_ATTRIBUTION_DIAGNOSTIC_ONLY__DOES_NOT_ALTER_V73_GATE_OR_EVENT_IDENTITY"
 manifest["positive_asset"]="PROVES_GE500_TRUE_DIRECTION_TIME_D_COMPLETION_EVENTS_PER_YEAR_FOR_V74_N250_WITH_2X_SUPPLY_MARGIN"
 (out/"V73_OPPORTUNITY_UNIVERSE_MANIFEST.json").write_text(json.dumps(manifest,indent=2))
 (out/"pass.txt").write_text("true" if all_pass else "false")
