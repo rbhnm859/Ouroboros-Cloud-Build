@@ -1,0 +1,62 @@
+name: HarmonyBot V74 FR1 Research Safety and Build
+
+on:
+  push:
+    branches: ['research/v74-family-dual-horizon-fr1']
+    paths:
+      - 'HarmonyBot-V71/src/Architecture/HarmonyBotV71.V73OpportunityUniverse.cs'
+      - 'HarmonyBot-V74/fr1/**'
+      - '.github/workflows/harmonybot-v74-fr1-research.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  contract_and_compile:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Research-only, source isolation and fail-closed scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m unittest discover -s HarmonyBot-V74/fr1 -p 'test_*.py' -v
+          python3 - <<'PY'
+          import json,pathlib
+          d=json.loads(pathlib.Path('HarmonyBot-V74/fr1/RESEARCH_LOCK.json').read_text())
+          assert d['status']=='RESEARCH_ONLY' and d['base_sha']=='f786b90063a43a5a4dac35a86350ecd8e8b5d3cd'
+          assert d['protected_years']==[2021,2022,2023] and not d['protected_years_used']
+          assert not d['live_enabled'] and not d['automatic_merge']
+          assert d['basket_limit']==1 and d['min_net_rr']==2 and d['max_drawdown_fraction']==0.10
+          assert d['formal_annual_gate']['N']==250 and d['formal_annual_gate']['WR']==0.70
+          print('Frozen V74 research/risk lock PASS')
+          PY
+          git diff --exit-code f786b90063a43a5a4dac35a86350ecd8e8b5d3cd HEAD -- \
+            HarmonyBot-V71/src/HarmonyBotV71.cs \
+            HarmonyBot-V71/src/Architecture/HarmonyBotV71.ProtectedCore.cs \
+            HarmonyBot-V71/src/Architecture/HarmonyBotV71.Resolution.cs \
+            HarmonyBot-V71/src/Architecture/HarmonyBotV71.FamilyNativeResearch.cs
+          python3 HarmonyBot-V71/tools/validate_harmonic_fixtures.py HarmonyBot-V71/src/HarmonyBotV71.cs
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Compile existing cTrader project with additive research counters
+        shell: bash
+        run: |
+          set -euo pipefail
+          dotnet restore HarmonyBot-V71/HarmonyBotV71.csproj
+          dotnet build HarmonyBot-V71/HarmonyBotV71.csproj -c Release --no-restore --nologo
+          test -n "$(find HarmonyBot-V71/bin/Release -type f -name '*.algo' -print -quit)"
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: v74-fr1-readonly-compiled
+          path: HarmonyBot-V71/bin/Release/**/*.algo
+          retention-days: 3
