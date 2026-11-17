@@ -1,0 +1,107 @@
+{
+  "schema": "V74_R19_R18_ATTRITION_V1",
+  "research_only": true,
+  "source_run": 37824462498,
+  "source_head": "61a164b453ca3e65b1670050ea2dd30ec7b5592d",
+  "years": [
+    {
+      "year": 2016,
+      "raw_independent_events": 543,
+      "any_executed_events": 352,
+      "any_executed_positive_events_oracle": 113,
+      "any_cap_proxy_feasible_events": 260,
+      "eligible_independent_events": 196,
+      "eligible_positive_events_oracle": 44,
+      "actions": {
+        "action_total": 13542,
+        "action_nofill": 5451,
+        "action_executed": 8091,
+        "action_cap_proxy_infeasible": 3579,
+        "action_net_target_rr_below_2": 1732,
+        "action_eligible": 2780
+      },
+      "unrestricted_r18_executed_winner_count_condition": false
+    },
+    {
+      "year": 2017,
+      "raw_independent_events": 578,
+      "any_executed_events": 381,
+      "any_executed_positive_events_oracle": 107,
+      "any_cap_proxy_feasible_events": 328,
+      "eligible_independent_events": 247,
+      "eligible_positive_events_oracle": 50,
+      "actions": {
+        "action_total": 15435,
+        "action_nofill": 5723,
+        "action_executed": 9712,
+        "action_cap_proxy_infeasible": 2987,
+        "action_net_target_rr_below_2": 2502,
+        "action_eligible": 4223
+      },
+      "unrestricted_r18_executed_winner_count_condition": false
+    },
+    {
+      "year": 2018,
+      "raw_independent_events": 606,
+      "any_executed_events": 373,
+      "any_executed_positive_events_oracle": 128,
+      "any_cap_proxy_feasible_events": 338,
+      "eligible_independent_events": 273,
+      "eligible_positive_events_oracle": 57,
+      "actions": {
+        "action_total": 18432,
+        "action_nofill": 7071,
+        "action_executed": 11361,
+        "action_cap_proxy_infeasible": 2608,
+        "action_net_target_rr_below_2": 3498,
+        "action_eligible": 5255
+      },
+      "unrestricted_r18_executed_winner_count_condition": false
+    },
+    {
+      "year": 2019,
+      "raw_independent_events": 593,
+      "any_executed_events": 383,
+      "any_executed_positive_events_oracle": 114,
+      "any_cap_proxy_feasible_events": 329,
+      "eligible_independent_events": 273,
+      "eligible_positive_events_oracle": 49,
+      "actions": {
+        "action_total": 15960,
+        "action_nofill": 6383,
+        "action_executed": 9577,
+        "action_cap_proxy_infeasible": 2665,
+        "action_net_target_rr_below_2": 2551,
+        "action_eligible": 4361
+      },
+      "unrestricted_r18_executed_winner_count_condition": false
+    },
+    {
+      "year": 2020,
+      "raw_independent_events": 640,
+      "any_executed_events": 397,
+      "any_executed_positive_events_oracle": 138,
+      "any_cap_proxy_feasible_events": 228,
+      "eligible_independent_events": 188,
+      "eligible_positive_events_oracle": 34,
+      "actions": {
+        "action_total": 19244,
+        "action_nofill": 8653,
+        "action_executed": 10591,
+        "action_cap_proxy_infeasible": 7651,
+        "action_net_target_rr_below_2": 585,
+        "action_eligible": 2355
+      },
+      "unrestricted_r18_executed_winner_count_condition": false
+    }
+  ],
+  "alpha_gate": false,
+  "v74_gate": false,
+  "burned_used": false,
+  "promotion_authorized": false,
+  "limitations": [
+    "All numbers are R18 source-run research shadow outcomes, not executable R19 outcome observations.",
+    "Even if existing R18 action minimum-cap and planned-RR filters were dropped, the count of positive events across executed R18 actions remains below 175 in every research year.",
+    "This is a necessary upper bound ONLY for existing R18 actions, not for unobserved new R19 actions."
+  ]
+}

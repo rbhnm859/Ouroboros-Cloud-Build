@@ -1,0 +1,60 @@
+{
+  "schema": "V74_R19_RESEARCH_LOCK_V1",
+  "status": "RESEARCH_ONLY",
+  "parent_head": "c3283e6f61741a5a9a3d2fc7ea31a066b64f7806",
+  "parent_r18_source_head": "61a164b453ca3e65b1670050ea2dd30ec7b5592d",
+  "r18_source_run": 37824462498,
+  "research_years": [
+    2016,
+    2017,
+    2018,
+    2019,
+    2020
+  ],
+  "burned_years": [
+    2021,
+    2022,
+    2023
+  ],
+  "burned_used": false,
+  "validation_used": false,
+  "fresh_used": false,
+  "live_trading_authorized": false,
+  "broker_calls_authorized": false,
+  "promotion_authorized": false,
+  "main_architecture": "EVENT_NATIVE_SEQUENTIAL_DECISION",
+  "complements": [
+    "HARMONIC_NATIVE_PAYOFF_GEOMETRY",
+    "CAUSAL_SELECTIVE_ADMISSION"
+  ],
+  "frozen_v74_annual_gate": {
+    "N": 250,
+    "MeanR": 0.9,
+    "PF_R": 3.3,
+    "WR": 0.7,
+    "AvgRR": 2.3,
+    "LCB95_strictly_positive": true,
+    "years_required": 3
+  },
+  "risk_invariants": [
+    "MaxActiveBasket=1",
+    "NoHedging",
+    "NoMartingale",
+    "NoDCA",
+    "NoRecovery",
+    "NoLossAveraging",
+    "NoStopWidening",
+    "NoDuplicateThesis",
+    "MinimumNetRR>=2",
+    "BasketRisk<=0.05",
+    "PeakDD<=0.10",
+    "CompletedBarOnly"
+  ],
+  "legacy_artifacts_sha256": {
+    "2016": "9a26b45dac0a5bc22b4a43eedf0952ed2da532924ba1674dd9582a7a0d0cfb67",
+    "2017": "000b71c1daecf71a9b2553152ab6a41cb653a548e9112a77b9e885cc3468d8aa",
+    "2018": "578c95a7066c5167b0fe73aff5155125ec4346773ba7e0eb85cc836f5b29091e",
+    "2019": "a6ee2899e43eb1a098645e21a5ec5259816426b722bcdd84d1caa1fd60e9fdba",
+    "2020": "4e2610491a0ee0826ef0dfc3051d551156463c908f735e12f4a25d99d08c4efa"
+  }
+}

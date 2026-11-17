@@ -1,0 +1,48 @@
+{
+  "schema": "V74_R19_ACTION_LATTICE_DESIGN_V1",
+  "status": "DESIGN_ONLY_NOT_EXECUTABLE",
+  "frozen_prior_to_new_r19_outcome_evaluation": true,
+  "policy": "one canonical event, at most one real basket, no future data, no adaptive lattice expansion",
+  "pattern_families": "inherit the exact frozen Carney family definitions without merging or exclusion",
+  "time_clock": "completed M1; shadow entry only on a causally executable later tick",
+  "action_templates": [
+    {
+      "id": "R19_A1",
+      "confirmation": "FIRST_COMPLETED_M1_PRZ_REACTION",
+      "stop": "PRZ_OUTER_INVALIDATION",
+      "target_gross_R": 2.6,
+      "expiry_completed_M1_bars": 4
+    },
+    {
+      "id": "R19_A2",
+      "confirmation": "FIRST_COMPLETED_M1_PRZ_REACTION",
+      "stop": "D_STRUCTURAL_INVALIDATION",
+      "target_gross_R": 3.2,
+      "expiry_completed_M1_bars": 8
+    },
+    {
+      "id": "R19_A3",
+      "confirmation": "COMPLETED_M1_STRUCTURE_CONFIRMATION",
+      "stop": "PRZ_OUTER_INVALIDATION",
+      "target_gross_R": 2.6,
+      "expiry_completed_M1_bars": 8
+    },
+    {
+      "id": "R19_A4",
+      "confirmation": "COMPLETED_M1_STRUCTURE_CONFIRMATION",
+      "stop": "D_STRUCTURAL_INVALIDATION",
+      "target_gross_R": 3.2,
+      "expiry_completed_M1_bars": 12
+    }
+  ],
+  "pretrade_fail_closed": [
+    "actual net RR >= 2 after all modeled costs",
+    "stop/target geometry valid for side and symbol",
+    "volume/margin verified",
+    "event not previously used",
+    "no overlapping active basket",
+    "all features available before decision",
+    "no oracle hindsight selection"
+  ],
+  "notes": "Four fixed research hypotheses, not optimized parameters or proven profitable trades; unsupported market features or future pivots prohibited."
+}
