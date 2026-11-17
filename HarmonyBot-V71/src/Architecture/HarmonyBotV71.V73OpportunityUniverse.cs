@@ -167,6 +167,27 @@ namespace cAlgo.Robots
             _v74FamilyResearchFunnel[key]=n+1L;
         }
 
+        // Research counts must distinguish repeated bar-by-bar checks from
+        // distinct matched geometries and distinct physical completion events.
+        private readonly HashSet<string> _v74ResearchStageUnique = new HashSet<string>(StringComparer.Ordinal);
+        private readonly HashSet<string> _v74ResearchPhysicalEvents = new HashSet<string>(StringComparer.Ordinal);
+
+        private void V74FamilyResearchCountOnce(PatternSignal s,string stage)
+        {
+            if(!EnableV73OpportunityUniverse||s==null)return;
+            string id=V71FamilyKey(s.PatternName)+"|"+BuildSetupGeometryKey(s)+"|"+s.PivotScale;
+            if(_v74ResearchStageUnique.Add(stage+"|"+id))
+                V74FamilyResearchCount(s.PatternName,stage);
+        }
+
+        private void V74FamilyResearchPhysicalEventOnce(PatternSignal s)
+        {
+            if(!EnableV73OpportunityUniverse||s==null)return;
+            if(_v74ResearchStageUnique.Add("PHYSICAL_FAMILY|"+V71FamilyKey(s.PatternName)+"|"+V73EventIdentityKey(s)))
+                V74FamilyResearchCount(s.PatternName,"PHYSICAL_FAMILY_EVENT");
+            _v74ResearchPhysicalEvents.Add(V73EventIdentityKey(s));
+        }
+
         private List<PatternSignal> V73BuildOpportunityPool(int m15Index,int defaultLimit)
         {
             var all=new List<PatternSignal>();
@@ -251,8 +272,12 @@ namespace cAlgo.Robots
             // are visible but must NEVER be treated as independent baskets.
             if(EnableV73OpportunityUniverse)
             {
-                foreach(var s in familyNative)V74FamilyResearchCount(s.PatternName,"FAMILY_UNIQUE");
-                foreach(var s in selected)V74FamilyResearchCount(s.PatternName,"RETURNED");
+                foreach(var s in familyNative)
+                {
+                    V74FamilyResearchCountOnce(s,"FAMILY_UNIQUE_GEOMETRY");
+                    V74FamilyResearchPhysicalEventOnce(s);
+                }
+                foreach(var s in selected)V74FamilyResearchCountOnce(s,"RETURNED_GEOMETRY");
             }
             return selected;
         }
@@ -267,13 +292,14 @@ namespace cAlgo.Robots
             foreach(var p in _profiles)
             {
                 var family=V71FamilyKey(p.Name);
-                foreach(var stage in new[]{"ATTEMPTED","PRIMARY_PASS","MATCH_PASS","AGE_PASS","FAMILY_UNIQUE","RETURNED"})
+                foreach(var stage in new[]{"ATTEMPTED","PRIMARY_PASS","MATCH_PASS","AGE_PASS","FAMILY_UNIQUE_GEOMETRY","PHYSICAL_FAMILY_EVENT","RETURNED_GEOMETRY"})
                 {
                     long n;
                     _v74FamilyResearchFunnel.TryGetValue(family+"|"+stage,out n);
                     Print("[V74-FAMILY-FUNNEL] family={0} stage={1} n={2}",family,stage,n);
                 }
             }
+            Print("[V74-FAMILY-PHYSICAL-UNIQUE] n={0} unit=direction_completion_time_d",_v74ResearchPhysicalEvents.Count);
             foreach(var kv in _v74FamilyResearchFunnel.Where(k=>k.Key.Contains("|REJECT_")).OrderBy(k=>k.Key))
             {
                 int cut=kv.Key.IndexOf('|');
