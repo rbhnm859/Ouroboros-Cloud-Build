@@ -7,7 +7,7 @@ Return planned net return only, not actual profits or a predicted win.
 """
 from __future__ import annotations
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from decimal import Decimal, ROUND_FLOOR
 import re
 
@@ -16,6 +16,8 @@ FAMILIES=("Gartley","Bat","AltBat","Butterfly","Crab","DeepCrab",
 PROFILES={"DAY":(Decimal("0.005"),Decimal("0.0115")),
           "WEEK":(Decimal("0.010"),Decimal("0.0230"))}
 REQUIRED_NET_RR=Decimal("2.30")
+# A hard research safety bound, not a replacement for verified broker session calendars.
+HORIZON_LIMIT={"DAY":timedelta(hours=24),"WEEK":timedelta(days=7)}
 
 class ContractError(ValueError):
     pass
@@ -68,6 +70,8 @@ class Proposal:
             raise ContractError("missing source-verified broker specification fingerprint")
         if not utc(self.available_at)<=utc(self.decision_at)<utc(self.expires_at)<=utc(self.broker_horizon_close_at):
             raise ContractError("future information / session expiry conflict")
+        if utc(self.broker_horizon_close_at)-utc(self.decision_at)>HORIZON_LIMIT[self.horizon]:
+            raise ContractError("holding horizon exceeds maximum; broker session close must also be verified")
         positive=("bid","ask","stop","target","equity_usd","broker_margin_usd_per_unit",
                   "broker_min_units","broker_unit_step")
         nonnegative=("available_margin_usd","roundtrip_fee_usd_per_unit","swap_usd_per_unit",
@@ -86,9 +90,9 @@ def assess(p:Proposal):
     tick value, quantity granularity and fees must be sourced, never assumed.
     """
     if not isinstance(p,Proposal):raise ContractError("invalid proposal")
-    def reject(reason):
+    def reject(reason, **diagnostics):
         return {"status":"REJECT","reason":reason,"family":p.family,"horizon":p.horizon,
-                "research_only":True,"order_enabled":False}
+                "research_only":True,"order_enabled":False,**diagnostics}
     if p.used_event or p.active_basket:return reject("DUPLICATE_OR_BASKET")
     entry=value(p.ask) if p.side=="BUY" else value(p.bid)
     stop=value(p.stop);target=value(p.target)
@@ -117,8 +121,14 @@ def assess(p:Proposal):
     planned_gain=gain_unit*units
     if planned_loss>risk_budget or units*value(p.broker_margin_usd_per_unit)+planned_loss*5>value(p.available_margin_usd):
         raise ContractError("internal sizing guard failure")
-    if planned_gain<value(p.equity_usd)*target_fraction:
-        return reject("TARGET_EQUITY_PERCENT_NOT_FEASIBLE")
+    target_amount=value(p.equity_usd)*target_fraction
+    if planned_gain<target_amount:
+        # A shadow diagnostic: never turns a rejected proposal into an order.
+        return reject("TARGET_EQUITY_PERCENT_NOT_FEASIBLE",
+                      legal_units=str(units),planned_gain_usd=str(planned_gain),
+                      target_gain_usd=str(target_amount),
+                      shortfall_usd=str(target_amount-planned_gain),
+                      planned_net_rr=str(gain_unit/loss_unit))
     return {"status":"ELIGIBLE_FOR_RESEARCH","research_only":True,"order_enabled":False,
             "family":p.family,"horizon":p.horizon,"units":str(units),
             "planned_loss_usd":str(planned_loss),"planned_gain_usd":str(planned_gain),

@@ -71,4 +71,24 @@ class FamilyHorizonTests(unittest.TestCase):
         self.assertEqual((D(x["units"])-D("0.5"))%D("0.4"),0)
     def test_no_false_positive_on_100_dollars(self):
         self.assertEqual(assess(scenario(equity_usd=D("100")))["reason"],"BROKER_MIN_SIZE_INFEASIBLE")
+    def test_day_maximum_holding_duration(self):
+        with self.assertRaises(ContractError):
+            scenario(broker_horizon_close_at=T+timedelta(hours=25))
+
+    def test_week_maximum_holding_duration(self):
+        with self.assertRaises(ContractError):
+            scenario(horizon="WEEK",broker_horizon_close_at=T+timedelta(days=8))
+
+    def test_rejected_roi_has_observable_shortfall_but_no_order(self):
+        x=assess(scenario(broker_min_units=D("3"),broker_unit_step=D("3"),
+            target=D("1503.8")))
+        self.assertEqual(x["reason"],"TARGET_EQUITY_PERCENT_NOT_FEASIBLE")
+        self.assertGreater(D(x["shortfall_usd"]),D("0"))
+        self.assertFalse(x["order_enabled"])
+
+    def test_equivalent_timezone_offsets(self):
+        from datetime import timezone as Zone
+        x=assess(scenario(decision_at=T.astimezone(Zone(timedelta(hours=8)))))
+        self.assertEqual(x["status"],"ELIGIBLE_FOR_RESEARCH")
+
 if __name__=="__main__":unittest.main()
