@@ -8,6 +8,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from decimal import Decimal
+import hashlib
 
 FAMILY_BANDS = {
   'Gartley': ((.600,.636),(.382,.886),(1.13,1.618),(.770,.800)),
@@ -70,6 +71,15 @@ class KnownPivots:
             raise PatternContractError('nonalternating known pivots')
 
     @property
+    def fingerprint(self):
+        # A local deterministic binding; not evidence broker issued these prices.
+        prices=[str(D(getattr(self,name)).normalize()) for name in
+                ('x','a','b','c','atr_at_decision')]
+        stamps=[utc(getattr(self,name)).isoformat(timespec='microseconds')
+                for name in ('x_at','a_at','b_at','c_at','c_confirmed_at','decision_at')]
+        return hashlib.sha256('|'.join((*prices,*stamps)).encode('utf-8')).hexdigest()
+
+    @property
     def side(self): return 'BUY' if D(self.a)>D(self.x) else 'SELL'
     @property
     def sign(self): return D('-1') if self.side=='BUY' else D('1')
@@ -81,6 +91,17 @@ class Prediction:
     core_low:Decimal
     core_high:Decimal
     source_cutoff:datetime
+    source_pivot_fingerprint:str
+    def __post_init__(self):
+        if self.family not in FAMILIES or self.side not in ('BUY','SELL'):
+            raise PatternContractError('invalid projected family or side')
+        if D(self.core_low)<=0 or D(self.core_high)<D(self.core_low):
+            raise PatternContractError('invalid projected price interval')
+        utc(self.source_cutoff)
+        if (not isinstance(self.source_pivot_fingerprint,str) or
+            len(self.source_pivot_fingerprint)!=64 or
+            any(c not in '0123456789abcdef' for c in self.source_pivot_fingerprint)):
+            raise PatternContractError('invalid pivot provenance fingerprint')
     def observational_band(self,atr,extra_atr):
         if D(extra_atr) not in (D('0'),D('0.10'),D('0.20')):
             raise PatternContractError('only preregistered observation buffers are allowed')
@@ -119,7 +140,7 @@ def predict(family,p:KnownPivots):
         bands=(price_band(c,sign,bc,(.45,.65)),)
     z=intersect(bands)
     if z is None:return None
-    return Prediction(family,p.side,z[0],z[1],utc(p.decision_at))
+    return Prediction(family,p.side,z[0],z[1],utc(p.decision_at),p.fingerprint)
 
 
 def review_completion(p:KnownPivots, pred:Prediction, d_price, d_observed_at:datetime, observation_buffer_atr=0):
@@ -129,7 +150,16 @@ def review_completion(p:KnownPivots, pred:Prediction, d_price, d_observed_at:dat
     """
     if pred is None or not isinstance(pred,Prediction) or pred.family not in FAMILIES:
         raise PatternContractError('invalid projection')
-    if not utc(d_observed_at)>utc(p.decision_at)>=pred.source_cutoff:
+    if not isinstance(p,KnownPivots):
+        raise PatternContractError('unknown source pivot structure')
+    if pred.source_pivot_fingerprint!=p.fingerprint or pred.side!=p.side:
+        raise PatternContractError('projection and current pivots are from different sources')
+    if utc(p.decision_at)!=utc(pred.source_cutoff):
+        raise PatternContractError('prediction cutoff has changed')
+    original=predict(pred.family,p)
+    if original is None or (pred.core_low,pred.core_high)!=(original.core_low,original.core_high):
+        raise PatternContractError('untrusted altered projection interval')
+    if not utc(d_observed_at)>utc(p.decision_at):
         raise PatternContractError('completion must happen after prediction')
     x,a,b,c=map(D,(p.x,p.a,p.b,p.c));d=D(d_price)
     if d<=0:raise PatternContractError('invalid D price')

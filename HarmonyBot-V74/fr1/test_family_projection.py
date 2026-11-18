@@ -1,6 +1,7 @@
 import unittest
 from datetime import datetime,timedelta,timezone
 from decimal import Decimal as D
+from dataclasses import replace
 from family_projection import (FAMILY_BANDS,FAMILIES,KnownPivots,PatternContractError,
                                predict,review_completion,all_family_predictions)
 T=datetime(2020,1,2,tzinfo=timezone.utc)
@@ -77,6 +78,27 @@ class ProjectionTests(unittest.TestCase):
             KnownPivots(D('100'),D('110'),D('111'),D('112'),T,T+timedelta(minutes=1),
                          T+timedelta(minutes=2),T+timedelta(minutes=3),
                          T+timedelta(minutes=4),T+timedelta(minutes=5),D('1'))
+    def test_cross_pivot_prediction_reuse_rejected(self):
+        p=make_witness('Gartley');z=predict('Gartley',p)
+        changed=replace(p,x=p.x+D('0.001'))
+        with self.assertRaises(PatternContractError):
+            review_completion(changed,z,(z.core_low+z.core_high)/2,p.decision_at+timedelta(seconds=1))
+
+    def test_forged_price_zone_rejected(self):
+        p=make_witness('Gartley');z=predict('Gartley',p)
+        with self.assertRaises(PatternContractError):
+            review_completion(p,replace(z,core_low=z.core_low+D('0.00001')),(z.core_low+z.core_high)/2,p.decision_at+timedelta(seconds=1))
+
+    def test_forged_direction_rejected(self):
+        p=make_witness('Gartley');z=predict('Gartley',p)
+        with self.assertRaises(PatternContractError):
+            review_completion(p,replace(z,side='SELL'),(z.core_low+z.core_high)/2,p.decision_at+timedelta(seconds=1))
+
+    def test_forged_cutoff_rejected(self):
+        p=make_witness('Gartley');z=predict('Gartley',p)
+        with self.assertRaises(PatternContractError):
+            review_completion(p,replace(z,source_cutoff=z.source_cutoff-timedelta(seconds=1)),(z.core_low+z.core_high)/2,p.decision_at+timedelta(seconds=1))
+
     def test_nonfinite_price_fails(self):
         with self.assertRaises(PatternContractError):make('NaN','0.7')
 if __name__=='__main__':unittest.main()
